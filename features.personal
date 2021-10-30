@@ -1,0 +1,109 @@
+EBNF metasyntax is used for syntax formatting here
+
+All searches are fuzzy
+
+obo means one-by-one
+
+Show commands shows files matching query in 4 columns by default.
+This can be changed using the following syntax:
+    ftype (num | "search query")
+
+play next [<ftype>]: plays next song from list of all ftype songs
+play next: plays next song from list of all songs
+
+h: switch to hide song info
+default info provided: name of song
+
+if stopped, play/pause should give error: song is stopped
+
+this | that
+optional_ie_0_or_1?
+zero_or_more*
+one_or_more+
+
+Controls/Commands: description::
+
+    Controls:
+        p: pause/resume
+        s[top]:                                 stop
+        skip <number>:                          skip `number`th song
+        n[ext]:                                 skip to next song
+        p[rev]:                                 skip to previous song
+        play ("queue_name")+:                   play custom queue
+        player volume:                          vol
+        main system volume:                     mvol
+
+    Playing
+        play all                                Play all songs in alp order
+        play all shuffle                        Play all songs in random order
+        play all shuffle repeat                 Play all songs in random order and repeat order
+        play ftype                              Play all ftype songs in alp order
+        play q qname                            Play queue named `qname`
+
+    Queueing
+        q n name:                               Create a new queue named `name`, names with spaces must be in quotes/double quotes
+
+        Queue starts automatically when individual song stops
+        q a <number>:                           add `number`th item from global songs to queue
+
+        q r <number>:                           remove `number`th item from queue
+        q <number>:                             show `number`th item in queue
+
+    Sequencing
+
+        seq set
+
+    <number>:                               show info of `number`th song
+    <path>:                                 show info of `number`th song
+
+
+refresh: refresh file in log.log dirs, check dirs in log.log also
+double numbering: global_number, ftype_number
+
+queue: (sequence of songs)
+    view
+    edit
+    add to
+    remove from
+
+if dir is empty: show message: "No songs found, please check root dir or change it using the 'root' commmand"
+
+exit: stop and exit
+
+Show
+    ftype num                               Show `num`th song of `ftype` file type
+    num                                     Show `number`th song
+    all                                     Show all songs
+    search <space sep search terms>         Show all songs matching search
+
+Play
+    play all                                Play all songs in alp order
+    play all shuffle                        Play all songs in random order
+    play all shuffle repeat                 Play all songs in random order and repeat order
+    play ftype                              Play all ftype songs in alp order
+
+Repeat
+    play mp3 3                              Plays 3rd mp3 file
+    play mp3 3 repeat                       Play 3rd mp3 song on repeat
+
+Search
+    play <search terms>                     Play all song matching search on repeat
+    play <search terms> repeat              Play all song matching search on repeat
+    play <search terms> 3 repeat            Play 3rd song matching search on repeat
+
+Search and repeat
+    play mp3 <search terms>                 Plays first song matching mp3 search
+    play mp3 <search terms> repeat          Plays first song matching mp3 search on repeat
+    play mp3 <search terms> 3 repeat        Plays 3rd song matching mp3 search on repeat
+
+
+<ftype> <num>|<>
+
+-h                                          Show help
+
+-a                                          Random auto run
+-p "path_1" "path_2" ... "path_n"           Play songs from provided paths one after another and exit
+-q "queue name"                             Play songs saved in queue named "queue name"
+
+special queue for "fav songs"
+
