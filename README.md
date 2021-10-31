@@ -1,4 +1,4 @@
-# mariana-music-player
+# Mariana Music Player
 Best Music Player Ever - CLI
 
 Install PyPI modules from pip using
