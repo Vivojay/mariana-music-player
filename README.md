@@ -1,4 +1,4 @@
-# Mariana Music Player
+# Mariana Music Player (In development)
 
 ## About
 Feature rich command-line music player. \
