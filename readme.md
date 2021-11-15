@@ -13,9 +13,6 @@ This can be changed in the config file.
 
 All searches are fuzzy
 
-`# play next [<ftype>]: plays next song from list of all ftype songs`  
-play next | plays next song from list of all songs
-
 |Song Info Type | Default Info Provided|
 |-|-|
 **default minimal** | name of song, ...
