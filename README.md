@@ -22,5 +22,5 @@ you can do it all using the `pygame.mixer.music` as follows:
 - `pygame.mixer.music.queue('next_song')`
 
 ## Usage
-Install PyPI modules from pip using `pip install -r requirements.txt`
+Install PyPI modules from pip using `pip install -r requirements.txt` \
 Run `main.py` from command line with desired arguments, for more details, [look here](rick/roll).
