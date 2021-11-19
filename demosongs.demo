@@ -1,4 +1,5 @@
 ;Songs for demo
+;Comments start with a semicolon (;)
 
-D:\OneDrive - Suncity School\FL Utils\Downloaded Songs\Aly & AJ - Slow Dancing (Official Audio).wav
-D:\FL Utils\Downloaded Songs\PARISALEXA - BALLIN (Official Music Video).wav
+play 28     D:\OneDrive - Suncity School\FL Utils\Downloaded Songs\Aly & AJ - Slow Dancing (Official Audio).wav
+play 289    D:\FL Utils\Downloaded Songs\Snoh Aalegra -  Love Like That (Lyrics).wav

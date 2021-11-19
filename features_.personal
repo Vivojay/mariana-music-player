@@ -9,10 +9,12 @@ EBNF metasyntax is used for syntax formatting here
 
 All searches are fuzzy
 
+Lines written after a `#` symbol are not of any importance, they are stale/unimplemented ideas or future ideas
+
 Show commands shows files matching query in 4 columns by default.
 This can be changed in the config file.
 
-play next [<ftype>]: plays next song from list of all ftype songs
+# play next [<ftype>]: plays next song from list of all ftype songs
 play next: plays next song from list of all songs
 
 default info provided: name of song
@@ -32,11 +34,29 @@ Controls/Commands
 ==================================================================================================================================================================
     General
         all                                                                         display all sound files
-        <number>                                                                    show info of `number`th song
-        <filepath>                                                                  check if `filepath` is of a valid supported song file
-        #h                                                                           switch to hide song info
-        path [<ftype>] <n>                                                          show path of provided audio file
-        exit                                                                        stop and exit
+        <number>                                                                    show name of `number`th song
+
+        e[xit]|q[uit]                                                               stop and exit after confirming, show warn if song is still playing
+        e[xit]|q[uit] y                                                             stop and exit w/o confirmation, show warn if song is still playing
+
+        . <filepath>                                                                check if `filepath` is of a valid supported song file
+        open <filepath>                                                             open file at `filepath` if it is a valid supported song file
+        vis                                                                         switch to hide interactive output/feedback from player on command success or failure
+        path <n>                                                                    show path of provided audio file
+        now                                                                         show now playing
+
+        Beta Functions
+            .<number>                                                                   show info of `number`th song
+                Song name
+                Artist name
+                Play length
+                Your rating
+                Favourited or not
+                Recently played or not
+                File type
+                Shows the path of containing folder
+
+                Note: More detailed info can be found using the `info` command
 
     Music Controls Overview
         Legacy Functions
@@ -46,9 +66,10 @@ Controls/Commands
             n[ext]                                                                  skip to next song
             p[rev]                                                                  skip to previous song
             play ("queue_name")+                                                    play custom sequence of queues
-            player volume                                                           vol
+            v|vol <percentage>                                                      set player volume to provided percentage
             m                                                                       mute/unmute
             seek <timeobject>                                                       seek to time given in `timeobject`, correcet format for this is given below
+                                                                                    (song play/pause status stays same)
                 Valid/Supported Formats for timeobject
                     <hh>:<mm>:<ss>
                     For settings any of the above values to zero, just skip them:
@@ -57,6 +78,9 @@ Controls/Commands
                     <seconds>                       number of seconds as a positive integer
 
                     Note: Provided `timeobject` is converted to seconds for internal use in this program
+                
+                E.g. seek 0 resets the song to the beginning
+            reset                                                                   Same as seek 0, seeks current song to start, (song play/pause status stays same)
 
             Beta Functions
                 main system volume                                                      mvol
@@ -75,7 +99,7 @@ Controls/Commands
             /play "search query"                    Search for query in Spotify, play the song in the first search result
 
     Queueing
-        Legacy Functions
+        Legacy Functions (play-queue)
             play (<n1>*) | ([ftype1 <n2>*]+)            Play all ftype songs in alp order
 
             E.g.
@@ -96,29 +120,45 @@ Controls/Commands
                                                             wav files 1, 4 and 5
                                                             mp3 12, 23 and 1
 
-                q clear                                 Clear the queue
+                clear                                   Clear the unsaved play-queue
+
+                Note:
+                    Queue inside the play functions isn't a named queue and it ISN'T saveable
+                    Also, this queue will instantly be broken and lost if another play command is issued
+                    To safeguard against the accidental unwanted override of the current play-queue, you will be prompted to either:
+                        1> override current play-queue and start new one instead
+                        2> append new play-queue to current one and continue playing
+                        3> continue playing current play-queue
 
         Beta Functions
-            q n myqname                             Create a new saveable queue named `myqname`, names with spaces must be in quotes/double quotes
+
+            Following 2 functions work same as for `play (<n1>*) | ([ftype1 <n2>*]+)`
+            q n myqname                             Create a new empty saveable queue named `myqname`
+                                                    (names with spaces must be in quotes/double quotes)
+
+            q n myqname (<n1>*) | ([ftype1 <n2>*]+) Create a new saveable queue named `myqname` with all provided songs in order
+                                                    (names with spaces must be in quotes/double quotes)
+                                                    (Repeated names will throw an error and will not be allowed)
 
             A queue may start automatically when an individual song/queue ends (Can be edited in config.yml file)
-            q a <number>                            add `number`th item from global songs to queue
-
-            q r <number>                            remove `number`th item from current queue
-            q <number>                              show `number`th item in current queue
+            q a <number> [qname]                    add `number`th item from global songs to queue
+            q r <number> [qname]                    remove `number`th item from current queue
+            q <number> [qname] [result count]       show `number`th item in current queue
+            q qname                                 prints 0 if queue is non existent, else 1
 
 
     Finding / Searching songs
-        ['f'|'find'] "Search Query" [<results_count>]               Find locally, 10 results by default
-        ['/f'|'/find'] "Search Query" [<results_count>]             Find online from Spotify, 10 results by default
+        ['f'|'find'] "Search Query" [<results_count>|all]               Find locally, 10 results by default. Shows all results if "all" is mentioned
+        ['/f'|'/find'] "Search Query" [<results_count>|all]             Find online from Spotify, 10 results by default. Shows all results if "all" is mentioned
 
-==================================================================================================================================================================
+
     Beta Features (Other than aforementioned)
         Enable/Disable beta features
             beta on|off                                                             Enable/Disable beta features respectively
             beta list                                                               List beta features
 
-        Sequence
+        Sequence (Collection of queues)
+            seq qname1 qname2+                                                      Minimum 2 queues required to form a sequence
             seq n myqname                                                           Create a new saveable sequence named `myqname`,
                                                                                     names with spaces must be in quotes/double quotes
 
@@ -127,6 +167,11 @@ Controls/Commands
 
             seq r <number>                                                          remove `number`th item from current sequence
             seq <number>                                                            show `number`th item in current sequence
+
+            Note:
+                BTS, a new queue is created (marked as a `sequence` object to differentiate from actual `queue` objects, in case of name collisions).
+                This larger "queue" contains all other provided queues which were appended in it using appropriate commands while creation of sequence.
+                This larger queue is marked as a sequence and is treated as one.
 
         Cueing
             Note
@@ -149,9 +194,48 @@ Controls/Commands
                 cue list                                                            See the list of songs which have been cued to a certain timeobject
                                                                                     (i.e. cue has been applied to them but has not been cleared)
 
-        Shuffling
-        Repeating
-        Looping Region
+        Shuffling:
+            shuffle [qname]                                                         If qname provided, then the songs from that q are shuffled. Otherwise, the current q is shuffled
+            shuffle nr [qrname]                                                     Same as `shuffle [qname]`, but songs which have already been played are not repeated
+
+        Repeating/Looping:
+            Note: re[p[eat]] means re|rep|repeat
+            So re = rep = repeat and can be used interchangeably
+
+            re[p[eat]]                                                              Currently playing object (song/queue) is repeated/looped
+            re[p[eat]] t                                                            Currently playing track/song is repeated/looped
+            re[p[eat]] q                                                            Currently playing queue is repeated/looped
+            re[p[eat]] s                                                            Currently playing sequence is repeated/looped
+
+        Looping Region:
+            loop <timeobject 1> <timeobject 2>                                      Loop current song from `timeobject 1` to `timeobject 2`
+
+        Basic Song info
+            info                                                                        Show detailed metadata info of current song
+            info <number>                                                               Show detailed metadata info of song at given number
+
+            /bpm                                                                        Get BPM of current song from internet and/or from calculation/analysis
+            /bpm <number>                                                               Get BPM of song at provided number from internet and/or from calculation/analysis
+
+            /key                                                                        Get key of current song from internet and/or from calculation/analysis
+            /key <number>                                                               Get key of song at provided number from internet and/or from calculation/analysis
+
+            /bpm key                                                                    Get BPM and key of current song from internet and/or from calculation/analysis
+            /bpm key <number>                                                           Get BPM and key of song at provided number from internet and/or from calculation/analysis
+
+
+            bpm                                                                         Get BPM of current song from saved song metadata, or return error if not found
+            bpm <number>                                                                Get BPM of song at provided number from saved song metadata, or return error if not found
+
+            key                                                                         Get key of current song from saved song metadata, or return error if not found
+            key <number>                                                                Get key of song at provided number from saved song metadata, or return error if not found
+
+            bpm key                                                                     Get BPM and key of current song from saved song metadata, or return error if not found
+            bpm key <number>                                                            Get BPM and key of song at provided number from saved song metadata, or return error if not found
+
+        Lyrics: lyrics|lyr|l
+        Stars: star <starscount>
+            <starcount> must be 1, 2, 3, 4 or 5. Anything else will result in error
 
         Effects
             Note
@@ -166,6 +250,9 @@ Controls/Commands
             stutter
             nightcore|nc
             vaporwave|vw
+            
+                fadein|fi
+                fadeout|fo
 
     Misc / Advanced / Power Commands
         dirs edit                                                                   Edit directories where songs are taken from
@@ -189,8 +276,13 @@ Controls/Commands
             %del                                                                    Delete song(s) by number/path/etc...
             %%                                                                      Open file with all help statements
 
-        favs                                                                        special queue for "fav songs"
-        recent                                                                      special queue for "recently played songs"
+        Favouriting
+            favs                                                                        special queue for "fav songs"
+            fav a                                                                       special queue for "fav songs"
+            fav                                                                         special queue for "fav songs"
+
+        Recent Songs
+            recent                                                                      special queue for "recently played songs"
 
         Analysis and Stats
             mostlistened (song|artist) [alltime|thismonth|today|yesterday]
@@ -201,45 +293,37 @@ Controls/Commands
 
             history
 
-
-queue: (sequence of songs)
-    view
-    edit
-    add to
-    remove from
-
-
-Show
-    ftype num                                   Show `num`th song of `ftype` file type
-    num                                         Show `number`th song
-    all                                         Show all songs
-    search <space sep search terms>             Show all songs matching search
-
-Play
-    play all                                    Play all songs in alp order
-    play all shuffle                            Play all songs in random order
-    play all shuffle repeat                     Play all songs in random order and repeat order
-    play ftype                                  Play all ftype songs in alp order
-
 Repeat
     play mp3 3                                  Plays 3rd mp3 file
     play mp3 3 repeat                           Play 3rd mp3 song on repeat
 
-Search
-    play <search terms>                         Play all song matching search on repeat
-    play <search terms> repeat                  Play all song matching search on repeat
-    play <search terms> 3 repeat                Play 3rd song matching search on repeat
-
-Search and repeat
-    play mp3 <search terms>                     Plays first song matching mp3 search
-    play mp3 <search terms> repeat              Plays first song matching mp3 search on repeat
-    play mp3 <search terms> 3 repeat            Plays 3rd song matching mp3 search on repeat
-
-
 <ftype> <num>|<>
 
+Command Line Flags
+================================================================================================================================================================================
 -h                                              Show help
 
 -a                                              Random auto run
 -p "path_1" "path_2" ... "path_n"               Play songs from provided paths one after another and exit
 -q "queue name"                                 Play songs saved in queue named "queue name"
+-f                                              Play favs
+-r                                              Replay recents in order of old to new
+-R                                              Replay recents in order of new to old
+
+Shortcut advanced commands [Power user, extension]
+================================================================================================================================================================================
+...
+...
+
+Rules for music
+================================================================================================================================================================================
+If a queue is playing and another queue is requested, the requested queue will start after current queue is entirely played.
+
+The shuffle command will shuffle the current queue
+The shuffle command can shuffle the current queue or any of the other requested "named queues" (Beta)
+    Syntax:
+        shuffle [q name]
+
+Loops will be given preference over queues and play-queues
+
+Make it coulourful

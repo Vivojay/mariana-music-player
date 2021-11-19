@@ -1,3 +1,9 @@
+## Disclaimer
+Please also read the TODO notebook for tasks you need to do, debugging needed, the features required + other stuff
+
+<br>
+
+
 ## About Help
 EBNF metasyntax is used for syntax formatting here.  
 Lines written after a \````#```\` symbol are not of any importance, they are stale unimplemented features or future ideas.
@@ -104,7 +110,9 @@ play q qname                      |     Play queue named \`qname\`
 
 ### Queueing
 #### Legacy Functions (play-queue)
-play (<n1\>+)                                Play all provided songs in alp order
+|||
+|-|-|
+play (<n1\>+) | Play all provided songs in alp order
 
 E.g.
 
@@ -162,12 +170,12 @@ seq n myqname |                                                           Create
 seq a <number\> |                                                          add \`number\`th item from global songs to sequence
 seq r <number\> |                                                         remove \`number\`th item from current sequence
 seq <number\> |                                                           show \`number\`th item in current sequence
-
+    
 **Note**
     BTS, a new queue is created (marked as a \`sequence\` object to differentiate from actual \`queue\` objects, in case of name collisions).
     This larger "queue" contains all other provided queues which were appended in it using appropriate commands while creation of sequence.
     This larger queue is marked as a sequence and is treated as one.
-
+    
 <br>
 
 #### Cueing

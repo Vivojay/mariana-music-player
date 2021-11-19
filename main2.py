@@ -5,6 +5,7 @@ import itertools
 import time
 import sys
 import pygame
+from multiprocess import Process
 
 from tabulate import tabulate as tbl
 from ruamel.yaml import YAML
@@ -174,16 +175,12 @@ def enqueue(songindices):
 
     for songindex in songindices:
         song_paths_to_enqueue.append(_sound_files[int(songindex)-1])
-
+    
     for songpath in song_paths_to_enqueue:
         try:
             pygame.mixer.music.queue(songpath)
-            print("Queued")
-            if isplaying:
-                pygame.mixer.music.unpause()
         except Exception:
             err("Queueing error", "Could not enqueue one or more files")
-            raise
 
 def play_commands(commandslist):
     if len(commandslist) == 2:
@@ -211,30 +208,40 @@ def play_commands(commandslist):
 
 def playstatus():
     global isplaying, currentsong
+
+    if pygame.mixer.music.get_pos() == -1:
+        currentsong=None
+        isplaying=False
+
     if currentsong:
         if isplaying:
             sound_obj = pygame.mixer.Sound(currentsong)
 
             curseekvalue = pygame.mixer.music.get_pos
             curseekper = pygame.mixer.music.get_pos()/(sound_obj.get_length()*10)
+            return curseekvalue, curseekper
+        else:
+            return 0
+    else:
+        return 0
+
+def liveplaystatus():
+    while True:
+        # print(playstatus)
+        print(10101010)
+        time.sleep(0.5)
 
 def process(command):
     global _sound_files_names_only, visible, currentsong, isplaying
     commandslist = command.strip().split()
 
-    if pygame.mixer.music.get_pos() == -1:
-        currentsong=None
-        isplaying=False
-
-    # print(commandslist)
-
     if commandslist != []: # Atleast 1 word
-        if commandslist in [['exit'], ['quit'], ['e']]: # Quitting the player
+        if commandslist in [['exit'], ['quit'], ['q'], ['e']]: # Quitting the player
             perm = input('Do you want to exit? [Y]es, [N]o (default = N): ')
             if perm.strip().lower() == 'y':
                 return False
 
-        elif commandslist in [['exit', 'y'], ['quit', 'y'], ['e', 'y']]: # Quitting the player w/o conf
+        elif commandslist in [['exit', 'y'], ['quit', 'y'], ['q', 'y'], ['e', 'y']]: # Quitting the player w/o conf
             return False
 
         if commandslist == ['all']:
@@ -262,10 +269,6 @@ def process(command):
 
         elif commandslist[0].lower() == 'play':
             play_commands(commandslist=commandslist)
-
-        # elif commandslist[0].lower() == 'seek':
-        #     timeinput_to_timeobj(timobj)
-        #     song_seek(timeobj)
 
         elif commandslist[0][0] == '.':
             try:
@@ -377,6 +380,9 @@ def loadsettings():
     with open('settings/config.yml') as file:
         SETTINGS = yaml.load(file)
 
+def startprocesses():
+    pass
+
 def run():
     if sys.platform != 'win32':
         sys.exit('This program cannot work on Non-Windows Operating Systems')
@@ -384,6 +390,16 @@ def run():
         pygame.mixer.init()
         loadsettings()
         showbanner()
+
+        p1 = Process(target=liveplaystatus)
+        p1.start()
+
+        p2 = Process(target=mainprompt)
+        p2.start()
+
+        p1.join()
+        p2.join()
+
         mainprompt()
 
 if __name__ == '__main__':
