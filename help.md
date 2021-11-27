@@ -35,13 +35,16 @@ one_or_more+         |  Value may occur one or more times
 |-|-|
 all |                                                                         display all sound files
 <number\> |                                                                    show name of \`number\`th song
+
 |Command|Description|
 e[xit] \| q[uit] |                                                              stop and exit after confirming, show warning if song is still playing
 e[xit] \| q[uit] y |                                                            stop and exit w/o confirmation, show warning if song is still playing
+
 |Command|Description|
 . <filepath\> |                                                                check if \`filepath\` is of a valid supported song file
 open |                                                                       open current song file in Windows File Explorer
 open <filepath\> |                                                             open file at \`filepath\` in Windows File Explorer if it is a valid supported song file 
+
 |Command|Description|
 vis |                                                                         switch to hide interactive output/feedback from player on command success or failure
 path <n\> |                                                                    show path of provided audio file
@@ -50,6 +53,7 @@ help |                                                                       sho
 restart |                                                                    restart/reboot the player
 
 #### Enable/Disable beta features
+
 |Command|Description|
 |-|-|
 beta on\|off |                                                             Enable/Disable beta features respectively
@@ -57,6 +61,7 @@ beta list |                                                               List b
 beta list* |                                                               List beta features in detail
 
 #### Beta Functions
+
 |Command|Description|
 |-|-|
 .<number\> |                                                                   show info of \`number\`th song, including: <br>&nbsp;&nbsp;&nbsp;&nbsp;- Song name <br>&nbsp;&nbsp;&nbsp;&nbsp;- Artist name <br>&nbsp;&nbsp;&nbsp;&nbsp;- Play length <br>&nbsp;&nbsp;&nbsp;&nbsp;- Your rating <br>&nbsp;&nbsp;&nbsp;&nbsp;- Favourited or not <br>&nbsp;&nbsp;&nbsp;&nbsp;- Recently played or not <br>&nbsp;&nbsp;&nbsp;&nbsp;- File type <br>&nbsp;&nbsp;&nbsp;&nbsp;- Shows the path of containing folder | |
@@ -67,6 +72,7 @@ beta list* |                                                               List 
 
 ### Music Controls Overview
 #### Legacy Functions
+
 |Command|Description|
 |-|-|
 p |                                                                     pause/resume
@@ -80,6 +86,7 @@ seek <timeobject\> |                                                     seek to
 reset | Same as seek 0, seeks current song to start, (song play/pause status stays same)
 
 #### Beta Functions
+
 |Commands|Description|
 |-|-|
 play ("queue_name"\|"seq_name"\|<number\>)+   |  play custom sequence of queues/sequences/tracks
@@ -89,6 +96,7 @@ main system volume                         |  mvol
 
 ### Playing
 #### Legacy Functions
+
 |Commands|Description|
 |-|-|
 play all                           |   Play all songs in alp order
@@ -101,6 +109,7 @@ play <filepath\>                   |   Play file from path
 play <filepaths\>+                 |   Play files from paths one-by-one in order
 
 #### Beta Functions
+
 |Commands|Description|
 |-|-|
 play q qname                      |     Play queue named \`qname\`
