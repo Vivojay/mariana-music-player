@@ -33,29 +33,28 @@ All searches are fuzzy
 | all | display all sound files |
 | <number\> | show name of \`number\`th song |
 
-|Command|Description|
+| Command | Description |
 |-|-|
 e[xit] \| q[uit] | stop and exit after confirming, show warning if song is still playing
 e[xit] \| q[uit] y | stop and exit w/o confirmation, show warning if song is still playing
 
 #### Enable/Disable beta features
 
-| Command      | Description                               |
+| Command | Description |
 |-|-|
 | beta on\|off | Enable/Disable beta features respectively |
-| beta list    | List beta features consicely              |
-| beta list*   | List beta features in detail              |
+| beta list | List beta features consicely |
+| beta list* | List beta features in detail |
 
 #### Beta functions
 
-
-|Command|Description|
+| Command | Description |
 |-|-|
-. <filepath\> |                                                                check if \`filepath\` is of a valid supported song file
+. <filepath\> | check if \`filepath\` is of a valid supported song file
 open | open current song file in Windows File Explorer
 open <filepath\> | open file at \`filepath\` in Windows File Explorer if it is a valid supported song file 
 
-|Command|Description|
+| Command | Description |
 |-|-|
 vis | switch to hide interactive output/feedback from player on command success or failure
 path <n\> | show path of provided audio file
@@ -67,6 +66,11 @@ restart | restart/reboot the player
 | Command | Description |
 |-|-|
 | .<number\> | show info of \`number\`th song, including: <br>&nbsp;&nbsp;&nbsp;&nbsp;- Song name <br>&nbsp;&nbsp;&nbsp;&nbsp;- Artist name <br>&nbsp;&nbsp;&nbsp;&nbsp;- Play length <br>&nbsp;&nbsp;&nbsp;&nbsp;- Your rating <br>&nbsp;&nbsp;&nbsp;&nbsp;- Favourited or not <br>&nbsp;&nbsp;&nbsp;&nbsp;- Recently played or not <br>&nbsp;&nbsp;&nbsp;&nbsp;- File type <br>&nbsp;&nbsp;&nbsp;&nbsp;- Shows the path of containing folder |
+
+| Command | Description |
+|-|-|
+| * | Last played |
+| *<n> | nth last played song |
 
 |Song Info Type | Default Info Provided |
 |-|-|
