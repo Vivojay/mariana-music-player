@@ -18,31 +18,29 @@ All searches are fuzzy
 
 <br>
 
-
 ## Controls/Commands
 ### General
+
 | Command   | Description                    |
 | --------- | ------------------------------ |
 | all       | display all sound files        |
 | <number\> | show name of \`number\`th song |
 
-|Command|Description|
+| Command | Description |
 |-|-|
-e[xit] \| q[uit] |                                                              stop and exit after confirming, show warning if song is still playing
-e[xit] \| q[uit] y |                                                            stop and exit w/o confirmation, show warning if song is still playing
+e[xit] \| q[uit] | stop and exit after confirming, show warning if song is still playing
+e[xit] \| q[uit] y | stop and exit w/o confirmation, show warning if song is still playing
 
-|Command|Description|
+| Command | Description |
 |-|-|
-. <filepath\> |                                                                check if \`filepath\` is of a valid supported song file
-open |                                                                       open current song file in Windows File Explorer
-open <filepath\> |                                                             open file at \`filepath\` in Windows File Explorer if it is a valid supported song file 
+. <filepath\> | check if \`filepath\` is of a valid supported song file
+open | open current song file in Windows File Explorer
+open <filepath\> | open file at \`filepath\` in Windows File Explorer if it is a valid supported song file 
 
-|Command|Description|
+| Command | Description |
 |-|-|
-|path <n\> | show path of provided audio file|
-|now | show now playing|
-
-
+| path <n\> | show path of provided audio file |
+| now | show now playing |
 
 ### Music Controls Overview
 #### Legacy Functions
@@ -54,13 +52,12 @@ open <filepath\> |                                                             o
 | play <number\> | play track |
 | m | mute/unmute |
 | seek <timeobject\> <br> **WARNING: Only works for mp3 songs as of now** | seek to time given  in \`timeobject\`, correct format for this is given below. <br> (song play/pause status stays same) <br><br> &nbsp;&nbsp;&nbsp;&nbsp; Valid/Supported Formats for timeobject <br> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; `<hh>:<mm>:<ss>` <br> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; For settings any of the above values to zero, just skip them: <br> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; E.g. to set timeobject as `00:03:00`, you also write `:3:` or even `3:` <br> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; `<mm>:<ss>` <br> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; `<seconds>` (number of seconds as a positive integer) <br><br> *Note: Provided \`timeobject\` is converted to seconds for internal use in this program <br> E.g. seek 0 resets the song to the beginning |
-| reset              | Same as seek 0, seeks current song to start, (song play/pause status stays same) |
+| reset | Same as seek 0, seeks current song to start, (song play/pause status stays same) |
 
 #### Beta Functions
-
 ### Volume
 
-| Commands                         | Description                              |
+| Commands | Description |
 | - | - |
 | v \| vol \| volume <percentage\> | set player volume to provided percentage |
 | v \| vol \| volume               | show current player volume as percentage |
@@ -69,7 +66,7 @@ open <filepath\> |                                                             o
 
 ### Finding / Searching songs
 
-| Commands                                                 | Description                                                  |
-| -------------------------------------------------------- | ------------------------------------------------------------ |
+| Commands | Description |
+| - | - |
 | ['f' \| 'find'] "Search Query" [<results_count\>\|all]   | Find locally, 10 results by default. Shows all results if "all" is mentioned |
-| ['/f' \| '/find'] "Search Query" [<results_count\>\|all] | Find online from Spotify, 10 results by default. Shows all results if "all" is mentioned |
+
