@@ -70,7 +70,7 @@ restart | restart/reboot the player
 | Command | Description |
 |-|-|
 | * | Last played |
-| *<n> | nth last played song |
+| *<n\> | nth last played song |
 
 |Song Info Type | Default Info Provided |
 |-|-|
@@ -102,8 +102,8 @@ restart | restart/reboot the player
 | Commands | Description |
 |-|-|
 | play ("queue_name"\|"seq_name"\|<number\>)+ | play custom sequence of queues/sequences/tracks |
-| v\|vol <percentage\> | set player volume to provided percentage |
-| v\|vol | show current player volume as percentage |
+| v \| vol <percentage\> | set player volume to provided percentage |
+| v \| vol | show current player volume as percentage |
 | main system volume | mvol |
 
 ### Playing
@@ -350,9 +350,13 @@ One effect is applied at a time (Self-explantory commands have been chosen for e
 
 - mostlistened (song|artist) [alltime|thismonth|today|yesterday]
 - stats:
-    - Options:
-        - secslistened (today|date <date\>|month <month\>|year <year\>) [song|artist] [partial|complete]
-        - timeslistened (today|date <date\>|month <month\>|year <year\>) [song|artist] [partial|complete]
+    | Command | Options |
+    | - | - |
+    | secs | (`today` \| `date <date>` \| `month <month>` \| `year <year>`) `[ song \| artist ]` `[ partial \| complete ]` |
+    | times | (`today` \| `date <date>` \| `month <month>` \| `year <year>`) `[ song \| artist]` `[ partial \| complete ] ` |
+    | ints | intervals of songs you listened to most |
+
+Syntax: `(secs | times | ints) <number>`
 
 - history
 
