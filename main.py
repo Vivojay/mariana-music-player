@@ -2,9 +2,18 @@
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import itertools
+
+try:
+    import lyrics_provider.lyrics_view_window
+except ImportError:
+    raise
+    # print("[*] Could not load lyrics extension...")
+
 import time
 import sys
 import pygame
+import librosa
+import numpy as np
 
 from tabulate import tabulate as tbl
 from ruamel.yaml import YAML
@@ -55,12 +64,20 @@ def audio_file_gen(Dir, ext):
 isplaying = False
 songstopped = True
 currentsong = None # No song playing initially
+ismuted = False
+isshowinglyrics=False
+
 settings = None
+disable_OS_requirement = True
+songindex = -1
 
 # From settings
+supported_file_exts = '.wav .mp3'.split()  # Supported file extensions
 visible = True
 loglevel = 3
-supported_file_exts = '.wav .mp3'.split()  # Supported file extensions
+
+# From last session info
+cached_volume = 100
 
 # From res/data
 logleveltypes = {0: "none", 1: "fatal", 2: "warn", 3: "info", 4: "debug"}
@@ -72,6 +89,9 @@ _sound_files = list(flatten(_sound_files)) # Flattening irregularly nested sound
 
 _sound_files_names_only = [os.path.splitext(os.path.split(i)[1])[0] for i in _sound_files]
 _sound_files_names_enumerated = [(i+1, j) for i, j in enumerate(_sound_files_names_only)]
+
+
+
 
 def NOW():
     return dt.strftime(dt.now(), '%d-%b-%Y %H:%M:%S')
@@ -95,23 +115,33 @@ def exitplayer():
     except Exception:
         pass
 
-    sys.exit('Exiting...')
+    if visible:
+        sys.exit('Exiting...')
+    else:
+        sys.exit()
 
 # def loadsettings():
 #     global settings
 #     with open('', encoding='utf-8') as settingsfile:
 #         settings = yaml.load(settingsfile)
 
-def playsong(songpath, songindex):
-    global isplaying, currentsong
+def playsong(songpath, _songindex):
+    global isplaying, currentsong, songlength, songindex
 
     try:
-        pygame.mixer.music.load(songpath)        
+        pygame.mixer.music.load(songpath)
         pygame.mixer.music.play()
         isplaying = True
         currentsong = songpath
-        print(f':: {_sound_files_names_only[int(songindex)-1]}')
-    except:
+
+        load_song_info()
+
+        if _songindex:
+            print(f':: {_sound_files_names_only[int(_songindex)-1]}')
+        else:
+            print(f':: {os.path.splitext(os.path.split(songpath)[1])[0]}')
+
+    except Exception:
         err(f'Failed to play: {os.path.splitext(os.path.split(songpath)[1])[0]}', say=False)
         SAY(None, f"Failed to play \"{songpath}\"", 2)
 
@@ -132,7 +162,7 @@ def playpausetoggle():
             isplaying = False
             err("Nothing to pause/unpause")
 
-    except:
+    except Exception:
         err(f'Failed to toggle play/pause: {currentsong}', say=False)
         SAY(None, f"Failed to toggle play/pause for \"{currentsong}\"", 2)
 
@@ -168,8 +198,72 @@ def searchsongs(queryitems):
 
     return out
 
+def getstats():
+    global currentsong
+
+    # 1. Get the file path to an included audio example
+    filename = librosa.example(currentsong)
+
+    # 2. Load the audio as a waveform `y`
+    #    Store the sampling rate as `sr`
+    y, sr = librosa.load(filename)
+
+    # 3. Run the default beat tracker
+    tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
+
+    print('Estimated tempo: {:.2f} beats per minute'.format(tempo))
+
+def getstats2():
+    global currentsong
+    y, sr = librosa.load(librosa.ex(currentsong))
+    
+    # Set the hop length; at 22050 Hz, 512 samples ~= 23ms
+    hop_length = 512
+
+    # Separate harmonics and percussives into two waveforms
+    y_harmonic, y_percussive = librosa.effects.hpss(y)
+
+    # Beat track on the percussive signal
+    tempo, beat_frames = librosa.beat.beat_track(y=y_percussive,
+                                                sr=sr)
+
+    # Compute MFCC features from the raw signal
+    mfcc = librosa.feature.mfcc(y=y, sr=sr, hop_length=hop_length, n_mfcc=13)
+
+    # And the first-order differences (delta features)
+    mfcc_delta = librosa.feature.delta(mfcc)
+
+    # Stack and synchronize between beat events
+    # This time, we'll use the mean value (default) instead of median
+    beat_mfcc_delta = librosa.util.sync(np.vstack([mfcc, mfcc_delta]),
+                                        beat_frames)
+
+    # Compute chroma features from the harmonic signal
+    chromagram = librosa.feature.chroma_cqt(y=y_harmonic,
+                                            sr=sr)
+
+    # Aggregate chroma features between beat events
+    # We'll use the median value of each feature between beat frames
+    beat_chroma = librosa.util.sync(chromagram,
+                                    beat_frames,
+                                    aggregate=np.median)
+
+    # Finally, stack all beat-synchronous features together
+    beat_features = np.vstack([beat_chroma, beat_mfcc_delta])
+
+    print(tempo)
+    return tempo
+
+def display_lyrics_window():
+    global isshowinglyrics
+    isshowinglyrics = not isshowinglyrics
+
+    lyrics_provider.lyrics_view_window.show_window(head = currentsong)
+
 def enqueue(songindices):
     print("Enqueuing")
+    global song_paths_to_enqueue
+
     song_paths_to_enqueue = []
 
     for songindex in songindices:
@@ -185,41 +279,124 @@ def enqueue(songindices):
             err("Queueing error", "Could not enqueue one or more files")
             raise
 
-def play_commands(commandslist):
-    if len(commandslist) == 2:
-        songindex = commandslist[1]
-        if songindex.isnumeric():
-            if int(songindex) in range(len(_sound_files)+1):
-                playsong(_sound_files[int(songindex)-1], songindex=songindex)
-            else:
-                err('Out of range', f'Please input song number between 1 and {len(_sound_files)}')
+def play_commands(commandslist, _command=False):
+    if not _command:
+        if len(commandslist) == 2:
+            songindex = commandslist[1]
+            if songindex.isnumeric():
+                if int(songindex) in range(len(_sound_files)+1):
+                    playsong(_sound_files[int(songindex)-1], _songindex=songindex)
+                else:
+                    err('Out of range', f'Please input song number between 1 and {len(_sound_files)}')
 
+        else:
+            songindices = commandslist[1:]
+            _ = []
+            for songindex in songindices:
+                try:
+                    if songindex.isnumeric():
+                        _.append(songindex)
+                except Exception:
+                    pass
+            
+            songindices = _
+            del _
+
+            enqueue(songindices)
     else:
-        songindices = commandslist[1:]
-        _ = []
-        for songindex in songindices:
-            try:
-                if songindex.isnumeric():
-                    _.append(songindex)
-            except:
-                pass
-        
-        songindices = _
-        del _
+        playsong(songpath=_command[1:], _songindex=None)
 
-        enqueue(songindices)
+def load_song_info():
+    global isplaying, currentsong, songlength
 
-def playstatus():
-    global isplaying, currentsong
     if currentsong:
         if isplaying:
             sound_obj = pygame.mixer.Sound(currentsong)
 
+            songlength = sound_obj.get_length()
+
             curseekvalue = pygame.mixer.music.get_pos
             curseekper = pygame.mixer.music.get_pos()/(sound_obj.get_length()*10)
 
+def timeinput_to_timeobj(rawtime):
+    # print(songlength, type(songlength))
+    try:
+        if ':' in rawtime.strip():
+            processed_rawtime=rawtime.split(':')
+            processed_rawtime = [int(i) if i else 0 for i in processed_rawtime]
+
+            print(processed_rawtime)
+
+            # timeobj: A list of the format [WHOLE HOURS IN SECONDS, WHOLE MINUTES in SECONDS, REMAINING SECONDS]
+            timeobj = [value * 60 ** (len(processed_rawtime) - _index - 1) for _index, value in enumerate(processed_rawtime)]
+
+            totaltime = sum(timeobj)
+
+            formattedtime = ' '.join([''.join(map(lambda x: str(x) , i)) for i in list(zip(processed_rawtime, ['h', 'm', 's']))])
+
+            if totaltime > songlength:
+                return ValueError
+            else:
+                # print (formattedtime, totaltime)
+                return (formattedtime, totaltime)
+
+        else:
+            if rawtime.strip() == '-0':
+                return ('0', 0)
+
+            elif rawtime.isnumeric():
+                if int(rawtime) > songlength:
+                    return ValueError
+                else:
+                    processed_rawtime = list(map(lambda x:int(x), convert(int(rawtime)).split(':')))
+                    formattedtime = ' '.join([''.join(map(lambda x: str(x) , i)) for i in list(zip(processed_rawtime, ['h', 'm', 's']))])
+                    # print (None, rawtime)
+                    return (formattedtime, rawtime)
+
+    except Exception:
+        # raise
+        # print (None, None)
+        return (None, None)
+
+def song_seek(timeval):
+    global currentsong
+    # print(f"Timeval: {timeval}")
+    try:
+        pygame.mixer.music.set_pos(int(timeval))# *1000)
+        # pygame.mixer.music.set_pos(int(timeval/1000))
+        return True
+    except pygame.error:
+        SAY(displaymessage="Error: Can't seek in this song", logmessage='Unsupported codec for seeking song: {currentsong}', log_priority=2)
+        return None
+
+def setmastervolume(value=None):
+    global cached_volume
+    if not value:
+        value = cached_volume
+
+    pass # ...
+
+def convert(seconds):
+    seconds = seconds % (24 * 3600)
+    hour = seconds // 3600
+    seconds %= 3600
+    minutes = seconds // 60
+    seconds %= 60
+      
+    return "%d:%02d:%02d" % (hour, minutes, seconds)
+
+def validate_time(rawtime):
+    rawtime = rawtime.replace(':', '')
+    try:
+        _ = float(rawtime)
+    except Exception:
+        return 2
+    if '.' in rawtime: return 1
+    elif float(rawtime) < 0: return 3
+    else: return 0
+
 def process(command):
-    global _sound_files_names_only, visible, currentsong, isplaying
+    global _sound_files_names_only, visible, currentsong, isplaying, ismuted, cached_volume
     commandslist = command.strip().split()
 
     if pygame.mixer.music.get_pos() == -1:
@@ -263,19 +440,75 @@ def process(command):
         elif commandslist[0].lower() == 'play':
             play_commands(commandslist=commandslist)
 
-        # elif commandslist[0].lower() == 'seek':
-        #     timeinput_to_timeobj(timobj)
-        #     song_seek(timeobj)
+        elif commandslist[0].lower() in ['m?', 'ism', 'ismute']:
+            print(int(ismuted))
 
-        elif commandslist[0][0] == '.':
+        elif commandslist[0].lower() == 'seek':
+            rawtime = commandslist[1]
+
+            time_validity = validate_time(rawtime)
+
+            if not time_validity:
+                timeobj = timeinput_to_timeobj(rawtime) # Take a valid raw value for time from the user. Format is defined in the time section of help
+                # print(timeobj)
+                if not timeobj == ValueError:
+                    if timeobj == (None, None):
+                        err('Invalid time object')
+                    # elif timeobj[0] == None:
+                    #     song_seek(timeobj[1])
+                    else:
+                        _ = song_seek(timeobj[1])
+                        if _:
+                            print(f"Seeking to: {timeobj[0]}")
+
+                else:
+                    SAY(displaymessage="Error: Seek value too large for this song", logmessage=f'Seek value too large for: {currentsong}', log_priority=2)
+            elif time_validity == 1:
+                SAY("Error: Seek value can't have a decimal point", f'Seek value floating point for: {currentsong}', 2)
+            elif time_validity == 2:
+                SAY("Error: Seek value must be numeric", f'Seek value non numeric for: {currentsong}', 2)
+            elif time_validity == 3:
+                SAY("Error: Seek value can't be negative", f'Seek value negative for: {currentsong}', 2)
+            else: pass
+
+        elif commandslist == ['t']:
+            cur_prog = int(pygame.mixer.music.get_pos()/1000)
+            print(convert(cur_prog))
+
+        elif commandslist == ['reset']:
             try:
-                if commandslist[0][1:].isnumeric():
-                    play_commands(commandslist=[None, commandslist[0][1]])
+                pygame.mixer.music.set_pos(0)
+            except pygame.error:
+                SAY(displaymessage="Error: Can't reset this song", logmessage='Unsupported codec for resetting: {currentsong}', log_priority=2)
+
+        elif command[0] == '.':
+            try:
+                if len(commandslist) == 1:
+                    # print(commandslist[0][1:])
+                    if commandslist[0][1:].isnumeric():
+                        play_commands(commandslist=[None, ''.join(commandslist[0][1:])])
+                        # getstats()
+
+                elif commandslist != ['.'] and len(command.split('.')) == 3:
+                    if all([not i.isnumeric() for i in command.split('.')]):
+                        if command.startswith('. '):
+                            path = ' '.join(commandslist[1:])
+                            if os.path.isfile(path):
+                                if os.path.splitext(path)[1] in supported_file_exts:
+                                    print(1)
+                                else:
+                                    print(0)
+                            else:
+                                print(0)
+                        elif command.startswith('.'):
+                            play_commands(commandslist=[None, command[1:]], _command=command)
+
             except Exception:
                 raise
 
         elif commandslist in [['clear'], ['cls']]:
             os.system('cls' if os.name == 'nt' else 'clear')
+            showbanner()
 
         elif commandslist == ['p']:
             if len(commandslist) == 1:
@@ -293,16 +526,9 @@ def process(command):
                 else:
                     err('Out of range', f'Please input song number between 1 and {len(_sound_files)}')
 
-        elif commandslist[0] == '.':
-            if commandslist != ['.']:
-                path = ' '.join(commandslist[1:])
-                if os.path.isfile(path):
-                    if os.path.splitext(path)[1] in supported_file_exts:
-                        print(1)
-                    else:
-                        print(0)
-                else:
-                    print(0)
+
+        elif commandslist in [['count'], ['howmany'], ['total']]:
+            print(len(_sound_files_names_only))
 
         elif commandslist[0] == 'open':
             if commandslist == ['open']:
@@ -350,6 +576,53 @@ def process(command):
         elif commandslist == ['stop']:
             stopsong()
 
+        elif commandslist == ['m']:
+            ismuted = not ismuted
+
+            if ismuted:
+                pygame.mixer.music.set_volume(0)
+            else:
+                pygame.mixer.music.set_volume(cached_volume)
+
+        # elif commandslist in ['l', 'lyr', 'lyrics']:
+        #     song_info = shazam_song_info.get_song_info(currentsong)
+        #     save_info(song_info)
+
+
+        elif commandslist[0].lower() in ['v', 'vol', 'volume']:
+            try:
+                if len(commandslist) == 2 and commandslist[1].isnumeric():
+                    if '.' in commandslist[1]:
+                        SAY(displaymessage='Volume must not have decimal point precision', logmessage='Volume set to decimal percentage', log_priority=2)
+                    else:
+                        volper = int(commandslist[1])
+                        if volper in range(101):
+                            pygame.mixer.music.set_volume(volper/100)
+                            cached_volume = volper/100
+                        else:
+                            SAY(displaymessage='Volume percentage is out of range, it must be between 0 and 100', logmessage='Volume percentage out of range', log_priority=2)
+
+                elif len(commandslist) == 1:
+                    print(f"}}}} {pygame.mixer.music.get_volume()*100} %")
+
+            except Exception:
+                err(error_topic = 'Some internal issue occured while setting player volume')
+
+        elif commandslist[0].lower() in ['v', 'vol', 'volume']:
+            try:
+                if len(commandslist) == 2 and commandslist[1].isnumeric():
+                    if '.' in commandslist[1]:
+                        SAY(displaymessage='System volume must not have decimal point precision', logmessage='System volume set to decimal percentage', log_priority=2)
+                    else:
+                        volper = int(commandslist[1])
+                        if volper in range(101):
+                            setmastervolume(value=volper)
+                        else:
+                            SAY(displaymessage='System volume percentage is out of range, it must be between 0 and 100', logmessage='System volume percentage out of range', log_priority=2)
+
+            except Exception:
+                err(error_topic = 'Some internal issue occured while setting the system volume')
+
 def mainprompt():
     while True:
         try:
@@ -361,15 +634,27 @@ def mainprompt():
         except KeyboardInterrupt:
             print()
 
+def showversion():
+    global visible, ABOUT
+    if visible:
+        try:
+            with open('about/about.info', encoding='utf-8') as file:
+                ABOUT = yaml.load(file)
+                print(f"v {ABOUT['ver']['maj']}.{ABOUT['ver']['min']}.{ABOUT['ver']['rel']}")
+                print()
+        except IOError:
+            pass
 
 def showbanner():
     global visible
     if visible:
         try:
-            with open('banner.banner', encoding='utf-8') as file:
+            with open('about/banner.banner', encoding='utf-8') as file:
                 print(file.read())
         except IOError:
             pass
+    
+    showversion()
 
 def loadsettings():
     global SETTINGS
@@ -378,14 +663,26 @@ def loadsettings():
         SETTINGS = yaml.load(file)
 
 def run():
-    if sys.platform != 'win32':
-        sys.exit('This program cannot work on Non-Windows Operating Systems')
-    else:
-        pygame.mixer.init()
-        loadsettings()
-        showbanner()
-        mainprompt()
+    global disable_OS_requirement, visible
+
+    if disable_OS_requirement and visible and sys.platform != 'win32':
+        print("WARNING: OS requirement is disabled, performance may be affected on your Non Windows OS")
+
+    pygame.mixer.init()
+    loadsettings()
+    showbanner()
+    mainprompt()
+
+
+def startup():
+    global disable_OS_requirement
+
+    if not disable_OS_requirement:
+        if sys.platform != 'win32':
+            sys.exit('This program cannot work on Non-Windows Operating Systems')
+        else: run()
+    else: run()
 
 if __name__ == '__main__':
-    run()
+    startup()
 
