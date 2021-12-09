@@ -1,3 +1,8 @@
+# ==========================================================================================================================
+# PLEASE DO NOT MODIFY THIS FILE
+# ALSO PLEASE DO NOT DELETE OR MODIFY ANYTHING HAVING A .default OR .DEFAULT EXTENSION WITHIN THIS PROGRAM'S DIRECTORY
+# ==========================================================================================================================
+
 dont stop playing: True
 enable offline only: False
 enable gui notifications: True
