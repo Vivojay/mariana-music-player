@@ -1,24 +1,44 @@
 
-import os
-os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
-import itertools
 
-try:
-    import lyrics_provider.lyrics_view_window
-except ImportError:
-    raise
-    # print("[*] Could not load lyrics extension...")
+# Mariana Player v0.1.0
+
+# This app may take a LOT of time to load at first... 
+# Hence the loading prompt...
+# Prompts like these will be made better and more dynamic using the IPrint (custom) and multiprocess modules
+
+# Editor's Note: Make sure to brew a nice coffee beforehand... :)
 
 import time
-import sys
-import pygame
-import librosa
-import numpy as np
+APP_START_TIME=time.time()
+print("Loaded 1/16", end='\r')
 
-from tabulate import tabulate as tbl
-from ruamel.yaml import YAML
-from collections.abc import Iterable
-from datetime import datetime as dt
+import os; print("Loaded 2/16", end='\r')
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
+import itertools; print("Loaded 3/16", end='\r')
+
+try:
+    import lyrics_provider.lyrics_view_window # Time taking import
+    print("Loaded 4/16", end='\r')
+except ImportError:
+    # raise
+    print("Skipped 4/16", end='\r')
+    print("[INFO] Could not load lyrics extension...")
+    # sys.exit("[FATAL ERROR] Could not load lyrics extension...")
+
+import sys; print("Loaded 5/16", end='\r')
+import pygame; print("Loaded 6/16", end='\r')
+import librosa; print("Loaded 7/16", end='\r') # Time taking import (Sometimes, takes ages...)
+import numpy as np; print("Loaded 8/16", end='\r')
+import random as rand; print("Loaded 9/16", end='\r')
+import importlib; print("Loaded 10/16", end='\r')
+
+from tabulate import tabulate as tbl; print("Loaded 11/16", end='\r')
+from ruamel.yaml import YAML; print("Loaded 12/16", end='\r')
+from collections.abc import Iterable; print("Loaded 13/16", end='\r')
+from datetime import datetime as dt; print("Loaded 14/16", end='\r')
+
+vas = importlib.import_module("beta.vlc-async-stream"); print("Loaded 15/16", end='\r')
+YT_query = importlib.import_module("beta.YT_query"); print("Loaded 16/16", end='\r')
 
 yaml = YAML(typ='safe') # Allows for safe YAML loading
 
@@ -34,11 +54,11 @@ create_required_files_if_not_exist(
 )
 
 try:
-    with open('sources.log', encoding='utf-8') as logfile:
+    with open('lib.lib', encoding='utf-8') as logfile:
         paths = logfile.read().splitlines()
         paths = [path for path in paths if not path.startswith('#')]
 except IOError:
-    sys.exit('Could not open sources.log file for reading the library, aborting program')
+    sys.exit('Could not open lib.lib file for reading the library, aborting program')
 
 
 curdir = os.path.dirname(os.path.realpath(__file__))
@@ -77,7 +97,7 @@ visible = True
 loglevel = 3
 
 # From last session info
-cached_volume = 100
+cached_volume = 1 # Set as a factor between 0 to 1 times of max volume player volume
 
 # From res/data
 logleveltypes = {0: "none", 1: "fatal", 2: "warn", 3: "info", 4: "debug"}
@@ -108,7 +128,7 @@ def SAY(displaymessage=None, logmessage='', log_priority=loglevel):
 
 def exitplayer():
     global songstopped
-    songstopped = True
+    songstopped = True # Not really needed, cuz the player's going to exit anyways...
     try:
         pygame.mixer.music.stop()
         pygame.mixer.quit()
@@ -145,17 +165,43 @@ def playsong(songpath, _songindex):
         err(f'Failed to play: {os.path.splitext(os.path.split(songpath)[1])[0]}', say=False)
         SAY(None, f"Failed to play \"{songpath}\"", 2)
 
-def playpausetoggle():
-    global isplaying, currentsong
+def voltransition(
+    initial=cached_volume,
+    final=cached_volume,
+    transition_time=0.2,
+    disablecaching = False, # Enable volume caching by default
+):
+    global cached_volume
+
+    for i in range(101):
+        diffvolume = initial+(final-initial)*i/100
+        time.sleep(transition_time/100)
+        pygame.mixer.music.set_volume(round(diffvolume, 2))
+
+    # if not disablecaching:
+    #     cached_volume = final
+
+def playpausetoggle(softtoggle=True): # Soft pause by default
+    global isplaying, currentsong, cached_volume
 
     try:
         if currentsong:
             if isplaying:
+                if softtoggle:
+                    voltransition(initial=cached_volume, final=0, disablecaching=True)
+                else:
+                    voltransition(initial=cached_volume, final=0, transition_time=0, disablecaching=True)
                 pygame.mixer.music.pause()
                 isplaying = False
                 print("|| Paused")
             else:
                 pygame.mixer.music.unpause()
+                if softtoggle:
+                    pygame.mixer.music.set_volume(0)
+                    voltransition(initial=0, final=cached_volume)
+                else:
+                    pygame.mixer.music.set_volume(0)
+                    voltransition(initial=0, final=cached_volume, transition_time=0)
                 isplaying = True
                 print("|> Resumed")
         else:
@@ -224,8 +270,7 @@ def getstats2():
     y_harmonic, y_percussive = librosa.effects.hpss(y)
 
     # Beat track on the percussive signal
-    tempo, beat_frames = librosa.beat.beat_track(y=y_percussive,
-                                                sr=sr)
+    tempo, beat_frames = librosa.beat.beat_track(y=y_percussive, sr=sr)
 
     # Compute MFCC features from the raw signal
     mfcc = librosa.feature.mfcc(y=y, sr=sr, hop_length=hop_length, n_mfcc=13)
@@ -235,18 +280,14 @@ def getstats2():
 
     # Stack and synchronize between beat events
     # This time, we'll use the mean value (default) instead of median
-    beat_mfcc_delta = librosa.util.sync(np.vstack([mfcc, mfcc_delta]),
-                                        beat_frames)
+    beat_mfcc_delta = librosa.util.sync(np.vstack([mfcc, mfcc_delta]), beat_frames)
 
     # Compute chroma features from the harmonic signal
-    chromagram = librosa.feature.chroma_cqt(y=y_harmonic,
-                                            sr=sr)
+    chromagram = librosa.feature.chroma_cqt(y=y_harmonic, sr=sr)
 
     # Aggregate chroma features between beat events
     # We'll use the median value of each feature between beat frames
-    beat_chroma = librosa.util.sync(chromagram,
-                                    beat_frames,
-                                    aggregate=np.median)
+    beat_chroma = librosa.util.sync(chromagram, beat_frames, aggregate=np.median)
 
     # Finally, stack all beat-synchronous features together
     beat_features = np.vstack([beat_chroma, beat_mfcc_delta])
@@ -280,6 +321,10 @@ def enqueue(songindices):
             raise
 
 def play_commands(commandslist, _command=False):
+    # print(commandslist, _command)
+    global cached_volume
+    pygame.mixer.music.set_volume(cached_volume)
+
     if not _command:
         if len(commandslist) == 2:
             songindex = commandslist[1]
@@ -366,6 +411,7 @@ def song_seek(timeval):
         # pygame.mixer.music.set_pos(int(timeval/1000))
         return True
     except pygame.error:
+        raise # TODO - remove
         SAY(displaymessage="Error: Can't seek in this song", logmessage='Unsupported codec for seeking song: {currentsong}', log_priority=2)
         return None
 
@@ -384,6 +430,10 @@ def convert(seconds):
     seconds %= 60
       
     return "%d:%02d:%02d" % (hour, minutes, seconds)
+
+def rand_song_index():
+    global _sound_files_names_only
+    return rand.randint(0, len(_sound_files_names_only)-1)
 
 def validate_time(rawtime):
     rawtime = rawtime.replace(':', '')
@@ -421,6 +471,9 @@ def process(command):
         elif commandslist == ['vis']:
             visible = not visible
             if visible: print('visibility on')
+
+        elif commandslist == ['dev:cachedvol']:
+            print(f"cached_volume: {cached_volume}")
 
         elif commandslist == ['now']:
             if currentsong:
@@ -473,7 +526,24 @@ def process(command):
 
         elif commandslist == ['t']:
             cur_prog = int(pygame.mixer.music.get_pos()/1000)
+            print("Current Progress: {0}".format(cur_prog))
             print(convert(cur_prog))
+
+        elif commandslist == ['.rand']: # Play random song
+            play_commands(commandslist=[None, str(rand_song_index())])
+
+        elif commandslist == ['=rand']: # Print random song number
+            print(rand_song_index())
+
+        elif commandslist == ['rand']: # Print random song name
+            print(_sound_files_names_only[rand_song_index()])
+
+        elif commandslist == ['rand*']: # Print random song path
+            print(_sound_files[rand_song_index()])
+
+        elif commandslist == ['/rand']: # Print random song number+name
+            rand_index = rand_song_index()
+            print(f"{rand_index+1}: {_sound_files_names_only[rand_index]}")
 
         elif commandslist == ['reset']:
             try:
@@ -514,9 +584,13 @@ def process(command):
             if len(commandslist) == 1:
                 playpausetoggle()
 
+        elif commandslist == ['ph']:
+            if len(commandslist) == 1:
+                playpausetoggle(softtoggle=False)
+
         # TODO: Refactor to replace two `err` funcs with one
         elif commandslist[0].isnumeric(): # Check if only a number is entered
-            global _sound_files
+            # global _sound_files
             if len(commandslist) == 1:
                 if int(commandslist[0]) > 0:
                     try:
@@ -568,7 +642,7 @@ def process(command):
                 myquery = commandslist[1:]
                 searchresults = (searchsongs(queryitems=myquery))
                 if searchresults != []:
-                    print(f"Found {len(searchresults)} matches for: {' '.join(myquery)}")
+                    print(f"Found {len(searchresults)} match{('es')*(len(searchresults)>1)} for: {' '.join(myquery)}")
                     print(tbl(searchresults, tablefmt='mysql', headers=('#', 'Song')))
                 else:
                     print("-- No results found --")
@@ -587,7 +661,6 @@ def process(command):
         # elif commandslist in ['l', 'lyr', 'lyrics']:
         #     song_info = shazam_song_info.get_song_info(currentsong)
         #     save_info(song_info)
-
 
         elif commandslist[0].lower() in ['v', 'vol', 'volume']:
             try:
@@ -653,7 +726,7 @@ def showbanner():
                 print(file.read())
         except IOError:
             pass
-    
+
     showversion()
 
 def loadsettings():
@@ -679,10 +752,11 @@ def startup():
 
     if not disable_OS_requirement:
         if sys.platform != 'win32':
-            sys.exit('This program cannot work on Non-Windows Operating Systems')
+            sys.exit('ABORTING: This program may not work on Non-Windows Operating Systems (hasn\'t been tested)')
         else: run()
     else: run()
 
 if __name__ == '__main__':
     startup()
+else: print(' '*80, end='\r') # Get rid of the current '\r'...
 
