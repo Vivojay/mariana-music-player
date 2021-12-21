@@ -70,4 +70,4 @@ All searches are fuzzy
 
 | Commands                                       | Description                                                                  |
 | ---------------------------------------------- | ---------------------------------------------------------------------------- |
-| f[ind] <Search Query\> [<results_count\>\|all] | Find locally, 10 results by default. Shows all results if "all" is mentioned |
+| f[ind] <Search Query\> [<results_count\>\ | all] | Find locally, 10 results by default. Shows all results if "all" is mentioned |
