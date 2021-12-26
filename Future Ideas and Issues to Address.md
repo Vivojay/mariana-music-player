@@ -27,6 +27,7 @@ Find command will be issuable with the following options:
     t <tag_name>: Show only files with given tag (if multiple tags specified, then all tags mst be present)
     f: Show only favourited files
     
+Maybe make a curses based version someday?
 
 Many Great Visualizers (2D and 3D, color changing, other effects....)
 Song Videos from youtube (if available) ... ? (May not be implemented)
