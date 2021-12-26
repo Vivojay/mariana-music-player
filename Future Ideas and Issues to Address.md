@@ -117,12 +117,5 @@ Make Externally controllable (via keyboard keys...)?
 If help or config file is not available or is corrupted, prompt user to download required files from GitHub or use default
 If default file is not available or is corrupted, prompt user to download required files from GitHub or close program, play beep at the end
 
-
-VAS Checklist:
-    [ ] Radio
-    [x] Play single video as audio
-    [x] Video list, pick video, play as audio
-
-
 Have various user logins with completely separate encrypted data which is only decrypted once the user successfully logs in...
 ```
