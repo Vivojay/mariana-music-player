@@ -1,11 +1,9 @@
 ```
-Make into an executable release -> Host on GitHub
+Make into an executable release
 COLOUR OUTPUT
 IMPLEMENT QUEUE PLAYING
 
 MAKE THE STEP-BY-STEP WIZARD FOR INITIAL SETUP A BREEZE...
-    ASK 3 QUESTIONS
-    TELL 3 THINGS
     ASK IF YOU WANT TO START APP NOW...
 
 Save all recursive file paths from all lib dirs in a libpaths files for quick reload 
