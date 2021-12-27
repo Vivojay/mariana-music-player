@@ -1,7 +1,7 @@
 # Mariana Music Player (v0.3.2)
 
 ## About
-Feature rich command-line music player. \
+Feature rich command-line music player for Windows OS (Tested for Win10 only). \
 Can play songs of [supported file types](some/path) and perform basic music control operations \
 alongwith some [advanced controls and manipulations](some/other/path)
 
