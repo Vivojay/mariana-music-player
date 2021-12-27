@@ -1,0 +1,17 @@
+pygame
+youtube_dl
+tabulate
+librosa
+numpy
+ruamel.yaml
+pydrive
+python-vlc
+regex
+PyInquirer
+pynput
+comtypes
+praw
+shazamio
+colored
+pycaw
+git+https://github.com/Vivojay/pafy@develop
