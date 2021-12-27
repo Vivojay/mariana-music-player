@@ -14,4 +14,4 @@ praw
 shazamio
 colored
 pycaw
-git+https://github.com/Vivojay/pafy@develop
+# Doesn't work, so commented: git+https://github.com/Vivojay/pafy@develop
