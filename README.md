@@ -1,20 +1,31 @@
 # Mariana Music Player (v0.3.2)
 
 ## About
-Feature rich command-line music player for Windows OS (Tested for Win10 only). \
+Feature rich command-line music player for Windows OS (Tested on Win10 only). \
 Can play songs of [supported file types](some/path) and perform basic music control operations \
 alongwith some [advanced controls and manipulations](some/other/path)
 
 ## Setup
-You first need a python version < 3.10 from [www.python.org](https://www.python.org) \*  
-To setup, you need to first install a supported version of the `llvmlite` wheel for python from [this site](https://www.lfd.uci.edu/~gohlke/pythonlibs/#llvmlite)  
 
-### Here's how to choose the correct llvmlite wheel version
-Step 1: Choosing the version number
+### Step 1
+#### Install Python3
+You first need a python version < 3.10 from [www.python.org](https://www.python.org) \*  
+To setup, you then need to install a supported version of the `llvmlite` wheel for python from [this site](https://www.lfd.uci.edu/~gohlke/pythonlibs/#llvmlite)  
+
+### Step 2
+#### Create and activate a python virtual environment
+cd (or `sl` if using powershell) to the directory where you have installed the music player folder
+Open cmd in explorer by typing cmd in the top address bar
+
+#### Here's how to choose the correct llvmlite wheel version
+Step 1.2: Choosing the version number
 ![image](https://user-images.githubusercontent.com/67545205/147437848-6ea54b96-afd3-4af4-98be-ef0f52f44fa7.png)
 
-Step 2: Choosing the correct platform
+Step 1.3: Choosing the correct platform
 ![image](https://user-images.githubusercontent.com/67545205/147438943-07dbd825-a522-47f5-9623-942f31b6db1c.png)
+
+### Step 2
+Run: `py -m pip install git+https://github.com/Vivojay/pafy@develop`
 
 Run `pip install <llvmlite_wheel_file_name>`  
 
