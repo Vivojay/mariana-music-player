@@ -1,8 +1,0 @@
-dont stop: True
-offline only: False
-enable gui notifications: True
-enable console notifications: True
-enable console interactions: True
-log level: 4
-enable beta: False
-smooth volume change: True
