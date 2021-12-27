@@ -6,7 +6,7 @@ Can play songs of [supported file types](some/path) and perform basic music cont
 alongwith some [advanced controls and manipulations](some/other/path)
 
 ## Setup
-You first need a python version < 3.10 from [www.python.org](https://www.python.org)  
+You first need a python version < 3.10 from [www.python.org](https://www.python.org) \*  
 To setup, you need to first install a supported version of the `llvmlite` wheel for python from [this site](https://www.lfd.uci.edu/~gohlke/pythonlibs/#llvmlite)  
 
 ### Here's how to choose the correct llvmlite wheel version
@@ -21,8 +21,10 @@ Run `pip install <llvmlite_wheel_file_name>`
 E.g. `pip install llvmlite‑0.37.0‑cp39‑cp39‑win_amd64.whl`  
 Now, Install PyPI modules from pip using `pip install -r requirements.txt`  
 
-Now you need to install a release of ffmpeg from their [official site](https://ffmpeg.org/download.html)
-and then VLC media player with the same architecture (32 or 64 bit) as your python version
+Now you need to install a release of ffmpeg from their official site at [www.ffmpeg.org](https://ffmpeg.org/download.html)  
+and then VLC media player from their [official site]('videolan.com/vlc') with the same architecture (32 or 64 bit) as your python version.
+
+Architecture match between VLC and Python (v < 3.10) is critical for python-vlc binding to install properly.
 
 
 ## Technical
@@ -65,4 +67,11 @@ vlc_media_player.set_media_list(media_list)
 ```
 
 ## Usage
-Run `main.py` from command line with desired arguments, for more details, [look here](rick/roll).
+Run `main.py` from command line (**with desired arguments, for more details, [look here](https://github.com/Vivojay/mariana-music-player/blob/main/help_future.md#command-line-flags)).  
+
+<hr>
+
+\*This player requires **Python version < 3.10** (exclusive of 3.10 itself) and will otherwise not work, because there are currently no unofficial binaries available for the _llvmlite wheel_ which is in turn required by the _librosa_ module.
+
+\*\*Currently, this feature is sunimplemented... there are no command line flags available yet...
+Also, interactive help documentation and interactive loading throbber/print statement need to be added.
