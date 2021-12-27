@@ -1,4 +1,4 @@
-# Mariana Music Player (In development)
+# Mariana Music Player (v0.3.2)
 
 ## About
 Feature rich command-line music player. \
@@ -6,7 +6,8 @@ Can play songs of [supported file types](some/path) and perform basic music cont
 alongwith some [advanced controls and manipulations](some/other/path)
 
 ## Technical
-This program uses the pygame module for playing, pausing, muting and stopping songs.
+This program uses the pygame module for playing and controlling songs stored locally.
+This program also uses the vlc module for playing and controlling songs streamed from the internet.
 
 Pygame requires you to first initialize its mixer object by calling the init function `pygame.mixer.init()`
 
@@ -20,6 +21,8 @@ you can do it all using the `pygame.mixer.music` as follows:
 - `pygame.mixer.music.set_volume(cached-volume-as-percentage)`
 - `pygame.mixer.music.set_volume(desired-volume-as-percentage)`
 - `pygame.mixer.music.queue('next_song')`
+
+
 
 ## Usage
 Install PyPI modules from pip using `pip install -r requirements.txt` \
