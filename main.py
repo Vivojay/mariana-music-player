@@ -339,7 +339,6 @@ def voltransition(
             diffvolume = initial+(final-initial)*i
             time.sleep(transition_time/100)
             vas.vlc_media_player.get_media_player().audio_set_volume(int(diffvolume))
-            print(int(diffvolume))
     else:
         for i in range(101):
             diffvolume = initial+(final-initial)*i/100
@@ -712,8 +711,9 @@ def choose_yt_vid(ytv_choices: list):
         play_vas_media(media_name=vid_name, media_url=media_url, single_video=True)
 
     else:
-        chosen_index = input(f"Choose video number between 1 and {len(ytv_choices)} \
+        chosen_index = input(f"{colored.fg('deep_pink_4c')}Choose video number between 1 and {len(ytv_choices)} \
                              (leave blank to skip): ").strip()
+        print(colored.attr('reset'), end='')
 
         if chosen_index:
             try:
@@ -752,11 +752,10 @@ def process(command):
         except Exception:
             pass
 
-    # print(commandslist)
-
     if commandslist != []:  # Atleast 1 word
         if commandslist in [['exit'], ['quit'], ['e']]:  # Quitting the player
-            perm = input(colored.fg('light_red')+'Do you want to exit? [Y]es, [N]o (default = N): '+colored.attr('reset'))
+            perm = input(colored.fg('light_red')+'Do you want to exit? [Y]es, [N]o (default = N): '+colored.fg('magenta_3c'))
+            print(colored.attr('reset'), end = '')
             if perm.strip().lower() == 'y':
                 return False
 
@@ -764,10 +763,9 @@ def process(command):
         elif commandslist in [['exit', 'y'], ['quit', 'y'], ['e', 'y']]:
             return False
 
-        if commandslist in ['all', 'ls']:
+        if commandslist in [['all'], ['ls']]:
             # TODO: Need to display files in n columns (Mostly 3 cols) depending upon terminal size (dynamically...)
-            print(
-                tbl([(i+1, j) for i, j in enumerate(_sound_files_names_only)], tablefmt='plain'))
+            print(tbl([(i+1, j) for i, j in enumerate(_sound_files_names_only)], tablefmt='plain'))
 
         elif commandslist == ['vis']:
             visible = not visible
@@ -889,8 +887,7 @@ def process(command):
                 if len(commandslist) == 1:
                     # print(commandslist[0][1:])
                     if commandslist[0][1:].isnumeric():
-                        play_commands(
-                            commandslist=[None, ''.join(commandslist[0][1:])])
+                        play_commands(commandslist=[None, ''.join(commandslist[0][1:])])
                         # getstats()
 
                 elif commandslist != ['.'] and len(command.split('.')) == 3:
@@ -937,6 +934,9 @@ def process(command):
 
         elif commandslist in [['count'], ['howmany'], ['total']]:
             print(len(_sound_files_names_only))
+
+        elif commandslist[0] == 'weblinks':
+            print(f'Weblinks feature is still in progress... The developer @{ABOUT["about"]["author"]} will add this feature shortly...')
 
         elif commandslist[0] == 'open':
             if commandslist == ['open']:
@@ -1124,7 +1124,11 @@ def process(command):
 def mainprompt():
     while True:
         try:
-            command = input(colored.bg('gold_1')+colored.fg('black')+')> '+colored.attr('reset'))
+            command = input(colored.bg('gold_1')+\
+                            colored.fg('black')+')> '+\
+                            colored.attr('reset')+\
+                            colored.fg('dark_turquoise'))
+            print(colored.attr('reset'), end='')
             outcode = process(command)
 
             if outcode == False:
