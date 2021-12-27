@@ -715,8 +715,8 @@ def choose_yt_vid(ytv_choices: list):
         play_vas_media(media_name=vid_name, media_url=media_url, single_video=True)
 
     else:
-        chosen_index = input(f"{colored.fg('deep_pink_4c')}Choose video number between 1 and {len(ytv_choices)} \
-                             (leave blank to skip): ").strip()
+        chosen_index = input(f"{colored.fg('deep_pink_4c')}Choose video number between 1 and {len(ytv_choices)}" \
+                             "(leave blank to skip): ").strip()
         print(colored.attr('reset'), end='')
 
         if chosen_index:
