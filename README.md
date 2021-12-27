@@ -35,23 +35,25 @@ you can do it all using the `pygame.mixer.music` as follows:
 - `pygame.mixer.music.queue('next_song')`
 
 ### VLC binding for python (python-vlc)
-First, a VLC instance is created with `vlc.Instance()`
-E.g. `player = vlc.Instance()`, then we unset its logs to reduce the unecessary output on screen when adding media to this player
-i.e. `player.log_unset()`
+First, a VLC instance is created with `vlc.Instance()`  
+E.g. `player = vlc.Instance()`, then we unset its logs to reduce the unecessary output on screen when adding media to this player  
+i.e. `player.log_unset()`  
 
-Get some media streaming url like and pass it to `player.media_new`
+Get some media streaming url like and pass it to `player.media_new`  
 
-E.g. `media_streaming_url = http://sa.mp3.icecast.magma.edge-access.net:7200/sc_rad41`
+E.g. `media_streaming_url = http://sa.mp3.icecast.magma.edge-access.net:7200/sc_rad41`  
 
-Then new media_list_new and MediaPlayer instances are created
-and finally this media_list is inserted into the MediaPlayer
-`media = player.media_new(media_streaming_url)`
+Then new media_list_new and MediaPlayer instances are created  
+and finally this media_list is inserted into the MediaPlayer  
+```
+media = player.media_new(media_streaming_url)
 
-`media_list = player.media_list_new()`  
-`media_list.add_media(media)`  
+media_list = player.media_list_new()
+media_list.add_media(media)
 
-`vlc_media_player = player.media_list_player_new()`  
-`vlc_media_player.set_media_list(media_list)`  
+vlc_media_player = player.media_list_player_new()
+vlc_media_player.set_media_list(media_list)
+```
 
 ## Usage
 Install PyPI modules from pip using `pip install -r requirements.txt` \
