@@ -6,7 +6,7 @@ Can play songs of [supported file types](some/path) and perform basic music cont
 alongwith some [advanced controls and manipulations](some/other/path)
 
 ## Setup
-You first need a python version < 3.10  
+You first need a python version < 3.10 from [www.python.org](https://www.python.org)
 To setup, you need to first install a supported version of the `llvmlite` wheel for python from [this site](https://www.lfd.uci.edu/~gohlke/pythonlibs/#llvmlite)  
 
 ### Here's how to choose the correct llvmlite wheel version
