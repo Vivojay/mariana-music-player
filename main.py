@@ -309,14 +309,18 @@ def play_local_default_player(songpath, _songindex):
         load_song_info()
 
         if _songindex:
-            print(f':: {_sound_files_names_only[int(_songindex)-1]}')
+            print(colored.fg('dark_olive_green_2') + \
+                  f':: {_sound_files_names_only[int(_songindex)-1]}' + \
+                  colored.attr('reset'))
         else:
-            print(f':: {os.path.splitext(os.path.split(songpath)[1])[0]}')
+            print(colored.fg('dark_olive_green_2') + \
+                  f':: {os.path.splitext(os.path.split(songpath)[1])[0]}' + \
+                  colored.attr('reset'))
 
     except Exception:
         # raise
-        err(
-            f'Failed to play: {os.path.splitext(os.path.split(songpath)[1])[0]}', say=False)
+        err(f'Failed to play: {os.path.splitext(os.path.split(songpath)[1])[0]}',
+            say=False)
         SAY(
             visible=visible,
             log_priority=2,
@@ -938,6 +942,7 @@ def process(command):
         elif commandslist[0] == 'weblinks':
             print(f'Weblinks feature is still in progress... The developer @{ABOUT["about"]["author"]} will add this feature shortly...')
 
+        # TODO - Make this work even if current_media_type == 1 (i.e. VLC)
         elif commandslist[0] == 'open':
             if commandslist == ['open']:
                 if currentsong:
