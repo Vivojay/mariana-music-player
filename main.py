@@ -57,7 +57,7 @@ except ImportError:
     print("[INFO] Skipped 17/24")
 
 try:
-    from librosa import beat, load
+    import librosa.beat.beat_track, librosa.load
     print("Loaded 18/24",  end='\r') # Time taking import (Sometimes, takes ages...)
 except ImportError:
     print("[WARN] Could not load music computation extension...")
