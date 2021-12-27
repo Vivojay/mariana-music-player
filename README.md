@@ -6,7 +6,8 @@ Can play songs of [supported file types](some/path) and perform basic music cont
 alongwith some [advanced controls and manipulations](some/other/path)
 
 ## Setup
-To setup, you need to first install a supported version of the `llvmlite` wheel for python from [this site](https://www.lfd.uci.edu/~gohlke/pythonlibs/#llvmlite)
+You first need a python version < 3.10  
+To setup, you need to first install a supported version of the `llvmlite` wheel for python from [this site](https://www.lfd.uci.edu/~gohlke/pythonlibs/#llvmlite)  
 
 ### Here's how to choose the correct llvmlite wheel version
 Step 1: Choosing the version number
@@ -19,6 +20,10 @@ Run `pip install <llvmlite_wheel_file_name>`
 
 E.g. `pip install llvmlite‑0.37.0‑cp39‑cp39‑win_amd64.whl`  
 Now, Install PyPI modules from pip using `pip install -r requirements.txt`  
+
+Now you need to install a release of ffmpeg from their [official site](https://ffmpeg.org/download.html)
+and then VLC media player with the same architecture (32 or 64 bit) as your python version
+
 
 ## Technical
 This program uses the pygame module for playing and controlling songs stored locally.
