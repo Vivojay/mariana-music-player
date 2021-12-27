@@ -47,11 +47,11 @@ Then new media_list_new and MediaPlayer instances are created
 and finally this media_list is inserted into the MediaPlayer
 `media = player.media_new(media_streaming_url)`
 
-`media_list = player.media_list_new()`
-`media_list.add_media(media)`
+`media_list = player.media_list_new()`  
+`media_list.add_media(media)`  
 
-`vlc_media_player = player.media_list_player_new()`
-`vlc_media_player.set_media_list(media_list)`
+`vlc_media_player = player.media_list_player_new()`  
+`vlc_media_player.set_media_list(media_list)`  
 
 ## Usage
 Install PyPI modules from pip using `pip install -r requirements.txt` \
