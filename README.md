@@ -15,7 +15,10 @@ Step 1: Choosing the version number
 Step 2: Choosing the correct platform
 ![image](https://user-images.githubusercontent.com/67545205/147438943-07dbd825-a522-47f5-9623-942f31b6db1c.png)
 
-Install PyPI modules from pip using `pip install -r requirements.txt`  
+Run `pip install <llvmlite_wheel_file_name>`  
+
+E.g. `pip install llvmlite‑0.37.0‑cp39‑cp39‑win_amd64.whl`  
+Now, Install PyPI modules from pip using `pip install -r requirements.txt`  
 
 ## Technical
 This program uses the pygame module for playing and controlling songs stored locally.
