@@ -28,5 +28,28 @@ beta features:
     enabled: True
     default_time: 7200 # in seconds --> set to 2 hours
 advanced and misc features:
+
 show banner: True
 show about: True
+
+default_user_data:
+  # User login feature hasn't been implemented yet...
+  # Needs salted hash I/O...
+
+  # Example registered users "name1" and "name2":
+  # - name: name1
+  #   pwd: pwd1
+  # - name: name2
+  #   pwd: pwd2
+
+  name: guest_001
+  pwd: null
+  stats:
+    play_count:
+      local: 0
+      youtube: 0
+      radio: 0
+      custom: 0
+      total: 0
+    log_ins: 0
+    times_spent: [] # Times spent on app is an empty list by default
