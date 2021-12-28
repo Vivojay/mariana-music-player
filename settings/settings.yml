@@ -1,26 +1,26 @@
 dont stop playing: True
-enable offline only: False
+offline only: False
 enable gui notifications: True
 enable console notifications: True
 enable console interactions: True
 smooth volume change: True
-smooth muting: True
-smooth unmuting: True
-change terminal size: True
-lock terminal size: True
-enable sleep: True
-isdev: True
+isdev: False
 visible: True
 display items count:
     default: 10
-    maximum: 100
+    maximum: 100 # -1 means no limit...
 
 enable beta: False
 
 beta features:
+  change terminal size: True
+  lock terminal size: True
+  smooth muting: True
+  smooth unmuting: True
+  sleep:
+    enabled: True
+    default_time: 7200 # in seconds --> set to 2 hours
 advanced and misc features:
+
 show banner: True
 show about: True
-
-
-log level: 3
