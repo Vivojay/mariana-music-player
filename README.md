@@ -18,7 +18,7 @@ cd (or `sl` if using powershell) to the directory where you have installed the m
 Open cmd in explorer by typing cmd in the top address bar  
 
 Type `py -m virtualenv -p="<path to your python < 3.10 executable>" .virtenv`  
-E.g. In my case, I had python 3.9.5 installed "C:\Users\Vivo Jay\AppData\Local\Programs\Python\Python39\python.exe"  
+E.g. In my case, I had python 3.9.5 installed at location: "C:\Users\Vivo Jay\AppData\Local\Programs\Python\Python39\python.exe"  
 So I ran `py -m virtualenv -p="C:\Users\Vivo Jay\AppData\Local\Programs\Python\Python39\python.exe" .virtenv`  
 You may have your python installation done in a similar location, try for your own path and run the command...  
 
