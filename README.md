@@ -50,7 +50,7 @@ Once downloaded, extract the downloaded zip file to a known location (E.g. "C:\U
 Now copy the path to that directory (and not the extracted file itself) and add this to the system variables path ([see here for a short tutorial](https://www.youtube.com/watch?v=r1AtmY-RMyQ))  
 
 ### Step 5
-Download VLC media player from their [official site]('videolan.com/vlc') with the same architecture (32 or 64 bit) as your python version.  
+Download VLC media player from their [official site]('https://www.videolan.org/') with the same architecture (32 or 64 bit) as your python version.  
 Architecture match between VLC and Python (v < 3.10) is critical for python-vlc binding to install properly.  
 
 ### Step 6
