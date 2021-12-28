@@ -14,7 +14,8 @@ Make sure to check the _"Add python to PATH"_ checkbox in the python installer b
 
 ### Step 2
 #### Create and activate a python virtual environment
-cd (or `sl` if using powershell) to the directory where you have installed the music player folder  
+
+**Step 2.1**: cd (or `sl` if using powershell) to the directory where you have installed the music player folder  
 Open cmd in explorer by typing cmd in the top address bar  
 
 Type `py -m virtualenv -p="<path to your python < 3.10 executable>" .virtenv`  
