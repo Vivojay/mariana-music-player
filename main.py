@@ -2,10 +2,26 @@
 ##############################################################################
 # Mariana Player v0.3.4
 
-# run: `pip install -r requirements.txt` and
-# take a look at `help.md` before running this...
+# running app:
+#	For very first boot (SETUP):
+# 	  Make sure you have python version < 3.10 to run this file (unless compatible llvmlite wheel bins exist...)
+# 	  Setup this program in a fresh virtualenv
+# 	  Download and pip install unofficial binary for llvmlite wheel compatible with your python version
+# 	  Setup compatible architecture of VLC media player, install FFMPEG and add to path...
+# 	  Install git scm if not already installed
+# 	  Install given git package directly from url using: `pip install git+https://github.com/Vivojay/pafy@develop`
+# 	  run `pip install -r requirements.txt`
+#
+# 	  Firstly, look at help.md before running any py file
+# 	  Run this file (main.py) on the very first bootup, nothing else (no flags, just to test bare minimum run)...
+# 	  You are good to go...
+#     *Note: If you encounter errors, look for online help as the current help file doesn't have common problem fixes yet
+#
+#	All successive boots (RUNNING NORMALLY):
+#	  just run this file (main.py) with desired flags (discussed in help.md)
+#	  and enjoy... (and possibly debug...)
 
-# This app may take a LOT of time to load at first...
+# This app may take a LOT of time to load at first... (main culprit: librosa)
 # Hence the loading prompt...
 # Prompts like these will be made better and more
 # dynamic using the IPrint (custom) and multiprocess modules
