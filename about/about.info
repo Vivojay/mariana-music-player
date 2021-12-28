@@ -8,4 +8,4 @@ isdev: true
 ver:
   maj: 0
   min: 3
-  rel: 3
+  rel: 4
