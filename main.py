@@ -1,6 +1,6 @@
 
 ##############################################################################
-# Mariana Player v0.1.0
+# Mariana Player v0.3.4
 
 # run: `pip install -r requirements.txt` and
 # take a look at `help.md` before running this...
@@ -114,7 +114,6 @@ except ImportError:
 from beta.master_volume_control import get_master_volume, set_master_volume
 print("Loaded 24/24", end='\r')
 
-    
 
 # Variables
 APP_BOOT_TIME_END = time.time()
@@ -196,6 +195,11 @@ except IOError:
                 'please create one and add desired source directories. '\
                 'Aborting program\n")
 
+try:
+    with open('default_user_data.yml', encoding='utf-8') as u_data_file:
+        USER_DATA = yaml.load(u_data_file)
+except IOError:
+    default_data.load_default_user_data()
 
 # Flattens list of any depth
 def flatten(l):
@@ -296,6 +300,7 @@ def exitplayer(sys_exit=False):
 
 def play_local_default_player(songpath, _songindex):
     global isplaying, currentsong, songlength, songindex, current_media_player
+    global USER_DATA
 
     try:
         if current_media_player:
@@ -316,6 +321,9 @@ def play_local_default_player(songpath, _songindex):
             print(colored.fg('dark_olive_green_2') + \
                   f':: {os.path.splitext(os.path.split(songpath)[1])[0]}' + \
                   colored.attr('reset'))
+        
+        USER_DATA['play_count'] += 1
+        save_user_data()
 
     except Exception:
         # raise
@@ -757,7 +765,9 @@ def process(command):
             pass
 
     if commandslist != []:  # Atleast 1 word
-        if commandslist in [['exit'], ['quit'], ['e']]:  # Quitting the player
+
+        # Quitting the player
+        if commandslist in [['exit'], ['quit'], ['e']]:
             perm = input(colored.fg('light_red')+'Do you want to exit? [Y]es, [N]o (default = N): '+colored.fg('magenta_3c'))
             print(colored.attr('reset'), end = '')
             if perm.strip().lower() == 'y':
@@ -767,9 +777,46 @@ def process(command):
         elif commandslist in [['exit', 'y'], ['quit', 'y'], ['e', 'y']]:
             return False
 
-        if commandslist in [['all'], ['ls']]:
+        if commandslist == ['all']:
+            results_enum = enumerate(_sound_files_names_only)
+            print(tbl([(i+1, j) for i, j in results_enum], tablefmt='plain'))
+
+        if commandslist[0] in ['list', 'ls']:
             # TODO: Need to display files in n columns (Mostly 3 cols) depending upon terminal size (dynamically...)
-            print(tbl([(i+1, j) for i, j in enumerate(_sound_files_names_only)], tablefmt='plain'))
+            if len(commandslist) == 1:
+                rescount = None
+            elif len(commandslist) == 2:
+                if commandslist[1].isnumeric():
+                    rescount = int(commandslist[1])
+            else:
+                indices = []
+                order_results = False
+                order_type = 1 # Default value (1): Display in ascending order
+
+                for i in commandslist[1:]:
+                    if i.isnumeric():
+                        if int(i)-1 not in indices:
+                            indices.append(int(i)-1)
+                    elif i == '-o': order_results = True
+                    elif i == '-desc': order_type = 0
+
+                if indices:
+                    results = [_sound_files_names_only[index] for index in indices]
+                    results_enum = list(zip(indices, results))
+                    if order_results:
+                        results_enum = sorted(results_enum, key = lambda x: x[0], reverse = not order_type)
+                else:
+                    # List files matching provided regex pattern
+                    # Need to implement a check to validate the provided regex pattern
+                    print(f'regex search is still in progress... The developer @{ABOUT["about"]["author"]} will add this feature shortly...')
+                    # regex_pattern
+                    # regexp = re.compile(regex_pattern)
+
+
+            if len(commandslist) in [1, 2]:
+                results_enum = enumerate(_sound_files_names_only[:rescount])
+
+            print(tbl([(i+1, j) for i, j in results_enum], tablefmt='plain'))
 
         elif commandslist == ['vis']:
             visible = not visible
@@ -1069,7 +1116,7 @@ def process(command):
                     except OSError:
                         err("Could not load video... (Maybe check your VPN?)",
                             "Video Load Error", say=False)
-                elif rescount.isdigit():
+                elif rescount.isnumeric():
                     if int(rescount) == 1:
                         try:
                             ytv_choices = [YT_query.search_youtube(search=qr_val)]
