@@ -1,0 +1,16 @@
+default_user_data:
+  # User login feature hasn't been implemented yet...
+  # Needs salted hash I/O...
+
+  # Example registered users "name1" and "name2":
+  # - name: name1
+  #   pwd: pwd1
+  # - name: name2
+  #   pwd: pwd2
+
+  name: guest_001
+  pwd: null
+  stats:
+    log_ins: 0
+    play_count: {audio: 0, local: 0, radio: 0, total: 0, youtube: 0}
+    times_spent: []
