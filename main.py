@@ -1,5 +1,5 @@
 
-##############################################################################
+#################################################################################################################################
 # Mariana Player v0.3.4
 
 # running app:
@@ -27,8 +27,7 @@
 # dynamic using the IPrint (custom) and multiprocess modules
 
 # Editor's Note: Make sure to brew a nice coffee beforehand... :)
-##############################################################################
-
+#################################################################################################################################
 
 
 # IMPORTS BEGIN #
@@ -145,7 +144,6 @@ ismuted = False
 isshowinglyrics = False
 
 settings = None
-disable_OS_requirement = True
 songindex = -1
 
 current_media_player = 0
@@ -156,6 +154,7 @@ current_media_player can be either 0 or 1:
 """
 
 # From settings
+disable_OS_requirement = True
 supported_file_exts = '.wav .mp3'.split()  # Supported file extensions
 visible = True
 max_yt_search_results_threshold = 15
@@ -169,9 +168,7 @@ cached_volume = 1  # Set as a factor between 0 to 1 times of max volume player v
 curdir = os.path.dirname(os.path.realpath(__file__))
 os.chdir(curdir)
 
-if not os.path.isdir('logs'):
-    os.mkdir('logs')
-
+if not os.path.isdir('logs'): os.mkdir('logs')
 
 def create_required_files_if_not_exist(*files):
     global FIRST_BOOT
@@ -212,10 +209,16 @@ except IOError:
                 'Aborting program\n")
 
 try:
-    with open('default_user_data.yml', encoding='utf-8') as u_data_file:
+    with open('user/user_data.yml', encoding='utf-8') as u_data_file:
         USER_DATA = yaml.load(u_data_file)
+        if list(USER_DATA.keys()) == ['default']:
+            if not FIRST_BOOT:
+                SAY(visible=visible,
+                    display_message = '',
+                    log_message = 'User data found to be empty, reverting to default',
+                    log_priority = 3)
 except IOError:
-    default_data.load_default_user_data()
+    SAY()
 
 # Flattens list of any depth
 def flatten(l):
@@ -279,6 +282,18 @@ def url_is_valid(url, yt=True):
         return False
 
 
+def save_user_data():
+    global USER_DATA
+
+    total_plays = [j for i, j in
+                   USER_DATA['default_user_data']['stats']['play_count'].items()
+                   if i in ['local', 'radio', 'audio', 'youtube']]
+    total_plays = sum(total_plays)
+    USER_DATA['default_user_data']['stats']['play_count']['total'] = total_plays
+
+    with open('user/user_data.yml', 'w') as u_data_file:
+        yaml.dump(USER_DATA, u_data_file)
+
 def exitplayer(sys_exit=False):
     global songstopped, EXIT_INFO, APP_BOOT_START_TIME
 
@@ -338,7 +353,7 @@ def play_local_default_player(songpath, _songindex):
                   f':: {os.path.splitext(os.path.split(songpath)[1])[0]}' + \
                   colored.attr('reset'))
         
-        USER_DATA['play_count'] += 1
+        USER_DATA['default_user_data']['stats']['play_count']['local'] += 1
         save_user_data()
 
     except Exception:
@@ -692,11 +707,17 @@ def play_vas_media(media_url, single_video = None, media_name = None,
 
     if media_type == 'video':
         vas.set_media(_type='yt_video', vidurl=media_url)
+        USER_DATA['default_user_data']['stats']['play_count']['youtube'] += 1
+        save_user_data()
     elif media_type == 'audio':
         vas.set_media(_type='audio', audurl=media_url)
+        USER_DATA['default_user_data']['stats']['play_count']['audio'] += 1
+        save_user_data()
     elif media_type == 'radio':
         # Here `media_name` is actually the radio name
         vas.set_media(_type=f'radio/{media_name}') # No need for an explicit `audurl` here... (as per definition of vas.set_media)
+        USER_DATA['default_user_data']['stats']['play_count']['radio'] += 1
+        save_user_data()
     else:
         err("Invalid media provided")
 
@@ -716,9 +737,9 @@ def play_vas_media(media_url, single_video = None, media_name = None,
         currentsong = (media_name, media_url)
         if print_now_playing and visible:
             if single_video:
-                print(f"Playing YouTube search result: {media_name}")
+                print(f"Playing YouTube search result: {colored.fg('plum_1')}{media_name}{colored.attr('reset')}")
             else:
-                print(f"Chosen YouTube video: {media_name}")
+                print(f"Chosen YouTube video: {colored.fg('plum_1')}{media_name}{colored.attr('reset')}")
             print(f"@ {media_url}")
     elif media_type == 'audio':
         current_media_type = 1
@@ -727,8 +748,6 @@ def play_vas_media(media_url, single_video = None, media_name = None,
     elif media_type == 'radio':
         current_media_type = 2
         currentsong = media_name
-
-
 
 
 def choose_yt_vid(ytv_choices: list):
@@ -740,7 +759,7 @@ def choose_yt_vid(ytv_choices: list):
 
     else:
         chosen_index = input(f"{colored.fg('deep_pink_4c')}Choose video number between 1 and {len(ytv_choices)}" \
-                             "(leave blank to skip): ").strip()
+                              " (leave blank to skip): ").strip()
         print(colored.attr('reset'), end='')
 
         if chosen_index:
@@ -1141,7 +1160,12 @@ def process(command):
                                 "Video Load Error", say=False)
                     if int(rescount) in range(2, max_yt_search_results_threshold+1):
                         ytv_choices = YT_query.search_youtube(
-                            search=qr_val, rescount=int(rescount))
+                            search=qr_val, rescount=int(rescount))                            
+                    else:
+                        SAY(visible=visible,
+                            log_message = 'Exceeded upper threshold for YT search result count',
+                            display_message = f'YT results threshold exceeded, retry with result count <= {max_yt_search_results_threshold}',
+                            log_priority = 3)
 
                 if ytv_choices:
                     choose_yt_vid(ytv_choices=ytv_choices)
@@ -1243,15 +1267,18 @@ def showbanner():
 def loadsettings():
     global SETTINGS
 
-    with open('settings/config.yml') as file:
+    with open('settings/settings.yml') as file:
         SETTINGS = yaml.load(file)
 
 
 def run():
-    global disable_OS_requirement, visible
+    global disable_OS_requirement, visible, USER_DATA
 
     if disable_OS_requirement and visible and sys.platform != 'win32':
         print("WARNING: OS requirement is disabled, performance may be affected on your Non Windows OS")
+
+    USER_DATA['default_user_data']['stats']['log_ins'] += 1
+    save_user_data()
 
     pygame.mixer.init()
     loadsettings()
