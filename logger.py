@@ -3,25 +3,11 @@
 """
 format_style:
     1:  brief
-        (<log_level_in_words>) => <log_message>\n
+        (<log_level_in_words>)                                  => <log_message>\n
 
     2:  detailed
         (<log_level_in_words>) <DD>-<Mon>-<YYYY> <HH>:<MM>:<SS> => <log_message>\n
-
-
-# ORIGINAL SAY() function from `main4.py`:
-
-def SAY(display_message=None, log_message='', log_priority=loglevel, out_file='generallogs.log'):
-    global visible, loglevel, logleveltypes
-    if visible and display_message:
-        print(display_message)
-
-    if loglevel:
-        with open(out_file, 'a') as genlogfile:
-            llt = logleveltypes[log_priority]
-            genlogfile.write(f"({llt}) {NOW()} => {log_message}\n")
 """
-
 
 import os
 import colored
@@ -45,7 +31,7 @@ def SAY(
     log_priority, # Default value is defined in main.py
     display_message = None, # Displayed on app
     log_message: str = '', # Saved to log file
-    out_file = 'generallogs.log', # Log file path
+    out_file = 'logs/generallogs.log', # Log file path
     format_style: int = 2,
 ):
     global loglevel, logleveltypes
@@ -66,7 +52,7 @@ def SAY(
     if log_priority:
         with open(out_file, writemode) as logfile:
             if format_style == 1:
-                formatted_log_message = f"({llt}) => {log_message}\n"
+                formatted_log_message = f"({llt}) {' '*20} => {log_message}\n"
             elif format_style == 2:
                 formatted_log_message = f"({llt}) {NOW()} => {log_message}\n"
             else:
