@@ -373,10 +373,9 @@ def play_local_default_player(songpath, _songindex):
         USER_DATA['default_user_data']['stats']['play_count']['local'] += 1
         save_user_data()
 
-
         SAY(visible=visible,
             display_message = '',
-            log_message = 'User data found to be empty, reverting to default',
+            log_message = 'Playing local song {currentsong}',
             log_priority = 3)
 
     except Exception:
@@ -725,55 +724,60 @@ def play_vas_media(media_url, single_video = None, media_name = None,
     global isplaying, current_media_player, visible, currentsong, cached_volume, current_media_type
 
     stopsong()
+    # TODO: Add a method to check when VLC stops playing, then reset `currentsong` to None
 
-    current_media_player = 1
-
+    current_media_player = 1 # Set current media player as VLC
     if media_type == 'video':
         vas.set_media(_type='yt_video', vidurl=media_url)
-        USER_DATA['default_user_data']['stats']['play_count']['youtube'] += 1
-        save_user_data()
-    elif media_type == 'audio':
-        vas.set_media(_type='audio', audurl=media_url)
-        USER_DATA['default_user_data']['stats']['play_count']['audio'] += 1
-        save_user_data()
-    elif media_type == 'radio':
-        # Here `media_name` is actually the radio name
-        vas.set_media(_type=f'radio/{media_name}') # No need for an explicit `audurl` here... (as per definition of vas.set_media)
-        USER_DATA['default_user_data']['stats']['play_count']['radio'] += 1
-        save_user_data()
-    else:
-        err("Invalid media provided")
 
-    vas.media_player(action='play')
-    vas.vlc_media_player.get_media_player().audio_set_volume(int(cached_volume*100))
-    isplaying = True
-
-    if not media_name and media_type == 'video':
-        try:
-            vid_info = YT_query.vid_info(media_url)
-            media_name = vid_info['title']
-        except Exception:
-            pass
-
-    # TODO: Add a method to check when VLC stops playing, then reset `currentsong` to None
-    if media_type == 'video':
         current_media_type = 0
         currentsong = (media_name, media_url)
+
+        if not media_name:
+            try:
+                vid_info = YT_query.vid_info(media_url)
+                media_name = vid_info['title']
+            except Exception:
+                media_name = '[VIDEO NAME COULD NOT BE RESOLVED]'
+                SAY(visible=visible,
+                    display_message = '',
+                    log_message = f'video name could not be resolved for {currentsong[1]}'
+                    log_priority = 2)
+
         if print_now_playing and visible:
             if single_video:
                 print(f"Playing YouTube search result: {colored.fg('plum_1')}{media_name}{colored.attr('reset')}")
             else:
                 print(f"Chosen YouTube video: {colored.fg('plum_1')}{media_name}{colored.attr('reset')}")
             print(f"@ {media_url}")
+
     elif media_type == 'audio':
+        vas.set_media(_type='audio', audurl=media_url)
+
         current_media_type = 1
         currentsong = media_url
         print(f"Chosen custom audio url")
+
     elif media_type == 'radio':
+        # Here `media_name` is actually the radio name
+        vas.set_media(_type=f'radio/{media_name}') # No need for an explicit `audurl` here... (as per definition of vas.set_media)
+
         current_media_type = 2
         currentsong = media_name
         print(f"Chosen radio: {currentsong}")
 
+    else:
+        media_type = None
+        SAY(visible=visible, display_message = "Invalid media type provided", log_message = "Invalid media type provided", log_priority = 2)
+
+    vas.media_player(action='play')
+    vas.vlc_media_player.get_media_player().audio_set_volume(int(cached_volume*100))
+    isplaying = True
+
+    if media_name == 'video': media_name = 'youtube'
+    if media_type: SAY(visible=visible, display_message = '', log_message = currentsong, log_priority = 3)
+    USER_DATA['default_user_data']['stats']['play_count'][media_name] += 1
+    save_user_data()
 
 def choose_yt_vid(ytv_choices: list):
     global current_media_player, isplaying, currentsong
@@ -926,12 +930,13 @@ def process(command):
                 display_message='/? Invalid command, perhaps you meant "ispl?" for "is playing?"', log_message=f'Command assumed to be misspelled: {currentsong}', log_priority=3)
 
         elif commandslist[0].lower() in ['ispl?', 'isplaying?']:
-            print(isplaying)
+            # TODO - Make this work for VAS play, as VAS song ends are not detected and therefore, recorded...
+            print(int(isplaying))
 
         elif commandslist[0].lower() in ['isl?', 'isloaded?']:
             if current_media_player:
                 print(vas.vlc.media)
-            print(bool(currentsong))
+            print(int(bool(currentsong)))
 
         elif commandslist[0].lower() == 'seek':
             rawtime = commandslist[1]
