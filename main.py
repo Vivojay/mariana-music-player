@@ -33,106 +33,106 @@
 # IMPORTS BEGIN #
 
 import time
-APP_BOOT_START_TIME = time.time();                  print("Loaded 1/24", end='\r')
+APP_BOOT_START_TIME = time.time();                  print("Loaded 1/25", end='\r')
 
-import os;                                          print("Loaded 2/24", end='\r')
+import os;                                          print("Loaded 2/25", end='\r')
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
-# import itertools;                                   print("Loaded 3/24", end='\r')
+# import itertools;                                   print("Loaded 3/25", end='\r')
 
-import re;                                          print("Loaded 4/24", end='\r')
-import sys;                                         print("Loaded 5/24",  end='\r')
-import urllib;                                      print("Loaded 6/24",  end='\r')
-import pygame;                                      print("Loaded 7/24",  end='\r')
-import numpy as np;                                 print("Loaded 8/24", end='\r')
-import random as rand;                              print("Loaded 9/24", end='\r')
-import importlib;                                   print("Loaded 10/24", end='\r')
-import colored;                                     print("Loaded 11/24", end='\r')
+import re;                                          print("Loaded 4/25", end='\r')
+import sys;                                         print("Loaded 5/25",  end='\r')
+import urllib;                                      print("Loaded 6/25",  end='\r')
+import pygame;                                      print("Loaded 7/25",  end='\r')
+import numpy as np;                                 print("Loaded 8/25", end='\r')
+import random as rand;                              print("Loaded 9/25", end='\r')
+import importlib;                                   print("Loaded 10/25", end='\r')
+import colored;                                     print("Loaded 11/25", end='\r')
 
-# import concurrent.futures;                          print("Loaded 11/24", end='\r')
+# import concurrent.futures;                          print("Loaded 11/25", end='\r')
 
-from tabulate import tabulate as tbl;               print("Loaded 12/24", end='\r')
-from ruamel.yaml import YAML;                       print("Loaded 13/24", end='\r')
-from collections.abc import Iterable;               print("Loaded 14/24", end='\r')
-from logger import SAY;                             print("Loaded 15/24", end='\r')
-from multiprocessing import Process;                print("Loaded 16/24", end='\r')
-
+from tabulate import tabulate as tbl;               print("Loaded 12/25", end='\r')
+from ruamel.yaml import YAML;                       print("Loaded 13/25", end='\r')
+from collections.abc import Iterable;               print("Loaded 14/25", end='\r')
+from logger import SAY;                             print("Loaded 15/25", end='\r')
+from multiprocessing import Process;                print("Loaded 16/25", end='\r')
 
 online_streaming_ext_load_error = 0
 lyrics_ext_load_error = 0
 redditsessions = None
 
-
 try:
     import lyrics_provider.lyrics_view_window # Time taking import
-    print("Loaded 17/24", end='\r')
+    print("Loaded 17/25", end='\r')
 except ImportError:
     # raise
     print("[INFO] Could not load lyrics extension...")
-    print("[INFO] Skipped 17/24")
+    print("[INFO] Skipped 17/25")
 
 try:
     import librosa
-    print("Loaded 18/24",  end='\r') # Time taking import (Sometimes, takes ages...)
+    print("Loaded 18/25",  end='\r') # Time taking import (Sometimes, takes ages...)
 except ImportError:
     print("[WARN] Could not load music computation extension...")
-    print("[WARN] Skipped 18/24")
+    print("[WARN] Skipped 18/25")
 
 try:
     vas = importlib.import_module("beta.vlc-async-stream")
     vas = importlib.reload(vas)
-    print("Loaded 19/24", end='\r')
+    print("Loaded 19/25", end='\r')
 except ImportError:
     online_streaming_ext_load_error = 1
     print("[INFO] Could not load online streaming extension...")
-    print("[INFO] Skipped 19/24")
+    print("[INFO] Skipped 19/25")
 
 try:
     YT_query = importlib.import_module("beta.YT_query")
-    print("Loaded 20/24", end='\r')
+    print("Loaded 20/25", end='\r')
 except ImportError:
-    raise
+    # raise
     if not online_streaming_ext_load_error:
         print("[INFO] Could not load online streaming extension...")
-    print("[INFO] Skipped 20/24")
+    print("[INFO] Skipped 20/25")
 
 try:
     IPrint = importlib.import_module('beta.IPrint')
-    print("Loaded 21/24", end='\r')
+    print("Loaded 21/25", end='\r')
 except ImportError:
     lyrics_ext_load_error = 1
     print("[INFO] Could not load coloured print extension...")
-    print("[INFO] Skipped 21/24")
+    print("[INFO] Skipped 21/25")
 
 try:
     lvw = importlib.import_module('lyrics_provider.lyrics_view_window')
-    print("Loaded 22/24", end='\r')
+    print("Loaded 22/25", end='\r')
 except ImportError:
     print("[INFO] Could not load lyrics extension...")
     if not lyrics_ext_load_error:
         print("[INFO] Could not load online streaming extension...")
-    print("[INFO] Skipped 22/24")
+    print("[INFO] Skipped 22/25")
 
 try:
     from beta import redditsessions
     if redditsessions.WARNING:
         print("[WARN] Could not load reddit-sessions extension...")
         print(f"[WARN] {redditsessions.WARNING}")
-        print("[WARN] Skipped 23/24")
+        print("[WARN] Skipped 23/25")
         redditsessions = None
     else:
-        print("Loaded 23/24", end='\r')
+        print("Loaded 23/25", end='\r')
 except ImportError:
     print("[INFO] Could not load reddit-sessions extension..., module 'praw' missing")
-    print("[INFO] Skipped 23/24")
+    print("[INFO] Skipped 23/25")
 
 from beta.master_volume_control import get_master_volume, set_master_volume
-print("Loaded 24/24", end='\r')
+print("Loaded 24/25", end='\r')
 
+import webbrowser;                                      print("Loaded 25/25", end='\r')
 
 # Variables
 APP_BOOT_TIME_END = time.time()
 FIRST_BOOT = False
+ISDEV = True # Useful as a test flag for new features
 yaml = YAML(typ='safe')  # Allows for safe YAML loading
 
 EXIT_INFO = 0
@@ -153,6 +153,9 @@ current_media_player can be either 0 or 1:
     1: vlc
 """
 
+# Log levels from logger.py -> [Only for REF]
+# logleveltypes = {0: "none", 1: "fatal", 2: "warn", 3: "info", 4: "debug"}
+
 # From settings
 disable_OS_requirement = True
 supported_file_exts = '.wav .mp3'.split()  # Supported file extensions
@@ -165,8 +168,8 @@ cached_volume = 1  # Set as a factor between 0 to 1 times of max volume player v
 
 # IMPORTS END #
 
-curdir = os.path.dirname(os.path.realpath(__file__))
-os.chdir(curdir)
+CURDIR = os.path.dirname(os.path.realpath(__file__))
+os.chdir(CURDIR)
 
 if not os.path.isdir('logs'): os.mkdir('logs')
 
@@ -211,14 +214,18 @@ except IOError:
 try:
     with open('user/user_data.yml', encoding='utf-8') as u_data_file:
         USER_DATA = yaml.load(u_data_file)
-        if list(USER_DATA.keys()) == ['default']:
-            if not FIRST_BOOT:
+        if list(USER_DATA.keys()) == ['default_user_data']:
+            if not FIRST_BOOT and not ISDEV: # TODO - remove temp ISDEV flag after user login and register feature is fully functional
                 SAY(visible=visible,
                     display_message = '',
                     log_message = 'User data found to be empty, reverting to default',
                     log_priority = 3)
 except IOError:
-    SAY()
+    SAY(visible=visible,
+        display_message = f'Encountered missing program file @{os.path.join(CURDIR, "user\\user_data.yml")}',
+        log_message = 'User data file not found',
+        log_priority = 1) # Log fatal crash
+    sys.exit(1) # Fatal crash
 
 # Flattens list of any depth
 def flatten(l):
@@ -256,7 +263,6 @@ if redditsessions:
 else:
     r_seshs = None
 
-# TODO - Make url_is_valid a multipurpose function for yt and otherwise
 def url_is_valid(url, yt=True):
     """
     Checks that a given URL is reachable.
@@ -295,7 +301,7 @@ def save_user_data():
         yaml.dump(USER_DATA, u_data_file)
 
 def exitplayer(sys_exit=False):
-    global songstopped, EXIT_INFO, APP_BOOT_START_TIME
+    global songstopped, EXIT_INFO, APP_BOOT_START_TIME, USER_DATA
 
     songstopped = True
     try:
@@ -313,9 +319,18 @@ def exitplayer(sys_exit=False):
 
 
     # TODO
-    # Log exit info in logger...
-    # Save this session info for next bootup...
-    # including time spent on application (with APP_CLOSE_TIME - APP_BOOT_TIME_START)...
+    # Save this session's info for next bootup...
+    # including time spent on application
+
+    time_spent_on_app = APP_CLOSE_TIME - APP_BOOT_START_TIME
+
+    SAY(visible=visible,
+        display_message = '',
+        log_message = f'Time spent using app = {time_spent_on_app}',
+        log_priority = 3)
+
+    USER_DATA['default_user_data']['stats']['times_spent'].append(time_spent_on_app)
+    save_user_data()
 
     if visible:
         print(colored.fg('red')+'Exiting...'+colored.attr('reset'))
@@ -331,7 +346,7 @@ def exitplayer(sys_exit=False):
 
 def play_local_default_player(songpath, _songindex):
     global isplaying, currentsong, songlength, songindex, current_media_player
-    global USER_DATA
+    global USER_DATA, current_media_type
 
     try:
         if current_media_player:
@@ -352,9 +367,17 @@ def play_local_default_player(songpath, _songindex):
             print(colored.fg('dark_olive_green_2') + \
                   f':: {os.path.splitext(os.path.split(songpath)[1])[0]}' + \
                   colored.attr('reset'))
+
+        current_media_type = None
         
         USER_DATA['default_user_data']['stats']['play_count']['local'] += 1
         save_user_data()
+
+
+        SAY(visible=visible,
+            display_message = '',
+            log_message = 'User data found to be empty, reverting to default',
+            log_priority = 3)
 
     except Exception:
         # raise
@@ -699,7 +722,7 @@ def validate_time(rawtime):
 def play_vas_media(media_url, single_video = None, media_name = None,
                    print_now_playing = True, media_type = 'video'):
 
-    global isplaying, current_media_player, visible, currentsong, cached_volume
+    global isplaying, current_media_player, visible, currentsong, cached_volume, current_media_type
 
     stopsong()
 
@@ -732,6 +755,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
         except Exception:
             pass
 
+    # TODO: Add a method to check when VLC stops playing, then reset `currentsong` to None
     if media_type == 'video':
         current_media_type = 0
         currentsong = (media_name, media_url)
@@ -744,10 +768,11 @@ def play_vas_media(media_url, single_video = None, media_name = None,
     elif media_type == 'audio':
         current_media_type = 1
         currentsong = media_url
-        print("C")
+        print(f"Chosen custom audio url")
     elif media_type == 'radio':
         current_media_type = 2
         currentsong = media_name
+        print(f"Chosen radio: {currentsong}")
 
 
 def choose_yt_vid(ytv_choices: list):
@@ -789,6 +814,8 @@ def choose_yt_vid(ytv_choices: list):
 
 def process(command):
     global _sound_files_names_only, visible, currentsong, isplaying, ismuted, cached_volume
+    global current_media_player, current_media_type
+
     commandslist = command.strip().split()
 
     if pygame.mixer.music.get_pos() == -1:
@@ -843,7 +870,7 @@ def process(command):
                 else:
                     # List files matching provided regex pattern
                     # Need to implement a check to validate the provided regex pattern
-                    print(f'regex search is still in progress... The developer @{ABOUT["about"]["author"]} will add this feature shortly...')
+                    print(f'Regex search is still in progress... The developer @{ABOUT["about"]["author"]} will add this feature shortly...')
                     # regex_pattern
                     # regexp = re.compile(regex_pattern)
 
@@ -1024,10 +1051,9 @@ def process(command):
         elif commandslist[0] == 'weblinks':
             print(f'Weblinks feature is still in progress... The developer @{ABOUT["about"]["author"]} will add this feature shortly...')
 
-        # TODO - Make this work even if current_media_type == 1 (i.e. VLC)
         elif commandslist[0] == 'open':
             if commandslist == ['open']:
-                if currentsong:
+                if currentsong and current_media_player == 0:
                     if os.path.isfile(currentsong):
                         if os.path.splitext(currentsong)[1] in supported_file_exts:
                             os.system(f'explorer /select, {currentsong}')
@@ -1036,7 +1062,21 @@ def process(command):
                     else:
                         print(0)
                 else:
-                    err("No song playing, no file selected to open")
+                    if current_media_player: # VLC
+                        if current_media_type == 0:
+                            webbrowser.open(currentsong[1])
+                        elif current_media_type == 1:
+                            webbrowser.open(currentsong)
+                        elif current_media_type == 2:
+                            webbrowser.open(f"https://s2-webradio.antenne.de/{currentsong}")
+                        else:
+                            SAY(visible=visible,
+                                display_message = '',
+                                log_message = 'Received invalid type for current media',
+                                log_priority = 2
+                                format_style = 1)
+                    else:
+                        err("No song playing, no file selected to open")
 
             else:
                 path = ' '.join(commandslist[1:])
@@ -1047,6 +1087,10 @@ def process(command):
                         print(0)
                 else:
                     print(0)
+
+        elif commandslist in ['rr', ['resync, radio']]:
+            if current_media_type == 2: # If radio is playing...
+                vas.media_player(action='resync') # Resync radio to live stream
 
         elif commandslist[0] == 'path':
             if len(commandslist) == 2:
@@ -1210,7 +1254,7 @@ def process(command):
 
         # TODO - DEBUG THIS + CONNECT TO play_vas_media
         elif commandslist[0] in ['/rs', '/reddit-sessions']:
-            print(f'live sessions from r/redditsessions are still in progress... The developer @{ABOUT["about"]["author"]} will add this feature shortly...')
+            print(f'Live sessions from r/redditsessions are still in progress... The developer @{ABOUT["about"]["author"]} will add this feature shortly...')
 
 
 def mainprompt():
