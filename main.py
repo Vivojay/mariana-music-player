@@ -222,7 +222,7 @@ try:
                     log_priority = 3)
 except IOError:
     SAY(visible=visible,
-        display_message = f'Encountered missing program file @{os.path.join(CURDIR, "user\\user_data.yml")}',
+        display_message = f'Encountered missing program file @{os.path.join(CURDIR, "user/user_data.yml")}',
         log_message = 'User data file not found',
         log_priority = 1) # Log fatal crash
     sys.exit(1) # Fatal crash
@@ -1073,7 +1073,7 @@ def process(command):
                             SAY(visible=visible,
                                 display_message = '',
                                 log_message = 'Received invalid type for current media',
-                                log_priority = 2
+                                log_priority = 2,
                                 format_style = 1)
                     else:
                         err("No song playing, no file selected to open")
