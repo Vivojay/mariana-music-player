@@ -589,13 +589,13 @@ Various type of tagging is allowed, e.g.:
 
 color code song indices by play freq:
   (Upper limits are excluded in range)
-  key:	meaning	 abs(play_count) rel (%)
-	0:	never	 0				 0%
-	1:	least	 -				 0-4%
-	2:	less	 4-15			 4-10%
-	3:	moderate 15-100			 10-42%
-	4:	more	 100-inf		 42-80%
-	5:	most	 -				 80-100%
+  key:	meaning	  abs(play_count)  rel (%)
+    0:  never     0                0%
+    1:  least     -                0-4%
+    2:  less      4-15             4-10%
+    3:  moderate  15-100           10-42%
+    4:  more      100-inf          42-80%
+    5:  most      -                80-100%
 
   relative plays (%) = (abs play_count)/(total play_count)*100 %
 
