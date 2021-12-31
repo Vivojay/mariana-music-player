@@ -1,6 +1,6 @@
 
 #################################################################################################################################
-# Mariana Player v0.3.4
+# Mariana Player v0.4.1
 
 # running app:
 #	For very first boot (SETUP):
@@ -332,11 +332,6 @@ def exitplayer(sys_exit=False):
     if not current_media_player: pygame.mixer.quit()
     APP_CLOSE_TIME = time.time()
 
-
-    # TODO
-    # Save this session's info for next bootup...
-    # including time spent on application
-
     time_spent_on_app = APP_CLOSE_TIME - APP_BOOT_START_TIME
 
     SAY(visible=visible,
@@ -552,6 +547,7 @@ def searchsongs(queryitems):
     return out
 
 
+# TODO - Implement librosa bpm + online bpm API features 
 # def get_bpm(filename, duration=50, enable_round=True):
 #     y, sr = librosa.load(filename, duration=duration)
 #     tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
@@ -559,22 +555,6 @@ def searchsongs(queryitems):
 #         return round(tempo)
 #     else:
 #         return tempo
-
-
-def display_lyrics_window():
-    global isshowinglyrics
-    isshowinglyrics = not isshowinglyrics
-
-    if current_media_player:
-        if current_media_type == 0: # Video
-            # TODO - Get lyrics from currently playing YouTube audio, given its video url
-            print(f'Lyrics from YT vids are still in progress... The developer @{ABOUT["about"]["author"]} will add this feature shortly...')
-        elif current_media_type == 1: # Audio
-            lvw.show_window(weblink=currentsong)
-        elif current_media_type == 2: # Radio
-            lvw.show_window(weblink=f"https://s2-webradio.antenne.de/{currentsong}")
-        elif current_media_type == 3: # Redditsession
-            lvw.show_window(weblink=currentsong[1])
 
 def enqueue(songindices):
     print("Enqueuing")
@@ -671,7 +651,7 @@ def timeinput_to_timeobj(rawtime):
         # print (None, None)
         return (None, None)
 
-def get_currentsong_length(): # TODO - Complete this function...
+def get_currentsong_length():
     global current_media_player, currentsong_length, currentsong_length
     if currentsong:
         if current_media_player:
@@ -689,7 +669,6 @@ def song_seek(timeval=None, rel_val=None):
     if timeval:
         if current_media_player:
             try:
-                # print(int(timeval*1000)) # TODO - Remove this line
                 vas.vlc_media_player.get_media_player().set_time(int(timeval)*1000)
                 return True
             except Exception:
@@ -762,7 +741,6 @@ def play_vas_media(media_url, single_video = None, media_name = None,
 
     # Stop prev songs b4 loading VAS Media...
     stopsong()
-    # TODO: Add a method to check when VLC stops playing, then reset `currentsong` to None
 
     # VAS Media Load/Set
     current_media_player = 1 # Set current media player as VLC
@@ -994,6 +972,7 @@ def process(command):
             play_commands(commandslist=commandslist)
 
         elif commandslist[0].lower() in ['m?', 'ism?', 'ismute?']:
+            # TODO - Make more reliable...?
             print(int(ismuted))
 
         elif commandslist[0].lower() in ['isp?', 'ispl', 'isp']:
@@ -1001,10 +980,11 @@ def process(command):
                 display_message='/? Invalid command, perhaps you meant "ispl?" for "is playing?"', log_message=f'Command assumed to be misspelled: {currentsong}', log_priority=3)
 
         elif commandslist[0].lower() in ['ispl?', 'isplaying?']:
-            # TODO - Make this work for VAS play, as VAS song ends are not detected and therefore, recorded...
+            # TODO - Make more reliable...?
             print(int(isplaying))
 
         elif commandslist[0].lower() in ['isl?', 'isloaded?']:
+            # TODO - Make more reliable...?
             if current_media_player:
                 print(vas.vlc.media)
             print(int(bool(currentsong)))
@@ -1056,8 +1036,26 @@ def process(command):
                 SAY(visible=visible, display_message="Error: No song to seek",
                     log_message=f'Seeked song w/o playing any', log_priority=2)
 
-        elif commandslist in [['prog'], ['progress']]: # TODO- Make complete code for this process
-            pass
+        elif commandslist in [['prog'], ['progress'], ['prog*'], ['progress*']]:
+            if currentsong:
+                if currentsong_length:
+                    cur_len = currentsong_length
+                else:
+                    cur_len = get_currentsong_length()
+
+                cur_prog = get_current_progress()
+
+                prog_sep = f"{colored.fg('green_1')}|{colored.attr('reset')}"
+
+                if commandslist[0].endswith('*'):
+
+                    print(f"progress: {colored.fg('deep_pink_1a')}{round(cur_prog)}/{round(cur_len)}"
+                        f" {prog_sep} {colored.attr('reset')}remaining: {colored.fg('orange_1')}{round(cur_len-cur_prog)}"
+                        f" {prog_sep} {colored.attr('reset')}elapsed: {colored.fg('light_goldenrod_1')}{round(cur_prog/cur_len*100)}%")
+                else:
+                    print(f"{colored.fg('deep_pink_1a')}{round(cur_prog)}/{round(cur_len)}"
+                        f" {prog_sep} {colored.fg('orange_1')}{round(cur_len-cur_prog)}"
+                        f" {prog_sep} {colored.fg('light_goldenrod_1')}{round(cur_prog/cur_len*100)}%")
 
         elif commandslist == ['t']:
             print(convert(get_current_progress()))
@@ -1067,6 +1065,7 @@ def process(command):
 
         elif commandslist == ['=rand']:  # Print random song number
             print(rand_song_index())
+            convert(get_current_progress())
 
         elif commandslist == ['rand']:  # Print random song name
             print(_sound_files_names_only[rand_song_index()])
@@ -1236,6 +1235,8 @@ def process(command):
                     pygame.mixer.music.set_volume(cached_volume)
 
         elif commandslist in [['lyr'], ['lyrics']]:
+            global isshowinglyrics
+            isshowinglyrics = not isshowinglyrics
             if current_media_player:
                 if current_media_type == 0:
                     print(f"Loading lyrics window for (Time taking)...")
@@ -1306,7 +1307,7 @@ def process(command):
                 if currentsong_length:
                     print(convert(currentsong_length))
                 else:
-                    print(convert(get_currentsong_length()), currentsong_length)
+                    print(convert(get_currentsong_length()))
 
         # E.g. /ys "The Weeknd Blinding Lights"
         #                       or
