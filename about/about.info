@@ -8,7 +8,7 @@ isdev: true
 ver:
   maj: 0
   min: 4
-  rel: 0
+  rel: 1
 
 last_major_change:
   - "Added reddit sessions support"
