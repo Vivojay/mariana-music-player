@@ -1,10 +1,16 @@
 ```
-Make into an executable release
+Easter Eggs (Fun stuff)
+Make into an executable release -> Host on GitHub
 COLOUR OUTPUT
 IMPLEMENT QUEUE PLAYING
+Currently beta features are switched on by default and cannot be opted out of; Change this...
 
-MAKE THE STEP-BY-STEP WIZARD FOR INITIAL SETUP A BREEZE...
-    ASK IF YOU WANT TO START APP NOW...
+MIGRATE ENTIRELY TO python-vlc FOR PLAYING SONGS OF ANY KIND(CODEC)...
+
+MAKE THE STEP-BY-STEP WIZARD FOR INITIAL SETUP A BREEZE... (Already kinda is...?)
+    ASK 3 QUESTIONS                         ??? (Do we really need it?)
+    TELL 3 THINGS                           ??? (Do we really need it?)
+    ASK IF YOU WANT TO START APP NOW...     ??? (Do we really need it?)
 
 Save all recursive file paths from all lib dirs in a libpaths files for quick reload 
 Mark unplayable/corrupt song files and exclude them from libpaths
@@ -27,7 +33,6 @@ Find command will be issuable with the following options:
     t <tag_name>: Show only files with given tag (if multiple tags specified, then all tags mst be present)
     f: Show only favourited files
     
-Maybe make a curses based version someday?
 
 Many Great Visualizers (2D and 3D, color changing, other effects....)
 Song Videos from youtube (if available) ... ? (May not be implemented)
@@ -98,20 +103,48 @@ Various type of tagging is allowed, e.g.:
 
 color code song indices by play freq:
   (Upper limits are excluded in range)
-  key:	meaning	 abs(play_count) rel (%)
-	0:	never	 0				 0%
-	1:	least	 -				 0-4%
-	2:	less	 4-15			 4-10%
-	3:	moderate 15-100			 10-42%
-	4:	more	 100-inf		 42-80%
-	5:	most	 -				 80-100%
+  key:	meaning	  abs(play_count)  rel (%)
+    0:  never     0                0%
+    1:  least     -                0-4%
+    2:  less      4-15             4-10%
+    3:  moderate  15-100           10-42%
+    4:  more      100-inf          42-80%
+    5:  most      -                80-100%
 
   relative plays (%) = (abs play_count)/(total play_count)*100 %
 
-
 Connect to popular free radio service
-Connect to popular free podcast service
-Connect to popular free lyrics service
+Podcasts
+    Connect to popular free podcast service(s)
+    Allow to open a text file and read content from it in a podcast-like voice
+        Using openAI perhaps?
+        (beta feat: maybe add pauses, noises, crackles, etc... for a more natural podcast room/environment experience)
+    Get Reddit post (podcast-like) texts from subreddits like:
+    (preferably long, storylike texts)
+        casualconversations
+        seriousconversations
+        talesfromtechsupport
+        talesfromretail
+        letsnotmeet
+        creepyencounters
+        worldnews
+        financialindependence
+        amitheasshole
+        nosleep
+        tifu
+        legaladvice
+        idontworkherelady
+        confession
+        relationships
+        relationship_advice
+        justnomil
+
+Reddit RPAN - Add sync feature
+Reddit sessions by famous* players:
+    e.g.    @jonathandaleofficial
+            @saxsquatch
+            ...
+Connect to popular free lyrics service (shazamio)
 Hide/blacklist songs
 Clear recents/history logs/etc….
 Set metadata:
@@ -128,9 +161,62 @@ Copy/Replace a file into a converted format
 
 Make Externally controllable (via keyboard keys...)?
 
+Color coded convert() function for time!...
+
+Use alternative: https://github.com/itspoma/audio-fingerprint-identifying-python.git
+    for quicker fingerprinting and lyrics extraction...
 
 If help or config file is not available or is corrupted, prompt user to download required files from GitHub or use default
 If default file is not available or is corrupted, prompt user to download required files from GitHub or close program, play beep at the end
 
-Have various user logins with completely separate encrypted data which is only decrypted once the user successfully logs in...
+
+VAS Checklist:
+    [ ] Add song stop detect; raise flag on song stop when played as VAS
+    [x] Radio
+    [x] Play single video as audio
+    [x] Video list, pick video, play as audio
+    [x] Reddit Sessions
+
+Make everything configurable, including:
+    Making commands (un)available
+implement rel_val: rel_val = +5 means seek +5000 ms relative to cur pos
+Make a new command t*: must show: (<abs_progress\> / <total_length\>) + (percent_complete)
+Show a small GUI window for constant progress display... (Requires multiprocessing??)
+Allow decimal-point time seeking for VAS media type
+Make seek work for pygame? or solve it automatically by entirely migrating to VLC...
+
+Have various user logins with completely separate encrypted data which is only decrypted once 
+the user successfully logs in...
+
+Set volume at boot to: `override_default_boot_volume` or set it to remember last session's volume
+
+Get list of urls of `n` newly released songs from whatever sources possible (any 3rd party api or one of the moajor players listed below...)
+Connect with Music Streaming Services?? E.g.
+    YTMusic?
+    Spotify?
+    Deezer?
+    SoundCloud?
+    Other...
+    (`n` maybe adjustable via the config/commandline/fallback_value/etc...)
+
+Make the (ls|list) feature way more powerful and robust, migrate from (f[ind]) to (ls|list)
+    i.e. deprecate (f[ind])... (but not completely remove it yet...)
+
+Give users a short note about the fact that importing modules no.: 7, 17, 22, 23, and 24
+    take a longer time than usual
+
+ACTUALLY MAKE USE OF the `loglevel` variable, it's not just for fun :meh:
+    for refs: loglevels have the following values:
+        {
+            0: "none",  # Don't log anything, not even fatal crashes (LIKE WHUT?)
+            1: "fatal", # Only log fatalities
+            2: "warn",  # Log fatalities + warnings
+            3: "info",  # Log fatalities + warnings + info
+            4: "debug"  # Log pretty much every single line of code, this's going to take my whole day :(
+        }
+
+-----------------------------------------------------------------------------------
+Footnotes:
+*They may not be that famous, but I think they're atleast regular and noticeable when I see them on r/redditsessions...
+You guys can tell me more great subs/sites/people if u want, and I might add them!
 ```
