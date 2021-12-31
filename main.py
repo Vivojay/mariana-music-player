@@ -61,20 +61,12 @@ online_streaming_ext_load_error = 0
 lyrics_ext_load_error = 0
 redditsessions = None
 
-try:
-    import lyrics_provider.lyrics_view_window # Time taking import
-    print("Loaded 17/25", end='\r')
-except ImportError:
-    # raise
-    print("[INFO] Could not load lyrics extension...")
-    print("[INFO] Skipped 17/25")
-
-try:
-    import librosa
-    print("Loaded 18/25",  end='\r') # Time taking import (Sometimes, takes ages...)
-except ImportError:
-    print("[WARN] Could not load music computation extension...")
-    print("[WARN] Skipped 18/25")
+# try:
+#     import librosa
+#     print("Loaded 18/25",  end='\r') # Time taking import (Sometimes, takes ages...)
+# except ImportError:
+#     print("[WARN] Could not load music computation extension...")
+#     print("[WARN] Skipped 18/25")
 
 try:
     vas = importlib.import_module("beta.vlc-async-stream")
@@ -129,47 +121,14 @@ print("Loaded 24/25", end='\r')
 
 import webbrowser;                                      print("Loaded 25/25", end='\r')
 
-# Variables
-APP_BOOT_TIME_END = time.time()
-FIRST_BOOT = False
-ISDEV = True # Useful as a test flag for new features
-yaml = YAML(typ='safe')  # Allows for safe YAML loading
-
-EXIT_INFO = 0
-
-isplaying = False
-songstopped = True
-currentsong = None  # No song playing initially
-ismuted = False
-isshowinglyrics = False
-
-settings = None
-songindex = -1
-
-current_media_player = 0
-"""
-current_media_player can be either 0 or 1:
-    0: default (pygame)
-    1: vlc
-"""
-
-# Log levels from logger.py -> [Only for REF]
-# logleveltypes = {0: "none", 1: "fatal", 2: "warn", 3: "info", 4: "debug"}
-
-# From settings
-disable_OS_requirement = True
-supported_file_exts = '.wav .mp3'.split()  # Supported file extensions
-visible = True
-max_yt_search_results_threshold = 15
-loglevel = 3
-
-# From last session info
-cached_volume = 1  # Set as a factor between 0 to 1 times of max volume player volume
-
 # IMPORTS END #
+
 
 CURDIR = os.path.dirname(os.path.realpath(__file__))
 os.chdir(CURDIR)
+
+yaml = YAML(typ='safe')  # Allows for safe YAML loading
+ISDEV = True # Useful as a test flag for new features
 
 if not os.path.isdir('logs'): os.mkdir('logs')
 
@@ -178,13 +137,13 @@ def create_required_files_if_not_exist(*files):
     for file in files:
         if not os.path.isfile(file):
             FIRST_BOOT = True
-            with open(file, 'w') as _:
+            with open(file, 'w', encoding="utf-8") as _:
                 pass
 
 
 create_required_files_if_not_exist(
-    'recents.log',
-    'generallogs.log',
+    'logs/recents.log',
+    'logs/general.log',
 )
 
 try:
@@ -227,6 +186,56 @@ except IOError:
         log_priority = 1) # Log fatal crash
     sys.exit(1) # Fatal crash
 
+
+try:
+    with open('settings/settings.yml', encoding='utf-8') as u_data_file:
+        SETTINGS = yaml.load(u_data_file)
+
+except IOError:
+    SAY(visible=visible,
+        display_message = f'Encountered missing program file @{os.path.join(CURDIR, "settings/settings.yml")}',
+        log_message = 'Aborting player because settings file was not found',
+        log_priority = 1) # Log fatal crash
+    sys.exit(1) # Fatal crash
+
+
+
+# Variables
+APP_BOOT_TIME_END = time.time()
+FIRST_BOOT = False
+EXIT_INFO = 0
+FALLBACK_RESULT_COUNT = SETTINGS['display items count']['fallback']
+FATAL_ERROR_INFO = None
+
+isplaying = False
+currentsong = None  # No song playing initially
+ismuted = False
+isshowinglyrics = False
+currentsong_length = None
+
+settings = None
+songindex = -1
+
+current_media_player = 0
+"""
+current_media_player can be either 0 or 1:
+    0: default (pygame)
+    1: vlc
+"""
+
+# Log levels from logger.py -> [Only for REF]
+# logleveltypes = {0: "none", 1: "fatal", 2: "warn", 3: "info", 4: "debug"}
+
+# From settings
+disable_OS_requirement = True
+supported_file_exts = '.wav .mp3'.split()  # Supported file extensions (wav seeking sucks with pygame)
+visible = True
+max_yt_search_results_threshold = 15
+loglevel = 3
+
+# From last session info
+cached_volume = 1  # Set as a factor between 0 to 1 times of max volume player volume
+
 # Flattens list of any depth
 def flatten(l):
     for el in l:
@@ -256,7 +265,12 @@ _sound_files_names_enumerated = [(i+1, j) for i, j in enumerate(_sound_files_nam
 
 
 if _sound_files_names_only == []:
-    sys.exit("All source directories are empty, please consider rechecking lib.lib and adding more suitable source directories.\n Exiting Program. . .")
+    if loglevel in [3, 4]:
+        print("[INFO] All source directories are empty, you may and add more source directories to your library")
+        print("[INFO] To edit this library file (of source directories), refer to the `help.md` markdown file.")
+
+    # FATAL_ERROR_INFO = "No supported sound files found in lib source dirs"
+    # sys.exit(input("Hit enter to close..."))
 
 if redditsessions:
     r_seshs = redditsessions.get_redditsessions()
@@ -284,37 +298,36 @@ def url_is_valid(url, yt=True):
         return False
     except ValueError:
         return False
-    else:
-        return False
 
+
+def get_current_progress(): # Will not work because pygame returns
+                            # playtime instead of play position
+                            # when running get_pos() for some
+                            # odd reason...
+    if current_media_player:
+        cur_prog = vas.vlc_media_player.get_media_player().get_time()/1000
+    else:
+        cur_prog = pygame.mixer.music.get_pos()/1000
+
+    return cur_prog
 
 def save_user_data():
     global USER_DATA
 
     total_plays = [j for i, j in
                    USER_DATA['default_user_data']['stats']['play_count'].items()
-                   if i in ['local', 'radio', 'audio', 'youtube']]
+                   if i in ['local', 'radio', 'audio', 'youtube', 'redditsession']]
     total_plays = sum(total_plays)
     USER_DATA['default_user_data']['stats']['play_count']['total'] = total_plays
 
-    with open('user/user_data.yml', 'w') as u_data_file:
+    with open('user/user_data.yml', 'w', encoding="utf-8") as u_data_file:
         yaml.dump(USER_DATA, u_data_file)
 
 def exitplayer(sys_exit=False):
-    global songstopped, EXIT_INFO, APP_BOOT_START_TIME, USER_DATA
+    global EXIT_INFO, APP_BOOT_START_TIME, USER_DATA
 
-    songstopped = True
-    try:
-        pygame.mixer.music.stop()
-        pygame.mixer.quit()
-    except Exception:
-        pass
-
-    try:
-        vas.media_player(action='stop')
-    except Exception:
-        pass
-
+    stopsong()
+    if not current_media_player: pygame.mixer.quit()
     APP_CLOSE_TIME = time.time()
 
 
@@ -345,8 +358,8 @@ def exitplayer(sys_exit=False):
 
 
 def play_local_default_player(songpath, _songindex):
-    global isplaying, currentsong, songlength, songindex, current_media_player
-    global USER_DATA, current_media_type
+    global isplaying, currentsong, currentsong_length, songindex, current_media_player
+    global USER_DATA, current_media_type, SONG_CHANGED
 
     try:
         if current_media_player:
@@ -357,8 +370,6 @@ def play_local_default_player(songpath, _songindex):
         isplaying = True
         currentsong = songpath
 
-        load_song_info()
-
         if _songindex:
             print(colored.fg('dark_olive_green_2') + \
                   f':: {_sound_files_names_only[int(_songindex)-1]}' + \
@@ -367,16 +378,19 @@ def play_local_default_player(songpath, _songindex):
             print(colored.fg('dark_olive_green_2') + \
                   f':: {os.path.splitext(os.path.split(songpath)[1])[0]}' + \
                   colored.attr('reset'))
+            songindex = _sound_files.index(songpath)
 
+        if not currentsong_length: get_currentsong_length()
         current_media_type = None
-        
         USER_DATA['default_user_data']['stats']['play_count']['local'] += 1
         save_user_data()
 
         SAY(visible=visible,
             display_message = '',
-            log_message = 'Playing local song {currentsong}',
-            log_priority = 3)
+            out_file='logs/recents.log',
+            log_message = currentsong,
+            log_priority = 3,
+            format_style = 0)
 
     except Exception:
         # raise
@@ -487,7 +501,7 @@ def playpausetoggle(softtoggle=True, use_multi=False):  # Soft pause by default
             err("Nothing to pause/unpause", say=False)
 
     except Exception:
-        raise
+        # raise
         err(f'Failed to toggle play/pause: {currentsong}', say=False)
         SAY(
             visible=visible,
@@ -536,21 +550,29 @@ def searchsongs(queryitems):
     return out
 
 
-def get_bpm(filename, duration=50, enable_round=True):
-    y, sr = librosa.load(filename, duration=duration)
-    tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
-    if enable_round:
-        return round(tempo)
-    else:
-        return tempo
+# def get_bpm(filename, duration=50, enable_round=True):
+#     y, sr = librosa.load(filename, duration=duration)
+#     tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
+#     if enable_round:
+#         return round(tempo)
+#     else:
+#         return tempo
 
 
 def display_lyrics_window():
     global isshowinglyrics
     isshowinglyrics = not isshowinglyrics
 
-    lyrics_provider.lyrics_view_window.show_window(head=currentsong)
-
+    if current_media_player:
+        if current_media_type == 0: # Video
+            # TODO - Get lyrics from currently playing YouTube audio, given its video url
+            print(f'Lyrics from YT vids are still in progress... The developer @{ABOUT["about"]["author"]} will add this feature shortly...')
+        elif current_media_type == 1: # Audio/Redditsession
+            lvw.show_window(weblink=currentsong)
+        elif current_media_type == 2: # Radio
+            lvw.show_window(weblink=f"https://s2-webradio.antenne.de/{currentsong}")
+        elif current_media_type == 3: # Redditsession
+            lvw.show_window(weblink=currentsong[1])
 
 def enqueue(songindices):
     print("Enqueuing")
@@ -573,8 +595,7 @@ def enqueue(songindices):
 
 
 def play_commands(commandslist, _command=False):
-    # print(commandslist, _command)
-    global cached_volume
+    global cached_volume, currentsong_length
     pygame.mixer.music.set_volume(cached_volume)
 
     if not _command:
@@ -582,6 +603,7 @@ def play_commands(commandslist, _command=False):
             songindex = commandslist[1]
             if songindex.isnumeric():
                 if int(songindex) in range(len(_sound_files)+1):
+                    currentsong_length = None
                     play_local_default_player(_sound_files[int(songindex)-1],
                              _songindex=songindex)
                 else:
@@ -603,30 +625,16 @@ def play_commands(commandslist, _command=False):
 
             enqueue(songindices)
     else:
+        currentsong_length = None
         play_local_default_player(songpath=_command[1:], _songindex=None)
 
-
-def load_song_info():
-    global isplaying, currentsong, songlength
-
-    if currentsong:
-        if isplaying:
-            sound_obj = pygame.mixer.Sound(currentsong)
-
-            songlength = sound_obj.get_length()
-
-            curseekvalue = pygame.mixer.music.get_pos
-            curseekper = pygame.mixer.music.get_pos()/(sound_obj.get_length()*10)
-
-
 def timeinput_to_timeobj(rawtime):
-    # print(songlength, type(songlength))
     try:
         if ':' in rawtime.strip():
             processed_rawtime = rawtime.split(':')
             processed_rawtime = [int(i) if i else 0 for i in processed_rawtime]
 
-            print(processed_rawtime)
+            # print(processed_rawtime)
 
             # timeobj: A list of the format [WHOLE HOURS IN SECONDS, WHOLE MINUTES in SECONDS, REMAINING SECONDS]
             timeobj = [value * 60 ** (len(processed_rawtime) - _index - 1)
@@ -635,12 +643,11 @@ def timeinput_to_timeobj(rawtime):
             totaltime = sum(timeobj)
 
             formattedtime = ' '.join([''.join(map(lambda x: str(x), i)) for i in list(
-                zip(processed_rawtime, ['h', 'm', 's']))])
+                zip(processed_rawtime, ['h', 'm', 's'][3-len(processed_rawtime):]))])
 
-            if totaltime > songlength:
+            if totaltime > currentsong_length:
                 return ValueError
             else:
-                # print (formattedtime, totaltime)
                 return (formattedtime, totaltime)
 
         else:
@@ -648,30 +655,57 @@ def timeinput_to_timeobj(rawtime):
                 return ('0', 0)
 
             elif rawtime.isnumeric():
-                if int(rawtime) > songlength:
+                if int(rawtime) > currentsong_length:
                     return ValueError
                 else:
                     processed_rawtime = list(
                         map(lambda x: int(x), convert(int(rawtime)).split(':')))
                     formattedtime = ' '.join([''.join(map(lambda x: str(x), i)) for i in list(
-                        zip(processed_rawtime, ['h', 'm', 's']))])
+                        zip(processed_rawtime, ['h', 'm', 's'][3-len(processed_rawtime):]))])
                     # print (None, rawtime)
                     return (formattedtime, rawtime)
 
     except Exception:
-        # raise
         # print (None, None)
         return (None, None)
 
+def get_currentsong_length(): # TODO - Complete this function...
+    global current_media_player, currentsong_length, currentsong_length
+    if currentsong:
+        if current_media_player:
+            if not currentsong_length:
+                currentsong_length = currentsong_length/1000
+        else:
+            cursong_obj = pygame.mixer.Sound(currentsong)
+            currentsong_length = cursong_obj.get_length()
 
-def song_seek(timeval):
+    return currentsong_length
+
+def song_seek(timeval=None, rel_val=None):
     global currentsong
-    # print(f"Timeval: {timeval}")
-    try:
-        pygame.mixer.music.set_pos(int(timeval))  # *1000)
-        # pygame.mixer.music.set_pos(int(timeval/1000))
-        return True
-    except pygame.error:
+
+    if timeval:
+        if current_media_player:
+            try:
+                # print(int(timeval*1000)) # TODO - Remove this line
+                vas.vlc_media_player.get_media_player().set_time(int(timeval)*1000)
+                return True
+            except Exception:
+                raise
+                return None
+                # raise # TODO - remove all "raise"d exceptions?
+        else:
+            try:
+                pygame.mixer.music.set_pos(int(timeval))  # *1000)
+                return True
+            except pygame.error:
+                SAY(visible=visible, display_message="Error: Can't seek in this song",
+                    log_message=f'Unsupported codec for seeking song: {currentsong}', log_priority=2)
+                return None
+
+    elif rel_val:
+        pass
+    else:
         SAY(visible=visible, display_message="Error: Can't seek in this song",
             log_message=f'Unsupported codec for seeking song: {currentsong}', log_priority=2)
         return None
@@ -695,7 +729,7 @@ def convert(seconds):
     minutes = seconds // 60
     seconds %= 60
 
-    return "%d:%02d:%02d" % (hour, minutes, seconds)
+    return "{0:0>2.0f}:{1:0>2.0f}:{2:0>2.0f}".format(hour, minutes, seconds)
 
 
 def rand_song_index():
@@ -722,16 +756,18 @@ def play_vas_media(media_url, single_video = None, media_name = None,
                    print_now_playing = True, media_type = 'video'):
 
     global isplaying, current_media_player, visible, currentsong, cached_volume, current_media_type
+    global currentsong_length, currentsong_length
 
+    # Stop prev songs b4 loading VAS Media...
     stopsong()
     # TODO: Add a method to check when VLC stops playing, then reset `currentsong` to None
 
+    # VAS Media Load/Set
     current_media_player = 1 # Set current media player as VLC
     if media_type == 'video':
-        vas.set_media(_type='yt_video', vidurl=media_url)
+        YT_aud_url = vas.set_media(_type='yt_video', vidurl=media_url)
 
         current_media_type = 0
-        currentsong = (media_name, media_url)
 
         if not media_name:
             try:
@@ -741,22 +777,24 @@ def play_vas_media(media_url, single_video = None, media_name = None,
                 media_name = '[VIDEO NAME COULD NOT BE RESOLVED]'
                 SAY(visible=visible,
                     display_message = '',
-                    log_message = f'video name could not be resolved for {currentsong[1]}'
+                    log_message = f'video name could not be resolved for {currentsong[1]}',
                     log_priority = 2)
+
+        currentsong = (media_name, media_url, YT_aud_url)
 
         if print_now_playing and visible:
             if single_video:
                 print(f"Playing YouTube search result: {colored.fg('plum_1')}{media_name}{colored.attr('reset')}")
             else:
                 print(f"Chosen YouTube video: {colored.fg('plum_1')}{media_name}{colored.attr('reset')}")
-            print(f"@ {media_url}")
+            print(f"{colored.fg('light_red')}@ {colored.fg('orange_1')}{media_url}{colored.attr('reset')}")
 
     elif media_type == 'audio':
         vas.set_media(_type='audio', audurl=media_url)
 
         current_media_type = 1
         currentsong = media_url
-        print(f"Chosen custom audio url")
+        print(f"Chosen custom audio url {currentsong}")
 
     elif media_type == 'radio':
         # Here `media_name` is actually the radio name
@@ -764,56 +802,74 @@ def play_vas_media(media_url, single_video = None, media_name = None,
 
         current_media_type = 2
         currentsong = media_name
-        print(f"Chosen radio: {currentsong}")
+        print(f"Chosen radio: {colored.fg('light_goldenrod_1')}{currentsong}{colored.attr('reset')}")
+
+    elif media_type == 'redditsession':
+        vas.set_media(_type='audio', audurl=media_url)
+
+        current_media_type = 3
+        currentsong = (media_name, media_url)
 
     else:
         media_type = None
         SAY(visible=visible, display_message = "Invalid media type provided", log_message = "Invalid media type provided", log_priority = 2)
 
-    vas.media_player(action='play')
-    vas.vlc_media_player.get_media_player().audio_set_volume(int(cached_volume*100))
-    isplaying = True
+    if media_type == 'video': media_type = 'youtube'
+    if media_type:
+        # VAS Media Play
+        vas.media_player(action='play')
+        vas.vlc_media_player.get_media_player().audio_set_volume(int(cached_volume*100))
 
-    if media_name == 'video': media_name = 'youtube'
-    if media_type: SAY(visible=visible, display_message = '', log_message = currentsong, log_priority = 3)
-    USER_DATA['default_user_data']['stats']['play_count'][media_name] += 1
+        SAY(visible=visible,
+            display_message = '',
+            out_file='logs/recents.log',
+            log_message = [' \u2014 '.join(currentsong[:-1]) if type(currentsong)==tuple else currentsong][0],
+            log_priority = 3,
+            format_style = 0)
+
+    currentsong_length = None
+
+    USER_DATA['default_user_data']['stats']['play_count'][media_type] += 1
     save_user_data()
 
-def choose_yt_vid(ytv_choices: list):
+    while not vas.vlc_media_player.get_media_player().is_playing(): pass
+    while not vas.vlc_media_player.get_media_player().get_length(): pass
+    currentsong_length = vas.vlc_media_player.get_media_player().get_length()/1000
+    # currentsong_length gives output in ms, this will be converted to seconds when needed
+
+    if currentsong_length == -1:
+        SAY(visible=visible,
+            log_message = "Cannot get length for vas media",
+            display_message = "",
+            log_priority=3)
+    isplaying = True
+
+
+def choose_media_url(media_url_choices: list, yt: bool = True):
     global current_media_player, isplaying, currentsong
 
-    if len(ytv_choices) == 1:
-        vid_name, media_url = ytv_choices[0]
-        play_vas_media(media_name=vid_name, media_url=media_url, single_video=True)
+    if yt:
+        if len(media_url_choices) == 1:
+            media_name, media_url = media_url_choices[0]
+            play_vas_media(media_name=media_name, media_url=media_url, single_video=True)
 
-    else:
-        chosen_index = input(f"{colored.fg('deep_pink_4c')}Choose video number between 1 and {len(ytv_choices)}" \
-                              " (leave blank to skip): ").strip()
-        print(colored.attr('reset'), end='')
+        else:
+            chosen_index = input(f"{colored.fg('deep_pink_4c')}Choose video number between 1 and {len(media_url_choices)}" \
+                                 f" (leave blank to skip): {colored.fg('navajo_white_1')}").strip()
+            print(colored.attr('reset'), end='')
 
-        if chosen_index:
-            try:
-                chosen_index = int(chosen_index)
-            except Exception:
-                print("ERROR: Invalid choice, choose again: ", end='\r')
+            if chosen_index:
+                try:
+                    chosen_index = int(chosen_index)
+                except Exception:
+                    print("ERROR: Invalid choice, choose again: ", end='\r')
 
-            if chosen_index in range(1, len(ytv_choices)+1):
-                _, vid_name, media_url = ytv_choices[chosen_index-1]
-                play_vas_media(media_name=vid_name, media_url=media_url,
-                              single_video=False)
-                # print(f"Chosen YouTube video: {vid_name}")
-                # print(f"@ {media_url}")
-
-                # stopsong()
-
-                # vas.set_media(_type='yt_video', vidurl=media_url)
-                # vas.media_player(action='play')
-                # isplaying = True
-                # currentsong = (vid_name, media_url)
-
-                # current_media_player = 1
-            else:
-                print("ERROR: Invalid choice, choose again: ", end='\r')
+                if chosen_index in range(1, len(media_url_choices)+1):
+                    _, media_name, media_url = media_url_choices[chosen_index-1]
+                    play_vas_media(media_name=media_name, media_url=media_url,
+                                   single_video=False)
+                else:
+                    print("ERROR: Invalid choice, choose again: ", end='\r')
 
 
 def process(command):
@@ -822,13 +878,17 @@ def process(command):
 
     commandslist = command.strip().split()
 
-    if pygame.mixer.music.get_pos() == -1:
+    if current_media_player:
         try:
             if vas.vlc_media_player.get_state().value == 5:
                 currentsong = None
                 isplaying = False
         except Exception:
             pass
+    
+    else:
+        if pygame.mixer.music.get_pos() == -1:
+            currentsong = None
 
     if commandslist != []:  # Atleast 1 word
 
@@ -850,7 +910,7 @@ def process(command):
         if commandslist[0] in ['list', 'ls']:
             # TODO: Need to display files in n columns (Mostly 3 cols) depending upon terminal size (dynamically...)
             if len(commandslist) == 1:
-                rescount = None
+                rescount = FALLBACK_RESULT_COUNT # Default value of rescount
             elif len(commandslist) == 2:
                 if commandslist[1].isnumeric():
                     rescount = int(commandslist[1])
@@ -878,7 +938,6 @@ def process(command):
                     # regex_pattern
                     # regexp = re.compile(regex_pattern)
 
-
             if len(commandslist) in [1, 2]:
                 results_enum = enumerate(_sound_files_names_only[:rescount])
 
@@ -892,7 +951,14 @@ def process(command):
         elif commandslist == ['now']:
             if currentsong:
                 if current_media_player: # VLC
-                    print(f"@ys: {currentsong[0]}")
+                    if current_media_type == 0:
+                        print(f"@ys: {currentsong[0]}")
+                    elif current_media_type == 1:
+                        print(f"@al: {currentsong}")
+                    elif current_media_type == 2:
+                        print(f"@wra: {currentsong}")
+                    elif current_media_type == 3:
+                        print(f"@rs: {currentsong[0]}")
                 else: # pygame
                     cur_song = os.path.splitext(
                         os.path.split(currentsong)[1])[0]
@@ -905,12 +971,15 @@ def process(command):
             if currentsong:
                 if current_media_player: # VLC
                     if current_media_type == 0:
-                        print(f"@ys: Title | {currentsong[0]}")
-                        print(f"     Link  | {currentsong[1]}")
+                        print(f"@youtube-search: Title | {currentsong[0]}")
+                        print(f"                 Link  | {currentsong[1]}")
                     elif current_media_type == 1:
-                        print(f"@al: {currentsong}")
+                        print(f"@audio-link: {currentsong}")
                     elif current_media_type == 2:
-                        print(f"@radio web/{currentsong}")
+                        print(f"@webradio/{currentsong}")
+                    elif current_media_type == 3:
+                        print(f"@redditsession: Session | {currentsong[0]}")
+                        print(f"                Link    | {currentsong[1]}")
 
                 else: # pygame
                     print(f":: {currentsong}")
@@ -939,43 +1008,43 @@ def process(command):
             print(int(bool(currentsong)))
 
         elif commandslist[0].lower() == 'seek':
-            rawtime = commandslist[1]
+            if currentsong_length:
+                if len(commandslist) > 1:
+                    rawtime = commandslist[1]
+                    time_validity = validate_time(rawtime)
 
-            time_validity = validate_time(rawtime)
-
-            if not time_validity:
-                # Take a valid raw value for time from the user. Format is defined in the time section of help
-                timeobj = timeinput_to_timeobj(rawtime)
-                # print(timeobj)
-                if not timeobj == ValueError:
-                    if timeobj == (None, None):
-                        err('Invalid time format', 'Invalid time object')
-                    # elif timeobj[0] == None:
-                    #     song_seek(timeobj[1])
+                    if not time_validity:
+                        # Take a valid raw value for time from the user. Format is defined in the time section of help
+                        timeobj = timeinput_to_timeobj(rawtime)
+                        if not timeobj == ValueError:
+                            if timeobj == (None, None):
+                                err('Invalid time format', 'Invalid time object')
+                            else:
+                                _ = song_seek(timeval=timeobj[1])
+                                if _:
+                                    print(f"Seeking to: {timeobj[0]}")
+                        else:
+                            SAY(visible=visible, display_message="Error: Seek value too large for this song",
+                                log_message=f'Seek value too large for: {currentsong}', log_priority=2)
+                    elif time_validity == 1:
+                        SAY(visible=visible, display_message="Error: Seek value can't have a decimal point",
+                            log_message=f'Seek value floating point for: {currentsong}', log_priority=2)
+                    elif time_validity == 2:
+                        SAY(visible=visible, display_message="Error: Seek value must be numeric",
+                            log_message=f'Seek value non numeric for: {currentsong}', log_priority=2)
+                    elif time_validity == 3:
+                        SAY(visible=visible, display_message="Error: Seek value can't be negative",
+                            log_message=f'Seek value negative for: {currentsong}', log_priority=2)
                     else:
-                        _ = song_seek(timeobj[1])
-                        if _:
-                            print(f"Seeking to: {timeobj[0]}")
-
-                else:
-                    SAY(visible=visible, display_message="Error: Seek value too large for this song",
-                        log_message=f'Seek value too large for: {currentsong}', log_priority=2)
-            elif time_validity == 1:
-                SAY(visible=visible, display_message="Error: Seek value can't have a decimal point",
-                    log_message=f'Seek value floating point for: {currentsong}', log_priority=2)
-            elif time_validity == 2:
-                SAY(visible=visible, display_message="Error: Seek value must be numeric",
-                    log_message=f'Seek value non numeric for: {currentsong}', log_priority=2)
-            elif time_validity == 3:
-                SAY(visible=visible, display_message="Error: Seek value can't be negative",
-                    log_message=f'Seek value negative for: {currentsong}', log_priority=2)
+                        pass
             else:
-                pass
+                SAY(visible=visible, display_message="Error: No song to seek",
+                    log_message=f'Seeked song w/o playing any', log_priority=2)
 
+        elif commandslist in [['prog'], ['progress']]: # TODO- Make complete code for this process
+            pass
         elif commandslist == ['t']:
-            cur_prog = int(pygame.mixer.music.get_pos()/1000)
-            print("Current Progress: {0}".format(cur_prog))
-            print(convert(cur_prog))
+            print(convert(get_current_progress()))
 
         elif commandslist == ['.rand']:  # Play random song
             play_commands(commandslist=[None, str(rand_song_index())])
@@ -994,11 +1063,15 @@ def process(command):
             print(f"{rand_index+1}: {_sound_files_names_only[rand_index]}")
 
         elif commandslist == ['reset']:
-            try:
-                pygame.mixer.music.set_pos(0)
-            except pygame.error:
-                SAY(visible=visible, display_message="Error: Can't reset this song",
-                    log_message=f'Unsupported codec for resetting: {currentsong}', log_priority=2)
+            if currentsong_length:
+                try:
+                    song_seek('0')
+                except Exception:
+                    SAY(visible=visible, display_message="Error: Can't reset this song",
+                        log_message=f'Error in resetting: {currentsong}', log_priority=2)
+            else:
+                SAY(visible=visible, display_message="Error: No song to seek",
+                    log_message=f'Seeked song w/o playing any', log_priority=2)
 
         elif command[0] == '.':
             try:
@@ -1069,11 +1142,13 @@ def process(command):
                 else:
                     if current_media_player: # VLC
                         if current_media_type == 0:
-                            webbrowser.open(currentsong[1])
+                            webbrowser.open(f"{currentsong[1]}&t={int(get_current_progress())}s")
                         elif current_media_type == 1:
                             webbrowser.open(currentsong)
                         elif current_media_type == 2:
                             webbrowser.open(f"https://s2-webradio.antenne.de/{currentsong}")
+                        elif current_media_type == 3:
+                            webbrowser.open(currentsong[1])
                         else:
                             SAY(visible=visible,
                                 display_message = '',
@@ -1093,9 +1168,17 @@ def process(command):
                 else:
                     print(0)
 
-        elif commandslist in ['rr', ['resync, radio']]:
-            if current_media_type == 2: # If radio is playing...
+        elif commandslist in ['sm', ['sync', 'media']]:
+            print("Syncing current media...")
+            if current_media_type == 0: # If YT vid is playing...
+                print(f"YouTube audio cannot be synced, only seeked")
+            elif current_media_type == 1: # If audio is playing...
+                print(f"audio url cannot be synced, only seeked")
+            elif current_media_type == 2: # If radio is playing...
                 vas.media_player(action='resync') # Resync radio to live stream
+            elif current_media_type == 3: # If reddit-session is streaming...
+                # TODO - Find a way to get the current stream timestamp of current RPAN session
+                print(f'Reddit session syncing... The developer @{ABOUT["about"]["author"]} will add this feature shortly...')
 
         elif commandslist[0] == 'path':
             if len(commandslist) == 2:
@@ -1125,9 +1208,16 @@ def process(command):
             ismuted = not ismuted
 
             if ismuted:
-                pygame.mixer.music.set_volume(0)
+                if current_media_player:
+                    vas.vlc_media_player.get_media_player().audio_set_mute(1)
+                else:
+                    pygame.mixer.music.set_volume(0)
             else:
-                pygame.mixer.music.set_volume(cached_volume)
+                if current_media_player:
+                    vas.vlc_media_player.get_media_player().audio_set_mute(0)
+                    vas.vlc_media_player.get_media_player().audio_set_volume(cached_volume*100)
+                else:
+                    pygame.mixer.music.set_volume(cached_volume)
 
         # elif commandslist in ['l', 'lyr', 'lyrics']:
         #     song_info = shazam_song_info.get_song_info(currentsong)
@@ -1182,15 +1272,26 @@ def process(command):
             except Exception:
                 err(error_topic='Some internal issue occured while setting the system volume')
 
-        # E.g. /ys "The Weeknd Blinding Lights"     or
+        elif commandslist in [['l'], ['len'], ['length']]:
+            if currentsong_length:
+                print(convert(currentsong_length))
+            else:
+                print(convert(get_currentsong_length()), currentsong_length)
+
+        # E.g. /ys "The Weeknd Blinding Lights"
+        #                       or
         #      /ys "The Weeknd Blinding Lights" 4
         elif commandslist[0] in ['/ys', '/youtube-search']:
             try:
-                query_re_obj = list(re.finditer(r'\"(.+?)"', command))[0]
-
-                qr_span = query_re_obj.span()
-                qr_val = query_re_obj.group()[1:-1].strip()
-                rescount = command[qr_span[1]:].strip()
+                user_query = list(re.finditer(r'\"(.+?)"', command))
+                if len(user_query):
+                    query_re_obj = user_query[0]
+                    qr_span = query_re_obj.span()
+                    qr_val = query_re_obj.group()[1:-1].strip()
+                    rescount = command[qr_span[1]:].strip()
+                else: # User casually forgot to place query in double quotes..., let's assume they're there
+                    qr_val = ' '.join(commandslist[1:])
+                    rescount=''
 
                 ytv_choices = None
 
@@ -1217,7 +1318,7 @@ def process(command):
                             log_priority = 3)
 
                 if ytv_choices:
-                    choose_yt_vid(ytv_choices=ytv_choices)
+                    choose_media_url(media_url_choices=ytv_choices)
 
             except Exception:
                 raise
@@ -1237,7 +1338,7 @@ def process(command):
             if len(commandslist) == 2:
                 user_aud_url = commandslist[1]
                 if url_is_valid(user_aud_url, yt=False):
-                    play_vas_media(media_url = commandslist[1])
+                    play_vas_media(media_url = commandslist[1], media_type='audio')
                 else:
                     err("Invalid audio link") # Too many args
             else:
@@ -1250,18 +1351,67 @@ def process(command):
                 r_station = commandslist[1].strip()
 
             if len(commandslist) in [1, 2]:
-                if r_station in 'lounge coffee chillout'.split(): # TODO - print these values in help...
+                r_stations = 'coffee chillout lounge'.split()
+
+                radio_media = None
+                if r_station.isnumeric():
+                    if int(r_station)-1 in range(len(r_stations)):
+                        r_station = r_stations[int(r_station)-1]
+                        radio_media = r_station
+                elif r_station in r_stations: # TODO - print these values in help...
+                    radio_media = r_station
+
+                if radio_media:
                     play_vas_media(media_url=None, media_type='radio', media_name=r_station)
                 else:
-                    err(f"Unknown webradio station {r_station}")
+                    SAY(visible=visible,
+                        display_message = f'Unknown webradio station {colored.fg("navajo_white_1")}"{r_station}"{colored.fg("magenta_3a")} selected'+\
+                                           '\n'+f'Choose one of the following stations ({colored.fg("navajo_white_1")}index or name{colored.fg("magenta_3a")}):',
+                        log_message=f'Unknown webradio station "{r_station}" selected',
+                        log_priority = 2)
+                    print(tbl([(f"{colored.fg('light_red')}/wra {i+1}{colored.attr('reset')}", j) for i, j in enumerate(r_stations)], tablefmt='plain'))
             else:
                 err("Unknown webradio command, too long")  # Too many args
 
-        # TODO - DEBUG THIS + CONNECT TO play_vas_media
         elif commandslist[0] in ['/rs', '/reddit-sessions']:
-            print(f'Live sessions from r/redditsessions are still in progress... The developer @{ABOUT["about"]["author"]} will add this feature shortly...')
+            # print(f'Live sessions from r/redditsessions are still in progress... The developer @{ABOUT["about"]["author"]} will add this feature shortly...')
+            if r_seshs:
+                global r_seshs_data
+                r_seshs_data, rs_params = redditsessions.display_seshs_as_table(r_seshs)
+                r_seshs_data_processed = [[i+1]+j for i,j in enumerate([list(i.values()) for i in r_seshs_data])]
+                if len(commandslist) == 1:
+                    r_seshs_table = tbl(r_seshs_data_processed,
+                                        tablefmt='simple',
+                                        headers=["#", "RPAN Session"]+[*rs_params[1:]])
+                    print(r_seshs_table)
+                    print()
+                    sesh_index = input(f"{colored.fg('light_slate_blue')}Enter RPAN session number to tune into: {colored.fg('navajo_white_1')}")
+                    print(colored.attr('reset'), end='')
+                elif len(commandslist) == 2:
+                    sesh_index = commandslist[1]
 
-
+                if len(commandslist) <= 3:
+                    print("[INFO] Reddit sessions sometimes may take ages to start and seek...")
+                    if sesh_index.isnumeric():
+                        sesh_index = int(sesh_index)-1
+                        if sesh_index in range(len(r_seshs_data)):
+                            sesh_name=r_seshs_data[sesh_index].get('title')
+                            if not sesh_name: sesh_name = '[UNRESOLVED REDDIT SESSION]'
+                            print(f"Tuning into RPAN: {colored.fg('indian_red_1b')}{sesh_name}{colored.attr('reset')}")
+                            play_vas_media(media_url=r_seshs[sesh_index]['audiolink'],
+                                        media_type='redditsession',
+                                        media_name=sesh_name)
+                    else:
+                        if sesh_index.strip():
+                            SAY(visible=visible,
+                                display_message=f'You have entered an invalid RPAN session number',
+                                log_message=f'Invalid RPAN session number entered',
+                                log_priority=2)
+                else:
+                    SAY(visible=visible,
+                        display_message=f'You have entered an invalid reddit session command',
+                        log_message=f'Invalid reddit session command entered',
+                        log_priority=2)
 def mainprompt():
     while True:
         try:
@@ -1312,14 +1462,6 @@ def showbanner():
 
     showversion()
 
-
-def loadsettings():
-    global SETTINGS
-
-    with open('settings/settings.yml') as file:
-        SETTINGS = yaml.load(file)
-
-
 def run():
     global disable_OS_requirement, visible, USER_DATA
 
@@ -1330,7 +1472,6 @@ def run():
     save_user_data()
 
     pygame.mixer.init()
-    loadsettings()
     showbanner()
     mainprompt()
 
@@ -1349,6 +1490,10 @@ def startup():
 
 
 if __name__ == '__main__':
-    startup()
+    if FATAL_ERROR_INFO:
+        print(f"FATAL ERROR ENCOUTERED: {FATAL_ERROR_INFO[1]}")
+        sys.exit("Exiting program...")
+    else:
+        startup()
 else:
     print(' '*30, end='\r')  # Get rid of the current '\r'...
