@@ -7,5 +7,10 @@ first_boot: true
 isdev: true
 ver:
   maj: 0
-  min: 3
-  rel: 4
+  min: 4
+  rel: 0
+
+last_major_change:
+  - "Added reddit sessions support"
+  - "Added lyrics window support"
+  - "Fixed a LOT of broken (incorrectly working / not working) things..."
