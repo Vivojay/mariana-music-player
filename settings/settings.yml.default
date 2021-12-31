@@ -14,7 +14,7 @@ smooth volume change: True
 isdev: False
 visible: True
 display items count:
-    default: 10
+    fallback: 10 # Number of results shown when no count is specified by the user
     maximum: 100 # -1 means no limit...
 
 enable beta: False
@@ -32,6 +32,8 @@ advanced and misc features:
 show banner: True
 show about: True
 
+log level: 3
+
 default_user_data:
   # User login feature hasn't been implemented yet...
   # Needs salted hash I/O...
@@ -46,10 +48,12 @@ default_user_data:
   pwd: null
   stats:
     play_count:
+      audio: 0
       local: 0
-      youtube: 0
       radio: 0
-      custom: 0
+      redditsession: 0
+      youtube: 0
       total: 0
     log_ins: 0
     times_spent: [] # Times spent on app is an empty list by default
+
