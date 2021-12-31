@@ -1,42 +1,73 @@
 import asyncio
-# import nest_asyncio
-import sys
 import os
+import requests
+import subprocess as sp
 
 from pafy import new
 from ruamel.yaml import YAML
 from shazamio import Shazam, serialize_track
+
+# import nest_asyncio
 # nest_asyncio.apply()
+
+CURDIR = os.path.dirname(os.path.realpath(__file__))
+os.chdir(CURDIR)
+os.chdir('..')
+
 yaml = YAML(typ='safe')
 
 
 def get_weblink_audio_info(weblink, isYT=False):
     os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
-    from io import BytesIO
-    import requests, pygame
 
     if isYT:
         try:
             vid = new(weblink)
-            audio_url = vid.getbestaudio().url
+            audio_url = vid.getworstaudio().url
             r = requests.get(audio_url)
-        except Exception: return None # TODO - write to log: couldn't clean temp dir
+        except Exception:
+            return None # TODO - write to log: couldn't clean temp dir
     else:
         r = requests.get(weblink)
 
     bytecontent = r.content
+
     try:
         if not os.path.isdir("temp"): os.mkdir("temp")
-        with open("temp/song_detect.wav", 'wb') as soundfile:
+        with open("temp/song_detect.mka", 'wb') as soundfile:
             soundfile.write(bytecontent)
 
-        if not os.path.isfile("temp/song_detect.wav"): raise OSError
-        else:
-            out = get_song_info("temp/song_detect.wav")
-            try: os.remove("temp/song_detect.wav")
-            except OSError: pass # TODO - write to log: couldn't clean temp dir
+        src_path = "temp/song_detect.mka"
+        dest_path = "temp/song_detect.mp3"
 
-    except Exception: return None # TODO - write to log: couldn't clean temp dir
+        try:
+            sp.run(["ffmpeg",
+                    "-loglevel", "quiet",
+                    "-hide_banner", "-y",
+                    "-i",
+                    src_path,
+                    dest_path],
+                    stderr = sp.DEVNULL,
+                    stdout = sp.DEVNULL,
+                    stdin = sp.PIPE)
+        except FileNotFoundError:
+            return None # TODO - write to log: "ffmpeg not recognised globally"
+
+        if os.path.isfile("temp/song_detect.mka"):
+            try: os.remove("temp/song_detect.mka")
+            except OSError:
+                pass # TODO - write to log: couldn't clean temp dir
+
+        if os.path.isfile("temp/song_detect.mp3"):
+            out = get_song_info("temp/song_detect.mp3")
+            try: os.remove("temp/song_detect.mp3")
+            except OSError:
+                pass # TODO - write to log: couldn't clean temp dir
+        else:
+            return None # TODO - write to log: File coversion to mp3 unsuccessful
+
+    except Exception:
+        return None # TODO - write to log: couldn't clean temp dir
     return out
 
 
@@ -59,8 +90,8 @@ def get_song_info(songfile, display_shazam_id=False):
         loop1 = asyncio.get_event_loop()
         loop1.run_until_complete(shazam_detect_song(songfile))
 
-        loop1 = asyncio.get_event_loop()
-        loop1.run_until_complete(shazam_get_song_info(songfile))
+        # loop2 = asyncio.get_event_loop()
+        # loop2.run_until_complete(shazam_get_song_info(songfile))
 
         # if sys.version_info < (3, 7):
         #     loop = asyncio.get_event_loop()
@@ -85,7 +116,7 @@ def get_song_info(songfile, display_shazam_id=False):
             if display_shazam_id:
                 print(f"Shazam ID: {song_info['shazam_id']}")
 
-            # Functionality for getting information bout the song does not work...
+            # Functionality for getting information about the song does not work...
             # 
             # 
             # try:

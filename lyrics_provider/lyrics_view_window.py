@@ -4,7 +4,7 @@ import lyrics_provider.detect_song
 
 from tkinter import ttk
 
-def show_window(songfile=None, weblink=None):
+def show_window(songfile=None, weblink=None, isYT=False):
     root = tk.Tk()
     root.resizable(True, True)
     root.geometry("550x270")
@@ -16,7 +16,7 @@ def show_window(songfile=None, weblink=None):
     root.resizable=((0, 0)) # Disable window resizing
 
     if weblink:
-        SONG_INF=lyrics_provider.detect_song.get_weblink_audio_info(weblink)
+        SONG_INF=lyrics_provider.detect_song.get_weblink_audio_info(weblink, isYT=isYT)
     elif songfile:
         SONG_INF=lyrics_provider.detect_song.get_song_info(songfile)
     else:
