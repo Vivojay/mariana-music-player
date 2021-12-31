@@ -57,9 +57,13 @@ from collections.abc import Iterable;               print("Loaded 14/25", end='\
 from logger import SAY;                             print("Loaded 15/25", end='\r')
 from multiprocessing import Process;                print("Loaded 16/25", end='\r')
 
+import subprocess as sp;                            print("Loaded 17/25", end='\r')
+import restore_default;                            print("Loaded 17/25", end='\r')
+
 online_streaming_ext_load_error = 0
 lyrics_ext_load_error = 0
 redditsessions = None
+
 
 # try:
 #     import librosa
@@ -126,9 +130,7 @@ import webbrowser;                                      print("Loaded 25/25", en
 
 CURDIR = os.path.dirname(os.path.realpath(__file__))
 os.chdir(CURDIR)
-
 yaml = YAML(typ='safe')  # Allows for safe YAML loading
-ISDEV = True # Useful as a test flag for new features
 
 if not os.path.isdir('logs'): os.mkdir('logs')
 
@@ -139,7 +141,6 @@ def create_required_files_if_not_exist(*files):
             FIRST_BOOT = True
             with open(file, 'w', encoding="utf-8") as _:
                 pass
-
 
 create_required_files_if_not_exist(
     'logs/recents.log',
@@ -153,6 +154,7 @@ try:
 except IOError:
     ABOUT = None
 
+ISDEV = ABOUT['isdev'] # Useful as a test flag for new features
 
 try:
     with open('lib.lib', encoding='utf-8') as logfile:
@@ -231,7 +233,9 @@ disable_OS_requirement = True
 supported_file_exts = '.wav .mp3'.split()  # Supported file extensions (wav seeking sucks with pygame)
 visible = True
 max_yt_search_results_threshold = 15
-loglevel = 3
+loglevel = SETTINGS.get('loglevel')
+
+if not loglevel: restore_default.restore('loglevel', SETTINGS)
 
 # From last session info
 cached_volume = 1  # Set as a factor between 0 to 1 times of max volume player volume
@@ -269,13 +273,11 @@ if _sound_files_names_only == []:
         print("[INFO] All source directories are empty, you may and add more source directories to your library")
         print("[INFO] To edit this library file (of source directories), refer to the `help.md` markdown file.")
 
-    # FATAL_ERROR_INFO = "No supported sound files found in lib source dirs"
-    # sys.exit(input("Hit enter to close..."))
+try: _ = sp.run('ffmpeg', stdout=sp.DEVNULL, stdin=sp.PIPE, stderr=sp.DEVNULL)
+except FileNotFoundError: FATAL_ERROR_INFO = "ffmpeg not recognised globally, download it and add to path (system environment)"
 
-if redditsessions:
-    r_seshs = redditsessions.get_redditsessions()
-else:
-    r_seshs = None
+if redditsessions: r_seshs = redditsessions.get_redditsessions()
+else: r_seshs = None
 
 def url_is_valid(url, yt=True):
     """
@@ -567,7 +569,7 @@ def display_lyrics_window():
         if current_media_type == 0: # Video
             # TODO - Get lyrics from currently playing YouTube audio, given its video url
             print(f'Lyrics from YT vids are still in progress... The developer @{ABOUT["about"]["author"]} will add this feature shortly...')
-        elif current_media_type == 1: # Audio/Redditsession
+        elif current_media_type == 1: # Audio
             lvw.show_window(weblink=currentsong)
         elif current_media_type == 2: # Radio
             lvw.show_window(weblink=f"https://s2-webradio.antenne.de/{currentsong}")
@@ -880,12 +882,12 @@ def process(command):
 
     if current_media_player:
         try:
-            if vas.vlc_media_player.get_state().value == 5:
+            if vas.vlc_media_player.get_state().value == 6:
                 currentsong = None
                 isplaying = False
         except Exception:
             pass
-    
+
     else:
         if pygame.mixer.music.get_pos() == -1:
             currentsong = None
@@ -1009,11 +1011,17 @@ def process(command):
 
         elif commandslist[0].lower() == 'seek':
             if currentsong_length:
-                if len(commandslist) > 1:
-                    rawtime = commandslist[1]
+                if len(commandslist) == 2:
+                    if commandslist[1].startswith('+'):
+                        rawtime = str(int(get_current_progress()) + int(commandslist[1][1:]))
+                    elif commandslist[1].startswith('-'):
+                        rawtime = str(int(get_current_progress()) - int(commandslist[1][1:]))
+                    else:
+                        rawtime = commandslist[1]
+    
                     time_validity = validate_time(rawtime)
 
-                    if not time_validity:
+                    if not time_validity: # Raw time is valid
                         # Take a valid raw value for time from the user. Format is defined in the time section of help
                         timeobj = timeinput_to_timeobj(rawtime)
                         if not timeobj == ValueError:
@@ -1023,6 +1031,13 @@ def process(command):
                                 _ = song_seek(timeval=timeobj[1])
                                 if _:
                                     print(f"Seeking to: {timeobj[0]}")
+
+                        # TODO - Make following error messages more meaningful by giving them more
+                        # context depending on if absolute or relative seek was called...
+                        
+                        # E.g. say "reached beginning" instead of "seek val can't be -ve"
+                        # When using relative seek
+
                         else:
                             SAY(visible=visible, display_message="Error: Seek value too large for this song",
                                 log_message=f'Seek value too large for: {currentsong}', log_priority=2)
@@ -1043,6 +1058,7 @@ def process(command):
 
         elif commandslist in [['prog'], ['progress']]: # TODO- Make complete code for this process
             pass
+
         elif commandslist == ['t']:
             print(convert(get_current_progress()))
 
@@ -1219,9 +1235,22 @@ def process(command):
                 else:
                     pygame.mixer.music.set_volume(cached_volume)
 
-        # elif commandslist in ['l', 'lyr', 'lyrics']:
-        #     song_info = shazam_song_info.get_song_info(currentsong)
-        #     save_info(song_info)
+        elif commandslist in [['lyr'], ['lyrics']]:
+            if current_media_player:
+                if current_media_type == 0:
+                    print(f"Loading lyrics window for (Time taking)...")
+                    lvw.show_window(weblink=currentsong[1], isYT=1)
+                elif current_media_type == 1:
+                    print(f"Loading lyrics window for (Time taking)...")
+                    lvw.show_window(weblink=currentsong)
+                elif current_media_type == 2:
+                    print(f"Lyrics for Radio are not supported")
+                elif current_media_type == 3:
+                    print(f"Lyrics for reddit sessions are not supported")
+            else:
+                if currentsong:
+                    if os.path.isfile(currentsong):
+                        lvw.show_window(songfile=currentsong)
 
         elif commandslist[0].lower() in ['v', 'vol', 'volume']:
             try:
@@ -1273,10 +1302,11 @@ def process(command):
                 err(error_topic='Some internal issue occured while setting the system volume')
 
         elif commandslist in [['l'], ['len'], ['length']]:
-            if currentsong_length:
-                print(convert(currentsong_length))
-            else:
-                print(convert(get_currentsong_length()), currentsong_length)
+            if currentsong:
+                if currentsong_length:
+                    print(convert(currentsong_length))
+                else:
+                    print(convert(get_currentsong_length()), currentsong_length)
 
         # E.g. /ys "The Weeknd Blinding Lights"
         #                       or
