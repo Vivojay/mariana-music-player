@@ -339,7 +339,7 @@ Record and highlight library changes (modfications (metadata only), deletions, a
 Save your trends and worldwide trends (genres and songs) in different dirs for every month alongwith related detailed stats...
 Tag your songs with either predefined or custom tags
 
-**Lyrics**: lyrics | lyr | l  
+**Lyrics**: lyr[ics]
 **Stars**: star `<starscount>` <br> &nbsp;&nbsp;&nbsp;&nbsp;`<starcount>` must be 1, 2, 3, 4 or 5. Anything else will result in an error
 
 **Effects**
@@ -441,6 +441,7 @@ Syntax: `(secs | times | ints) <number>`
 | b[ackup] -n | create songs backup in new directory at C:\Users\<Admin\>\Desktop/mariana_library_backup*<username\> if not exists, else ask user to either rewrite default backup directory or create backup in a custom directory |
 
 ## Command Line Flags
+Usage: py main.py [option]
 
 ### Basic Flags
 
@@ -453,31 +454,27 @@ Syntax: `(secs | times | ints) <number>`
 | -q "queue name"                   | Play songs saved in queue named "queue name"              |
 | -f                                | Play favs                                                 |
 | -r                                | Replay recents in order of old to new                     |
-| -R                                | Replay recents in order of new to old                     |
+| -r -n2o                           | Replay recents in order of new to old                     |
 
 ### Flags that Override Settings
 
-| Commands                                   | Description                                                                                   |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------- |
-| -nd \| --no-decorate                       | Do not print anything which is not absolutely essential (hide banner, loading status, etc...) |
-| -t=<theme_name>                            | set color theme, set theme = none for plain no color output                                   |
-| -ll=<log_level> \| --log-level=<log_level> | set log level                                                                                 |
-| -v=<initial_volume_value>                  | set initial volume on startup                                                                 |
-| -H                                         | make any and all output hidden (including fatal errors)                                       |
-| -s                                         | sleep (or sleep and exit depending on settings) after "time" seconds                          |
-
-### Standalone Flags (Non Chainable)
-
-| Commands                                          | Description                                                        |
-| ------------------------------------------------- | ------------------------------------------------------------------ |
-| --clear-recents [-y]                              | Deletes recent songs data (optional -y for skipping confirmation)  |
-| --clear-history [-y]                              | Deletes all action history (optional -y for skipping confirmation) |
-| --clear-data [-y]                                 | Deletes recent songs data (optional -y for skipping confirmation)  |
-| --clear-quickload [-y]                            | Deletes recent songs data (optional -y for skipping confirmation)  |
-| --clear-quickload [-y]                            | Deletes recent songs data (optional -y for skipping confirmation)  |
-| -c -e                                             | Open settings config for editing                                   |
-| -c -p                                             | Print settings config path                                         |
-| -c -e                                             | Open settings config for editing                                   |
-| -b=<output_file_path> f[iles] \| s[ettings] \| \| | backup                                                             |
-| -b -l                                             | list all backup file paths saved in history                        |
-
+| Commands                                          | Description                                                                                   |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| -nd \| --no-decorate                              | Do not print anything which is not absolutely essential (hide banner, loading status, etc...) |
+| -nr \| --no-reload                                | Do not reload all files in source directory trees, i.e. fast bootup...                        |
+| -ll=<log_level> \| --log-level=<log_level>        | set the log level                                                                             |
+| -H                                                | make any and all output hidden (including fatal errors)                                       |
+| -t=<theme_name>                                   | set color theme, set (theme = none) for plain no-color output                                 |
+| -v=<initial_volume_value>                         | set initial volume on startup (override presaved volume in settings)                          |
+| -s                                                | sleep (or sleep and exit depending on settings) after "time" seconds                          |
+| -l -o                                             | Open library in default text editor                                                           |
+| -l -e                                             | Edit library directly from CLI                                                                |
+| -l -p                                             | Show path of lib file                                                                         |
+| -b=<output_file_path> f[iles] \| s[ettings] \| \| | backup                                                                                        |
+| -b -l                                             | list all backup file paths saved in history                                                   |
+| -c -e                                             | Edit settings directly from CLI                                                               |
+| -c -p                                             | Print settings config path                                                                    |
+| -c -o                                             | Open settings config in default text editor                                                   |
+| --clear-recents [-y]                              | Deletes recent songs data (optional -y for skipping confirmation)                             |
+| --clear-history [-y]                              | Deletes all action history (optional -y for skipping confirmation)                            |
+| --clear-data [-y]                                 | Deletes recent songs data (optional -y for skipping confirmation)                             |
