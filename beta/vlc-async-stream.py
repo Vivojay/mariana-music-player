@@ -6,8 +6,6 @@ import ctypes
 PY_ARCH = (8 * ctypes.sizeof(ctypes.c_voidp))
 VLC_ARCH = None
 
-# TODO - Move this file to directory 'beta' and make import as: vas = __import__('TESTING.vlc-async-stream') 
-
 def set_media(_type=None, vidurl=None, audurl=None):
 
     try: media_player(action='stop')
@@ -38,6 +36,8 @@ def set_media(_type=None, vidurl=None, audurl=None):
             load_media_object(player=player, media=media)
     else:
         print("Media type not provided")
+    
+    return audurl
 
 def load_media_object(player, media):
     global vlc_media_player
