@@ -6,8 +6,9 @@ from tabulate import tabulate as tbl
 
 curdir = os.path.dirname(__file__)
 os.chdir(curdir)
+os.chdir('..')
 
-r_creds_file = '../user/reddit_credentials.json'
+r_creds_file = 'user/reddit_credentials.json'
 WARNING = None
 redditsessions = None
 
@@ -50,7 +51,7 @@ def get_redditsessions():
             {
                 'url': i.url,
                 'title': i.title,
-                'link': i.rpan_video['hls_url'],
+                'audiolink': i.rpan_video['hls_url'],
                 'upvotes':i.ups,
                 'downvotes': round(i.ups*((1/i.upvote_ratio)-1))
             }
@@ -68,8 +69,5 @@ def display_seshs_as_table(sesh_list):
         } for sesh in sesh_list
     ]
     
-    return tbl([i.values() for i in display_seshs],
-                tablefmt='simple',
-                headers=["RPAN Session"]+[*params[1:]])
-
+    return display_seshs, params
 
