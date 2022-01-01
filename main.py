@@ -1510,7 +1510,7 @@ def run():
 
 def startup():
     global disable_OS_requirement
-    try: os.system('color 3F')
+    try: os.system('color 0f') # Needed?!? idk
     except Exception: pass
 
     if not disable_OS_requirement:
