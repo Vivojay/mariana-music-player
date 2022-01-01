@@ -435,8 +435,9 @@ Syntax: `(secs | times | ints) <number>`
 | import settings filepath | Import settings from filepath if it is valid, else show error                                                           |
 
 **Exporting/Importing Settings**
+
+| Command | Description |
 |-|-|
-|||
 | b[ackup] directory*path | create songs backup in specified directory if exists, else show error|
 | b[ackup] -n | create songs backup in new directory at C:\Users\<Admin\>\Desktop/mariana_library_backup*<username\> if not exists, else ask user to either rewrite default backup directory or create backup in a custom directory |
 
