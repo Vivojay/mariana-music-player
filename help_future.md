@@ -339,13 +339,13 @@ Record and highlight library changes (modfications (metadata only), deletions, a
 Save your trends and worldwide trends (genres and songs) in different dirs for every month alongwith related detailed stats...
 Tag your songs with either predefined or custom tags
 
-**Lyrics**: lyr[ics]
-**Stars**: star `<starscount>` <br> &nbsp;&nbsp;&nbsp;&nbsp;`<starcount>` must be 1, 2, 3, 4 or 5. Anything else will result in an error
+**Lyrics**: lyr[ics]  
+**Stars**: star `<starscount>` <br> &nbsp;&nbsp;&nbsp;&nbsp;`<starcount>` must be 1, 2, 3, 4 or 5. Anything else will result in an error  
 
-**Effects**
-**Note**
-Applies any of the following effects to current song
-One effect is applied at a time (Self-explantory commands have been chosen for effects)
+**Effects**  
+**Note**  
+Applies any of the following effects to current song  
+One effect is applied at a time (Self-explantory commands have been chosen for effects)  
 
 - `fadein|fi` (Only applicable for song start, to apply type `(fadein|fi) <song_number>`, to apply this effect to the next song, whenever it starts playing, do `(fadein|fi) next`)
 - `fadeout|fo` (To apply instantly, just write `fadeout|fo`, to apply at the end, do `(fadeout|fo) .`)
