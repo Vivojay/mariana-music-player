@@ -7,7 +7,7 @@ smooth volume change: True
 isdev: False
 visible: True
 display items count:
-    default: 10
+    fallback: 10
     maximum: 100 # -1 means no limit...
 
 enable beta: False
