@@ -24,3 +24,4 @@ advanced and misc features:
 
 show banner: True
 show about: True
+loglevel: 3
