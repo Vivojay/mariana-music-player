@@ -842,14 +842,14 @@ def choose_media_url(media_url_choices: list, yt: bool = True):
                 try:
                     chosen_index = int(chosen_index)
                 except Exception:
-                    print("ERROR: Invalid choice, choose again: ", end='\r')
+                    print("ERROR: Invalid choice, choose again: ")
 
                 if chosen_index in range(1, len(media_url_choices)+1):
                     _, media_name, media_url = media_url_choices[chosen_index-1]
                     play_vas_media(media_name=media_name, media_url=media_url,
                                    single_video=False)
                 else:
-                    print("ERROR: Invalid choice, choose again: ", end='\r')
+                    print("ERROR: Invalid choice, choose again: ")
 
 
 def process(command):
@@ -1509,7 +1509,7 @@ def run():
 
 def startup():
     global disable_OS_requirement
-    try: os.system('color 0F')
+    try: os.system('color 3F')
     except Exception: pass
 
     if not disable_OS_requirement:
