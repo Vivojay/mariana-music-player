@@ -112,3 +112,6 @@ Run `main.py` from command line (**with desired arguments, for more details, [lo
 
 \*\*Currently, this feature is sunimplemented... there are no command line flags available yet...
 Also, interactive help documentation and interactive loading throbber/print statement need to be added.
+
+## Screenshot
+![image](https://user-images.githubusercontent.com/67545205/147845057-eab483b2-4e8c-43ce-9f0d-349d2e655437.png)
