@@ -32,7 +32,7 @@ advanced and misc features:
 show banner: True
 show about: True
 
-log level: 3
+loglevel: 3
 
 default_user_data:
   # User login feature hasn't been implemented yet...
