@@ -842,15 +842,16 @@ def choose_media_url(media_url_choices: list, yt: bool = True):
                 try:
                     chosen_index = int(chosen_index)
                 except Exception:
-                    print("ERROR: Invalid choice, choose again: ")
+                    print("ERROR: Invalid choice, choose again: ", end='\r')
 
                 if chosen_index in range(1, len(media_url_choices)+1):
                     _, media_name, media_url = media_url_choices[chosen_index-1]
                     play_vas_media(media_name=media_name, media_url=media_url,
                                    single_video=False)
                 else:
-                    print("ERROR: Invalid choice, choose again: ")
+                    print("ERROR: Invalid choice, choose again: ", end='\r')
 
+                print()
 
 def process(command):
     global _sound_files_names_only, visible, currentsong, isplaying, ismuted, cached_volume
