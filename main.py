@@ -375,7 +375,12 @@ def play_local_default_player(songpath, _songindex):
             print(colored.fg('dark_olive_green_2') + \
                   f':: {os.path.splitext(os.path.split(songpath)[1])[0]}' + \
                   colored.attr('reset'))
-            songindex = _sound_files.index(songpath)
+
+            # The user is unreliable and may enter the
+            # song path with weird inhumanly erratic and random
+            # mix of upper and lower case characters.
+            # Hence, we need to convert everything to lowercase...
+            songindex = [i.lower() for i in _sound_files].index(songpath.lower())
 
         if not currentsong_length: get_currentsong_length()
         current_media_type = None
@@ -557,7 +562,7 @@ def searchsongs(queryitems):
 #         return tempo
 
 def enqueue(songindices):
-    print("Enqueuing")
+    print("Enqueueing")
     global song_paths_to_enqueue
 
     song_paths_to_enqueue = []
@@ -924,7 +929,7 @@ def process(command):
 
             print(tbl([(i+1, j) for i, j in results_enum], tablefmt='plain'))
 
-        elif commandslist == ['vis']:
+        elif commandslist == ['vis']: # TODO - Make useful...
             visible = not visible
             if visible:
                 print('visibility on')
@@ -943,7 +948,7 @@ def process(command):
                 else: # pygame
                     cur_song = os.path.splitext(
                         os.path.split(currentsong)[1])[0]
-                    print(f":: {cur_song}")
+                    print(f":: {_sound_files.index(currentsong)+1} | {cur_song}")
             else:
                 # currentsong = None
                 print("(Not Playing)")
@@ -963,7 +968,7 @@ def process(command):
                         print(f"                Link    | {currentsong[1]}")
 
                 else: # pygame
-                    print(f":: {currentsong}")
+                    print(f":: {_sound_files.index(currentsong)+1} | {currentsong}")
 
             else:
                 currentsong = None
@@ -1092,13 +1097,13 @@ def process(command):
         elif command[0] == '.':
             try:
                 if len(commandslist) == 1:
-                    # print(commandslist[0][1:])
-                    if commandslist[0][1:].isnumeric():
-                        play_commands(commandslist=[None, ''.join(commandslist[0][1:])])
-                        # getstats()
+                    # Get info of currently loaded song and display pleasantly...
+                    # The info params displayed depend on those specified in the settings...
+                    # getstats() # TODO - Make such a function...
+                    pass
 
-                elif commandslist != ['.'] and len(command.split('.')) == 3:
-                    if all([not i.isnumeric() for i in command.split('.')]):
+                if all([not i.replace(' ', '').isnumeric() for i in command.split('.')]): # Identifying a file-existence-check command
+                    if len(command.split('.')) == 3:
                         if command.startswith('. '):
                             path = ' '.join(commandslist[1:])
                             if os.path.isfile(path):
@@ -1109,8 +1114,8 @@ def process(command):
                             else:
                                 print(0)
                         elif command.startswith('.'):
-                            play_commands(
-                                commandslist=[None, command[1:]], _command=command)
+                            play_commands(commandslist=[None, command[1:]],
+                                          _command=command)
 
             except Exception:
                 raise
@@ -1184,7 +1189,7 @@ def process(command):
                 else:
                     print(0)
 
-        elif commandslist in ['sm', ['sync', 'media']]:
+        elif commandslist in [['sm'], ['sync'], ['sync', 'media']]:
             print("Syncing current media...")
             if current_media_type == 0: # If YT vid is playing...
                 print(f"YouTube audio cannot be synced, only seeked")
@@ -1360,7 +1365,11 @@ def process(command):
             if len(commandslist) == 2:
                 media_url = commandslist[1]
                 if url_is_valid(media_url):
-                    play_vas_media(media_url=media_url, single_video=True)
+                    try:
+                        play_vas_media(media_url=media_url, single_video=True)
+                    except OSError:
+                        err("Could not load video... (Maybe check your VPN?)",
+                            "Video Load Error", say=False)
                 else:
                     SAY(visible=visible, display_message='Entered Youtube URL is invalid')
             else:
@@ -1444,6 +1453,10 @@ def process(command):
                         display_message=f'You have entered an invalid reddit session command',
                         log_message=f'Invalid reddit session command entered',
                         log_priority=2)
+            else:
+                if visible:
+                    if loglevel in [3, 4]:
+                        print("Redditsessions are unavailable because your API credentials are missing")
 def mainprompt():
     while True:
         try:
@@ -1510,7 +1523,7 @@ def run():
 
 def startup():
     global disable_OS_requirement
-    try: os.system('color 0f') # Needed?!? idk
+    try: os.system('color 0F') # Needed?!? idk
     except Exception: pass
 
     if not disable_OS_requirement:
@@ -1523,8 +1536,9 @@ def startup():
 
 if __name__ == '__main__':
     if FATAL_ERROR_INFO:
-        print(f"FATAL ERROR ENCOUTERED: {FATAL_ERROR_INFO[1]}")
-        sys.exit("Exiting program...")
+        print(f"FATAL ERROR ENCOUNTERED: {FATAL_ERROR_INFO}")
+        print("Exiting program...")
+        sys.exit(1) # End program...gracefully...
     else:
         startup()
 else:
