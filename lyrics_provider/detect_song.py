@@ -28,7 +28,12 @@ def get_weblink_audio_info(weblink, isYT=False):
         except Exception:
             return None # TODO - write to log: couldn't clean temp dir
     else:
-        r = requests.get(weblink)
+        # Old way -> Downloads whole mka file
+        # r = requests.get(weblink)
+
+        # New way -> Downloads first 10000 bytes of mka file only
+        headers = {"Range": "bytes=0-10000"}
+        r = requests.get(weblink, headers=headers)
 
     bytecontent = r.content
 
@@ -99,22 +104,24 @@ def get_song_info(songfile, display_shazam_id=False):
         # else:
         #     asyncio.run(shazam_detect_song(songfile))
 
+        if display_shazam_id:
+            print(f"Shazam ID: {shazam_song_detection_result.get('track')['key']}")
+
         if shazam_song_detection_result['matches'] == []:
-            print(shazam_song_detection_result)
+            # print(shazam_song_detection_result)
             song_info = []
 
         else:
             song_info = {
-                "display_name": shazam_song_detection_result['track']['share']['subject'],
-                "is_explicit": shazam_song_detection_result['track']['hub']['explicit'],
-                "shazam_id": shazam_song_detection_result['track']['key'],
-                "metadata": shazam_song_detection_result['track']['sections'][0]['metadata'],
-                "lyrics": shazam_song_detection_result['track']['sections'][1]['text'],
-                "genres": shazam_song_detection_result['track']['genres'],
+                "display_name": shazam_song_detection_result.get('track').get('share').get('subject'),
+                "is_explicit": shazam_song_detection_result.get('track').get('hub').get('explicit'),
+                "shazam_id": shazam_song_detection_result.get('track').get('key'),
+                "metadata": shazam_song_detection_result.get('track').get('sections')[0].get('metadata'),
+                "lyrics": shazam_song_detection_result.get('track').get('sections')[1].get('text'),
+                "genres": shazam_song_detection_result.get('track').get('genres'),
             }
 
-            if display_shazam_id:
-                print(f"Shazam ID: {song_info['shazam_id']}")
+            # print(song_info)
 
             # Functionality for getting information about the song does not work...
             # 

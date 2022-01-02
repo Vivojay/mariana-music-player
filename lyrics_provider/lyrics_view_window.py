@@ -1,4 +1,5 @@
 import tkinter as tk
+
 import os
 import lyrics_provider.detect_song
 
@@ -24,14 +25,17 @@ def show_window(songfile=None, weblink=None, isYT=False):
 
     if SONG_INF != []:
         headtext = SONG_INF['display_name']
-        lyr = SONG_INF['lyrics']
-        lyr = '\n'.join(lyr)
-        text_to_be_displayed = lyr
-
+        lyr = SONG_INF.get('lyrics')
+        if lyr:
+            lyr = '\n'.join(lyr)
+            text_to_be_displayed = lyr
+        else:
+            headtext = "Lyrics N/A"
+            text_to_be_displayed = "(Lyrics not available)"
     else:
         headtext = "Lyrics N/A"
         text_to_be_displayed = "(Lyrics not available)"
-
+    
     foottext = "Lyrics Powered by Musixmatch"
 
     head = tk.Label(root, text=headtext, font=("Segoe UI Bold", 14))
