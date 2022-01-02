@@ -63,6 +63,7 @@ def vlc_import():
                 try:
                     _=os.add_dll_directory(path)
                     import vlc
+                    with open('../temp/hasvlc.tmp', 'w') as _: pass
                     break
                 except OSError:
                     sys.exit("Error finding VLC Media Player, install if you don't already have it...")
@@ -78,8 +79,9 @@ def vlc_import():
         if VLC_ARCH != PY_ARCH:
             sys.exit("ERROR: Detected incompatible architecture of VLC Media Player. Please uninstall your current installation of VLC Media Player app and download the {0} bit version instead.\Visit https://www.videolan.org/ to download: ".format(PY_ARCH))
 
+
 def media_player(action=None, playing_time=None):
-    global vlc_media_player, vlc_mp_is_paused
+    global vlc_media_player
 
     if action == 'pausetoggle':
         if bool(vlc_media_player.get_state()): vlc_media_player.pause()
@@ -91,7 +93,7 @@ def media_player(action=None, playing_time=None):
     elif action == 'stop':
         vlc_media_player.stop()
 
-    elif action == 'resync': # Only for radio...
+    elif action == 'resync': # Only for radio (and redditsessions?)...
         cur_state = bool(vlc_media_player.get_state())
         
         vlc_media_player.stop()
