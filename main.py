@@ -1099,8 +1099,9 @@ def process(command):
                 if len(commandslist) == 1:
                     # Get info of currently loaded song and display pleasantly...
                     # The info params displayed depend on those specified in the settings...
-                    # getstats() # TODO - Make such a function...
-                    pass
+                    # getstats() # TODO - Make such a function...???
+                    if commandslist[0][1:].isnumeric():
+                        play_commands(commandslist=[None, ''.join(commandslist[0][1:])])
 
                 if all([not i.replace(' ', '').isnumeric() for i in command.split('.')]): # Identifying a file-existence-check command
                     if len(command.split('.')) == 3:
