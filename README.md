@@ -36,10 +36,14 @@ Restart your terminal window for `git` to become available to it...
 Open up a *cmd* or *terminal* window
 
 **Step 3.1:** `cd` (or `sl` if using `powershell`) to the directory where you want to install the music player folder (*any desired location is fine...*)  
+
 **Step 3.2:** Run: `git clone https://github.com/Vivojay/mariana-music-player/`  
+
 **Step 3.3:** `cd` to "mariana-music-player" dir (Our root folder/program folder...)  
-Run `mkdir src`   
+
+Run `mkdir src`  
 Run: `move * src/.` (Note: The period `.` is not to be excluded...) to move all files to src directory.  
+
 **Step 3.4**: Make a virtual environment with python `virtualenv` module by  
 running: `py -m pip install virtualenv`  in the terminal window
 
@@ -50,9 +54,10 @@ You may have your python installation done in a similar location, try for your o
 
 In the same location run `.\.virtenv\Scripts\activate` and wait for a`(.virtenv)` prompt in your terminal, if this happens and you get no error, you have successfully activated your newly created virtualenv with the supported python version.  
 
-**Step 3.5:** Run: `cd src` (change location to `src` dir)
+**Step 3.5:** Run: `cd src` (change location to `src` dir)  
 
 **Step 3.6:** Now, Install PyPI modules from pip using `pip install -r requirements.txt` (Wait for the installations to complete...)  
+
 **Step 3.7:** Run: `py -m pip install git+https://github.com/Vivojay/pafy@develop`  
 
 ### Step 4
@@ -98,6 +103,7 @@ The *librosa* module may help in **bpm** and **key** detection of songs in the f
 ### Step 7
 Now, you must restart your terminal for path variables (like *ffmpeg*) to refresh and take effect.  
 **Step 7.1:** That's it, setup is complete. Now just take a moment to go through the `help.md` file and get a look at the available commands and their syntax/usage rules...  
+
 **Step 7.2:** Finally, run your app either with or without command line flags (flags may be provided in the `help.md`, if not so, then flags have not yet been implemented and will not work)  
 
 ## Technical
