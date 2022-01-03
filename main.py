@@ -120,8 +120,10 @@ except ImportError:
     print("[INFO] Could not load reddit-sessions extension..., module 'praw' missing")
     print("[INFO] Skipped 23/25")
 
-from beta.master_volume_control import get_master_volume, set_master_volume
-print("Loaded 24/25", end='\r')
+# Encountered new unexpected and unresolved error in importing comtypes...
+# Syntax Error @line 375 in comtypes/__init__.py
+# from beta.master_volume_control import get_master_volume, set_master_volume
+# print("Loaded 24/25", end='\r')
 
 import webbrowser;                                      print("Loaded 25/25", end='\r')
 
@@ -1287,6 +1289,7 @@ def process(command):
                 err(error_topic='Some internal issue occured while setting player volume')
 
         elif commandslist[0].lower() in ['mv', 'mvol', 'mvolume']:
+            '''
             try:
                 if len(commandslist) == 2 and commandslist[1].isnumeric():
                     if '.' in commandslist[1]:
@@ -1308,6 +1311,8 @@ def process(command):
 
             except Exception:
                 err(error_topic='Some internal issue occured while setting the system volume')
+            '''
+            print('Sorry, system volume commands have been (temporarily) disabled due to some internal issue')
 
         elif commandslist in [['l'], ['len'], ['length']]:
             if currentsong:
