@@ -51,5 +51,3 @@ def fbs(about): # First boot setup
     about['first_boot'] = False
     with open('about/about.info', 'w') as about_file:
         yaml.dump(about, about_file)
-
-
