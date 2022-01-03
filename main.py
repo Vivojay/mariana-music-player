@@ -170,12 +170,15 @@ except IOError:
                 'please create one and add desired source directories. '\
                 'Aborting program\n")
 
-if FIRST_BOOT:
-    try:
-        import first_boot_setup
-        first_boot_setup.fbs(about=ABOUT)
-    except ImportError:
-        sys.exit('[ERROR] Critical guide setup-file missing, please consider reinstalling this file or the entire program\nAborting Mariana Player. . .')
+
+def first_startup_greet(is_first_boot):
+    if is_first_boot:
+        try:
+            import first_boot_setup
+            first_boot_setup.fbs(about=ABOUT)
+            reload_sounds()
+        except ImportError:
+            sys.exit('[ERROR] Critical guide setup-file missing, please consider reinstalling this file or the entire program\nAborting Mariana Player. . .')
 
 try:
     with open('user/user_data.yml', encoding='utf-8') as u_data_file:
@@ -262,15 +265,31 @@ def audio_file_gen(Dir, ext):
 
 
 
-# Use the recursive extractor function and format and store them into usable lists
-_sound_files = [[list(audio_file_gen(paths[j], supported_file_exts[i]))
-                 for i in range(len(supported_file_exts))] for j in range(len(paths))]
-# Flattening irregularly nested sound files
-_sound_files = list(flatten(_sound_files))
+def reload_sounds():
+    global _sound_files, _sound_files_names_only, _sound_files_names_enumerated, paths
 
-_sound_files_names_only = [os.path.splitext(os.path.split(i)[1])[0] for i in _sound_files]
-_sound_files_names_enumerated = [(i+1, j) for i, j in enumerate(_sound_files_names_only)]
+    no_lib_found = False
 
+    try:
+        with open('lib.lib', encoding='utf-8') as logfile:
+            paths = logfile.read().splitlines()
+            paths = [path for path in paths if not path.startswith('#')]
+    except IOError:
+        no_lib_found = True
+        # TODO - write some SAY() here (instead of the humble `print()`)
+        print("ERROR: Library file suddenly vanished -_-")
+
+    # if _paths != paths: SAY(): Log <- new_dirs_added
+
+    if not no_lib_found:
+        # Use the recursive extractor function and format and store them into usable lists
+        _sound_files = [[list(audio_file_gen(paths[j], supported_file_exts[i]))
+                        for i in range(len(supported_file_exts))] for j in range(len(paths))]
+        # Flattening irregularly nested sound files
+        _sound_files = list(flatten(_sound_files))
+
+        _sound_files_names_only = [os.path.splitext(os.path.split(i)[1])[0] for i in _sound_files]
+        _sound_files_names_enumerated = [(i+1, j) for i, j in enumerate(_sound_files_names_only)]
 
 if _sound_files_names_only == []:
     if loglevel in [3, 4]:
@@ -933,6 +952,11 @@ def process(command):
 
             print(tbl([(i+1, j) for i, j in results_enum], tablefmt='plain'))
 
+        elif commandslist == ['reload']: # TODO - Make useful...
+            print("Reloading sounds")
+            reload_sounds()
+            print("Done...")
+
         elif commandslist == ['vis']: # TODO - Make useful...
             visible = not visible
             if visible:
@@ -1128,8 +1152,6 @@ def process(command):
         elif commandslist in [['clear'], ['cls']]:
             os.system('cls' if os.name == 'nt' else 'clear')
             showbanner()
-            try: os.system('color 0F') # Needed?!? idk
-            except Exception: pass
 
         elif commandslist == ['p']:
             playpausetoggle()
@@ -1533,8 +1555,14 @@ def run():
 
 def startup():
     global disable_OS_requirement
+
     try: os.system('color 0F') # Needed?!? idk
     except Exception: pass
+
+    try: first_startup_greet(FIRST_BOOT)
+    except Exception: pass
+
+    reload_sounds()
 
     if not disable_OS_requirement:
         if sys.platform != 'win32':
