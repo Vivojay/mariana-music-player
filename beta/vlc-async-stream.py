@@ -63,6 +63,7 @@ def vlc_import():
                 try:
                     _=os.add_dll_directory(path)
                     import vlc
+                    if not os.path.isdir('../temp'): os.mkdir('../temp')
                     with open('../temp/hasvlc.tmp', 'w') as _: pass
                     break
                 except OSError:
