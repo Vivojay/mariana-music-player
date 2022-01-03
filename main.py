@@ -170,9 +170,9 @@ except IOError:
         except ImportError:
             sys.exit('[ERROR] Critical guide setup-file missing, please consider reinstalling this file or the entire program\nAborting Mariana Player. . .')
     else:
-        print("[INFO] Could not find lib.lib file, " \
-              "you can create one and add desired source dirs. \n")
-
+        sys.exit("[ERROR] Could not find lib.lib file, '\
+                'please create one and add desired source directories. '\
+                'Aborting program\n")
 
 try:
     with open('user/user_data.yml', encoding='utf-8') as u_data_file:
