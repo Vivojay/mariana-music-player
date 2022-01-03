@@ -137,10 +137,8 @@ yaml = YAML(typ='safe')  # Allows for safe YAML loading
 if not os.path.isdir('logs'): os.mkdir('logs')
 
 def create_required_files_if_not_exist(*files):
-    global FIRST_BOOT
     for file in files:
         if not os.path.isfile(file):
-            FIRST_BOOT = True
             with open(file, 'w', encoding="utf-8") as _:
                 pass
 
@@ -148,6 +146,10 @@ create_required_files_if_not_exist(
     'logs/recents.log',
     'logs/general.log',
 )
+
+FIRST_BOOT = False # Assume user is using app for considerable time
+                   # so you don't want to annoy him with an
+                   # annoying FIRST-TIME-WELCOME
 
 try:
     with open('about/about.info', encoding='utf-8') as file:
@@ -163,16 +165,17 @@ try:
         paths = logfile.read().splitlines()
         paths = [path for path in paths if not path.startswith('#')]
 except IOError:
-    if FIRST_BOOT:
-        try:
-            import first_boot_setup
-            first_boot_setup.fbs(about=ABOUT)
-        except ImportError:
-            sys.exit('[ERROR] Critical guide setup-file missing, please consider reinstalling this file or the entire program\nAborting Mariana Player. . .')
-    else:
-        sys.exit("[ERROR] Could not find lib.lib file, '\
+    if not FIRST_BOOT:
+        sys.exit("[INFO] Could not find lib.lib file, '\
                 'please create one and add desired source directories. '\
                 'Aborting program\n")
+
+if FIRST_BOOT:
+    try:
+        import first_boot_setup
+        first_boot_setup.fbs(about=ABOUT)
+    except ImportError:
+        sys.exit('[ERROR] Critical guide setup-file missing, please consider reinstalling this file or the entire program\nAborting Mariana Player. . .')
 
 try:
     with open('user/user_data.yml', encoding='utf-8') as u_data_file:
@@ -206,7 +209,6 @@ except IOError:
 
 # Variables
 APP_BOOT_TIME_END = time.time()
-FIRST_BOOT = False
 EXIT_INFO = 0
 FALLBACK_RESULT_COUNT = SETTINGS['display items count']['fallback']
 FATAL_ERROR_INFO = None
@@ -1126,6 +1128,8 @@ def process(command):
         elif commandslist in [['clear'], ['cls']]:
             os.system('cls' if os.name == 'nt' else 'clear')
             showbanner()
+            try: os.system('color 0F') # Needed?!? idk
+            except Exception: pass
 
         elif commandslist == ['p']:
             playpausetoggle()
