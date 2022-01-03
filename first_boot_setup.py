@@ -26,7 +26,7 @@ def fbs(about): # First boot setup
         n=0
         while True:
             n+=1
-            local_file_dir = input("  Enter directory path {n}: ").lower().strip()
+            local_file_dir = input(f"  Enter directory path {n}: ").lower().strip()
             if local_file_dir != 'xxx':
                 if os.path.isdir(local_file_dir): local_file_dirs.append(local_file_dir)
                 else: print("This directory does not exist, please retry...")
@@ -37,7 +37,7 @@ def fbs(about): # First boot setup
             
             with open("lib.lib", 'a') as libfile:
                 for dir in local_file_dir:
-                    libfile.writeline(dir+'\n')
+                    libfile.write(dir+'\n')
 
 
     about['first_boot'] = False
