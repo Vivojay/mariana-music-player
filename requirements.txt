@@ -1,7 +1,6 @@
 pygame
 youtube_dl
 tabulate
-librosa
 numpy
 ruamel.yaml
 pydrive
@@ -14,4 +13,5 @@ praw
 shazamio
 colored
 pycaw
+# librosa (optional)
 # Doesn't work, so commented: git+https://github.com/Vivojay/pafy@develop
