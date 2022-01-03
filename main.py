@@ -1,6 +1,6 @@
 
 #################################################################################################################################
-# Mariana Player v0.4.1
+# Mariana Player v0.4.2
 
 # running app:
 #	For very first boot (SETUP):
@@ -164,6 +164,7 @@ try:
     with open('lib.lib', encoding='utf-8') as logfile:
         paths = logfile.read().splitlines()
         paths = [path for path in paths if not path.startswith('#')]
+        paths = list(set(paths))
 except IOError:
     if not FIRST_BOOT:
         sys.exit("[INFO] Could not find lib.lib file, '\
@@ -274,6 +275,7 @@ def reload_sounds():
         with open('lib.lib', encoding='utf-8') as logfile:
             paths = logfile.read().splitlines()
             paths = [path for path in paths if not path.startswith('#')]
+            paths = list(set(paths))
     except IOError:
         no_lib_found = True
         # TODO - write some SAY() here (instead of the humble `print()`)
@@ -290,6 +292,8 @@ def reload_sounds():
 
         _sound_files_names_only = [os.path.splitext(os.path.split(i)[1])[0] for i in _sound_files]
         _sound_files_names_enumerated = [(i+1, j) for i, j in enumerate(_sound_files_names_only)]
+
+reload_sounds()
 
 if _sound_files_names_only == []:
     if loglevel in [3, 4]:
@@ -1561,8 +1565,6 @@ def startup():
 
     try: first_startup_greet(FIRST_BOOT)
     except Exception: pass
-
-    reload_sounds()
 
     if not disable_OS_requirement:
         if sys.platform != 'win32':
