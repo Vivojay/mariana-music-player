@@ -33,9 +33,9 @@ Restart your terminal window for `git` to become available to it...
 
 ## NOTE
 ### You have a choice before continuing with the manual setup given below...
-**There is a new kind of quick-setup... via the "INITSETUP.py" file.**
-**It allows you to single-handedly download and setup this entire music player quickly and easily**
-**To try out this new easy way of installation, follow the steps given [here](#QUICK-SETUP)...**
+**There is a new kind of quick-setup... via the "INITSETUP.py" file.**  
+**It allows you to single-handedly download and setup this entire music player quickly and easily**  
+**To try out this new easy way of installation, follow the steps given [here](#QUICK-SETUP)...**  
 
 #### Setting up a virtual environment
 
