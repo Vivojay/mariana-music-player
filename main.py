@@ -61,6 +61,7 @@ import subprocess as sp;                            print("Loaded 17/25", end='\
 import restore_default;                            print("Loaded 17/25", end='\r')
 
 online_streaming_ext_load_error = 0
+comtypes_load_error = False
 lyrics_ext_load_error = 0
 redditsessions = None
 
@@ -120,10 +121,15 @@ except ImportError:
     print("[INFO] Could not load reddit-sessions extension..., module 'praw' missing")
     print("[INFO] Skipped 23/25")
 
-# Encountered new unexpected and unresolved error in importing comtypes...
-# Syntax Error @line 375 in comtypes/__init__.py
-# from beta.master_volume_control import get_master_volume, set_master_volume
-# print("Loaded 24/25", end='\r')
+try:
+    from beta.master_volume_control import get_master_volume, set_master_volume
+    print("Loaded 24/25", end='\r')
+except Exception:
+    comtypes_load_error = True
+    SAY(visible=visible,
+        log_message="comtypes load failed",
+        display_message="",
+        log_priority=2)
 
 import webbrowser;                                      print("Loaded 25/25", end='\r')
 
@@ -278,8 +284,10 @@ def reload_sounds():
             paths = list(set(paths))
     except IOError:
         no_lib_found = True
-        # TODO - write some SAY() here (instead of the humble `print()`)
-        print("ERROR: Library file suddenly vanished -_-")
+        SAY(visible=visible,
+            log_message="Library file suddenly made unavailable",
+            display_message="Library file suddenly vanished -_-",
+            log_priority=2)
 
     # if _paths != paths: SAY(): Log <- new_dirs_added
 
@@ -726,14 +734,21 @@ def song_seek(timeval=None, rel_val=None):
 
 def setmastervolume(value=None):
     global cached_volume
-    if not value:
-        value = cached_volume
 
-    if value in range(101):
-        set_master_volume(value)
+    if comtypes_load_error:
+        SAY(visible=visible,
+            log_message="comtypes functionality used even when not available",
+            display_message="This functionality is unavailable",
+            log_priority=3)
     else:
-        SAY(visible=visible, display_message='ERROR: Could not set master volume',
-            log_message='Could not set master volume', log_priority=2)
+        if not value:
+            value = cached_volume
+
+        if value in range(101):
+            set_master_volume(value)
+        else:
+            SAY(visible=visible, display_message='ERROR: Could not set master volume',
+                log_message='Could not set master volume', log_priority=2)
 
 def convert(seconds):
     seconds = seconds % (24 * 3600)
@@ -1319,7 +1334,7 @@ def process(command):
                 err(error_topic='Some internal issue occured while setting player volume')
 
         elif commandslist[0].lower() in ['mv', 'mvol', 'mvolume']:
-            '''
+
             try:
                 if len(commandslist) == 2 and commandslist[1].isnumeric():
                     if '.' in commandslist[1]:
@@ -1334,15 +1349,21 @@ def process(command):
                                 log_message='System volume percentage out of range', log_priority=2)
 
                 elif len(commandslist) == 1:
-                    try:
-                        print(f"}}}} {get_master_volume()} %")
-                    except Exception:
-                        SAY(visible=visible, display_message='ERROR: Couldn\'t get system master volume', log_message=f'Unknown error while getting master volume as percent: {currentsong}', log_priority=2)
+                    if comtypes_load_error:
+                        SAY(visible=visible,
+                            log_message="comtypes functionality used even when not available",
+                            display_message="This functionality is unavailable",
+                            log_priority=3)
+                    else:
+                        try:
+                            print(f"}}}} {get_master_volume()} %")
+                        except Exception:
+                            SAY(visible=visible, display_message='ERROR: Couldn\'t get system master volume', log_message=f'Unknown error while getting master volume as percent: {currentsong}', log_priority=2)
 
             except Exception:
                 err(error_topic='Some internal issue occured while setting the system volume')
-            '''
-            print('Sorry, system volume commands have been (temporarily) disabled due to some internal issue')
+
+            # print('Sorry, system volume commands have been (temporarily) disabled due to some internal issue')
 
         elif commandslist in [['l'], ['len'], ['length']]:
             if currentsong:
