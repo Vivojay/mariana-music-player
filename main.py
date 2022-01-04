@@ -61,7 +61,8 @@ import subprocess as sp;                            print("Loaded 17/25", end='\
 import restore_default;                            print("Loaded 17/25", end='\r')
 
 online_streaming_ext_load_error = 0
-comtypes_load_error = False
+comtypes_load_error = True # Unavailable due to comtypes issue #244
+# comtypes_load_error = False
 lyrics_ext_load_error = 0
 redditsessions = None
 
@@ -121,15 +122,15 @@ except ImportError:
     print("[INFO] Could not load reddit-sessions extension..., module 'praw' missing")
     print("[INFO] Skipped 23/25")
 
-try:
-    from beta.master_volume_control import get_master_volume, set_master_volume
-    print("Loaded 24/25", end='\r')
-except Exception:
-    comtypes_load_error = True
-    SAY(visible=False, # global var `visible` hasn't been defined yet...
-        log_message="comtypes load failed",
-        display_message="", # ...because we don't want to display anything on screen to the user
-        log_priority=2)
+# try:
+#     from beta.master_volume_control import get_master_volume, set_master_volume
+#     print("Loaded 24/25", end='\r')
+# except Exception:
+#     comtypes_load_error = True
+#     SAY(visible=False, # global var `visible` hasn't been defined yet...
+#         log_message="comtypes load failed",
+#         display_message="", # ...because we don't want to display anything on screen to the user
+#         log_priority=2)
 
 import webbrowser;                                      print("Loaded 25/25", end='\r')
 
@@ -1334,7 +1335,7 @@ def process(command):
                 err(error_topic='Some internal issue occured while setting player volume')
 
         elif commandslist[0].lower() in ['mv', 'mvol', 'mvolume']:
-
+            '''
             try:
                 if len(commandslist) == 2 and commandslist[1].isnumeric():
                     if '.' in commandslist[1]:
@@ -1362,8 +1363,9 @@ def process(command):
 
             except Exception:
                 err(error_topic='Some internal issue occured while setting the system volume')
+            '''
 
-            # print('Sorry, system volume commands have been (temporarily) disabled due to some internal issue')
+            print('Sorry, system volume commands have been (temporarily) disabled due to some internal issue (Issue #244 comtypes)')
 
         elif commandslist in [['l'], ['len'], ['length']]:
             if currentsong:
