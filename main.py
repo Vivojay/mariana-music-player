@@ -245,7 +245,7 @@ current_media_player can be either 0 or 1:
 
 # From settings
 disable_OS_requirement = True
-supported_file_exts = '.wav .mp3'.split()  # Supported file extensions (wav seeking sucks with pygame)
+supported_file_exts = '.wav .mp3'.split()  # Supported file extensions (wav seeking does not work with pygame)
 visible = True
 max_yt_search_results_threshold = 15
 loglevel = SETTINGS.get('loglevel')
