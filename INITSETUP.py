@@ -10,7 +10,7 @@
 import os
 import sys
 import json
-import subprocess as sp
+import subprocess
 
 curdir = os.path.dirname(os.path.realpath(__file__))
 default_python_path = os.path.join(os.path.expanduser('~'), r'AppData\Local\Programs\Python\Python39\python.exe')
@@ -34,9 +34,65 @@ def create_runners(prog_dir_path):
         runnerfile.write(f'Set-Location "{prog_dir_path}\\src"'+'\n')
         runnerfile.write("..\.virtenv\Scripts\python.exe main.py"+'\n')
 
+def Print(text: str = None):
+    global SILENT
+    if text and not SILENT: print(text)
+
+if ("--help" in sys.argv) or ("-h" in sys.argv):
+    help_menu = '''Usage: py initsetup.py [--no-confirm] [--silent --directory=DIRPATH]
+Shorthand Usage: py initsetup.py [-n] [-s -dir=DIRPATH]
+*Note: "--silent" flag requires a pairing "--directory" flag to go with it
+
++--------------------------------------------------------------------------------------------------------------+
+|  -h, --help                         |  Show this help                                                        |
+|--------------------------------------------------------------------------------------------------------------|
+|  -n, --no-confirm                   |  Do not ask for confirmation after running every command during setup  |
+|  -s, --silent                       |  Only fatal errors and necessary info and prompts will be displayed    |
+|  -dir=DIRPATH, --directory=DIRPATH  |  Only fatal errors and necessary info and prompts will be displayed    |
+|                                     |  DIRPATH may be a relative or absolute path to directory...            |
+|                                     |  Paths with spaces must use quotes, e.g. -dir="DIRPATH"                |
++--------------------------------------------------------------------------------------------------------------+
+'''
+    sys.exit(help_menu)
+
+SILENT = ("--silent" in sys.argv) or ("-s" in sys.argv)
+
+if "--no-confirm" in sys.argv or "-n" in sys.argv:
+    NO_CONF = True
+    Print("NO CONFIRMATION MODE ENABLED...")
+else:
+    NO_CONF = False
+    if " -dir=" in ' '.join(sys.argv):
+        dir_name = [i for i in sys.argv if i.startswith('-dir=')][0].lstrip('-dir=')
+        PROG_DIR_PATH = dir_name
+    elif "--directory=" in ''.join(sys.argv):
+        dir_name = [i for i in sys.argv if i.startswith('--directory=')][0].lstrip('--directory=')
+        PROG_DIR_PATH = dir_name
+    else:
+        sys.exit('No directory specified, use -dir=DIRPATH or --directory=DIRPATH')
+
+    if not SILENT:
+        print('Setup was run w/o any flags (see run with --help for more info)')
+    try:
+        perm = input("Running in default mode (Auto mode turned off). Want to continue? [y/n]: ")
+    except KeyboardInterrupt:
+        sys.exit("\nUser successfully aborted this setup...")
+    while True:
+        if perm.lower().strip() == 'y':
+            Print("[USING DEFAULT SETUP MODE]")
+            break
+        elif perm.lower().strip() == 'n':
+            sys.exit("Shutting down program (Try '--no-confirm' flag for automatic setup w/o confirmations).\nSetup aborted by user...")
+
+        try:
+            perm = input("[INVALID RESPONSE, RETRY] Do you want to continue without auto-mode? [y/n]: ")
+        except KeyboardInterrupt:
+            sys.exit("\nUser successfully aborted this setup...")
+
+
 if not RUN_ONCE:
     supported_py_vers_installed = []
-    pyp = sp.run(["py", "--list-paths"], capture_output=1).stdout.decode().split()
+    pyp = subprocess.run(["py", "--list-paths"], capture_output=1).stdout.decode().split()
     installed_pythons = {}
     for i in range(0, len(pyp)-1, 2):
         py_ver_tuple = tuple(int(i) for i in pyp[i][1:-3].split('.'))
@@ -48,22 +104,23 @@ if not RUN_ONCE:
 
     if os.path.exists(default_python_path):
         PYTHON_PATH = default_python_path
-        default_python_ver_string = sp.run(f'{default_python_path} -c {python_ver_command}', capture_output=1).stdout.decode().strip()
+        default_python_ver_string = subprocess.run(f'{default_python_path} -c {python_ver_command}', capture_output=1).stdout.decode().strip()
         FINAL_VER = ('.'.join(default_python_ver_string.split('.')[:-1]), default_python_ver_string)
-        print(f"Found compatible python version: {default_python_ver_string}")
+        Print(f"Found compatible python version: {default_python_ver_string}")
 
     else:
         if any(supported_py_vers_installed):
             PYTHON_PATH = supported_py_vers_installed[0]
-            found_python_ver_string = sp.run(f'{supported_py_vers_installed[0]} -c {python_ver_command}', capture_output=1).stdout.decode().strip()
+            found_python_ver_string = subprocess.run(f'{supported_py_vers_installed[0]} -c {python_ver_command}', capture_output=1).stdout.decode().strip()
             FINAL_VER = ('.'.join(found_python_ver_string.split('.')[:-1]), found_python_ver_string)
-            print(f"Found compatible python version: {found_python_ver_string}")
+            Print(f"Found compatible python version: {found_python_ver_string}")
         else:
             sys.exit("No python version below 3.10 found, please install a compatible python version and rerun this setup.\nAborting this auto setup...")
 
-    print()
+    Print()
     try:
-        PROG_DIR_PATH = input("Please make a new empty directory for this program to install into and\nenter its path here (If directory is non-empty or path is invalid, setup will abort): ")
+        if not SILENT:
+            PROG_DIR_PATH = input("Please make a new empty directory for this program to install into and\nenter its path here (If directory is non-empty or path is invalid, setup will abort): ")
     except KeyboardInterrupt:
         sys.exit("\nUser successfully aborted this setup...")
 
@@ -71,15 +128,19 @@ if not RUN_ONCE:
         if not any(os.scandir(PROG_DIR_PATH)):
             os.chdir(PROG_DIR_PATH)
         else:
-            sys.exit("This directory is NOT empty. Aborting setup...")
+            if NO_CONF:
+                sys.exit(f"Provided --directory @{PROG_DIR_PATH} is NOT empty. Aborting setup...")
+            else:
+                sys.exit("This directory is NOT empty. Aborting setup...")
     else:
         sys.exit("This directory does NOT exist. Aborting setup...")
 
-    print("\nSuccessfully set directory for download.")
-    print(f"  Mariana Music Player will be downloaded to directory @{PROG_DIR_PATH}\n")
+    Print("\nSuccessfully set directory for download.")
+    Print(f"  Mariana Music Player will be downloaded to directory @{PROG_DIR_PATH}\n")
 
     try:
-        _ = input(f"Press enter to confirm this one-time setup with python version ({FINAL_VER[0]}), (CTRL+C to abort): ")
+        if not SILENT:
+            _ = input(f"Press enter to confirm this one-time setup with python version ({FINAL_VER[0]}), (CTRL+C to abort): ")
     except KeyboardInterrupt:
         sys.exit("\nUser successfully aborted this setup...")
 
@@ -99,11 +160,19 @@ if not RUN_ONCE:
         f'cd "{PROG_DIR_PATH}"',
     ]
 
-    for cmd in commands_to_run_1:
+    for cmd_index, cmd in enumerate(commands_to_run_1):
         try:
-            _ = input(f"Current command ([enter] to run, [CTRL+C] to abort setup)\n  -> {cmd}: ")
-            sp.call(cmd, shell=True)
-            print("Loading next...\n")
+            if not NO_CONF:
+                _ = input(f"Current command ([enter] to run, [CTRL+C] to abort setup)\n  -> {cmd}: ")
+
+            if cmd_index == 2:
+                if SILENT: subprocess.call(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                else: subprocess.call(cmd, shell=True)
+            else:
+                if SILENT: subprocess.call(cmd, shell=True, stdout=subprocess.DEVNULL)
+                else: subprocess.call(cmd, shell=True)
+
+            Print("Loading next...\n")
         except KeyboardInterrupt:
             sys.exit("\nUser successfully aborted this setup...")
 
@@ -120,26 +189,30 @@ if not RUN_ONCE:
     print('\n\n'+'-'*40)
     print("Please activate the auto-created venv by manually typing:\n")
     print(f'''cd "{os.path.realpath('')}"''')
-    print('.virtenv\\Scripts\\activate\n')
-    print("Then, rerun this setup script...")
-    print('-'*40+'\n')
+    print('.virtenv\\Scripts\\activate')
+    if NO_CONF and SILENT:
+        print(f'py "{__file__}" --silent --no-confirm --directory=\"{PROG_DIR_PATH}\"')
+    elif NO_CONF:
+        print(f'py "{__file__}" --no-confirm --directory=\"{PROG_DIR_PATH}\"')
+    elif SILENT:
+        print(f'py "{__file__}" --silent"')
+    print('\n'+'-'*40+'\n')
 
 else:
     # Load logged details from prev run...
     with open(os.path.join(os.path.expanduser('~'), 'setup.pypaths')) as f:
-        PY_PATHS_INFO = json.load(f)
-    
-    if not PY_PATHS_INFO['SETUP_COMPLETE']:
+        SETUP_INFO = json.load(f)
 
-        os.chdir(PY_PATHS_INFO['PROG_DIR_PATH'])
+    if not SETUP_INFO['SETUP_COMPLETE']:
+        os.chdir(SETUP_INFO['PROG_DIR_PATH'])
 
-        ACTIVATION_PATH = os.path.join(PY_PATHS_INFO['PROG_DIR_PATH'], '.virtenv\\Scripts\\activate')
-        PYTHON_EXECUTABLE = os.path.join(PY_PATHS_INFO['PROG_DIR_PATH'], '.virtenv\\Scripts\\python.exe')
+        ACTIVATION_PATH = os.path.join(SETUP_INFO['PROG_DIR_PATH'], '.virtenv\\Scripts\\activate')
+        PYTHON_EXECUTABLE = os.path.join(SETUP_INFO['PROG_DIR_PATH'], '.virtenv\\Scripts\\python.exe')
 
-        BAT_PATH = os.path.join(PY_PATHS_INFO['PROG_DIR_PATH'], 'runner.bat')
-        PS1_PATH = os.path.join(PY_PATHS_INFO['PROG_DIR_PATH'], 'runner.ps1')
+        BAT_PATH = os.path.join(SETUP_INFO['PROG_DIR_PATH'], 'runner.bat')
+        PS1_PATH = os.path.join(SETUP_INFO['PROG_DIR_PATH'], 'runner.ps1')
 
-        if sys.executable in PY_PATHS_INFO['INSTALLED_PYS']:
+        if sys.executable in SETUP_INFO['INSTALLED_PYS']:
             print(f"You have not activated the venv yet, run: \"{ACTIVATION_PATH}\" (without quotes) to activate it")
             sys.exit("After activating, you then need to rerun this setup program. Aborting setup...")
         else:
@@ -147,37 +220,44 @@ else:
                 print(f"You have not activated the venv yet, run: \"{ACTIVATION_PATH}\" (without quotes) to activate it")
                 sys.exit("After activating, you then need to rerun this setup program. Aborting setup...")
             else:
-                for cmd in commands_to_run_2:
+                for cmd_index, cmd in enumerate(commands_to_run_2):
                     try:
-                        _ = input(f"Current command ([enter] to run, [CTRL+C] to abort setup)\n  -> {cmd}: ")
-                        sp.call(cmd, shell=True)
-                        print("Loading next...\n")
+                        if not NO_CONF:
+                            _ = input(f"Current command ([enter] to run, [CTRL+C] to abort setup)\n  -> {cmd}: ")
+                        if cmd_index == 2:
+                            if SILENT: subprocess.call(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            else: subprocess.call(cmd, shell=True)
+                        else:
+                            if SILENT: subprocess.call(cmd, shell=True, stdout=subprocess.DEVNULL)
+                            else: subprocess.call(cmd, shell=True)
+                        Print("Loading next...\n")
                     except KeyboardInterrupt:
                         sys.exit("\nUser successfully aborted this setup...")
 
-                PY_PATHS_INFO['SETUP_COMPLETE'] = True
+                SETUP_INFO['SETUP_COMPLETE'] = True
                 with open(os.path.join(os.path.expanduser('~'), 'setup.pypaths'), 'w') as f:
-                    json.dump(PY_PATHS_INFO, f)
+                    json.dump(SETUP_INFO, f)
 
-                create_runners(PY_PATHS_INFO['PROG_DIR_PATH'])
+                create_runners(SETUP_INFO['PROG_DIR_PATH'])
 
-                print("\n\n"+"-"*80)
-                print(f'Setup is complete.\n2 new files, i.e. "runner.bat" and "runner.ps1" have been created in directory: {PY_PATHS_INFO["PROG_DIR_PATH"]}\n\n')
-                print(f'Run either one using ".\\runner.bat" (Recommended) or ".\\runner.ps1"\nto start the music player in one go, whenever you like!\n')
+                if not SILENT:
+                    print("\n\n"+"-"*80)
+                    print(f'Setup is complete.\n2 new files, i.e. "runner.bat" and "runner.ps1" have been created in directory: {SETUP_INFO["PROG_DIR_PATH"]}\n\n')
+                    print(f'Run either one using ".\\runner.bat" (Recommended) or ".\\runner.ps1"\nto start the music player in one go, whenever you like!\n')
 
-                print(f"runner.bat will work in both cmd, and powershell\n")
+                    print(f"runner.bat will work in both cmd, and powershell\n")
 
-                print("If you want to run the player in powershell, you need to do a one-time setup*")
-                print("            *(Not Recommended, unless you know what you're doing)")
-                print("  First, open powershell as admin and run: 'Set-ExecutionPolicy Unrestricted' (without quotes)")
-                print("  Then type 'Y' in the confirmation prompt(s) before executing 'runner.ps1'\n")
+                    print("If you want to run the player in powershell, you need to do a one-time setup*")
+                    print("            *(Not Recommended, unless you know what you're doing)")
+                    print("  First, open powershell as admin and run: 'Set-ExecutionPolicy Unrestricted' (without quotes)")
+                    print("  Then type 'Y' in the confirmation prompt(s) before executing 'runner.ps1'\n")
 
-                print("All successive runs of 'runner.ps1' in powershell (no need to open as admin)\n")
-                print(f"can be done normally with '.\\runner.ps1' (without quotes)")
-                print("Bye...")
-                print("\n\n"+"-"*80)
+                    print("All successive runs of 'runner.ps1' in powershell (no need to open as admin)")
+                    print(f"can be done normally with '.\\runner.ps1' (without quotes)")
+                    print("Bye...")
+                    print("\n\n"+"-"*80)
                 sys.exit(0)
     else:
         print("Setup is complete, refer to the runner.bat and runner.ps1 files created in the directory where you downloaded the app...")
-        sys.exit(f"You may delete this file @({__file__}) now...")
+        sys.exit(f'You may delete this file "@{__file__}" now...')
 
