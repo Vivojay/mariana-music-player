@@ -134,7 +134,7 @@ i.e. `player.log_unset()`
 
 Get some media streaming url like and pass it to `player.media_new`  
 
-**E.g.** `media_streaming_url = http://sa.mp3.icecast.magma.edge-access.net:7200/sc_rad41`  
+**E.g.** `media_streaming_url = "http://sa.mp3.icecast.magma.edge-access.net:7200/sc_rad41"`  
 
 Then new media_list_new and `MediaPlayer` instances are created  
 and finally this media_list is inserted into the `MediaPlayer`  
