@@ -31,6 +31,12 @@ Restart your terminal window for `git` to become available to it...
 
 ### Step 3
 
+## NOTE
+### You have a choice before continuing with the manual setup given below...
+##### There is a new kind of quick-setup... via the "INITSETUP.py" file.
+##### It allows you to single-handedly download and setup this entire music player quickly and easily
+##### To try out this new easy way of installation, follow the steps given [here](#)...
+
 #### Setting up a virtual environment
 
 Open up a *cmd* or *terminal* window
@@ -164,7 +170,14 @@ such as..
 - get/set audio volume (audio_set_volume)
 etc...
 
-```
+<br>
+
+## QUICK-SETUP
+Follow these simple steps for a quicker, easier and more seamless installation and setup experience...
+1. Download ONLY the initsetup.py file...
+2. Run it in console with command: `py "<absolute_path_to_py_file>"` 
+   E.g. py "C:\Users\Admin\Downloads\initsetup.py"
+3. Follow the instructions given...
 
 <br>
 
