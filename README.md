@@ -147,6 +147,24 @@ media_list.add_media(media)
 
 vlc_media_player = player.media_list_player_new()
 vlc_media_player.set_media_list(media_list)
+
+"""
+Now that vlc_media_player is created, we can
+control media via actions like play, pause, stop and resume.
+
+To control the song positioning (seeking),
+we can get the media player object from vlc_media_player using
+
+MPO = vlc_media_player.get_media_player()
+with this MPO (object), we can access more song parameters
+such as..
+
+- get/set song position
+- change track within playlist (skip/prev/next)
+- get/set audio volume (audio_set_volume)
+etc...
+"""
+
 ```
 
 <br>
