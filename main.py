@@ -126,9 +126,9 @@ try:
     print("Loaded 24/25", end='\r')
 except Exception:
     comtypes_load_error = True
-    SAY(visible=visible,
+    SAY(visible=False, # global var `visible` hasn't been defined yet...
         log_message="comtypes load failed",
-        display_message="",
+        display_message="", # ...because we don't want to display anything on screen to the user
         log_priority=2)
 
 import webbrowser;                                      print("Loaded 25/25", end='\r')
