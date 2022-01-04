@@ -60,6 +60,8 @@ In the same location run `.\.virtenv\Scripts\activate` and wait for a`(.virtenv)
 
 **Step 3.7:** Run: `py -m pip install git+https://github.com/Vivojay/pafy@develop`  
 
+**Step 3.8:** Run: `py -m pip install --no-cache-dir comtypes` (Because comtypes throws errors on importing otherwise, [see #244 in comtypes](https://github.com/enthought/comtypes/issues/244))
+
 ### Step 4
 
 Now you need to install a release of *ffmpeg* from their official site at [www.ffmpeg.org](https://ffmpeg.org/download.html)  
