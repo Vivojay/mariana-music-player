@@ -20,6 +20,9 @@ curdir = os.path.dirname(os.path.realpath(__file__))
 default_python_path = os.path.join(os.path.expanduser('~'), r'AppData\Local\Programs\Python\Python39\python.exe')
 python_ver_command = "\"import sys; print('.'.join([str(i) for i in list(sys.version_info)[:3]]))\""
 
+if not os.path.isdir(os.path.join(os.environ['localappdata'], 'Mariana Music Player v0.4.2')):
+    os.mkdir(os.path.join(os.environ['localappdata'], 'Mariana Music Player v0.4.2'))
+
 RUN_ONCE = os.path.isfile(os.path.join(os.environ['localappdata'], 'Mariana Music Player v0.4.2\\setup.pypaths'))
 
 GIT_INSTALLED = not subprocess.call(['git', '--version'],
@@ -77,12 +80,10 @@ if SILENT and NO_CONF:
     print('"--silent" and "--no-confirm" flags cannot be used together')
     sys.exit(1)
 
-if GIT_INSTALLED:
-    _Print(DISCLAIMER)
-else:
-    print("You don't seem to have git installed and globally available via the `git` command")
-    print("Please install it from https://www.git-scm.com/downloads and rerun this installation")
-    sys.exit(1)
+if not (SILENT or NO_CONF):
+    if " -dir=" in ' '.join(sys.argv) or "--directory=" in ''.join(sys.argv):
+        print('Can\'t specify "--directory" alone')
+        sys.exit(1)
 
 if SILENT or NO_CONF:
     if " -dir=" in ' '.join(sys.argv):
@@ -93,6 +94,13 @@ if SILENT or NO_CONF:
         PROG_DIR_PATH = dir_name
     else:
         sys.exit('No directory specified, use -dir=DIRPATH or --directory=DIRPATH')
+
+if GIT_INSTALLED:
+    _Print(DISCLAIMER)
+else:
+    print("You don't seem to have git installed and globally available via the `git` command")
+    print("Please install it from https://www.git-scm.com/downloads and rerun this installation")
+    sys.exit(1)
 
 if NO_CONF: _Print("NO CONFIRMATION MODE ENABLED...")
 
@@ -147,7 +155,7 @@ if not RUN_ONCE:
     _Print()
     try:
         if not (SILENT or NO_CONF):
-            PROG_DIR_PATH = input("Please make a new empty directory for this program to install into and\nenter its path here (If directory is non-empty or path is invalid, setup will abort): ")
+            PROG_DIR_PATH = input("Please make a new empty directory for this program to install into and\nenter its path here (If directory is non-empty, setup will abort): ")
     except KeyboardInterrupt:
         sys.exit("\nUser successfully aborted this setup...")
 
@@ -156,11 +164,32 @@ if not RUN_ONCE:
             os.chdir(PROG_DIR_PATH)
         else:
             if NO_CONF:
-                sys.exit(f"Provided --directory @{PROG_DIR_PATH} is NOT empty. Aborting setup...")
+                sys.exit(f"Provided --directory @{PROG_DIR_PATH} already exists and is NOT empty. Aborting setup...")
             else:
                 sys.exit("This directory is NOT empty. Aborting setup...")
     else:
-        sys.exit("This directory does NOT exist. Aborting setup...")
+        CREATE_NEW_DIR_PERM = input("This directory does not exist. Create it? (y/n): ")
+
+        # Keep asking for permission until it's valid
+        while True:
+            if CREATE_NEW_DIR_PERM.lower().strip() == 'y':
+                _Print(f"Creating new directory @{PROG_DIR_PATH}")
+                try:
+                    os.mkdir(PROG_DIR_PATH)
+                    os.chdir(PROG_DIR_PATH)
+                except Exception:
+                    print("Error creating new directory for installation. Program failed. Aborting")
+                    sys.exit(1)
+                break
+            elif CREATE_NEW_DIR_PERM.lower().strip() == 'n':
+                print("You have aborted the installation temporarily. Create dir yourself and rerun this setup script...")
+                sys.exit(0)
+
+            try:
+                CREATE_NEW_DIR_PERM = input(f"[INVALID RESPONSE, RETRY] Do you want to create directory at {PROG_DIR_PATH}? [y/n]: ")
+            except KeyboardInterrupt:
+                sys.exit("\nUser successfully aborted this setup...")
+
 
     _Print("\nSuccessfully set directory for download.")
     _Print(f"  Mariana Music Player will be downloaded to directory @{PROG_DIR_PATH}\n")
