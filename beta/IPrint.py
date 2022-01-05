@@ -25,9 +25,12 @@ cols = [
 from multiprocessing import Process
 from colored import fg as _fg, bg as _bg, attr, back
 
-def IPrint(text=""):
-    print(text)
+def IPrint(text="", visible=True):
+    if visible:
+        print(text)
+
 def loading(text=""): pass
+
 def Coloured(text="", fg="white", bg="black", multi=False, disableprint=False):
     bg = bg.lower()
     fg = fg.lower()
@@ -39,7 +42,7 @@ def Coloured(text="", fg="white", bg="black", multi=False, disableprint=False):
         else:
             print(f"{_bg(bg)}{_fg(fg)}{text}{attr('reset')}")
 
-def rainbow_print(text, colours):
+def blue_gradient_print(text, colours):
     LC = len(colours)
     for index, letter in enumerate(text):
         bg, fg = colours[index%LC]
