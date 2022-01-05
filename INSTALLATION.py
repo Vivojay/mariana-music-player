@@ -53,8 +53,8 @@ def _Print(text: str = None):
     if text and not SILENT: print(text)
 
 if ("--help" in sys.argv) or ("-h" in sys.argv):
-    help_menu = '''Usage: py initsetup.py [ --no-confirm | (--silent --directory=DIRPATH) ]
-Shorthand Usage: py initsetup.py [ -n | (-s -dir=DIRPATH])]
+    help_menu = '''Usage: py initsetup.py [ (--no-confirm | --silent) --directory=DIRPATH ]
+Shorthand Usage: py initsetup.py [ (-n | -s) -dir=DIRPATH ]
 *Note: 1) "--silent" flag requires a "--directory" to go with it, and so does "--no-confirm"
        2) "--no-confirm" and "--silent" flags can't be used together
 
@@ -291,4 +291,3 @@ else:
     else:
         print("Setup is complete, refer to the runner.bat and runner.ps1 files created in the directory where you downloaded the app...")
         sys.exit(f'You may delete this file "@{__file__}" now...')
-
