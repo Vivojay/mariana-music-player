@@ -636,13 +636,19 @@ def play_commands(commandslist, _command=False):
         if len(commandslist) == 2:
             songindex = commandslist[1]
             if songindex.isnumeric():
-                if int(songindex) in range(len(_sound_files)+1):
+                if int(songindex) in range(1, len(_sound_files)+1):
                     currentsong_length = None
                     play_local_default_player(_sound_files[int(songindex)-1],
-                             _songindex=songindex)
+                                              _songindex=songindex)
                 else:
-                    err('Out of range',
-                        f'Please input song number between 1 and {len(_sound_files)}')
+                    if any(_sound_files):
+                        err('Out of range',
+                            f'Please input song number between 1 and {len(_sound_files)}')
+                    else:
+                        SAY(visible=visible,
+                            log_message='User attempted to play local song, even though there are no songs in library',
+                            display_message='There are no songs in library',
+                            log_priority=3)
 
         else:
             songindices = commandslist[1:]
