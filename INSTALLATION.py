@@ -4,6 +4,10 @@
 # This helps in seamless setup, and you don't need to have the project installed
 #
 # Even if you have solely this file, you can install the player (no other files required)
+#
+# DISCLAIMER: This file WILL DOWNLOAD THE PROJECT from its git repository
+#             Make sure to have GIT installed and that you don't have
+#             the project already downloaded.
 # --------------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -16,7 +20,17 @@ curdir = os.path.dirname(os.path.realpath(__file__))
 default_python_path = os.path.join(os.path.expanduser('~'), r'AppData\Local\Programs\Python\Python39\python.exe')
 python_ver_command = "\"import sys; print('.'.join([str(i) for i in list(sys.version_info)[:3]]))\""
 
-RUN_ONCE = os.path.isfile(os.path.join(os.path.expanduser('~'), 'setup.pypaths'))
+RUN_ONCE = os.path.isfile(os.path.join(os.environ['localappdata'], 'Mariana Music Player v0.4.2\\setup.pypaths'))
+
+GIT_INSTALLED = not subprocess.call(['git', '--version'],
+                                    shell=True,
+                                    stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.STDOUT)
+
+DISCLAIMER = (f"{' '*25}DISCLAIMER\n"
+        "This file WILL DOWNLOAD THE PROJECT from its git repository\n"
+        "Make sure you don't already have the project downloaded (delete it if you do,\n"
+        "or skip this quick-setup and revert to manual setup if you want that...)\n")
 
 commands_to_run_2 = [
     # Installing needed python modules
@@ -34,14 +48,15 @@ def create_runners(prog_dir_path):
         runnerfile.write(f'Set-Location "{prog_dir_path}\\src"'+'\n')
         runnerfile.write("..\.virtenv\Scripts\python.exe main.py"+'\n')
 
-def Print(text: str = None):
+def _Print(text: str = None):
     global SILENT
     if text and not SILENT: print(text)
 
 if ("--help" in sys.argv) or ("-h" in sys.argv):
-    help_menu = '''Usage: py initsetup.py [--no-confirm] [--silent --directory=DIRPATH]
-Shorthand Usage: py initsetup.py [-n] [-s -dir=DIRPATH]
-*Note: "--silent" flag requires a pairing "--directory" flag to go with it
+    help_menu = '''Usage: py initsetup.py [ --no-confirm | (--silent --directory=DIRPATH) ]
+Shorthand Usage: py initsetup.py [ -n | (-s -dir=DIRPATH])]
+*Note: 1) "--silent" flag requires a "--directory" to go with it, and so does "--no-confirm"
+       2) "--no-confirm" and "--silent" flags can't be used together
 
 +--------------------------------------------------------------------------------------------------------------+
 |  -h, --help                         |  Show this help                                                        |
@@ -56,12 +71,20 @@ Shorthand Usage: py initsetup.py [-n] [-s -dir=DIRPATH]
     sys.exit(help_menu)
 
 SILENT = ("--silent" in sys.argv) or ("-s" in sys.argv)
+NO_CONF = "--no-confirm" in sys.argv or "-n" in sys.argv
 
-if "--no-confirm" in sys.argv or "-n" in sys.argv:
-    NO_CONF = True
-    Print("NO CONFIRMATION MODE ENABLED...")
+if SILENT and NO_CONF:
+    print('"--silent" and "--no-confirm" flags cannot be used together')
+    sys.exit(1)
+
+if GIT_INSTALLED:
+    _Print(DISCLAIMER)
 else:
-    NO_CONF = False
+    print("You don't seem to have git installed and globally available via the `git` command")
+    print("Please install it from https://www.git-scm.com/downloads and rerun this installation")
+    sys.exit(1)
+
+if SILENT or NO_CONF:
     if " -dir=" in ' '.join(sys.argv):
         dir_name = [i for i in sys.argv if i.startswith('-dir=')][0].lstrip('-dir=')
         PROG_DIR_PATH = dir_name
@@ -71,15 +94,19 @@ else:
     else:
         sys.exit('No directory specified, use -dir=DIRPATH or --directory=DIRPATH')
 
-    if not SILENT:
-        print('Setup was run w/o any flags (see run with --help for more info)')
+if NO_CONF: _Print("NO CONFIRMATION MODE ENABLED...")
+
+if not (SILENT or NO_CONF):
+    print('Setup was run w/o any flags (see run with --help for more info)')
     try:
-        perm = input("Running in default mode (Auto mode turned off). Want to continue? [y/n]: ")
+        perm = input("Running in default mode. Want to continue? [y/n]: ")
     except KeyboardInterrupt:
         sys.exit("\nUser successfully aborted this setup...")
+
+    # Keep asking for permission until it's valid
     while True:
         if perm.lower().strip() == 'y':
-            Print("[USING DEFAULT SETUP MODE]")
+            _Print("[USING DEFAULT SETUP MODE]")
             break
         elif perm.lower().strip() == 'n':
             sys.exit("Shutting down program (Try '--no-confirm' flag for automatic setup w/o confirmations).\nSetup aborted by user...")
@@ -106,20 +133,20 @@ if not RUN_ONCE:
         PYTHON_PATH = default_python_path
         default_python_ver_string = subprocess.run(f'{default_python_path} -c {python_ver_command}', capture_output=1).stdout.decode().strip()
         FINAL_VER = ('.'.join(default_python_ver_string.split('.')[:-1]), default_python_ver_string)
-        Print(f"Found compatible python version: {default_python_ver_string}")
+        _Print(f"Found compatible python version: {default_python_ver_string}")
 
     else:
         if any(supported_py_vers_installed):
             PYTHON_PATH = supported_py_vers_installed[0]
             found_python_ver_string = subprocess.run(f'{supported_py_vers_installed[0]} -c {python_ver_command}', capture_output=1).stdout.decode().strip()
             FINAL_VER = ('.'.join(found_python_ver_string.split('.')[:-1]), found_python_ver_string)
-            Print(f"Found compatible python version: {found_python_ver_string}")
+            _Print(f"Found compatible python version: {found_python_ver_string}")
         else:
             sys.exit("No python version below 3.10 found, please install a compatible python version and rerun this setup.\nAborting this auto setup...")
 
-    Print()
+    _Print()
     try:
-        if not SILENT:
+        if not (SILENT or NO_CONF):
             PROG_DIR_PATH = input("Please make a new empty directory for this program to install into and\nenter its path here (If directory is non-empty or path is invalid, setup will abort): ")
     except KeyboardInterrupt:
         sys.exit("\nUser successfully aborted this setup...")
@@ -135,11 +162,11 @@ if not RUN_ONCE:
     else:
         sys.exit("This directory does NOT exist. Aborting setup...")
 
-    Print("\nSuccessfully set directory for download.")
-    Print(f"  Mariana Music Player will be downloaded to directory @{PROG_DIR_PATH}\n")
+    _Print("\nSuccessfully set directory for download.")
+    _Print(f"  Mariana Music Player will be downloaded to directory @{PROG_DIR_PATH}\n")
 
     try:
-        if not SILENT:
+        if not (SILENT or NO_CONF):
             _ = input(f"Press enter to confirm this one-time setup with python version ({FINAL_VER[0]}), (CTRL+C to abort): ")
     except KeyboardInterrupt:
         sys.exit("\nUser successfully aborted this setup...")
@@ -162,7 +189,9 @@ if not RUN_ONCE:
 
     for cmd_index, cmd in enumerate(commands_to_run_1):
         try:
-            if not NO_CONF:
+            if NO_CONF:
+                _Print(f"Current command\n  -> {cmd}: ")
+            elif not SILENT:
                 _ = input(f"Current command ([enter] to run, [CTRL+C] to abort setup)\n  -> {cmd}: ")
 
             if cmd_index == 2:
@@ -172,12 +201,12 @@ if not RUN_ONCE:
                 if SILENT: subprocess.call(cmd, shell=True, stdout=subprocess.DEVNULL)
                 else: subprocess.call(cmd, shell=True)
 
-            Print("Loading next...\n")
+            _Print("Loading next...\n")
         except KeyboardInterrupt:
             sys.exit("\nUser successfully aborted this setup...")
 
     # Create file for later use...
-    with open(os.path.join(os.path.expanduser('~'), 'setup.pypaths'), 'w') as f:
+    with open(os.path.join(os.environ['localappdata'], 'Mariana Music Player v0.4.2\\setup.pypaths'), 'w') as f:
         json.dump({
                         "INSTALLED_PYS": supported_py_vers_installed,
                         "PROG_DIR_PATH": os.path.realpath(''),
@@ -187,20 +216,20 @@ if not RUN_ONCE:
     ACTIVATION_PATH = os.path.join(os.path.realpath(''), '.virtenv\\Scripts\\activate')
 
     print('\n\n'+'-'*40)
-    print("Please activate the auto-created venv by manually typing:\n")
+    print("Please activate the auto-created venv by manually copy-pasting following lines in this terminal:\n")
     print(f'''cd "{os.path.realpath('')}"''')
     print('.virtenv\\Scripts\\activate')
-    if NO_CONF and SILENT:
-        print(f'py "{__file__}" --silent --no-confirm --directory=\"{PROG_DIR_PATH}\"')
-    elif NO_CONF:
+    if NO_CONF:
         print(f'py "{__file__}" --no-confirm --directory=\"{PROG_DIR_PATH}\"')
     elif SILENT:
-        print(f'py "{__file__}" --silent"')
+        print(f'py "{__file__}" --silent --directory=\"{PROG_DIR_PATH}\"')
+    else:
+        print(f'py "{__file__}"')
     print('\n'+'-'*40+'\n')
 
 else:
     # Load logged details from prev run...
-    with open(os.path.join(os.path.expanduser('~'), 'setup.pypaths')) as f:
+    with open(os.path.join(os.environ['localappdata'], 'Mariana Music Player v0.4.2\\setup.pypaths')) as f:
         SETUP_INFO = json.load(f)
 
     if not SETUP_INFO['SETUP_COMPLETE']:
@@ -222,20 +251,22 @@ else:
             else:
                 for cmd_index, cmd in enumerate(commands_to_run_2):
                     try:
-                        if not NO_CONF:
+                        if NO_CONF:
+                            _Print(f"Current command\n  -> {cmd}: ")
+                        elif not SILENT:
                             _ = input(f"Current command ([enter] to run, [CTRL+C] to abort setup)\n  -> {cmd}: ")
-                        if cmd_index == 2:
+                        if cmd_index == 1:
                             if SILENT: subprocess.call(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                             else: subprocess.call(cmd, shell=True)
                         else:
                             if SILENT: subprocess.call(cmd, shell=True, stdout=subprocess.DEVNULL)
                             else: subprocess.call(cmd, shell=True)
-                        Print("Loading next...\n")
+                        _Print("Loading next...\n")
                     except KeyboardInterrupt:
                         sys.exit("\nUser successfully aborted this setup...")
 
                 SETUP_INFO['SETUP_COMPLETE'] = True
-                with open(os.path.join(os.path.expanduser('~'), 'setup.pypaths'), 'w') as f:
+                with open(os.path.join(os.environ['localappdata'], 'Mariana Music Player v0.4.2\\setup.pypaths'), 'w') as f:
                     json.dump(SETUP_INFO, f)
 
                 create_runners(SETUP_INFO['PROG_DIR_PATH'])
