@@ -881,15 +881,16 @@ def play_vas_media(media_url, single_video = None, media_name = None,
     while not vas.vlc_media_player.get_media_player().is_playing(): pass
 
     length_find_start_time = time.time()
-    if current_media_type == 1:
+    if current_media_type == 2:
         currentsong_length = -1
-    while True:
-        if vas.vlc_media_player.get_media_player().get_length():
-            currentsong_length = vas.vlc_media_player.get_media_player().get_length()/1000
-            break
-        if time.time() - length_find_start_time >= max_wait_limit_to_get_song_length:
-            currentsong_length = -1
-            break
+    else:
+        while True:
+            if vas.vlc_media_player.get_media_player().get_length():
+                currentsong_length = vas.vlc_media_player.get_media_player().get_length()/1000
+                break
+            if time.time() - length_find_start_time >= max_wait_limit_to_get_song_length:
+                currentsong_length = -1
+                break
     # currentsong_length gives output in ms, this will be converted to seconds when needed
 
     if currentsong_length == -1:
