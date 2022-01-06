@@ -26,7 +26,8 @@ Find command will be issuable with the following options:
     a: Show only  files
     t <tag_name>: Show only files with given tag (if multiple tags specified, then all tags mst be present)
     f: Show only favourited files
-    
+
+Keep saving auto shazamed radio songs (when webradio is playing...) to logs...
 
 Many Great Visualizers (2D and 3D, color changing, other effects....)
 Song Videos from youtube (if available) ... ? (May not be implemented)
