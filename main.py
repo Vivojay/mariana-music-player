@@ -881,7 +881,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
     while not vas.vlc_media_player.get_media_player().is_playing(): pass
 
     length_find_start_time = time.time()
-    if current_media_type in []:
+    if current_media_type in [0, 1]:
         while True:
             if vas.vlc_media_player.get_media_player().get_length():
                 currentsong_length = vas.vlc_media_player.get_media_player().get_length()/1000
