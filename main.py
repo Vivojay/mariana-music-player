@@ -114,7 +114,6 @@ try:
     from lyrics_provider import get_lyrics
     print("Loaded 22/25", end='\r')
 except ImportError:
-    raise
     print("[INFO] Could not load lyrics extension...")
     if not lyrics_ext_load_error:
         print("[INFO] ...Could not load online streaming extension...")
@@ -261,6 +260,7 @@ supported_file_types = SYSTEM_SETTINGS["system_settings"]['supported_file_types'
 visible = SETTINGS['visible']
 loglevel = SETTINGS.get('loglevel')
 max_yt_search_results_threshold = SETTINGS['display items count']['youtube-search results']['maximum']
+max_wait_limit_to_get_song_length = SYSTEM_SETTINGS['system_settings']['max_wait_limit_to_get_song_length']
 FALLBACK_RESULT_COUNT = SETTINGS['display items count']['general']['fallback']
 
 if not loglevel: restore_default.restore('loglevel', SETTINGS)
@@ -429,7 +429,8 @@ def play_local_default_player(songpath, _songindex):
             # Hence, we need to convert everything to lowercase...
             songindex = [i.lower() for i in _sound_files].index(songpath.lower())
 
-        if not currentsong_length: get_currentsong_length()
+        if not currentsong_length and currentsong_length != -1:
+            get_currentsong_length()
         current_media_type = None
         USER_DATA['default_user_data']['stats']['play_count']['local'] += 1
         save_user_data()
@@ -713,7 +714,7 @@ def get_currentsong_length():
     global current_media_player, currentsong_length, currentsong_length
     if currentsong:
         if current_media_player:
-            if not currentsong_length:
+            if not currentsong_length and not currentsong_length == -1:
                 currentsong_length = currentsong_length/1000
         else:
             cursong_obj = pygame.mixer.Sound(currentsong)
@@ -801,8 +802,8 @@ def validate_time(rawtime):
 def play_vas_media(media_url, single_video = None, media_name = None,
                    print_now_playing = True, media_type = 'video'):
 
-    global isplaying, current_media_player, visible, currentsong, cached_volume, current_media_type
-    global currentsong_length, currentsong_length
+    global isplaying, current_media_player, visible, currentsong, cached_volume
+    global currentsong_length, current_media_type
 
     # Stop prev songs b4 loading VAS Media...
     stopsong()
@@ -878,8 +879,16 @@ def play_vas_media(media_url, single_video = None, media_name = None,
     save_user_data()
 
     while not vas.vlc_media_player.get_media_player().is_playing(): pass
-    while not vas.vlc_media_player.get_media_player().get_length(): pass
-    currentsong_length = vas.vlc_media_player.get_media_player().get_length()/1000
+
+    length_find_start_time = time.time()
+    if current_media_type in []:
+        while True:
+            if vas.vlc_media_player.get_media_player().get_length():
+                currentsong_length = vas.vlc_media_player.get_media_player().get_length()/1000
+                break
+            if time.time() - length_find_start_time >= max_wait_limit_to_get_song_length:
+                currentsong_length = -1
+                break
     # currentsong_length gives output in ms, this will be converted to seconds when needed
 
     if currentsong_length == -1:
@@ -1055,7 +1064,8 @@ def process(command):
 
         elif commandslist[0].lower() in ['isp?', 'ispl', 'isp']:
             SAY(visible=visible,
-                display_message='/? Invalid command, perhaps you meant "ispl?" for "is playing?"', log_message=f'Command assumed to be misspelled: {currentsong}', log_priority=3)
+                display_message='/? Invalid command, perhaps you meant "ispl?" for "is playing?"',
+                log_message=f'"ispl[aying]?" command assumed to be misspelled', log_priority=3)
 
         elif commandslist[0].lower() in ['ispl?', 'isplaying?']:
             # TODO - Make more reliable...?
@@ -1111,8 +1121,16 @@ def process(command):
                     else:
                         pass
             else:
-                SAY(visible=visible, display_message="Error: No song to seek",
-                    log_message=f'Seeked song w/o playing any', log_priority=2)
+                if currentsong_length == -1:
+                    SAY(visible=visible,
+                        display_message="Error: Can't seek song, as song length could not be loaded",
+                        log_message=f'Song length could not be loaded, cannot seek',
+                        log_priority=2)
+                else:
+                    SAY(visible=visible,
+                        display_message="Error: No song to seek",
+                        log_message=f'Seeked song w/o playing any',
+                        log_priority=2)
 
         elif commandslist in [['prog'], ['progress'], ['prog*'], ['progress*']]:
             if currentsong:
@@ -1135,6 +1153,27 @@ def process(command):
                         f" {prog_sep} {colored.fg('orange_1')}{round(cur_len-cur_prog)}"
                         f" {prog_sep} {colored.fg('light_goldenrod_1')}{round(cur_prog/cur_len*100)}%", visible=visible)
 
+        elif commandslist[0].lower() in ['download',  'download-yt',  'download-au',  'download-a',
+                                         '/download', '/download-yt', '/download-au', '/download-a']:
+            SAY(visible=visible,
+                display_message=f'/? Invalid command, perhaps you meant one of:\n'
+                f'  {colored.fg("magenta_3a")}download-yv:{colored.fg("light_sky_blue_1")} Download YouTube video\n'
+                f'  {colored.fg("magenta_3a")}download-ya:{colored.fg("light_sky_blue_1")} Download YouTube audio\n'
+                f'  {colored.fg("magenta_3a")}download-al:{colored.fg("light_sky_blue_1")} Download custom audio link'
+                f'{colored.attr("reset")}\n',
+                log_message=f'"download-(\'ys\'|\'yv\'|\'al\')" command assumed to be misspelled', log_priority=3)
+
+        elif commandslist[0].lower() == 'download-yt':
+            if len(commandslist) == 2:
+                url = commandslist[1]
+                if url_is_valid(yt=True):
+                    IPrint( 'Attempting to download YouTube video from:\n  '
+                          f'{colored.fg("sandy_brown")}@ {colored.fg("orchid_2")}{url}{colored.attr("reset")}',
+                          visible=visible)
+                else:
+                    SAY(visible=visible,
+                        log_message=f'Invalid YouTube URL for video download: {url}')
+
         elif commandslist == ['t']:
             IPrint(convert(get_current_progress()), visible=visible)
 
@@ -1156,7 +1195,7 @@ def process(command):
             IPrint(f"{rand_index+1}: {_sound_files_names_only[rand_index]}", visible=visible)
 
         elif commandslist == ['reset']:
-            if currentsong_length:
+            if currentsong_length and currentsong_length != -1:
                 try:
                     song_seek('0')
                 except Exception:
@@ -1391,7 +1430,7 @@ def process(command):
             print('Sorry, system volume commands have been (temporarily) disabled due to some internal issue (Issue #244 comtypes)')
 
         elif commandslist in [['l'], ['len'], ['length']]:
-            if currentsong:
+            if currentsong and currentsong_length != -1:
                 if currentsong_length:
                     IPrint(convert(currentsong_length), visible=visible)
                 else:
@@ -1440,8 +1479,11 @@ def process(command):
                     choose_media_url(media_url_choices=ytv_choices)
 
             except Exception:
-                raise
-                err("Invalid YouTube search, type: [/youtube-search | /ys] \"<search terms>\" [<result_count>]", say=False)
+                # raise
+                SAY(visible=visible,
+                    display_message="Invalid YouTube search, type: [/youtube-search | /ys] \"<search terms>\" [<result_count>]",
+                    log_message="Invalid YouTube search by user",
+                    log_priority=2)
 
         elif commandslist[0].lower() in ['/yl', '/youtube-link']:
             if len(commandslist) == 2:
@@ -1537,7 +1579,7 @@ def process(command):
                         log_priority=2)
             else:
                 if loglevel in [3, 4]:
-                    print("Redditsessions are unavailable because your API credentials are missing")
+                    IPrint("Redditsessions are unavailable because your API credentials are missing", visible=visible)
 def mainprompt():
     while True:
         try:
