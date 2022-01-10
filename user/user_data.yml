@@ -1,11 +1,16 @@
 default_user_data:
+  # User login feature hasn't been implemented yet...
+  # Needs salted hash I/O...
+
+  # Example registered users "name1" and "name2":
+  # - name: name1
+  #   pwd: pwd1
+  # - name: name2
+  #   pwd: pwd2
+
   name: guest_001
   pwd: null
   stats:
-    log_ins: 21
-    play_count: {audio: 0, local: 20, radio: 0, redditsession: 0, total: 25, youtube: 5}
-    times_spent: [1090.596299648285, 67.52077412605286, 125.02026104927063, 41.36159873008728,
-      13.405606031417847, 41.9885528087616, 18.04454731941223, 317.4963204860687,
-      42.750938177108765, 92.73814010620117, 28.87843656539917, 94.30029368400574,
-      40.02185559272766, 6761.874382972717, 583.3423235416412, 410.2335715293884,
-      56539.034306526184]
+    log_ins: 0
+    play_count: {audio: 0, local: 0, radio: 0, redditsession: 0, youtube: 0, total: 0}
+    times_spent: []

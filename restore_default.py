@@ -1,9 +1,5 @@
-import os
 from ruamel.yaml import YAML
 yaml = YAML(typ='safe')  # Allows for safe YAML loading
-
-CURDIR = os.path.dirname(os.path.realpath(__file__))
-os.chdir(CURDIR)
 
 with open('settings/settings.yml.default', 'r', encoding='utf-8') as f:
     DEFAULT_SETTINGS = yaml.load(f)
