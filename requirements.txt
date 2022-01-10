@@ -1,12 +1,10 @@
 pygame
-toml
 youtube_dl
 tabulate
 numpy
 ruamel.yaml
 pydrive
 python-vlc
-pyyaml
 regex
 PyInquirer
 pynput

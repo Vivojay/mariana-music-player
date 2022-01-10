@@ -1,39 +1,30 @@
-#################################################################################################################################
-#
-#           Mariana Player v0.4.2      
-#     (Read help.md for help on commands)
-#
-#    Running the app:
-#      For very first boot (SETUP):
-#        Make sure you have python version < 3.10 to run this file (unless compatible llvmlite wheel bins exist...)
-#     
-#        QUICK-SETUP (NEW DROP-IN REPLACEMENT FOR MANUAL SETUP!)
-#           Run INITSETUP.py and follow along with it's instructions (Run with "--help" flag for more info)
-#          *NOTE: Don't run manual setup if you have already done a quick setup
-#          *BENEFITS: Enjoy auto created ".bat" and ".ps1" runner files to automate successive runs of Mariana Player
-#                                                                  |
-#  +-----<--(You can skip to here after the QUICK-SETUP)---------<-+
-#  |
-#  |     MANUAL SETUP (Go through a tedious setup procedure)
-#  |         Setup compatible architecture of VLC media player, install FFMPEG and add to path...
-#  |         Install git scm if not already installed
-#  v         Install given git package directly from url using: `pip install git+https://github.com/Vivojay/pafy@develop`
-#  |         run `pip install -r requirements.txt`
-#  |     
-#  v         *OPTIONAL: Download and pip install unofficial binary for llvmlite wheel compatible with your python version
-#  |         *NOTE: Specify py version < 3.10 in virtualenv (if installing optional llvmlite), as other py vers don't support llvmlite wheels :)
-#  |     
-#  +---> Firstly, look at help.md before running any py file
-#         Run this file (main.py) on the very first bootup, nothing else (no flags, just to test bare minimum run)...
-#         You are good to go...
-#        *Note: If you encounter errors, look for online help as the current help file doesn't have fixes for common problems yet
-#      
-#      All successive boots (RUNNING NORMALLY):
-#        just run this file (main.py) with desired flags (discussed in help.md)
-#        and enjoy... (and possibly debug...)
 
-# This app may take a LOT of time to load at first...
+#################################################################################################################################
+# Mariana Player v0.4.2
+
+# running app:
+#	For very first boot (SETUP):
+# 	  Make sure you have python version < 3.10 to run this file (unless compatible llvmlite wheel bins exist...)
+# 	  Setup this program in a fresh virtualenv
+# 	  Download and pip install unofficial binary for llvmlite wheel compatible with your python version
+# 	  Setup compatible architecture of VLC media player, install FFMPEG and add to path...
+# 	  Install git scm if not already installed
+# 	  Install given git package directly from url using: `pip install git+https://github.com/Vivojay/pafy@develop`
+# 	  run `pip install -r requirements.txt`
+#
+# 	  Firstly, look at help.md before running any py file
+# 	  Run this file (main.py) on the very first bootup, nothing else (no flags, just to test bare minimum run)...
+# 	  You are good to go...
+#     *Note: If you encounter errors, look for online help as the current help file doesn't have common problem fixes yet
+#
+#	All successive boots (RUNNING NORMALLY):
+#	  just run this file (main.py) with desired flags (discussed in help.md)
+#	  and enjoy... (and possibly debug...)
+
+# This app may take a LOT of time to load at first... (main culprit: librosa)
 # Hence the loading prompt...
+# Prompts like these will be made better and more
+# dynamic using the IPrint (custom) and multiprocess modules
 
 # Editor's Note: Make sure to brew a nice coffee beforehand... :)
 #################################################################################################################################
@@ -42,100 +33,98 @@
 # IMPORTS BEGIN #
 
 import time
-APP_BOOT_START_TIME = time.time();                  print("Loaded 1/26", end='\r')
+APP_BOOT_START_TIME = time.time();                  print("Loaded 1/25", end='\r')
 
-import os;                                          print("Loaded 2/26", end='\r')
+import os;                                          print("Loaded 2/25", end='\r')
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
-# import itertools;                                   print("Loaded 3/26", end='\r')
+# import itertools;                                   print("Loaded 3/25", end='\r')
 
-import re;                                          print("Loaded 4/26", end='\r')
-import sys;                                         print("Loaded 5/26",  end='\r')
-import urllib;                                      print("Loaded 6/26",  end='\r')
-import pygame;                                      print("Loaded 7/26",  end='\r')
-import numpy as np;                                 print("Loaded 8/26", end='\r')
-import random as rand;                              print("Loaded 9/26", end='\r')
-import importlib;                                   print("Loaded 10/26", end='\r')
-import colored;                                     print("Loaded 11/26", end='\r')
+import re;                                          print("Loaded 4/25", end='\r')
+import sys;                                         print("Loaded 5/25",  end='\r')
+import urllib;                                      print("Loaded 6/25",  end='\r')
+import pygame;                                      print("Loaded 7/25",  end='\r')
+import numpy as np;                                 print("Loaded 8/25", end='\r')
+import random as rand;                              print("Loaded 9/25", end='\r')
+import importlib;                                   print("Loaded 10/25", end='\r')
+import colored;                                     print("Loaded 11/25", end='\r')
 
-# import concurrent.futures;                          print("Loaded 11/26", end='\r')
+# import concurrent.futures;                          print("Loaded 11/25", end='\r')
 
-from tabulate import tabulate as tbl;               print("Loaded 12/26", end='\r')
-from ruamel.yaml import YAML;                       print("Loaded 13/26", end='\r')
-from collections.abc import Iterable;               print("Loaded 14/26", end='\r')
-from logger import SAY;                             print("Loaded 15/26", end='\r')
-from multiprocessing import Process;                print("Loaded 16/26", end='\r')
+from tabulate import tabulate as tbl;               print("Loaded 12/25", end='\r')
+from ruamel.yaml import YAML;                       print("Loaded 13/25", end='\r')
+from collections.abc import Iterable;               print("Loaded 14/25", end='\r')
+from logger import SAY;                             print("Loaded 15/25", end='\r')
+from multiprocessing import Process;                print("Loaded 16/25", end='\r')
 
-import subprocess as sp;                            print("Loaded 17/26", end='\r')
-import restore_default;                             print("Loaded 18/26", end='\r')
+import subprocess as sp;                            print("Loaded 17/25", end='\r')
+import restore_default;                            print("Loaded 17/25", end='\r')
 
 online_streaming_ext_load_error = 0
 comtypes_load_error = True # Unavailable due to comtypes issue #244
-                           # Previously: comtypes_load_error = False
+# comtypes_load_error = False
 lyrics_ext_load_error = 0
 redditsessions = None
 
-import toml;                                        print("Loaded 19/26", end='\r')
-import json;                                        print("Loaded 20/26", end='\r')
 
 # try:
 #     import librosa
-#     print("Loaded 18/26",  end='\r') # Time taking import (Sometimes, takes ages...)
+#     print("Loaded 18/25",  end='\r') # Time taking import (Sometimes, takes ages...)
 # except ImportError:
 #     print("[WARN] Could not load music computation extension...")
-#     print("[WARN] ...Skipped 18/26")
+#     print("[WARN] Skipped 18/25")
 
 try:
     vas = importlib.import_module("beta.vlc-async-stream")
     vas = importlib.reload(vas)
-    print("Loaded 21/26", end='\r')
+    print("Loaded 19/25", end='\r')
 except ImportError:
     online_streaming_ext_load_error = 1
     print("[INFO] Could not load online streaming extension...")
-    print("[INFO] ...Skipped 21/26")
+    print("[INFO] Skipped 19/25")
 
 try:
     YT_query = importlib.import_module("beta.YT_query")
-    print("Loaded 22/26", end='\r')
+    print("Loaded 20/25", end='\r')
 except ImportError:
     # raise
     if not online_streaming_ext_load_error:
         print("[INFO] Could not load online streaming extension...")
-    print("[INFO] ...Skipped 22/26")
+    print("[INFO] Skipped 20/25")
 
 try:
-    from beta.IPrint import IPrint, blue_gradient_print, loading, cols
-    print("Loaded 23/26", end='\r')
+    IPrint = importlib.import_module('beta.IPrint')
+    print("Loaded 21/25", end='\r')
 except ImportError:
     lyrics_ext_load_error = 1
     print("[INFO] Could not load coloured print extension...")
-    print("[INFO] ...Skipped 23/26")
+    print("[INFO] Skipped 21/25")
 
 try:
-    from lyrics_provider import get_lyrics
-    print("Loaded 24/26", end='\r')
+    lvw = importlib.import_module('lyrics_provider.lyrics_view_window')
+    print("Loaded 22/25", end='\r')
 except ImportError:
     print("[INFO] Could not load lyrics extension...")
     if not lyrics_ext_load_error:
-        print("[INFO] ...Could not load online streaming extension...")
-    print("[INFO] ...Skipped 24/26")
+        print("[INFO] Could not load online streaming extension...")
+    print("[INFO] Skipped 22/25")
 
 try:
     from beta import redditsessions
     if redditsessions.WARNING:
         print("[WARN] Could not load reddit-sessions extension...")
-        print(f"[WARN] ...{redditsessions.WARNING}...")
-        print("[WARN] ...Skipped 25/26")
+        print(f"[WARN] {redditsessions.WARNING}")
+        print("[WARN] Skipped 23/25")
         redditsessions = None
     else:
-        print("Loaded 25/26", end='\r')
+        print("Loaded 23/25", end='\r')
 except ImportError:
-    print("[INFO] Could not load reddit-sessions extension..., module 'praw' missing...")
-    print("[INFO] ...Skipped 25/26")
+    print("[INFO] Could not load reddit-sessions extension..., module 'praw' missing")
+    print("[INFO] Skipped 23/25")
 
 # try:
 #     from beta.master_volume_control import get_master_volume, set_master_volume
-#     print("Loaded 24/26", end='\r')
+#     print("Loaded 24/25", end='\r')
 # except Exception:
 #     comtypes_load_error = True
 #     SAY(visible=False, # global var `visible` hasn't been defined yet...
@@ -143,7 +132,7 @@ except ImportError:
 #         display_message="", # ...because we don't want to display anything on screen to the user
 #         log_priority=2)
 
-import webbrowser;                                      print("Loaded 26/26", end='\r')
+import webbrowser;                                      print("Loaded 25/25", end='\r')
 
 # IMPORTS END #
 
@@ -170,13 +159,13 @@ FIRST_BOOT = False # Assume user is using app for considerable time
                    # annoying FIRST-TIME-WELCOME
 
 try:
-    with open('settings/system.toml', encoding='utf-8') as file:
-        SYSTEM_SETTINGS = toml.load(file)
-        FIRST_BOOT = SYSTEM_SETTINGS['first_boot']
+    with open('about/about.info', encoding='utf-8') as file:
+        ABOUT = yaml.load(file)
+        FIRST_BOOT = ABOUT['first_boot']
 except IOError:
-    SYSTEM_SETTINGS = None
+    ABOUT = None
 
-ISDEV = SYSTEM_SETTINGS['isdev'] # Useful as a test flag for new features
+ISDEV = ABOUT['isdev'] # Useful as a test flag for new features
 
 try:
     with open('lib.lib', encoding='utf-8') as logfile:
@@ -191,13 +180,10 @@ except IOError:
 
 
 def first_startup_greet(is_first_boot):
-    global SOFT_FATAL_ERROR_INFO
-
     if is_first_boot:
         try:
             import first_boot_setup
-            SOFT_FATAL_ERROR_INFO = first_boot_setup.fbs(about=SYSTEM_SETTINGS)
-            if SOFT_FATAL_ERROR_INFO: SOFT_FATAL_ERROR_INFO = "User skipped startup"
+            first_boot_setup.fbs(about=ABOUT)
             reload_sounds()
         except ImportError:
             sys.exit('[ERROR] Critical guide setup-file missing, please consider reinstalling this file or the entire program\nAborting Mariana Player. . .')
@@ -235,8 +221,8 @@ except IOError:
 # Variables
 APP_BOOT_TIME_END = time.time()
 EXIT_INFO = 0
+FALLBACK_RESULT_COUNT = SETTINGS['display items count']['fallback']
 FATAL_ERROR_INFO = None
-SOFT_FATAL_ERROR_INFO = None
 
 isplaying = False
 currentsong = None  # No song playing initially
@@ -244,9 +230,10 @@ ismuted = False
 isshowinglyrics = False
 currentsong_length = None
 
+settings = None
 songindex = -1
-current_media_player = 0
 
+current_media_player = 0
 """
 current_media_player can be either 0 or 1:
     0: default (pygame)
@@ -257,20 +244,13 @@ current_media_player can be either 0 or 1:
 # logleveltypes = {0: "none", 1: "fatal", 2: "warn", 3: "info", 4: "debug"}
 
 # From settings
-disable_OS_requirement = SYSTEM_SETTINGS['system_settings']['enforce_os_requirement']
-
-# Supported file extensions
-# (wav get_pos() in pygame provides played duration and not actual play position)
-supported_file_types = SYSTEM_SETTINGS["system_settings"]['supported_file_types'] 
-visible = SETTINGS['visible']
+disable_OS_requirement = True
+supported_file_exts = '.wav .mp3'.split()  # Supported file extensions (wav seeking does not work with pygame)
+visible = True
+max_yt_search_results_threshold = 15
 loglevel = SETTINGS.get('loglevel')
-max_yt_search_results_threshold = SETTINGS['display items count']['youtube-search results']['maximum']
-max_wait_limit_to_get_song_length = SYSTEM_SETTINGS['system_settings']['max_wait_limit_to_get_song_length']
-FALLBACK_RESULT_COUNT = SETTINGS['display items count']['general']['fallback']
 
-if not loglevel:
-    restore_default.restore('loglevel', SETTINGS)
-    loglevel = SETTINGS.get('loglevel')
+if not loglevel: restore_default.restore('loglevel', SETTINGS)
 
 # From last session info
 cached_volume = 1  # Set as a factor between 0 to 1 times of max volume player volume
@@ -290,6 +270,7 @@ def audio_file_gen(Dir, ext):
         for filename in files:
             if os.path.splitext(filename)[1] == ext:
                 yield os.path.join(root, filename)
+
 
 
 def reload_sounds():
@@ -313,8 +294,8 @@ def reload_sounds():
 
     if not no_lib_found:
         # Use the recursive extractor function and format and store them into usable lists
-        _sound_files = [[list(audio_file_gen(paths[j], supported_file_types[i]))
-                        for i in range(len(supported_file_types))] for j in range(len(paths))]
+        _sound_files = [[list(audio_file_gen(paths[j], supported_file_exts[i]))
+                        for i in range(len(supported_file_exts))] for j in range(len(paths))]
         # Flattening irregularly nested sound files
         _sound_files = list(flatten(_sound_files))
 
@@ -325,8 +306,8 @@ reload_sounds()
 
 if _sound_files_names_only == []:
     if loglevel in [3, 4]:
-        IPrint("[INFO] All source directories are empty, you may and add more source directories to your library", visible=visible)
-        IPrint("[INFO] To edit this library file (of source directories), refer to the `help.md` markdown file.", visible=visible)
+        print("[INFO] All source directories are empty, you may and add more source directories to your library")
+        print("[INFO] To edit this library file (of source directories), refer to the `help.md` markdown file.")
 
 try: _ = sp.run('ffmpeg', stdout=sp.DEVNULL, stdin=sp.PIPE, stderr=sp.DEVNULL)
 except FileNotFoundError: FATAL_ERROR_INFO = "ffmpeg not recognised globally, download it and add to path (system environment)"
@@ -397,7 +378,8 @@ def exitplayer(sys_exit=False):
     USER_DATA['default_user_data']['stats']['times_spent'].append(time_spent_on_app)
     save_user_data()
 
-    IPrint(colored.fg('red')+'Exiting...'+colored.attr('reset'), visible=visible)
+    if visible:
+        print(colored.fg('red')+'Exiting...'+colored.attr('reset'))
 
     if sys_exit:
         sys.exit(f"{EXIT_INFO}")
@@ -422,13 +404,13 @@ def play_local_default_player(songpath, _songindex):
         currentsong = songpath
 
         if _songindex:
-            IPrint(colored.fg('dark_olive_green_2') + \
+            print(colored.fg('dark_olive_green_2') + \
                   f':: {_sound_files_names_only[int(_songindex)-1]}' + \
-                  colored.attr('reset'), visible=visible)
+                  colored.attr('reset'))
         else:
-            IPrint(colored.fg('dark_olive_green_2') + \
+            print(colored.fg('dark_olive_green_2') + \
                   f':: {os.path.splitext(os.path.split(songpath)[1])[0]}' + \
-                  colored.attr('reset'), visible=visible)
+                  colored.attr('reset'))
 
             # The user is unreliable and may enter the
             # song path with weird inhumanly erratic and random
@@ -436,8 +418,7 @@ def play_local_default_player(songpath, _songindex):
             # Hence, we need to convert everything to lowercase...
             songindex = [i.lower() for i in _sound_files].index(songpath.lower())
 
-        if not currentsong_length and currentsong_length != -1:
-            get_currentsong_length()
+        if not currentsong_length: get_currentsong_length()
         current_media_type = None
         USER_DATA['default_user_data']['stats']['play_count']['local'] += 1
         save_user_data()
@@ -522,7 +503,7 @@ def playpausetoggle(softtoggle=True, use_multi=False):  # Soft pause by default
                     pygame.mixer.music.pause()
 
                 isplaying = False
-                IPrint("|| Paused", visible=visible)
+                print("|| Paused")
             else:
                 if current_media_player:
                     vas.media_player(action='pausetoggle')
@@ -552,7 +533,7 @@ def playpausetoggle(softtoggle=True, use_multi=False):  # Soft pause by default
                     # executor.submit(voltransition, initial=0, final=cached_volume, transition_time=0)
 
                 isplaying = True
-                IPrint("|> Resumed", visible=visible)
+                print("|> Resumed")
         else:
             isplaying = False
             err("Nothing to pause/unpause", say=False)
@@ -578,14 +559,14 @@ def stopsong():
         currentsong = None
         isplaying = False
     except Exception:
-        IPrint(f'Failed to stop: {currentsong}', visible=visible)
+        print(f'Failed to stop: {currentsong}')
 
 
 def err(error_topic='', message='', say=True):
     global visible
-    IPrint(colored.fg('red')+f'x| ERROR {error_topic}'+colored.attr('reset'), visible=visible)
+    print(colored.fg('red')+f'x| ERROR {error_topic}'+colored.attr('reset'))
     if message:
-        IPrint(colored.fg('red')+'x|  '+message+colored.attr('reset'), visible=visible)
+        print(colored.fg('red')+'x|  '+message+colored.attr('reset'))
 
     if say:
         SAY(visible=visible, log_priority=2, display_message=error_topic)
@@ -617,7 +598,7 @@ def searchsongs(queryitems):
 #         return tempo
 
 def enqueue(songindices):
-    IPrint("Enqueueing", visible=visible)
+    print("Enqueueing")
     global song_paths_to_enqueue
 
     song_paths_to_enqueue = []
@@ -628,7 +609,7 @@ def enqueue(songindices):
     for songpath in song_paths_to_enqueue:
         try:
             pygame.mixer.music.queue(songpath)
-            IPrint("Queued", visible=visible)
+            print("Queued")
             if isplaying:
                 pygame.mixer.music.unpause()
         except Exception:
@@ -644,19 +625,13 @@ def play_commands(commandslist, _command=False):
         if len(commandslist) == 2:
             songindex = commandslist[1]
             if songindex.isnumeric():
-                if int(songindex) in range(1, len(_sound_files)+1):
+                if int(songindex) in range(len(_sound_files)+1):
                     currentsong_length = None
                     play_local_default_player(_sound_files[int(songindex)-1],
-                                              _songindex=songindex)
+                             _songindex=songindex)
                 else:
-                    if any(_sound_files):
-                        err('Out of range',
-                            f'Please input song number between 1 and {len(_sound_files)}')
-                    else:
-                        SAY(visible=visible,
-                            log_message='User attempted to play local song, even though there are no songs in library',
-                            display_message='There are no songs in library',
-                            log_priority=3)
+                    err('Out of range',
+                        f'Please input song number between 1 and {len(_sound_files)}')
 
         else:
             songindices = commandslist[1:]
@@ -721,7 +696,7 @@ def get_currentsong_length():
     global current_media_player, currentsong_length, currentsong_length
     if currentsong:
         if current_media_player:
-            if not currentsong_length and not currentsong_length == -1:
+            if not currentsong_length:
                 currentsong_length = currentsong_length/1000
         else:
             cursong_obj = pygame.mixer.Sound(currentsong)
@@ -809,8 +784,8 @@ def validate_time(rawtime):
 def play_vas_media(media_url, single_video = None, media_name = None,
                    print_now_playing = True, media_type = 'video'):
 
-    global isplaying, current_media_player, visible, currentsong, cached_volume
-    global currentsong_length, current_media_type
+    global isplaying, current_media_player, visible, currentsong, cached_volume, current_media_type
+    global currentsong_length, currentsong_length
 
     # Stop prev songs b4 loading VAS Media...
     stopsong()
@@ -837,17 +812,17 @@ def play_vas_media(media_url, single_video = None, media_name = None,
 
         if print_now_playing and visible:
             if single_video:
-                IPrint(f"Playing YouTube search result: {colored.fg('plum_1')}{media_name}{colored.attr('reset')}", visible=visible)
+                print(f"Playing YouTube search result: {colored.fg('plum_1')}{media_name}{colored.attr('reset')}")
             else:
-                IPrint(f"Chosen YouTube video: {colored.fg('plum_1')}{media_name}{colored.attr('reset')}", visible=visible)
-            IPrint(f"{colored.fg('light_red')}@ {colored.fg('orange_1')}{media_url}{colored.attr('reset')}", visible=visible)
+                print(f"Chosen YouTube video: {colored.fg('plum_1')}{media_name}{colored.attr('reset')}")
+            print(f"{colored.fg('light_red')}@ {colored.fg('orange_1')}{media_url}{colored.attr('reset')}")
 
     elif media_type == 'audio':
         vas.set_media(_type='audio', audurl=media_url)
 
         current_media_type = 1
         currentsong = media_url
-        IPrint(f"Chosen custom audio url {currentsong}", visible=visible)
+        print(f"Chosen custom audio url {currentsong}")
 
     elif media_type == 'radio':
         # Here `media_name` is actually the radio name
@@ -855,7 +830,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
 
         current_media_type = 2
         currentsong = media_name
-        IPrint(f"Chosen radio: {colored.fg('light_goldenrod_1')}{currentsong}{colored.attr('reset')}", visible=visible)
+        print(f"Chosen radio: {colored.fg('light_goldenrod_1')}{currentsong}{colored.attr('reset')}")
 
     elif media_type == 'redditsession':
         vas.set_media(_type='audio', audurl=media_url)
@@ -886,18 +861,8 @@ def play_vas_media(media_url, single_video = None, media_name = None,
     save_user_data()
 
     while not vas.vlc_media_player.get_media_player().is_playing(): pass
-
-    length_find_start_time = time.time()
-    if current_media_type == 2:
-        currentsong_length = -1
-    else:
-        while True:
-            if vas.vlc_media_player.get_media_player().get_length():
-                currentsong_length = vas.vlc_media_player.get_media_player().get_length()/1000
-                break
-            if time.time() - length_find_start_time >= max_wait_limit_to_get_song_length:
-                currentsong_length = -1
-                break
+    while not vas.vlc_media_player.get_media_player().get_length(): pass
+    currentsong_length = vas.vlc_media_player.get_media_player().get_length()/1000
     # currentsong_length gives output in ms, this will be converted to seconds when needed
 
     if currentsong_length == -1:
@@ -925,54 +890,16 @@ def choose_media_url(media_url_choices: list, yt: bool = True):
                 try:
                     chosen_index = int(chosen_index)
                 except Exception:
-                    if visible:
-                        print("ERROR: Invalid choice, choose again: ", end='\r')
+                    print("ERROR: Invalid choice, choose again: ", end='\r')
 
                 if chosen_index in range(1, len(media_url_choices)+1):
                     _, media_name, media_url = media_url_choices[chosen_index-1]
                     play_vas_media(media_name=media_name, media_url=media_url,
                                    single_video=False)
                 else:
-                    if visible:
-                        print("ERROR: Invalid choice, choose again: ", end='\r')
+                    print("ERROR: Invalid choice, choose again: ", end='\r')
 
-                if visible: IPrint('\n', visible=visible)
-
-def refresh_settings():
-    global SYSTEM_SETTINGS, visible
-    try:
-        with open('settings/system.toml', encoding='utf-8') as file:
-            SYSTEM_SETTINGS = toml.load(file)
-    except IOError:
-        SYSTEM_SETTINGS = None
-
-    try:
-        with open('settings/settings.yml', encoding='utf-8') as u_data_file:
-            SETTINGS = yaml.load(u_data_file)
-
-    except IOError:
-        SAY(visible=visible,
-            display_message = f'Encountered missing program file @{os.path.join(CURDIR, "settings/settings.yml")}',
-            log_message = 'Aborting player because settings file was not found',
-            log_priority = 1) # Log fatal crash
-        sys.exit(1) # Fatal crash
-
-    # From settings
-    disable_OS_requirement = SYSTEM_SETTINGS['system_settings']['enforce_os_requirement']
-
-    # Supported file extensions
-    # (wav get_pos() in pygame provides played duration and not actual play position)
-    supported_file_types = SYSTEM_SETTINGS["system_settings"]['supported_file_types'] 
-    visible = SETTINGS['visible']
-    loglevel = SETTINGS.get('loglevel')
-    max_yt_search_results_threshold = SETTINGS['display items count']['youtube-search results']['maximum']
-    max_wait_limit_to_get_song_length = SYSTEM_SETTINGS['system_settings']['max_wait_limit_to_get_song_length']
-    FALLBACK_RESULT_COUNT = SETTINGS['display items count']['general']['fallback']
-
-    if not loglevel:
-        restore_default.restore('loglevel', SETTINGS)
-        loglevel = SETTINGS.get('loglevel')
-
+                print()
 
 def process(command):
     global _sound_files_names_only, visible, currentsong, isplaying, ismuted, cached_volume
@@ -1006,14 +933,8 @@ def process(command):
             return False
 
         if commandslist == ['all']:
-            if visible:
-                results_enum = enumerate(_sound_files_names_only)
-                IPrint(tbl([(i+1, j) for i, j in results_enum], tablefmt='plain'), visible=visible)
-            else:
-                SAY(visible=True,
-                display_message="Turn on visibility to access this command",
-                log_message="Accessing all command with visibility switched off",
-                priority=3)
+            results_enum = enumerate(_sound_files_names_only)
+            print(tbl([(i+1, j) for i, j in results_enum], tablefmt='plain'))
 
         if commandslist[0] in ['list', 'ls']:
             # TODO: Need to display files in n columns (Mostly 3 cols) depending upon terminal size (dynamically...)
@@ -1042,92 +963,85 @@ def process(command):
                 else:
                     # List files matching provided regex pattern
                     # Need to implement a check to validate the provided regex pattern
-                    print(f'Regex search is still in progress... The developer @{SYSTEM_SETTINGS["about"]["author"]} will add this feature shortly...')
+                    print(f'Regex search is still in progress... The developer @{ABOUT["about"]["author"]} will add this feature shortly...')
                     # regex_pattern
                     # regexp = re.compile(regex_pattern)
 
             if len(commandslist) in [1, 2]:
                 results_enum = enumerate(_sound_files_names_only[:rescount])
 
-            IPrint(tbl([(i+1, j) for i, j in results_enum], tablefmt='plain'), visible=visible)
+            print(tbl([(i+1, j) for i, j in results_enum], tablefmt='plain'))
 
         elif commandslist == ['reload']: # TODO - Make useful...
-            IPrint("Reloading sounds", visible=visible)
+            print("Reloading sounds")
             reload_sounds()
-            IPrint("Done...", visible=visible)
-        
-        elif commandslist == ['refresh']: # TODO - Make useful...
-            IPrint("Reloading sounds", visible=visible)
-            reload_sounds()
-            IPrint("Reloading settings", visible=visible)
-            refresh_settings()
-            IPrint("Done...", visible=visible)
+            print("Done...")
 
         elif commandslist == ['vis']: # TODO - Make useful...
             visible = not visible
-            IPrint('visibility on', visible=visible)
+            if visible:
+                print('visibility on')
 
         elif commandslist == ['now']:
             if currentsong:
                 if current_media_player: # VLC
                     if current_media_type == 0:
-                        IPrint(f"@ys: {currentsong[0]}", visible=visible)
+                        print(f"@ys: {currentsong[0]}")
                     elif current_media_type == 1:
-                        IPrint(f"@al: {currentsong}", visible=visible)
+                        print(f"@al: {currentsong}")
                     elif current_media_type == 2:
-                        IPrint(f"@wra: {currentsong}", visible=visible)
+                        print(f"@wra: {currentsong}")
                     elif current_media_type == 3:
-                        IPrint(f"@rs: {currentsong[0]}", visible=visible)
+                        print(f"@rs: {currentsong[0]}")
                 else: # pygame
                     cur_song = os.path.splitext(
                         os.path.split(currentsong)[1])[0]
-                    IPrint(f":: {_sound_files.index(currentsong)+1} | {cur_song}", visible=visible)
+                    print(f":: {_sound_files.index(currentsong)+1} | {cur_song}")
             else:
                 # currentsong = None
-                IPrint("(Not Playing)", visible=visible)
+                print("(Not Playing)")
 
         elif commandslist == ['now*']:
             if currentsong:
                 if current_media_player: # VLC
                     if current_media_type == 0:
-                        IPrint(f"@youtube-search: Title | {currentsong[0]}", visible=visible)
-                        IPrint(f"                 Link  | {currentsong[1]}", visible=visible)
+                        print(f"@youtube-search: Title | {currentsong[0]}")
+                        print(f"                 Link  | {currentsong[1]}")
                     elif current_media_type == 1:
-                        IPrint(f"@audio-link: {currentsong}", visible=visible)
+                        print(f"@audio-link: {currentsong}")
                     elif current_media_type == 2:
-                        IPrint(f"@webradio/{currentsong}", visible=visible)
+                        print(f"@webradio/{currentsong}")
                     elif current_media_type == 3:
-                        IPrint(f"@redditsession: Session | {currentsong[0]}", visible=visible)
-                        IPrint(f"                Link    | {currentsong[1]}", visible=visible)
+                        print(f"@redditsession: Session | {currentsong[0]}")
+                        print(f"                Link    | {currentsong[1]}")
 
                 else: # pygame
-                    IPrint(f":: {_sound_files.index(currentsong)+1} | {currentsong}", visible=visible)
+                    print(f":: {_sound_files.index(currentsong)+1} | {currentsong}")
 
             else:
                 currentsong = None
-                IPrint(f"(Not Playing)", visible=visible)
+                print(f"(Not Playing)")
 
         elif commandslist[0].lower() == 'play':
             play_commands(commandslist=commandslist)
 
         elif commandslist[0].lower() in ['m?', 'ism?', 'ismute?']:
             # TODO - Make more reliable...?
-            IPrint(int(ismuted), visible=visible)
+            print(int(ismuted))
 
         elif commandslist[0].lower() in ['isp?', 'ispl', 'isp']:
             SAY(visible=visible,
-                display_message='/? Invalid command, perhaps you meant "ispl?" for "is playing?"',
-                log_message=f'"ispl[aying]?" command assumed to be misspelled', log_priority=3)
+                display_message='/? Invalid command, perhaps you meant "ispl?" for "is playing?"', log_message=f'Command assumed to be misspelled: {currentsong}', log_priority=3)
 
         elif commandslist[0].lower() in ['ispl?', 'isplaying?']:
             # TODO - Make more reliable...?
-            IPrint(int(isplaying), visible=visible)
+            print(int(isplaying))
 
         elif commandslist[0].lower() in ['isl?', 'isloaded?']:
             # TODO - Make more reliable...?
             if current_media_player:
-                IPrint(vas.vlc.media, visible=visible)
-            IPrint(int(bool(currentsong)), visible=visible)
+                print(vas.vlc.media)
+            print(int(bool(currentsong)))
 
         elif commandslist[0].lower() == 'seek':
             if currentsong_length:
@@ -1150,7 +1064,7 @@ def process(command):
                             else:
                                 _ = song_seek(timeval=timeobj[1])
                                 if _:
-                                    IPrint(f"Seeking to: {timeobj[0]}", visible=visible)
+                                    print(f"Seeking to: {timeobj[0]}")
 
                         # TODO - Make following error messages more meaningful by giving them more
                         # context depending on if absolute or relative seek was called...
@@ -1173,16 +1087,8 @@ def process(command):
                     else:
                         pass
             else:
-                if currentsong_length == -1:
-                    SAY(visible=visible,
-                        display_message="Error: Can't seek song, as song length could not be loaded",
-                        log_message=f'Song length could not be loaded, cannot seek',
-                        log_priority=2)
-                else:
-                    SAY(visible=visible,
-                        display_message="Error: No song to seek",
-                        log_message=f'Seeked song w/o playing any',
-                        log_priority=2)
+                SAY(visible=visible, display_message="Error: No song to seek",
+                    log_message=f'Seeked song w/o playing any', log_priority=2)
 
         elif commandslist in [['prog'], ['progress'], ['prog*'], ['progress*']]:
             if currentsong:
@@ -1197,132 +1103,36 @@ def process(command):
 
                 if commandslist[0].endswith('*'):
 
-                    IPrint(f"progress: {colored.fg('deep_pink_1a')}{round(cur_prog)}/{round(cur_len)}"
+                    print(f"progress: {colored.fg('deep_pink_1a')}{round(cur_prog)}/{round(cur_len)}"
                         f" {prog_sep} {colored.attr('reset')}remaining: {colored.fg('orange_1')}{round(cur_len-cur_prog)}"
-                        f" {prog_sep} {colored.attr('reset')}elapsed: {colored.fg('light_goldenrod_1')}{round(cur_prog/cur_len*100)}%", visible=visible)
+                        f" {prog_sep} {colored.attr('reset')}elapsed: {colored.fg('light_goldenrod_1')}{round(cur_prog/cur_len*100)}%")
                 else:
-                    IPrint(f"{colored.fg('deep_pink_1a')}{round(cur_prog)}/{round(cur_len)}"
+                    print(f"{colored.fg('deep_pink_1a')}{round(cur_prog)}/{round(cur_len)}"
                         f" {prog_sep} {colored.fg('orange_1')}{round(cur_len-cur_prog)}"
-                        f" {prog_sep} {colored.fg('light_goldenrod_1')}{round(cur_prog/cur_len*100)}%", visible=visible)
-
-        elif commandslist[0].lower() in ['download',  'download-yt',  'download-au',  'download-a',
-                                         '/download', '/download-yt', '/download-au', '/download-a']:
-            SAY(visible=visible,
-                display_message=f'/? Invalid command, perhaps you meant one of:\n'
-                f'  {colored.fg("magenta_3a")}download-yv:{colored.fg("light_sky_blue_1")} Download YouTube video\n'
-                f'  {colored.fg("magenta_3a")}download-ya:{colored.fg("light_sky_blue_1")} Download YouTube audio\n'
-                f'  {colored.fg("magenta_3a")}download-al:{colored.fg("light_sky_blue_1")} Download custom audio link'
-                f'{colored.attr("reset")}\n',
-                log_message=f'"download-(\'ys\'|\'yv\'|\'al\')" command assumed to be misspelled', log_priority=3)
-
-        # Download current/custom YouTube media (as video with audio)
-        elif commandslist[0].lower() == 'download-yv':
-            # TODO - Add way for user to customize download settings...
-            continue_dl = False
-            if len(commandslist) == 1:
-                url = currentsong[1]
-                continue_dl = True
-
-            elif len(commandslist) == 2:
-                url = commandslist[1]
-                if url_is_valid(yt=True):
-                    IPrint('Attempting to download YouTube video from:\n  '
-                          f'{colored.fg("sandy_brown")}@ {colored.fg("orchid_2")}{url}{colored.attr("reset")}',
-                          visible=visible)
-                    continue_dl = True
-                else:
-                    SAY(visible=visible,
-                        log_message=f'Invalid YouTube URL for video download: {url}')
-
-            if len(commandslist) in [1, 2]:
-                download_parmeters = {
-                    "SETTINGS": SETTINGS,
-                    "SYSTEM_SETTINGS": SYSTEM_SETTINGS,
-                    "media_urls": url,
-                    "typ": 1,
-                    "quality": None,
-                    "make_separate_mariana_dl_dir": None,
-                    "dry_run": False,
-                }
-
-                if continue_dl:
-                    confirm_dl = input("Do you want to confirm download? (y/n): ").lower().strip()
-                    while confirm_dl not in ['y', 'n', 'yes', 'no']:
-                        confirm_dl = input("[INVALID RESPONSE] Do you want to confirm download? (y/n): ").lower().strip()
-
-                    if confirm_dl in ['yes', 'y']:
-                        confirm_dl = True
-                    else:
-                        confirm_dl = False
-                
-                if confirm_dl:
-                    sp.Popen(['py', 'mediadl.py', json.dumps(download_parmeters)], shell=True)
-
-        elif commandslist[0].lower() == 'download-ya':
-            # TODO - Add way for user to customize download settings...
-            continue_dl = False
-            if len(commandslist) == 1:
-                url = currentsong[1]
-                continue_dl = True
-
-            elif len(commandslist) == 2:
-                url = commandslist[1]
-                if url_is_valid(yt=True):
-                    IPrint('Attempting to download YouTube audio from:\n  '
-                          f'{colored.fg("sandy_brown")}@ {colored.fg("orchid_2")}{url}{colored.attr("reset")}',
-                          visible=visible)
-                    continue_dl = True
-                else:
-                    SAY(visible=visible,
-                        log_message=f'Invalid YouTube URL for video download: {url}')
-
-            if len(commandslist) in [1, 2]:
-                download_parmeters = {
-                    "SETTINGS": SETTINGS,
-                    "SYSTEM_SETTINGS": SYSTEM_SETTINGS,
-                    "media_urls": url,
-                    "typ": 0,
-                    "quality": None,
-                    "make_separate_mariana_dl_dir": None,
-                    "dry_run": False,
-                }
-
-                if continue_dl:
-                    confirm_dl = input("Do you want to confirm download? (y/n): ").lower().strip()
-                    while confirm_dl not in ['y', 'n', 'yes', 'no']:
-                        confirm_dl = input("[INVALID RESPONSE] Do you want to confirm download? (y/n): ").lower().strip()
-
-                    if confirm_dl in ['yes', 'y']:
-                        confirm_dl = True
-                    else:
-                        confirm_dl = False
-                
-                if confirm_dl:
-                    sp.Popen(['py', 'mediadl.py', json.dumps(download_parmeters)], shell=True)
-
+                        f" {prog_sep} {colored.fg('light_goldenrod_1')}{round(cur_prog/cur_len*100)}%")
 
         elif commandslist == ['t']:
-            IPrint(convert(get_current_progress()), visible=visible)
+            print(convert(get_current_progress()))
 
         elif commandslist == ['.rand']:  # Play random song
-            play_commands(commandslist=[None, str(rand_song_index())], visible=visible)
+            play_commands(commandslist=[None, str(rand_song_index())])
 
         elif commandslist == ['=rand']:  # Print random song number
-            IPrint(rand_song_index(), visible=visible)
-            convert(get_current_progress(), visible=visible)
+            print(rand_song_index())
+            convert(get_current_progress())
 
         elif commandslist == ['rand']:  # Print random song name
-            IPrint(_sound_files_names_only[rand_song_index()], visible=visible)
+            print(_sound_files_names_only[rand_song_index()])
 
         elif commandslist == ['rand*']:  # Print random song path
-            IPrint(_sound_files[rand_song_index()], visible=visible)
+            print(_sound_files[rand_song_index()])
 
         elif commandslist == ['/rand']:  # Print random song number+name
             rand_index = rand_song_index()
-            IPrint(f"{rand_index+1}: {_sound_files_names_only[rand_index]}", visible=visible)
+            print(f"{rand_index+1}: {_sound_files_names_only[rand_index]}")
 
         elif commandslist == ['reset']:
-            if currentsong_length and currentsong_length != -1:
+            if currentsong_length:
                 try:
                     song_seek('0')
                 except Exception:
@@ -1346,12 +1156,12 @@ def process(command):
                         if command.startswith('. '):
                             path = ' '.join(commandslist[1:])
                             if os.path.isfile(path):
-                                if os.path.splitext(path)[1] in supported_file_types:
-                                    IPrint(1, visible=visible)
+                                if os.path.splitext(path)[1] in supported_file_exts:
+                                    print(1)
                                 else:
-                                    IPrint(0, visible=visible)
+                                    print(0)
                             else:
-                                IPrint(0, visible=visible)
+                                print(0)
                         elif command.startswith('.'):
                             play_commands(commandslist=[None, command[1:]],
                                           _command=command)
@@ -1361,7 +1171,7 @@ def process(command):
 
         elif commandslist in [['clear'], ['cls']]:
             os.system('cls' if os.name == 'nt' else 'clear')
-            if visible: showbanner()
+            showbanner()
 
         elif commandslist == ['p']:
             playpausetoggle()
@@ -1375,30 +1185,30 @@ def process(command):
             if len(commandslist) == 1:
                 if int(commandslist[0]) > 0:
                     try:
-                        IPrint(colored.fg('medium_orchid_1a')+\
+                        print(colored.fg('medium_orchid_1a')+\
                               _sound_files_names_only[int(commandslist[0])-1]+\
-                              colored.attr('reset'), visible=visible)
+                              colored.attr('reset'))
                     except IndexError:
                         err('', f'Please input song number between 1 and {len(_sound_files)}')
                 else:
                     err('', f'Please input song number between 1 and {len(_sound_files)}')
 
         elif commandslist in [['count'], ['howmany'], ['total']]:
-            IPrint(len(_sound_files_names_only), visible=visible)
+            print(len(_sound_files_names_only))
 
         elif commandslist[0] == 'weblinks':
-            print(f'Weblinks feature is still in progress... The developer @{SYSTEM_SETTINGS["about"]["author"]} will add this feature shortly...')
+            print(f'Weblinks feature is still in progress... The developer @{ABOUT["about"]["author"]} will add this feature shortly...')
 
         elif commandslist[0] == 'open':
             if commandslist == ['open']:
                 if currentsong and current_media_player == 0:
                     if os.path.isfile(currentsong):
-                        if os.path.splitext(currentsong)[1] in supported_file_types:
+                        if os.path.splitext(currentsong)[1] in supported_file_exts:
                             os.system(f'explorer /select, {currentsong}')
                         else:
-                            IPrint(0, visible=visible)
+                            print(0)
                     else:
-                        IPrint(0, visible=visible)
+                        print(0)
                 else:
                     if current_media_player: # VLC
                         if current_media_type == 0:
@@ -1421,30 +1231,30 @@ def process(command):
             else:
                 path = ' '.join(commandslist[1:])
                 if os.path.isfile(path):
-                    if os.path.splitext(path)[1] in supported_file_types:
+                    if os.path.splitext(path)[1] in supported_file_exts:
                         os.system(f'explorer /select, {path}')
                     else:
-                        IPrint(0, visible=visible)
+                        print(0)
                 else:
-                    IPrint(0, visible=visible)
+                    print(0)
 
         elif commandslist in [['sm'], ['sync'], ['sync', 'media']]:
-            IPrint("Syncing current media...", visible=visible)
+            print("Syncing current media...")
             if current_media_type == 0: # If YT vid is playing...
-                IPrint(f"YouTube audio cannot be synced, only seeked", visible=visible)
+                print(f"YouTube audio cannot be synced, only seeked")
             elif current_media_type == 1: # If audio is playing...
-                IPrint(f"audio url cannot be synced, only seeked", visible=visible)
+                print(f"audio url cannot be synced, only seeked")
             elif current_media_type == 2: # If radio is playing...
                 vas.media_player(action='resync') # Resync radio to live stream
             elif current_media_type == 3: # If reddit-session is streaming...
                 # TODO - Find a way to get the current stream timestamp of current RPAN session
-                print(f'Reddit session syncing... The developer @{SYSTEM_SETTINGS["about"]["author"]} will add this feature shortly...')
+                print(f'Reddit session syncing... The developer @{ABOUT["about"]["author"]} will add this feature shortly...')
 
         elif commandslist[0] == 'path':
             if len(commandslist) == 2:
                 if int(commandslist[1]) > 0:
                     try:
-                        IPrint(_sound_files[int(commandslist[1])-1], visible=visible)
+                        print(_sound_files[int(commandslist[1])-1])
                     except IndexError:
                         err('', f'Please input song number between 1 and {len(_sound_files)}')
                 else:
@@ -1455,11 +1265,11 @@ def process(command):
                 myquery = commandslist[1:]
                 searchresults = (searchsongs(queryitems=myquery))
                 if searchresults != []:
-                    IPrint(
-                      f"{colored.fg('orange_1')}Found {len(searchresults)} match{('es')*(len(searchresults)>1)} for: {' '.join(myquery)}{colored.attr('reset')}", visible=visible)
-                    IPrint(tbl(searchresults, tablefmt='mysql', headers=('#', 'Song')), visible=visible)
+                    print(
+                      f"{colored.fg('orange_1')}Found {len(searchresults)} match{('es')*(len(searchresults)>1)} for: {' '.join(myquery)}{colored.attr('reset')}")
+                    print(tbl(searchresults, tablefmt='mysql', headers=('#', 'Song')))
                 else:
-                    IPrint(colored.fg('hot_pink_1a')+"-- No results found --"+colored.attr('reset'), visible=visible)
+                    print(colored.fg('hot_pink_1a')+"-- No results found --"+colored.attr('reset'))
 
         elif commandslist == ['stop']:
             stopsong()
@@ -1484,19 +1294,19 @@ def process(command):
             isshowinglyrics = not isshowinglyrics
             if current_media_player:
                 if current_media_type == 0:
-                    IPrint(f"Loading lyrics window for (Time taking)...", visible=visible)
-                    get_lyrics.show_window(weblink=currentsong[1], isYT=1)
+                    print(f"Loading lyrics window for (Time taking)...")
+                    lvw.show_window(weblink=currentsong[1], isYT=1)
                 elif current_media_type == 1:
-                    IPrint(f"Loading lyrics window for (Time taking)...", visible=visible)
-                    get_lyrics.show_window(weblink=currentsong)
+                    print(f"Loading lyrics window for (Time taking)...")
+                    lvw.show_window(weblink=currentsong)
                 elif current_media_type == 2:
-                    IPrint(f"Lyrics for Radio are not supported", visible=visible)
+                    print(f"Lyrics for Radio are not supported")
                 elif current_media_type == 3:
-                    IPrint(f"Lyrics for reddit sessions are not supported", visible=visible)
+                    print(f"Lyrics for reddit sessions are not supported")
             else:
                 if currentsong:
                     if os.path.isfile(currentsong):
-                        get_lyrics.show_window(songfile=currentsong)
+                        lvw.show_window(songfile=currentsong)
 
         elif commandslist[0].lower() in ['v', 'vol', 'volume']:
             try:
@@ -1518,7 +1328,8 @@ def process(command):
                                 log_message='Volume percentage out of range', log_priority=2)
 
                 elif len(commandslist) == 1:
-                    IPrint(f"}}}} {cached_volume*100} %", visible=visible)
+                    # print(f"}}}} {pygame.mixer.music.get_volume()*100} %")
+                    print(f"}}}} {cached_volume*100} %")
 
             except Exception:
                 err(error_topic='Some internal issue occured while setting player volume')
@@ -1546,7 +1357,7 @@ def process(command):
                             log_priority=3)
                     else:
                         try:
-                            IPrint(f"}}}} {get_master_volume()} %", visible=visible)
+                            print(f"}}}} {get_master_volume()} %")
                         except Exception:
                             SAY(visible=visible, display_message='ERROR: Couldn\'t get system master volume', log_message=f'Unknown error while getting master volume as percent: {currentsong}', log_priority=2)
 
@@ -1557,11 +1368,11 @@ def process(command):
             print('Sorry, system volume commands have been (temporarily) disabled due to some internal issue (Issue #244 comtypes)')
 
         elif commandslist in [['l'], ['len'], ['length']]:
-            if currentsong and currentsong_length != -1:
+            if currentsong:
                 if currentsong_length:
-                    IPrint(convert(currentsong_length), visible=visible)
+                    print(convert(currentsong_length))
                 else:
-                    IPrint(convert(get_currentsong_length()), visible=visible)
+                    print(convert(get_currentsong_length()))
 
         # E.g. /ys "The Weeknd Blinding Lights"
         #                       or
@@ -1606,11 +1417,8 @@ def process(command):
                     choose_media_url(media_url_choices=ytv_choices)
 
             except Exception:
-                # raise
-                SAY(visible=visible,
-                    display_message="Invalid YouTube search, type: [/youtube-search | /ys] \"<search terms>\" [<result_count>]",
-                    log_message="Invalid YouTube search by user",
-                    log_priority=2)
+                raise
+                err("Invalid YouTube search, type: [/youtube-search | /ys] \"<search terms>\" [<result_count>]", say=False)
 
         elif commandslist[0].lower() in ['/yl', '/youtube-link']:
             if len(commandslist) == 2:
@@ -1661,12 +1469,12 @@ def process(command):
                                            '\n'+f'Choose one of the following stations ({colored.fg("navajo_white_1")}index or name{colored.fg("magenta_3a")}):',
                         log_message=f'Unknown webradio station "{r_station}" selected',
                         log_priority = 2)
-                    IPrint(tbl([(f"{colored.fg('light_red')}/wra {i+1}{colored.attr('reset')}", j) for i, j in enumerate(r_stations)], tablefmt='plain'), visible=visible)
+                    print(tbl([(f"{colored.fg('light_red')}/wra {i+1}{colored.attr('reset')}", j) for i, j in enumerate(r_stations)], tablefmt='plain'))
             else:
                 err("Unknown webradio command, too long")  # Too many args
 
         elif commandslist[0] in ['/rs', '/reddit-sessions']:
-            # print(f'Live sessions from r/redditsessions are still in progress... The developer @{SYSTEM_SETTINGS["about"]["author"]} will add this feature shortly...')
+            # print(f'Live sessions from r/redditsessions are still in progress... The developer @{ABOUT["about"]["author"]} will add this feature shortly...')
             if r_seshs:
                 global r_seshs_data
                 r_seshs_data, rs_params = redditsessions.display_seshs_as_table(r_seshs)
@@ -1675,21 +1483,21 @@ def process(command):
                     r_seshs_table = tbl(r_seshs_data_processed,
                                         tablefmt='simple',
                                         headers=["#", "RPAN Session"]+[*rs_params[1:]])
-                    IPrint(r_seshs_table, visible=visible)
-                    IPrint('\n', visible=visible)
+                    print(r_seshs_table)
+                    print()
                     sesh_index = input(f"{colored.fg('light_slate_blue')}Enter RPAN session number to tune into: {colored.fg('navajo_white_1')}")
                     print(colored.attr('reset'), end='')
                 elif len(commandslist) == 2:
                     sesh_index = commandslist[1]
 
                 if len(commandslist) <= 3:
-                    IPrint("[INFO] Reddit sessions sometimes may take ages to start and seek...", visible=visible)
+                    print("[INFO] Reddit sessions sometimes may take ages to start and seek...")
                     if sesh_index.isnumeric():
                         sesh_index = int(sesh_index)-1
                         if sesh_index in range(len(r_seshs_data)):
                             sesh_name=r_seshs_data[sesh_index].get('title')
                             if not sesh_name: sesh_name = '[UNRESOLVED REDDIT SESSION]'
-                            IPrint(f"Tuning into RPAN: {colored.fg('indian_red_1b')}{sesh_name}{colored.attr('reset')}", visible=visible)
+                            print(f"Tuning into RPAN: {colored.fg('indian_red_1b')}{sesh_name}{colored.attr('reset')}")
                             play_vas_media(media_url=r_seshs[sesh_index]['audiolink'],
                                         media_type='redditsession',
                                         media_name=sesh_name)
@@ -1705,8 +1513,9 @@ def process(command):
                         log_message=f'Invalid reddit session command entered',
                         log_priority=2)
             else:
-                if loglevel in [3, 4]:
-                    IPrint("Redditsessions are unavailable because your API credentials are missing", visible=visible)
+                if visible:
+                    if loglevel in [3, 4]:
+                        print("Redditsessions are unavailable because your API credentials are missing")
 def mainprompt():
     while True:
         try:
@@ -1721,15 +1530,15 @@ def mainprompt():
                 exitplayer()
                 break
         except KeyboardInterrupt:
-            IPrint('\n', visible=visible)
+            print()
 
 
 def showversion():
-    global visible, SYSTEM_SETTINGS
-    if visible and SYSTEM_SETTINGS:
+    global visible, ABOUT
+    if visible and ABOUT:
         try:
             print(colored.fg('aquamarine_3')+\
-                  f"v {SYSTEM_SETTINGS['ver']['maj']}.{SYSTEM_SETTINGS['ver']['min']}.{SYSTEM_SETTINGS['ver']['rel']}"+\
+                  f"v {ABOUT['ver']['maj']}.{ABOUT['ver']['min']}.{ABOUT['ver']['rel']}"+\
                   colored.attr('reset'))
             print()
         except Exception:
@@ -1741,7 +1550,7 @@ def showbanner():
     banner_lines = []
     if visible:
         try:
-            with open('res/banner.banner', encoding='utf-8') as file:
+            with open('about/banner.banner', encoding='utf-8') as file:
                 banner_lines = file.read().splitlines()
                 maxlen = len(max(banner_lines, key=len))
                 if maxlen % 10 != 0:
@@ -1751,11 +1560,11 @@ def showbanner():
                                                      # and would be more visually pleasing...
                 banner_lines = [(x + ' ' * (maxlen - len(x))) for x in banner_lines]
                 for banner_line in banner_lines:
-                    blue_gradient_print(banner_line, cols+cols[::-1])
+                    IPrint.rainbow_print(banner_line, IPrint.cols+IPrint.cols[::-1])
         except IOError:
             pass
-    
-    if visible: showversion()
+
+    showversion()
 
 def run():
     global disable_OS_requirement, visible, USER_DATA
@@ -1767,32 +1576,33 @@ def run():
     save_user_data()
 
     pygame.mixer.init()
-    if visible: showbanner()
+    showbanner()
     mainprompt()
 
 
 def startup():
-    global disable_OS_requirement, SOFT_FATAL_ERROR_INFO
+    global disable_OS_requirement
 
     try: os.system('color 0F') # Needed?!? idk
     except Exception: pass
 
     try: first_startup_greet(FIRST_BOOT)
-    except Exception: raise
+    except Exception: pass
 
     if not disable_OS_requirement:
         if sys.platform != 'win32':
             sys.exit('ABORTING: This program may not work on'
             'Non-Windows Operating Systems (hasn\'t been tested)')
-    if not SOFT_FATAL_ERROR_INFO: # End program silently if SOFT_FATAL_ERROR_INFO is set
-        if FATAL_ERROR_INFO:
-            IPrint(f"FATAL ERROR ENCOUNTERED: {FATAL_ERROR_INFO}", visible=visible)
-            IPrint("Exiting program...", visible=visible)
-            sys.exit(1) # End program...forcefully...
         else: run()
+    else: run()
 
 
 if __name__ == '__main__':
-    startup()
+    if FATAL_ERROR_INFO:
+        print(f"FATAL ERROR ENCOUNTERED: {FATAL_ERROR_INFO}")
+        print("Exiting program...")
+        sys.exit(1) # End program...gracefully...
+    else:
+        startup()
 else:
     print(' '*30, end='\r')  # Get rid of the current '\r'...
