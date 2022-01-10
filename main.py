@@ -1425,6 +1425,8 @@ def process(command):
                 if currentsong and current_media_player == 0:
                     if os.path.isfile(currentsong):
                         if os.path.splitext(currentsong)[1] in supported_file_types:
+                            if sys.platform == 'win32':
+                                currentsong=currentsong.replace('/', '\\')
                             os.system(f'explorer /select, {currentsong}')
                         else:
                             IPrint(0, visible=visible)
