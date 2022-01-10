@@ -1015,41 +1015,72 @@ def process(command):
                 log_message="Accessing all command with visibility switched off",
                 priority=3)
 
+        # TODO: Need to display files in n columns (Mostly 3 cols) depending upon terminal size (dynamically...)
         if commandslist[0] in ['list', 'ls']:
-            # TODO: Need to display files in n columns (Mostly 3 cols) depending upon terminal size (dynamically...)
-            if len(commandslist) == 1:
-                rescount = FALLBACK_RESULT_COUNT # Default value of rescount
-            elif len(commandslist) == 2:
-                if commandslist[1].isnumeric():
-                    rescount = int(commandslist[1])
-            else:
-                indices = []
-                order_results = False
-                order_type = 1 # Default value (1): Display in ascending order
 
-                for i in commandslist[1:]:
-                    if i.isnumeric():
-                        if int(i)-1 not in indices:
-                            indices.append(int(i)-1)
-                    elif i == '-o': order_results = True
-                    elif i == '-desc': order_type = 0
+            # TODO: Get values for `order_results` and `order_type` from SETTINGS
+            indices = [] # Indices of songs to be displayed
+            rescount = FALLBACK_RESULT_COUNT
+            order_results = False
+            order_type = 1 # Default value (1): Display in ascending order
 
-                if indices:
-                    results = [_sound_files_names_only[index] for index in indices]
-                    results_enum = list(zip(indices, results))
-                    if order_results:
-                        results_enum = sorted(results_enum, key = lambda x: x[0], reverse = not order_type)
+            if 'o' in commandslist[1:]:
+                order_results = True
+            if 'desc' in commandslist[1:]:
+                order_type = 0
+
+            if '-' in command:
+                _command = command.replace('o', '').replace('desc', '')
+                _command = _command.strip().lstrip('ls').split('-')
+
+                if len(_command) == 2:
+                    try:
+                        ls_x_to_y = list(map(lambda i:int(i.strip()), _command))
+                        ls_x_to_y[0] -= 1
+                        if ls_x_to_y[0] < ls_x_to_y[1]:
+                            indices = list(range(*ls_x_to_y))
+                        else:
+                            pass # Invalid order of bounds for listing range of songs
+                    except Exception:
+                        pass # Invalid bounds for listing range of songs
                 else:
-                    # List files matching provided regex pattern
-                    # Need to implement a check to validate the provided regex pattern
-                    print(f'Regex search is still in progress... The developer @{SYSTEM_SETTINGS["about"]["author"]} will add this feature shortly...')
-                    # regex_pattern
-                    # regexp = re.compile(regex_pattern)
+                    pass # Invalid command for listing a range of songs
+            else:
+                _commandslist = commandslist.copy()
 
-            if len(commandslist) in [1, 2]:
-                results_enum = enumerate(_sound_files_names_only[:rescount])
+                if 'o' in commandslist: _commandslist.remove('o')
+                if 'desc' in commandslist: _commandslist.remove('desc')
+                if len([i for i in commandslist if i.isnumeric()]) == 1:
+                    if commandslist[1].isnumeric():
+                        rescount = int(commandslist[1])
+                else:
+                    for i in commandslist[1:]:
+                        if i.isnumeric():
+                            if int(i)-1 not in indices:
+                                indices.append(int(i)-1)
 
-            IPrint(tbl([(i+1, j) for i, j in results_enum], tablefmt='plain'), visible=visible)
+            if indices:
+                results = [_sound_files_names_only[index] for index in indices]
+                results_enum = list(zip(indices, results))
+                if order_results:
+                    results_enum = sorted(results_enum, key = lambda x: x[0], reverse = not order_type)
+
+            if len([i for i in commandslist if i.isnumeric()]) == 0 and '-' not in command and len(commandslist) != 1:
+                # List files matching provided regex pattern
+                # Need to implement a check to validate the provided regex pattern
+                print(f'Regex search is still in progress... The developer @{SYSTEM_SETTINGS["about"]["author"]} will add this feature shortly...')
+                # regex_pattern
+                # regexp = re.compile(regex_pattern)
+
+            if len([i for i in commandslist if i.isnumeric()]) in [0, 1] and '-' not in command:
+                results_enum = list(enumerate(_sound_files_names_only[:rescount]))
+                if order_results:
+                    results_enum = sorted(results_enum, key = lambda x: x[0], reverse = not order_type)
+
+            if indices or len([i for i in commandslist if i.isnumeric()]) in [0, 1]:
+                IPrint(tbl([(i+1, j) for i, j in results_enum], tablefmt='plain'))
+
+
 
         elif commandslist == ['reload']: # TODO - Make useful...
             IPrint("Reloading sounds", visible=visible)
@@ -1081,7 +1112,7 @@ def process(command):
                 else: # pygame
                     cur_song = os.path.splitext(
                         os.path.split(currentsong)[1])[0]
-                    IPrint(f":: {_sound_files.index(currentsong)+1} | {cur_song}", visible=visible)
+                    IPrint(f":: {colored.fg('plum_1')}{_sound_files.index(currentsong)+1}{colored.attr('reset')} | {cur_song}", visible=visible)
             else:
                 # currentsong = None
                 IPrint("(Not Playing)", visible=visible)
@@ -1101,7 +1132,7 @@ def process(command):
                         IPrint(f"                Link    | {currentsong[1]}", visible=visible)
 
                 else: # pygame
-                    IPrint(f":: {_sound_files.index(currentsong)+1} | {currentsong}", visible=visible)
+                    IPrint(f":: {colored.fg('plum_1')}{_sound_files.index(currentsong)+1}{colored.attr('reset')} | {currentsong}", visible=visible)
 
             else:
                 currentsong = None
