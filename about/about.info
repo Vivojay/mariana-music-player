@@ -1,0 +1,16 @@
+about:
+  author: vivojay,
+  date: 27-11-2012,
+  title: Mariana CLI Music Player
+
+first_boot: true
+isdev: true
+ver:
+  maj: 0
+  min: 4
+  rel: 2
+
+last_major_change:
+  - "Added reddit sessions support"
+  - "Added lyrics window support"
+  - "Fixed a LOT of broken (incorrectly working / not working) things..."

@@ -34,8 +34,6 @@ show about: True
 
 loglevel: 3
 
-maximum youtube-search results count: 15
-
 default_user_data:
   # User login feature hasn't been implemented yet...
   # Needs salted hash I/O...

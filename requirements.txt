@@ -1,5 +1,4 @@
 pygame
-toml
 youtube_dl
 tabulate
 numpy

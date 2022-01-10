@@ -7,11 +7,8 @@ smooth volume change: True
 isdev: False
 visible: True
 display items count:
-  general:
     fallback: 10
     maximum: 100 # -1 means no limit...
-  youtube-search results:
-    maximum: 15
 
 enable beta: False
 
@@ -28,4 +25,3 @@ advanced and misc features:
 show banner: True
 show about: True
 loglevel: 3
-
