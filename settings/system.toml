@@ -1,0 +1,19 @@
+first_boot = false
+isdev = true
+
+[about]
+author = "vivojay"
+date = "27-11-2012"
+title = "Mariana CLI Music Player"
+
+[ver]
+maj = 0
+min = 4
+rel = 2
+
+[system_settings]
+enable_best_quality_downloads = 1
+enforce_os_requirement = true
+max_wait_limit_to_get_song_length = 15
+supported_file_types = [ ".wav", ".mp3",]
+mariana_dl_dir = "MarianaPlayer"

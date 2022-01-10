@@ -1,27 +1,16 @@
-dont stop playing: True
-offline only: False
-enable gui notifications: True
-enable console notifications: True
-enable console interactions: True
-smooth volume change: True
-isdev: False
-visible: True
 display items count:
-    fallback: 10
-    maximum: 100 # -1 means no limit...
-
-enable beta: False
-
-beta features:
-  change terminal size: True
-  lock terminal size: True
-  smooth muting: True
-  smooth unmuting: True
-  sleep:
-    enabled: True
-    default_time: 7200 # in seconds --> set to 2 hours
-advanced and misc features:
-
-show banner: True
-show about: True
+  general: {fallback: 10, maximum: 100}
+  youtube-search results: {maximum: 15}
+download:
+  downloads folder: ~/Music
+  make a separate mariana folder within "downloads folder": true
+  quality:
+    audio only: 1
+    video with audio: {audio: 1, video: 1}
+  type: video
+include music folder in library: true
 loglevel: 3
+maximum youtube-search results count: 15
+show about: true
+show banner: true
+visible: true

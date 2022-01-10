@@ -1,7 +1,6 @@
 import os
-from ruamel.yaml import YAML
-
-yaml = YAML(typ='safe')
+import sys
+import toml
 
 curdir=os.path.dirname(__file__)
 os.chdir(curdir)
@@ -38,7 +37,7 @@ def fbs(about): # First boot setup
                 else: print("This directory does not exist, please retry...")
             else:
                 print()
-                print(f"Saving directory paths in library file\n  @location: {os.path.join(curdir, 'lib.lib')}")
+                print(f"Saving directory paths in your library\n  @location: {os.path.join(curdir, 'lib.lib')}!")
                 break
             
             local_file_dir = list(set(local_file_dir))
@@ -46,8 +45,23 @@ def fbs(about): # First boot setup
             with open("lib.lib", 'a') as libfile:
                 for _dir in local_file_dirs:
                     libfile.write(_dir+'\n')
+    
+    else:
+        print("Ok, done!")
 
+    run_now = input("\n\nWould you like to run Mariana Player now? (y/n) ").lower().strip()
+    while run_now not in ['y', 'n', 'yes', 'no']:
+        run_now = input("[INVALID RESPONSE] Want to run Mariana Player now? (y/n) ").lower().strip()
 
     about['first_boot'] = False
-    with open('about/about.info', 'w') as about_file:
-        yaml.dump(about, about_file)
+    try:
+        with open('settings/system.toml', 'w') as about_file:
+            toml.dump(about, about_file)
+    except Exception:
+        pass
+
+    if run_now in ['no', 'n']:
+        print("Mariana Player has been installed successfully for you...")
+    
+    return (run_now in ['no', 'n']) # True:  DO NOT RUN player
+                                    # False: Continue to run player...
