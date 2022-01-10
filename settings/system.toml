@@ -1,4 +1,4 @@
-first_boot = true
+first_boot = false
 isdev = true
 
 [about]
@@ -12,8 +12,8 @@ min = 4
 rel = 2
 
 [system_settings]
-supported_file_types = [
-    ".wav",
-    ".mp3",
-]
+enable_best_quality_downloads = 1
 enforce_os_requirement = true
+max_wait_limit_to_get_song_length = 15
+supported_file_types = [ ".wav", ".mp3",]
+mariana_dl_dir = "MarianaPlayer"

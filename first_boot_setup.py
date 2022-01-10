@@ -1,8 +1,6 @@
 import os
 import sys
-from ruamel.yaml import YAML
-
-yaml = YAML(typ='safe')
+import toml
 
 curdir=os.path.dirname(__file__)
 os.chdir(curdir)
@@ -56,8 +54,14 @@ def fbs(about): # First boot setup
         run_now = input("[INVALID RESPONSE] Want to run Mariana Player now? (y/n) ").lower().strip()
 
     about['first_boot'] = False
-    with open('about/about.info', 'w') as about_file:
-        yaml.dump(about, about_file)
+    try:
+        with open('settings/system.toml', 'w') as about_file:
+            toml.dump(about, about_file)
+    except Exception:
+        pass
 
     if run_now in ['no', 'n']:
-        sys.exit(0)
+        print("Mariana Player has been installed successfully for you...")
+    
+    return (run_now in ['no', 'n']) # True:  DO NOT RUN player
+                                    # False: Continue to run player...

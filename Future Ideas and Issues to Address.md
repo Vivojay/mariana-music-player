@@ -1,10 +1,16 @@
 ```
 Easter Eggs (Fun stuff)
 Make into an executable release -> Host on GitHub
+COLOUR OUTPUT
 IMPLEMENT QUEUE PLAYING
 Currently beta features are switched on by default and cannot be opted out of; Change this...
 
 MIGRATE ENTIRELY TO python-vlc FOR PLAYING SONGS OF ANY KIND(CODEC)...
+
+MAKE THE STEP-BY-STEP WIZARD FOR INITIAL SETUP A BREEZE... (Already kinda is...?)
+    ASK 3 QUESTIONS                         ??? (Do we really need it?)
+    TELL 3 THINGS                           ??? (Do we really need it?)
+    ASK IF YOU WANT TO START APP NOW...     ??? (Do we really need it?)
 
 Save all recursive file paths from all lib dirs in a libpaths files for quick reload 
 Mark unplayable/corrupt song files and exclude them from libpaths
@@ -26,8 +32,7 @@ Find command will be issuable with the following options:
     a: Show only  files
     t <tag_name>: Show only files with given tag (if multiple tags specified, then all tags mst be present)
     f: Show only favourited files
-
-Keep saving auto shazamed radio songs (when webradio is playing...) to logs...
+    
 
 Many Great Visualizers (2D and 3D, color changing, other effects....)
 Song Videos from youtube (if available) ... ? (May not be implemented)

@@ -42,32 +42,32 @@
 # IMPORTS BEGIN #
 
 import time
-APP_BOOT_START_TIME = time.time();                  print("Loaded 1/25", end='\r')
+APP_BOOT_START_TIME = time.time();                  print("Loaded 1/26", end='\r')
 
-import os;                                          print("Loaded 2/25", end='\r')
+import os;                                          print("Loaded 2/26", end='\r')
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
-# import itertools;                                   print("Loaded 3/25", end='\r')
+# import itertools;                                   print("Loaded 3/26", end='\r')
 
-import re;                                          print("Loaded 4/25", end='\r')
-import sys;                                         print("Loaded 5/25",  end='\r')
-import urllib;                                      print("Loaded 6/25",  end='\r')
-import pygame;                                      print("Loaded 7/25",  end='\r')
-import numpy as np;                                 print("Loaded 8/25", end='\r')
-import random as rand;                              print("Loaded 9/25", end='\r')
-import importlib;                                   print("Loaded 10/25", end='\r')
-import colored;                                     print("Loaded 11/25", end='\r')
+import re;                                          print("Loaded 4/26", end='\r')
+import sys;                                         print("Loaded 5/26",  end='\r')
+import urllib;                                      print("Loaded 6/26",  end='\r')
+import pygame;                                      print("Loaded 7/26",  end='\r')
+import numpy as np;                                 print("Loaded 8/26", end='\r')
+import random as rand;                              print("Loaded 9/26", end='\r')
+import importlib;                                   print("Loaded 10/26", end='\r')
+import colored;                                     print("Loaded 11/26", end='\r')
 
-# import concurrent.futures;                          print("Loaded 11/25", end='\r')
+# import concurrent.futures;                          print("Loaded 11/26", end='\r')
 
-from tabulate import tabulate as tbl;               print("Loaded 12/25", end='\r')
-from ruamel.yaml import YAML;                       print("Loaded 13/25", end='\r')
-from collections.abc import Iterable;               print("Loaded 14/25", end='\r')
-from logger import SAY;                             print("Loaded 15/25", end='\r')
-from multiprocessing import Process;                print("Loaded 16/25", end='\r')
+from tabulate import tabulate as tbl;               print("Loaded 12/26", end='\r')
+from ruamel.yaml import YAML;                       print("Loaded 13/26", end='\r')
+from collections.abc import Iterable;               print("Loaded 14/26", end='\r')
+from logger import SAY;                             print("Loaded 15/26", end='\r')
+from multiprocessing import Process;                print("Loaded 16/26", end='\r')
 
-import subprocess as sp;                            print("Loaded 17/25", end='\r')
-import restore_default;                             print("Loaded 17/25", end='\r')
+import subprocess as sp;                            print("Loaded 17/26", end='\r')
+import restore_default;                             print("Loaded 18/26", end='\r')
 
 online_streaming_ext_load_error = 0
 comtypes_load_error = True # Unavailable due to comtypes issue #244
@@ -75,66 +75,67 @@ comtypes_load_error = True # Unavailable due to comtypes issue #244
 lyrics_ext_load_error = 0
 redditsessions = None
 
-import toml;                                        print("Loaded 18/25", end='\r')
+import toml;                                        print("Loaded 19/26", end='\r')
+import json;                                        print("Loaded 20/26", end='\r')
 
 # try:
 #     import librosa
-#     print("Loaded 18/25",  end='\r') # Time taking import (Sometimes, takes ages...)
+#     print("Loaded 18/26",  end='\r') # Time taking import (Sometimes, takes ages...)
 # except ImportError:
 #     print("[WARN] Could not load music computation extension...")
-#     print("[WARN] ...Skipped 18/25")
+#     print("[WARN] ...Skipped 18/26")
 
 try:
     vas = importlib.import_module("beta.vlc-async-stream")
     vas = importlib.reload(vas)
-    print("Loaded 19/25", end='\r')
+    print("Loaded 21/26", end='\r')
 except ImportError:
     online_streaming_ext_load_error = 1
     print("[INFO] Could not load online streaming extension...")
-    print("[INFO] ...Skipped 19/25")
+    print("[INFO] ...Skipped 21/26")
 
 try:
     YT_query = importlib.import_module("beta.YT_query")
-    print("Loaded 20/25", end='\r')
+    print("Loaded 22/26", end='\r')
 except ImportError:
     # raise
     if not online_streaming_ext_load_error:
         print("[INFO] Could not load online streaming extension...")
-    print("[INFO] ...Skipped 20/25")
+    print("[INFO] ...Skipped 22/26")
 
 try:
     from beta.IPrint import IPrint, blue_gradient_print, loading, cols
-    print("Loaded 21/25", end='\r')
+    print("Loaded 23/26", end='\r')
 except ImportError:
     lyrics_ext_load_error = 1
     print("[INFO] Could not load coloured print extension...")
-    print("[INFO] ...Skipped 21/25")
+    print("[INFO] ...Skipped 23/26")
 
 try:
     from lyrics_provider import get_lyrics
-    print("Loaded 22/25", end='\r')
+    print("Loaded 24/26", end='\r')
 except ImportError:
     print("[INFO] Could not load lyrics extension...")
     if not lyrics_ext_load_error:
         print("[INFO] ...Could not load online streaming extension...")
-    print("[INFO] ...Skipped 22/25")
+    print("[INFO] ...Skipped 24/26")
 
 try:
     from beta import redditsessions
     if redditsessions.WARNING:
         print("[WARN] Could not load reddit-sessions extension...")
         print(f"[WARN] ...{redditsessions.WARNING}...")
-        print("[WARN] ...Skipped 23/25")
+        print("[WARN] ...Skipped 25/26")
         redditsessions = None
     else:
-        print("Loaded 23/25", end='\r')
+        print("Loaded 25/26", end='\r')
 except ImportError:
     print("[INFO] Could not load reddit-sessions extension..., module 'praw' missing...")
-    print("[INFO] ...Skipped 23/25")
+    print("[INFO] ...Skipped 25/26")
 
 # try:
 #     from beta.master_volume_control import get_master_volume, set_master_volume
-#     print("Loaded 24/25", end='\r')
+#     print("Loaded 24/26", end='\r')
 # except Exception:
 #     comtypes_load_error = True
 #     SAY(visible=False, # global var `visible` hasn't been defined yet...
@@ -142,7 +143,7 @@ except ImportError:
 #         display_message="", # ...because we don't want to display anything on screen to the user
 #         log_priority=2)
 
-import webbrowser;                                      print("Loaded 25/25", end='\r')
+import webbrowser;                                      print("Loaded 26/26", end='\r')
 
 # IMPORTS END #
 
@@ -190,10 +191,13 @@ except IOError:
 
 
 def first_startup_greet(is_first_boot):
+    global SOFT_FATAL_ERROR_INFO
+
     if is_first_boot:
         try:
             import first_boot_setup
-            first_boot_setup.fbs(about=SYSTEM_SETTINGS)
+            SOFT_FATAL_ERROR_INFO = first_boot_setup.fbs(about=SYSTEM_SETTINGS)
+            if SOFT_FATAL_ERROR_INFO: SOFT_FATAL_ERROR_INFO = "User skipped startup"
             reload_sounds()
         except ImportError:
             sys.exit('[ERROR] Critical guide setup-file missing, please consider reinstalling this file or the entire program\nAborting Mariana Player. . .')
@@ -232,6 +236,7 @@ except IOError:
 APP_BOOT_TIME_END = time.time()
 EXIT_INFO = 0
 FATAL_ERROR_INFO = None
+SOFT_FATAL_ERROR_INFO = None
 
 isplaying = False
 currentsong = None  # No song playing initially
@@ -263,7 +268,9 @@ max_yt_search_results_threshold = SETTINGS['display items count']['youtube-searc
 max_wait_limit_to_get_song_length = SYSTEM_SETTINGS['system_settings']['max_wait_limit_to_get_song_length']
 FALLBACK_RESULT_COUNT = SETTINGS['display items count']['general']['fallback']
 
-if not loglevel: restore_default.restore('loglevel', SETTINGS)
+if not loglevel:
+    restore_default.restore('loglevel', SETTINGS)
+    loglevel = SETTINGS.get('loglevel')
 
 # From last session info
 cached_volume = 1  # Set as a factor between 0 to 1 times of max volume player volume
@@ -931,6 +938,42 @@ def choose_media_url(media_url_choices: list, yt: bool = True):
 
                 if visible: IPrint('\n', visible=visible)
 
+def refresh_settings():
+    global SYSTEM_SETTINGS, visible
+    try:
+        with open('settings/system.toml', encoding='utf-8') as file:
+            SYSTEM_SETTINGS = toml.load(file)
+    except IOError:
+        SYSTEM_SETTINGS = None
+
+    try:
+        with open('settings/settings.yml', encoding='utf-8') as u_data_file:
+            SETTINGS = yaml.load(u_data_file)
+
+    except IOError:
+        SAY(visible=visible,
+            display_message = f'Encountered missing program file @{os.path.join(CURDIR, "settings/settings.yml")}',
+            log_message = 'Aborting player because settings file was not found',
+            log_priority = 1) # Log fatal crash
+        sys.exit(1) # Fatal crash
+
+    # From settings
+    disable_OS_requirement = SYSTEM_SETTINGS['system_settings']['enforce_os_requirement']
+
+    # Supported file extensions
+    # (wav get_pos() in pygame provides played duration and not actual play position)
+    supported_file_types = SYSTEM_SETTINGS["system_settings"]['supported_file_types'] 
+    visible = SETTINGS['visible']
+    loglevel = SETTINGS.get('loglevel')
+    max_yt_search_results_threshold = SETTINGS['display items count']['youtube-search results']['maximum']
+    max_wait_limit_to_get_song_length = SYSTEM_SETTINGS['system_settings']['max_wait_limit_to_get_song_length']
+    FALLBACK_RESULT_COUNT = SETTINGS['display items count']['general']['fallback']
+
+    if not loglevel:
+        restore_default.restore('loglevel', SETTINGS)
+        loglevel = SETTINGS.get('loglevel')
+
+
 def process(command):
     global _sound_files_names_only, visible, currentsong, isplaying, ismuted, cached_volume
     global current_media_player, current_media_type
@@ -1011,6 +1054,13 @@ def process(command):
         elif commandslist == ['reload']: # TODO - Make useful...
             IPrint("Reloading sounds", visible=visible)
             reload_sounds()
+            IPrint("Done...", visible=visible)
+        
+        elif commandslist == ['refresh']: # TODO - Make useful...
+            IPrint("Reloading sounds", visible=visible)
+            reload_sounds()
+            IPrint("Reloading settings", visible=visible)
+            refresh_settings()
             IPrint("Done...", visible=visible)
 
         elif commandslist == ['vis']: # TODO - Make useful...
@@ -1165,16 +1215,91 @@ def process(command):
                 f'{colored.attr("reset")}\n',
                 log_message=f'"download-(\'ys\'|\'yv\'|\'al\')" command assumed to be misspelled', log_priority=3)
 
-        elif commandslist[0].lower() == 'download-yt':
-            if len(commandslist) == 2:
+        # Download current/custom YouTube media (as video with audio)
+        elif commandslist[0].lower() == 'download-yv':
+            # TODO - Add way for user to customize download settings...
+            continue_dl = False
+            if len(commandslist) == 1:
+                url = currentsong[1]
+                continue_dl = True
+
+            elif len(commandslist) == 2:
                 url = commandslist[1]
                 if url_is_valid(yt=True):
-                    IPrint( 'Attempting to download YouTube video from:\n  '
+                    IPrint('Attempting to download YouTube video from:\n  '
                           f'{colored.fg("sandy_brown")}@ {colored.fg("orchid_2")}{url}{colored.attr("reset")}',
                           visible=visible)
+                    continue_dl = True
                 else:
                     SAY(visible=visible,
                         log_message=f'Invalid YouTube URL for video download: {url}')
+
+            if len(commandslist) in [1, 2]:
+                download_parmeters = {
+                    "SETTINGS": SETTINGS,
+                    "SYSTEM_SETTINGS": SYSTEM_SETTINGS,
+                    "media_urls": url,
+                    "typ": 1,
+                    "quality": None,
+                    "make_separate_mariana_dl_dir": None,
+                    "dry_run": False,
+                }
+
+                if continue_dl:
+                    confirm_dl = input("Do you want to confirm download? (y/n): ").lower().strip()
+                    while confirm_dl not in ['y', 'n', 'yes', 'no']:
+                        confirm_dl = input("[INVALID RESPONSE] Do you want to confirm download? (y/n): ").lower().strip()
+
+                    if confirm_dl in ['yes', 'y']:
+                        confirm_dl = True
+                    else:
+                        confirm_dl = False
+                
+                if confirm_dl:
+                    sp.Popen(['py', 'mediadl.py', json.dumps(download_parmeters)], shell=True)
+
+        elif commandslist[0].lower() == 'download-ya':
+            # TODO - Add way for user to customize download settings...
+            continue_dl = False
+            if len(commandslist) == 1:
+                url = currentsong[1]
+                continue_dl = True
+
+            elif len(commandslist) == 2:
+                url = commandslist[1]
+                if url_is_valid(yt=True):
+                    IPrint('Attempting to download YouTube audio from:\n  '
+                          f'{colored.fg("sandy_brown")}@ {colored.fg("orchid_2")}{url}{colored.attr("reset")}',
+                          visible=visible)
+                    continue_dl = True
+                else:
+                    SAY(visible=visible,
+                        log_message=f'Invalid YouTube URL for video download: {url}')
+
+            if len(commandslist) in [1, 2]:
+                download_parmeters = {
+                    "SETTINGS": SETTINGS,
+                    "SYSTEM_SETTINGS": SYSTEM_SETTINGS,
+                    "media_urls": url,
+                    "typ": 0,
+                    "quality": None,
+                    "make_separate_mariana_dl_dir": None,
+                    "dry_run": False,
+                }
+
+                if continue_dl:
+                    confirm_dl = input("Do you want to confirm download? (y/n): ").lower().strip()
+                    while confirm_dl not in ['y', 'n', 'yes', 'no']:
+                        confirm_dl = input("[INVALID RESPONSE] Do you want to confirm download? (y/n): ").lower().strip()
+
+                    if confirm_dl in ['yes', 'y']:
+                        confirm_dl = True
+                    else:
+                        confirm_dl = False
+                
+                if confirm_dl:
+                    sp.Popen(['py', 'mediadl.py', json.dumps(download_parmeters)], shell=True)
+
 
         elif commandslist == ['t']:
             IPrint(convert(get_current_progress()), visible=visible)
@@ -1647,28 +1772,27 @@ def run():
 
 
 def startup():
-    global disable_OS_requirement
+    global disable_OS_requirement, SOFT_FATAL_ERROR_INFO
 
     try: os.system('color 0F') # Needed?!? idk
     except Exception: pass
 
     try: first_startup_greet(FIRST_BOOT)
-    except Exception: pass
+    except Exception: raise
 
     if not disable_OS_requirement:
         if sys.platform != 'win32':
             sys.exit('ABORTING: This program may not work on'
             'Non-Windows Operating Systems (hasn\'t been tested)')
+    if not SOFT_FATAL_ERROR_INFO: # End program silently if SOFT_FATAL_ERROR_INFO is set
+        if FATAL_ERROR_INFO:
+            IPrint(f"FATAL ERROR ENCOUNTERED: {FATAL_ERROR_INFO}", visible=visible)
+            IPrint("Exiting program...", visible=visible)
+            sys.exit(1) # End program...forcefully...
         else: run()
-    else: run()
 
 
 if __name__ == '__main__':
-    if FATAL_ERROR_INFO:
-        IPrint(f"FATAL ERROR ENCOUNTERED: {FATAL_ERROR_INFO}", visible=visible)
-        IPrint("Exiting program...", visible=visible)
-        sys.exit(1) # End program...gracefully...
-    else:
-        startup()
+    startup()
 else:
     print(' '*30, end='\r')  # Get rid of the current '\r'...

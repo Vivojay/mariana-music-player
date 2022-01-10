@@ -1,6 +1,6 @@
 # ==========================================================================================================================
 # PLEASE DO NOT MODIFY THIS FILE
-# ALSO PLEASE DO NOT DELETE OR MODIFY ANYTHING HAVING A .default OR .DEFAULT EXTENSION WITHIN THIS PROGRAM'S DIRECTORY
+# ALSO PLEASE DO NOT DELETE OR MODIFY ANY FILE WITH A .default OR .DEFAULT EXTENSION WITHIN THIS PROGRAM'S DIRECTORY
 #
 # TO VIEW/CHANGE SETTINGS PLEASE LOOK FOR THE config.yml without the `.default` extension...
 # ==========================================================================================================================
@@ -35,6 +35,17 @@ show about: True
 loglevel: 3
 
 maximum youtube-search results count: 15
+
+download:
+  make a separate mariana folder within "downloads folder": True
+  downloads folder: ~/Music
+  quality:
+    audio only: 1
+    video with audio:
+      audio: 1
+      video: 1
+
+  type: video
 
 default_user_data:
   # User login feature hasn't been implemented yet...

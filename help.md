@@ -73,3 +73,37 @@ All searches are fuzzy
 | Commands                                                 | Description                                                  |
 | -------------------------------------------------------- | ------------------------------------------------------------ |
 | ['f' \| 'find'] "Search Query" [<results_count\> \| all] | Find locally, 10 results by default. Shows all results if "all" is mentioned |
+
+<br>
+
+## Settings
+### Functional Settings
+- display items count
+- maximum youtube-search results count
+- loglevel
+- visible
+
+### Non Functional Settings
+The following settings are never used.
+They are available for possible future usage
+- show banner
+- show about
+
+#### download
+**download quality**  
+It is defined for two kinds of downloads
+
+**Audio Only:**       Sets the quality of audio-only downloads  
+**Video with Audio:** Sets the quality of video downloads (videos are always downloaded with audio)
+
+A value of 0 for either of these parameters means you want the WORST QUALITY download by default  
+A value of 1 for either of these parameters means you want the BEST QUALITY download by default
+
+\*NOTE: You may override the download quality directly in the player as well...  
+
+### display items count
+**general:** number of items to display (general purpose)
+**youtube-search results:** number of items to display in YouTube search results
+
+
+

@@ -14,6 +14,12 @@ def vid_info(vid_url: str, detailed=False):
     astreams = pafyVidObj.audiostreams
     vstreams = pafyVidObj.videostreams
 
+    bestaudurl = '[N/A]'
+    bestvidurl = '[N/A]'
+
+    if pafyVidObj.getbestaudio(): bestaudurl = pafyVidObj.getbestaudio().url
+    if pafyVidObj.getbestvideo(): bestvidurl = pafyVidObj.getbestvideo().url
+
     if detailed:
         vidInfoObj = {
             "dislikes": pafyVidObj.dislikes,
@@ -57,8 +63,8 @@ def vid_info(vid_url: str, detailed=False):
             "title": pafyVidObj.title,
             "duration": pafyVidObj.duration,
             "streams": {
-                "bestaudurl": pafyVidObj.getbestaudio().url,
-                "bestvidurl": pafyVidObj.getbestvideo().url,
+                "bestaudurl": bestaudurl,
+                "bestvidurl": bestvidurl,
             }
         }
 
