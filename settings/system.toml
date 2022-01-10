@@ -1,4 +1,4 @@
-first_boot = false
+first_boot = true
 isdev = true
 
 [about]
