@@ -17,3 +17,4 @@ supported_file_types = [
     ".mp3",
 ]
 enforce_os_requirement = true
+max_wait_limit_to_get_song_length = 15
