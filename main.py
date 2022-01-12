@@ -1250,7 +1250,7 @@ def process(command):
         elif commandslist[0].lower() == 'download-yv':
             # TODO - Add way for user to customize download settings...
             continue_dl = False
-            if len(commandslist) == 1:
+            if len(commandslist) == 1 and current_media_player == 1:
                 url = currentsong[1]
                 continue_dl = True
 
