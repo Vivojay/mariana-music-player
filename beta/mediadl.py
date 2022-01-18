@@ -20,13 +20,63 @@ from logger import SAY
 explicitly-specified-quality ? use_that : use quality mentioned in SETTINGS
 """
 
+def setup_dl_dir(SETTINGS, SYSTEM_SETTINGS):
+    dl_dir_is_valid = False
+    dl_dir = None
+
+    try:
+        dl_dir = SETTINGS.get('download').get('downloads folder')
+    except Exception:
+        pass
+
+    if dl_dir:
+        dl_dir = os.path.expanduser(dl_dir)
+        if os.path.isdir(dl_dir):
+            dl_dir_is_valid = True
+        else:
+            returncode = 0 # Output directory in SETTINGS is non-existent
+    else:
+        returncode = 1 # Output directory in SETTINGS is left blank (no dir specified)
+
+    if not dl_dir_is_valid:
+        SAY(visible = True,
+            log_message=f'Invalid dl dir, defaulting to ~/Music',
+            display_message='',
+            log_priority=2,
+        )
+        return returncode
+
+    try:
+        make_separate_mariana_dl_dir = SETTINGS['download']['make a separate mariana folder within "downloads folder"']
+    except Exception:
+        SAY(visible = True,
+            log_message=f'Invalid/non-existent setting for creating separate download directory for Mariana Player',
+            display_message='',
+            log_priority=2,
+        )
+        return 2 # SETTING for 'make a separate mariana folder within "downloads folder"'
+                 # is non-existent
+
+    if make_separate_mariana_dl_dir:
+        try:
+            mariana_dl_dir = SYSTEM_SETTINGS['system_settings']['mariana_dl_dir']
+            dl_dir = os.path.join(dl_dir, mariana_dl_dir)
+            if not os.path.isdir(dl_dir):
+                os.mkdir(dl_dir)
+        except Exception:
+            return 3 # Could not create separate mariana directory
+
+    return dl_dir
+
 def media_DL(SETTINGS,
              SYSTEM_SETTINGS,
              media_urls,
              typ = None,
              quality = None,
              make_separate_mariana_dl_dir = None,
-             dry_run=False):
+             dry_run=False,
+             quiet = True,
+            ):
     
     """
     SETTINGS: dict (settings/settings.yml) (User's personal settings)
@@ -46,50 +96,12 @@ def media_DL(SETTINGS,
     """
 
     available_qualities = ('worst', 'best')
-    dl_dir_is_valid = False
-    dl_dir = None
 
-    try:
-        dl_dir = SETTINGS.get('download').get('downloads folder')
-    except Exception:
-        pass
-
-    if dl_dir:
-        dl_dir = os.path.expanduser(dl_dir)
-        if os.path.isdir(dl_dir):
-            dl_dir_is_valid = True
-        else:
-            returncode = 0 # Output directory does not exist
+    dl_dir_setup_code = setup_dl_dir(SETTINGS, SYSTEM_SETTINGS)
+    if dl_dir_setup_code in range(4):
+        return dl_dir_setup_code
     else:
-        returncode = 1 # Output directory path in SETTINGS is empty
-
-    if not dl_dir_is_valid:
-        SAY(visible = True,
-            log_message=f'Invalid dl dir, defaulting to ~/Music',
-            display_message='',
-            log_priority=2,
-        )
-        return returncode
-
-    try:
-        make_separate_mariana_dl_dir = SETTINGS['download']['make a separate mariana folder within "downloads folder"']
-    except Exception:
-        SAY(visible = True,
-            log_message=f'Invalid/non-existent setting for creating separate download directory for Mariana Player',
-            display_message='',
-            log_priority=2,
-        )
-        return 2 # SETTING for 'make a separate mariana folder within "downloads folder"'
-                    # is non-existent
-
-    if make_separate_mariana_dl_dir:
-        try:
-            mariana_dl_dir = SYSTEM_SETTINGS['system_settings']['mariana_dl_dir']
-            dl_dir = os.path.join(dl_dir, mariana_dl_dir)
-            if not os.path.isdir(dl_dir):
-                os.mkdir(dl_dir)
-        except Exception:
-            return 3 # Could not create separate mariana directory
+        dl_dir = dl_dir_setup_code
 
     ydl_outtmpl = os.path.join(dl_dir, "%(title)s.%(ext)s")
 
@@ -114,12 +126,15 @@ def media_DL(SETTINGS,
 
     ydl_opts = {
         'outtmpl': ydl_outtmpl,
+        'quiet': quiet,
         'age_limit': 20,
         'format': ydl_vid_fmt, # best/worst is used when audio and video come premuxed
         # 'progress_hooks': [my_hook], # TODO - Review: Make a progress bar...???
+                                       # (GUI progress bar prolly cuz it'll be non blocking 
+                                       # + Better looking...)
     }
 
-    if typ == 1:
+    if typ == 0:
         ydl_opts.update({
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
@@ -135,7 +150,7 @@ def media_DL(SETTINGS,
         try:
             with youtube_dl.YoutubeDL(ydl_opts) as ydl:
                 ydl.download(media_urls)
-            returncode = 4 # Successfull Download
+            returncode = 4 # Successful Download
         except Exception:
             returncode = 5 # Failed Download
     else:
