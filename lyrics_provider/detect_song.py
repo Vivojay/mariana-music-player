@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import asyncio
 import requests
 import subprocess as sp
@@ -21,8 +22,7 @@ yaml = YAML(typ='safe')
 if not os.path.isfile('data/related_songs.yml'):
     with open('data/related_songs.yml', 'w') as f: pass
 
-def get_weblink_audio_info(weblink, isYT=False):
-    os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
+def get_weblink_audio_info(max_wait_lim, weblink, isYT=False):
 
     headers = {"Range": "bytes=0-5000"}
     if isYT:
@@ -56,7 +56,7 @@ def get_weblink_audio_info(weblink, isYT=False):
         dest_path = "temp/song_detect.mp3"
 
         try:
-            sp.run(["ffmpeg",
+            sp.call(["ffmpeg",
                     "-loglevel", "quiet",
                     "-hide_banner", "-y",
                     "-i",
@@ -65,13 +65,21 @@ def get_weblink_audio_info(weblink, isYT=False):
                     stderr = sp.DEVNULL,
                     stdout = sp.DEVNULL,
                     stdin = sp.PIPE)
+
         except FileNotFoundError:
             return {} # TODO - write to log: "ffmpeg not recognised globally"
 
-        if os.path.isfile("temp/song_detect.mka"):
-            try: os.remove("temp/song_detect.mka")
-            except OSError:
-                pass # TODO - write to log: couldn't clean temp dir
+        ffmpeg_command_start_time = time.time()
+        while True:
+            if os.path.isfile("temp/song_detect.mp3"):
+                break
+            if time.time() - ffmpeg_command_start_time >= max_wait_lim:
+                break
+
+        # if os.path.isfile("temp/song_detect.mka"):
+        try: os.remove("temp/song_detect.mka")
+        except OSError:
+            pass # TODO - write to log: couldn't clean temp dir
 
         if os.path.isfile("temp/song_detect.mp3"):
             out = get_song_info("temp/song_detect.mp3")
@@ -107,6 +115,7 @@ def get_song_info(songfile, display_shazam_id=False, get_related=False):
     display_shazam_id param: If true, displays unique shazam key of the shazamed song
     get_related param: If true, gets a list of information of related song
     """
+
     if os.path.isfile(songfile):
         loop1 = asyncio.get_event_loop()
         shazam_song_detection_result = loop1.run_until_complete(shazam_detect_song(songfile))
