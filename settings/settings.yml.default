@@ -27,7 +27,15 @@ beta features:
   sleep:
     enabled: True
     default_time: 7200 # in seconds --> set to 2 hours
-advanced and misc features:
+  # color pallete: # Coming later
+  #   COLOR 1: 
+  #   COLOR 2: 
+  #   COLOR 3: 
+  #   COLOR 4: 
+  #   COLOR 5: 
+  #   COLOR 6: 
+
+advanced and misc features: null
 
 show banner: True
 show about: True
@@ -46,6 +54,8 @@ download:
       video: 1
 
   type: video
+
+editor path: C:\WINDOWS\system32\notepad.exe
 
 default_user_data:
   # User login feature hasn't been implemented yet...
