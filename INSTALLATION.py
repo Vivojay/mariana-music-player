@@ -14,32 +14,37 @@
 import os
 import sys
 import json
+import toml
 import subprocess
 
-curdir = os.path.dirname(os.path.realpath(__file__))
+CURDIR = os.path.dirname(os.path.realpath(__file__))
 default_python_path = os.path.join(os.path.expanduser('~'), r'AppData\Local\Programs\Python\Python39\python.exe')
 python_ver_command = "\"import sys; print('.'.join([str(i) for i in list(sys.version_info)[:3]]))\""
 
 if not os.path.isdir(os.path.join(os.environ['localappdata'], 'Mariana Music Player v0.4.2')):
     os.mkdir(os.path.join(os.environ['localappdata'], 'Mariana Music Player v0.4.2'))
 
-RUN_ONCE = os.path.isfile(os.path.join(os.environ['localappdata'], 'Mariana Music Player v0.4.2\\setup.pypaths'))
+os.chdir(CURDIR)
+with open('settings/settings.toml', encoding='utf-8') as fp:
+    SYSTEM_SETTINGS = toml.load(fp)
 
+SUPPORTED_PY_VERSIONS = SYSTEM_SETTINGS['system_settings']['supported_python_version']
+
+RUN_ONCE = os.path.isfile(os.path.join(os.environ['localappdata'], 'Mariana Music Player v0.4.2\\setup.pypaths'))
 GIT_INSTALLED = not subprocess.call(['git', '--version'],
                                     shell=True,
                                     stdout=subprocess.DEVNULL,
                                     stderr=subprocess.STDOUT)
-
 DISCLAIMER = (f"{' '*25}DISCLAIMER\n"
         "This file WILL DOWNLOAD THE PROJECT from its git repository\n"
         "Make sure you don't already have the project downloaded (delete it if you do,\n"
         "or skip this quick-setup and revert to manual setup if you want that...)\n")
 
 commands_to_run_2 = [
-    # Installing needed python modules
-    "py -m pip install -r src/requirements.txt",
-    "py -m pip install git+https://github.com/Vivojay/pafy@develop",
-    "py -m pip install --no-cache-dir comtypes",
+    # Installing needed python modules with --no-cache-dir param set
+    "py -m pip install --no-cache-dir -r src/downgrade.txt",
+    "py -m pip install --no-cache-dir -r src/requirements.txt",
+    "py -m pip install --no-cache-dir git+https://github.com/Vivojay/pafy@develop",
 ]
 
 def create_runners(prog_dir_path):
@@ -124,17 +129,44 @@ if not (SILENT or NO_CONF):
         except KeyboardInterrupt:
             sys.exit("\nUser successfully aborted this setup...")
 
+# SAMPLE VALID OUTPUT
+# >>> py_ver_tuple
+# (3, 9)
+# >>> installed_pythons
+# {(3, 10): 'Jay\\AppData\\Local\\Programs\\Python\\Python310\\python.exe', (3, 9): 'Jay\\AppData\\Local\\Programs\\Python\\Python39\\python.exe'}
+# >>>
+
 
 if not RUN_ONCE:
     supported_py_vers_installed = []
-    pyp = subprocess.run(["py", "--list-paths"], capture_output=1).stdout.decode().split()
-    installed_pythons = {}
-    for i in range(0, len(pyp)-1, 2):
-        py_ver_tuple = tuple(int(i) for i in pyp[i][1:-3].split('.'))
-        installed_pythons.update({py_ver_tuple: pyp[i+1]})
+    pyp = subprocess.run(["py", "--list-paths"], capture_output=1).stdout.decode()
+
+    start_indices = [index-1 for index, char in enumerate(pyp) if pyp[index:index+2] == ':\\']
+    end_indices = [index for index, char in enumerate(pyp) if pyp[index:index+1] == '\n']
+    end_indices.insert(0, 0)
+    end_indices.append(len(pyp))
+
+    available_versions = []
+    available_paths = []
+
+    for i in range(0, len(start_indices)):
+        available_version = pyp[end_indices[i+1]: start_indices[i]].strip()
+        if available_version.startswith('-') and available_version.count('.') == 1 and available_version.count('-') == 2:
+            available_versions.append(available_version)
+            available_path = pyp[start_indices[i]: end_indices[i+2]].strip()
+            available_paths.append(available_path)
+        else:
+            continue
+
+    for index, i in enumerate(available_versions):
+        _maj, _min = i.lstrip('-').split('.')
+        ver_tuple = tuple(map(lambda x:int(x), [_maj, _min.split('-')[0]]))
+        available_versions[index] = ver_tuple
+
+    installed_pythons = dict(zip(available_versions, available_paths))
 
     for i in installed_pythons.items():
-        if i[0][0] == 3 and i[0][1] < 10:
+        if i[0] in SUPPORTED_PY_VERSIONS :
             supported_py_vers_installed.append(i[1])
 
     if os.path.exists(default_python_path):
@@ -206,7 +238,7 @@ if not RUN_ONCE:
         "py -m pip install --upgrade virtualenv",
 
         # Downloading git repo to desired dir
-        "git clone --single-branch --branch beta https://github.com/Vivojay/mariana-music-player",
+        "git clone --single-branch --branch dev https://github.com/Vivojay/mariana-music-player",
 
         # Renaming this program's source dir as "src"
         "move mariana-music-player src",
