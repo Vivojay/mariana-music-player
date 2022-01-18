@@ -1,6 +1,8 @@
 import os
+import sys
 import json
 import praw
+import prawcore
 
 from tabulate import tabulate as tbl
 
@@ -32,17 +34,28 @@ def instantiate():
                 REDDIT = praw.Reddit(**r_creds)
                 return REDDIT
             except json.decoder.JSONDecodeError:
-                return None
+                return -1
     else:
-        return None
+        return 0
 
+rs_instance = instantiate()
 
-if not instantiate():
-    r_creds_file_abs_path = os.path.join(curdir, r_creds_file)
-    WARNING = f"Could not find credentials in location {r_creds_file_abs_path}"
+r_creds_file_abs_path = os.path.join(os.getcwd(), r_creds_file)
+if sys.platform == 'win32': r_creds_file_abs_path=r_creds_file_abs_path.replace('/', '\\')
+else: r_creds_file_abs_path=r_creds_file_abs_path.replace('\\', '/')
+
+if type(rs_instance) == int:
+    if rs_instance == 0:
+        WARNING = f"Could not find credentials in location {r_creds_file_abs_path}"
+    elif rs_instance == -1:
+        WARNING = f"Malformed or corrupted credentials found in location {r_creds_file_abs_path}"
 else:
-    REDDIT = instantiate()
-    redditsessions = REDDIT.subreddit("redditsessions")
+    try:
+        REDDIT = rs_instance
+        _ = REDDIT.user.me()
+        redditsessions = REDDIT.subreddit("redditsessions")
+    except prawcore.exceptions.ResponseException:
+        WARNING = f"Invalid auth credentials for reddit found in location {r_creds_file_abs_path}"
 
 
 def get_redditsessions():
