@@ -5,6 +5,10 @@ COLOUR OUTPUT
 IMPLEMENT QUEUE PLAYING
 Currently beta features are switched on by default and cannot be opted out of; Change this...
 
+Run a "related-songs-getter" type function to get similar song to the ones you listen to
+and package into a playlist (Mariana's own simple playlist format??
+                             or prebuilt playlist formats e.g. m3u etc...)
+
 MIGRATE ENTIRELY TO python-vlc FOR PLAYING SONGS OF ANY KIND(CODEC)...
 
 MAKE THE STEP-BY-STEP WIZARD FOR INITIAL SETUP A BREEZE... (Already kinda is...?)
