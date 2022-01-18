@@ -6,6 +6,9 @@
 # Add source directory paths here
 # Commented lines start with a `#`
 
+# Run the "reload" command (w/o quotes) to reload all song files
+# from these source folders
+
 # You can even comment out directory paths that are no longer in use...
 
 ####################################################
