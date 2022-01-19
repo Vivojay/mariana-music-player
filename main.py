@@ -308,7 +308,6 @@ def reload_sounds():
     global _sound_files, _sound_files_names_only, _sound_files_names_enumerated, paths
 
     no_lib_found = False
-    # TODO - Spawn python process to reload metadata in the bg
 
     try:
         with open('lib.lib', encoding='utf-8') as logfile:
@@ -1331,19 +1330,19 @@ def process(command):
                     log_message='No history to display',
                     log_priority=2)
 
-        elif commandslist == ['reload']: # TODO - Make useful...
+        elif commandslist == ['reload']:
             IPrint("Reloading sounds", visible=visible)
             reload_sounds()
             IPrint("Done...", visible=visible)
         
-        elif commandslist == ['refresh']: # TODO - Make useful...
+        elif commandslist == ['refresh']:
             IPrint("Reloading sounds", visible=visible)
             reload_sounds()
             IPrint("Reloading settings", visible=visible)
             refresh_settings()
             IPrint("Done...", visible=visible)
 
-        elif commandslist == ['vis']: # TODO - Make useful...
+        elif commandslist == ['vis']:
             visible = not visible
             IPrint('visibility on', visible=visible)
 
