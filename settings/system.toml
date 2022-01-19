@@ -3,13 +3,13 @@ isdev = true
 
 [about]
 author = "vivojay"
-date = "18-01-2021"
+date = "19-01-2021"
 title = "Mariana CLI Music Player"
 
 [ver]
 maj = 0
 min = 5
-rel = 0
+rel = 1
 
 [system_settings]
 enable_best_quality_downloads = 1
