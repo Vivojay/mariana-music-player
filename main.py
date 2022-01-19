@@ -208,11 +208,6 @@ def first_startup_greet(is_first_boot):
         except ImportError:
             sys.exit('[ERROR] Critical guide setup-file missing, please consider reinstalling this file or the entire program\nAborting Mariana Player. . .')
 
-# Spawn get_media process in the bg
-if _sound_files != []:
-    get_meta_params = {_sound_files, supported_file_types}
-    sp.Popen(['py', '-c', 'meta_getter.py', *get_meta_params], shell=True)
-
 try:
     with open('user/user_data.yml', encoding='utf-8') as u_data_file:
         USER_DATA = yaml.load(u_data_file)
@@ -1844,6 +1839,14 @@ def process(command):
 
                 sp.Popen([fr"{DEFAULT_EDITOR}", 'lib.lib'], shell = True)
 
+            elif len(commandslist) > 1 and commandslist[1] in ['lyr', 'lyrics']:
+                IPrint(fr'Opening library file in editor', visible=visible)
+                if not DEFAULT_EDITOR:
+                    restore_default.restore('editor path', SETTINGS)
+                    DEFAULT_EDITOR = SETTINGS.get('editor path')
+
+                sp.Popen([fr"{DEFAULT_EDITOR}", 'temp/lyrics.txt'], shell = True)
+
             else:
                 path = ' '.join(commandslist[1:])
                 if os.path.isfile(path):
@@ -1921,6 +1924,7 @@ def process(command):
             isshowinglyrics = not isshowinglyrics
 
             if current_media_player: # FIXME: Broken
+                                     # TODO - Mention in "help.md" and "README.md"
                 if current_media_type == 0:
                     IPrint(f"Loading lyrics window for (Time taking)...", visible=visible)
                     get_lyrics.show_window(max_wait_lim = max_wait_limit_to_get_song_length, weblink=currentsong[1], isYT=1)
@@ -2007,17 +2011,43 @@ def process(command):
             sp.Popen(f'explorer /select, lib.lib')
 
         elif commandslist[0] == 'view':
-            IPrint("Opening library file in browser for viewing", visible=visible)
-            if webbrowser._tryorder in [['windows-default'], None]:
-                for brave_path in SYSTEM_SETTINGS['system_settings']['brave_paths']:
-                    if os.path.exists(brave_path):
-                        break
+            if len(commandslist) == 2:
+                if commandslist[1] in ['lib', 'library']:
+                    IPrint("Opening library file in browser for viewing", visible=visible)
+                    if webbrowser._tryorder in [['windows-default'], None]:
+                        for brave_path in SYSTEM_SETTINGS['system_settings']['brave_paths']:
+                            if os.path.exists(brave_path):
+                                break
 
-                webbrowser.register('brave', None, webbrowser.BackgroundBrowser(brave_path))
-                webbrowser.get('brave').open_new(os.path.join(CURDIR, 'lib.lib'))
+                        webbrowser.register('brave', None, webbrowser.BackgroundBrowser(brave_path))
+                        webbrowser.get('brave').open_new(os.path.join(CURDIR, 'lib.lib'))
 
-            else:
-                webbrowser.get('brave').open_new(os.path.join(CURDIR, 'lib.lib'))
+                    else:
+                        webbrowser.get('brave').open_new(os.path.join(CURDIR, 'lib.lib'))
+
+                elif commandslist[1] in ['lyr', 'lyrics']:
+                    IPrint("Attempting to open lyrics file in browser for viewing", visible=visible)
+                    if webbrowser._tryorder in [['windows-default'], None]:
+                        for brave_path in SYSTEM_SETTINGS['system_settings']['brave_paths']:
+                            if os.path.exists(brave_path):
+                                break
+
+                        webbrowser.register('brave', None, webbrowser.BackgroundBrowser(brave_path))
+                        if os.path.isfile('temp/lyrics.txt'):
+                            webbrowser.get('brave').open_new(os.path.join(CURDIR, 'temp/lyrics.txt'))
+                        else:
+                            SAY(visible=visible,
+                                log_message = 'No lyrics available to view',
+                                display_message = 'No lyrics available to view',
+                                log_priority = 2)
+                    else:
+                        if os.path.isfile('temp/lyrics.txt'):
+                            webbrowser.get('brave').open_new(os.path.join(CURDIR, 'temp/lyrics.txt'))
+                        else:
+                            SAY(visible=visible,
+                                log_message = 'No lyrics available to view',
+                                display_message = 'No lyrics available to view',
+                                log_priority = 2)
 
         elif commandslist in [['music-downloads'], ['md']]:
             from beta import mediadl
@@ -2266,6 +2296,11 @@ def startup():
 
     try: first_startup_greet(FIRST_BOOT)
     except Exception: raise
+
+    # Spawn get_media process in the bg
+    if _sound_files != [] and FIRST_BOOT:
+        get_meta_params = [_sound_files, supported_file_types]
+        sp.Popen(['py', 'meta_getter.py',  str(get_meta_params[0]), str(supported_file_types)], shell=True)
 
     if not disable_OS_requirement:
         if sys.platform != 'win32':
