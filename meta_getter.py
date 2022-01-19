@@ -15,7 +15,6 @@ ARGS = sys.argv[1:]
 cur_dir = os.path.dirname(os.path.realpath(__file__))
 os.chdir(cur_dir)
 
-
 def get_meta(media_list, supported_file_types):
 
     """
@@ -26,9 +25,16 @@ def get_meta(media_list, supported_file_types):
     os.chdir(cur_dir)
     valid_medias_list = []
 
+    if type(media_list) == str:
+        try:
+            if type(eval(media_list)) == list:
+                media_list = eval(media_list)
+        except Exception:
+            pass
+
     for media in media_list:
         if os.path.isfile(media):
-            if media.endswith(supported_file_types):
+            if media.endswith(tuple(supported_file_types)):
                 valid_medias_list.append(media)
         elif url_is_valid(media):
             valid_medias_list.append(media)
@@ -57,7 +63,7 @@ if __name__ == "__main__":
     ARGS = sys.argv[1:]
     if len(ARGS) == 2:
         try:
-            get_meta(*ARGS)
+            get_meta(*ARGS[:-1], ARGS[-1])
             sys.exit(0)
         except Exception:
             sys.exit(1)
