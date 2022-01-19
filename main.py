@@ -1,6 +1,6 @@
 #################################################################################################################################
 #
-#           Mariana Player v0.5.0      
+#           Mariana Player v0.5.1      
 #     (Read help.md for help on commands)
 #
 #    Running the app:
@@ -254,6 +254,8 @@ currentsong_length = None
 songindex = -1
 current_media_player = 0
 
+lyrics_window_note = "[Please close the lyrics window to continue issuing more commands...]"
+
 """
 current_media_player can be either 0 or 1:
     0: default (pygame)
@@ -341,6 +343,9 @@ if _sound_files_names_only == []:
 
 try: _ = sp.run('ffmpeg', stdout=sp.DEVNULL, stdin=sp.PIPE, stderr=sp.DEVNULL)
 except FileNotFoundError: FATAL_ERROR_INFO = "ffmpeg not recognised globally, download it and add to path (system environment)"
+
+try: _ = sp.run('ffprobe', stdout=sp.DEVNULL, stdin=sp.PIPE, stderr=sp.DEVNULL)
+except FileNotFoundError: FATAL_ERROR_INFO = "ffprobe not recognised globally, download it and add to path (system environment)"
 
 if reddit_creds_are_valid: r_seshs = redditsessions.get_redditsessions()
 else: r_seshs = None
@@ -833,9 +838,16 @@ def convert(seconds):
     return "{0:0>2.0f}:{1:0>2.0f}:{2:0>2.0f}".format(hour, minutes, seconds)
 
 
-def rand_song_index():
+def rand_song_index_generate():
     global _sound_files_names_only
-    return rand.randint(0, len(_sound_files_names_only)-1)
+    if len(_sound_files) == 0:
+        SAY(visible=visible,
+        log_message='User attempted to play local song, even though there are no songs in library',
+        display_message='There are no songs in library',
+        log_priority=2)
+        return None
+    else:
+        return rand.randint(0, len(_sound_files_names_only)-1)
 
 
 def validate_time(rawtime):
@@ -1053,6 +1065,40 @@ def text_overflow_prettify(url):
 	else:
 		return url
 
+def get_prettified_history(indices):
+    global HISTORY_QUEUE
+
+    results = [] # prettified results (formatted as WYSIWYG)
+
+    # results = [HISTORY_QUEUE[::-1][index] for index in indices]
+    for index in indices:
+        result= HISTORY_QUEUE[::-1][index]
+        yt_play_type, media_player, inf = result
+
+        if media_player == -1:
+            cur_song = inf[1]
+            cur_song = os.path.splitext(os.path.split(cur_song)[1])[0]
+            result = f":: {colored.fg('plum_1')}{inf[0]}{colored.attr('reset')} | {cur_song}"
+
+        elif media_player == 0:
+            yt_prefix = ["@yl", "@ys"][yt_play_type]
+            result = (f"{colored.fg('red')}{yt_prefix}: {colored.fg('aquamarine_3')}Title | {inf[0]}\n"
+                      f"     {colored.fg('navajo_white_1')}Link  | {inf[1]}{colored.attr('reset')}")
+
+        elif media_player == 1:
+            result = f"{colored.fg('hot_pink_1a')}@audio-link: {colored.fg('aquamarine_3')}{text_overflow_prettify(inf)}{colored.attr('reset')}"
+
+        elif media_player == 2:
+            result = f"{colored.fg('light_slate_blue')}@webradio/{colored.fg('navajo_white_1')}{inf}{colored.attr('reset')}"
+
+        elif media_player == 3:
+            result = (f"{colored.fg('orange_1')}@rs: {colored.fg('aquamarine_3')}Session | {text_overflow_prettify(inf[0])}{colored.attr('reset')}\n"
+                      f"     {colored.fg('navajo_white_1')}Link    | {text_overflow_prettify(inf[1])}{colored.attr('reset')}")
+
+        results.append(result)
+
+    return results
+
 
 def process(command):
     global _sound_files_names_only, visible, currentsong, isplaying, ismuted, cached_volume
@@ -1098,85 +1144,92 @@ def process(command):
         # TODO: Need to display files in n columns (Mostly 3 cols) depending upon terminal size (dynamically...)
         if commandslist[0] in ['list', 'ls']:
 
-            # TODO: Get values for `order_results` and `order_type` from SETTINGS
-            indices = [] # Indices of songs to be displayed
-            rescount = FALLBACK_RESULT_COUNT
-            order_results = False
-            order_type = 1 # Default value (1): Display in ascending order
+            if len(_sound_files) != 0:
+                # TODO: Get values for `order_results` and `order_type` from SETTINGS
+                indices = [] # Indices of songs to be displayed
+                rescount = FALLBACK_RESULT_COUNT
+                order_results = False
+                order_type = 1 # Default value (1): Display in ascending order
 
-            if 'o' in commandslist[1:]:
-                order_results = True
-            if 'desc' in commandslist[1:]:
-                order_type = 0
+                if 'o' in commandslist[1:]:
+                    order_results = True
+                if 'desc' in commandslist[1:]:
+                    order_type = 0
 
-            range_command_is_valid = True
-            if '-' in command:
+                range_command_is_valid = True
+                if '-' in command:
 
-                _command = command.replace('o', '').replace('desc', '')
-                _command = _command.strip().lstrip('ls').split('-')
+                    _command = command.replace('o', '').replace('desc', '')
+                    _command = _command.strip().lstrip('ls').split('-')
 
-                if len(_command) == 2:
-                    try:
-                        ls_x_to_y = list(map(lambda i:int(i.strip()), _command))
-                        ls_x_to_y[0] -= 1
-                        if ls_x_to_y[0] < ls_x_to_y[1]:
-                            indices = list(range(*ls_x_to_y))
-                        else:
+                    if len(_command) == 2:
+                        try:
+                            ls_x_to_y = list(map(lambda i:int(i.strip()), _command))
+                            ls_x_to_y[0] -= 1
+                            if ls_x_to_y[0] < ls_x_to_y[1]:
+                                indices = list(range(*ls_x_to_y))
+                            else:
+                                SAY(visible=visible,
+                                    display_message = 'Range order is reversed. It should be lower to upper',
+                                    log_message = 'Invalid order of bounds for listing range of songs',
+                                    log_priority = 2)
+                                range_command_is_valid = False
+                        except Exception:
                             SAY(visible=visible,
-                                display_message = 'Range order is reversed. It should be lower to upper',
-                                log_message = 'Invalid order of bounds for listing range of songs',
+                                display_message = 'Invalid bounds for listing range of songs',
+                                log_message = 'Invalid bounds for listing range of songs',
                                 log_priority = 2)
                             range_command_is_valid = False
-                    except Exception:
+                    else:
                         SAY(visible=visible,
-                            display_message = 'Invalid bounds for listing range of songs',
-                            log_message = 'Invalid bounds for listing range of songs',
+                            display_message = 'Invalid command for listing a range of songs',
+                            log_message = 'Invalid command for listing a range of songs',
                             log_priority = 2)
                         range_command_is_valid = False
                 else:
-                    SAY(visible=visible,
-                        display_message = 'Invalid command for listing a range of songs',
-                        log_message = 'Invalid command for listing a range of songs',
-                        log_priority = 2)
-                    range_command_is_valid = False
-            else:
-                _commandslist = commandslist.copy()
+                    _commandslist = commandslist.copy()
 
-                if 'o' in commandslist: _commandslist.remove('o')
-                if 'desc' in commandslist: _commandslist.remove('desc')
-                if len([i for i in commandslist if i.isnumeric()]) == 1:
-                    if commandslist[1].isnumeric():
-                        rescount = int(commandslist[1])
-                else:
-                    for i in commandslist[1:]:
-                        if i.isnumeric():
-                            if int(i)-1 not in indices:
-                                indices.append(int(i)-1)
+                    if 'o' in commandslist: _commandslist.remove('o')
+                    if 'desc' in commandslist: _commandslist.remove('desc')
+                    if len([i for i in commandslist if i.isnumeric()]) == 1:
+                        if commandslist[1].isnumeric():
+                            rescount = int(commandslist[1])
+                    else:
+                        for i in commandslist[1:]:
+                            if i.isnumeric():
+                                if int(i)-1 not in indices:
+                                    indices.append(int(i)-1)
 
 
-            if indices:
-                results = [_sound_files_names_only[index] for index in indices]
-                results_enum = list(zip(indices, results))
-                if order_results:
-                    results_enum = sorted(results_enum, key = lambda x: x[0], reverse = not order_type)
-
-            if len([i for i in commandslist if i.isnumeric()]) == 0 and '-' not in command and len(commandslist) != 1:
-                # List files matching provided regex pattern
-                # Need to implement a check to validate the provided regex pattern
-                print(f'Regex search is still in progress... The developer @{SYSTEM_SETTINGS["about"]["author"]} will add this feature shortly...')
-                # regex_pattern
-                # regexp = re.compile(regex_pattern)
-
-            else:
-                if len([i for i in commandslist if i.isnumeric()]) in [0, 1] and '-' not in command:
-                    results_enum = list(enumerate(_sound_files_names_only[:rescount]))
+                if indices:
+                    results = [_sound_files_names_only[index] for index in indices]
+                    results_enum = list(zip(indices, results))
                     if order_results:
                         results_enum = sorted(results_enum, key = lambda x: x[0], reverse = not order_type)
 
-                if indices or len([i for i in commandslist if i.isnumeric()]) in [0, 1]:
-                    if range_command_is_valid:
-                        IPrint(tbl([(i+1, j) for i, j in results_enum], tablefmt='plain'))
+                if len([i for i in commandslist if i.isnumeric()]) == 0 and '-' not in command and len(commandslist) != 1:
+                    # List files matching provided regex pattern
+                    # Need to implement a check to validate the provided regex pattern
+                    print(f'Regex search is still in progress... The developer @{SYSTEM_SETTINGS["about"]["author"]} will add this feature shortly...')
+                    # regex_pattern
+                    # regexp = re.compile(regex_pattern)
 
+                else:
+                    if len([i for i in commandslist if i.isnumeric()]) in [0, 1] and '-' not in command:
+                        results_enum = list(enumerate(_sound_files_names_only[:rescount]))
+                        if order_results:
+                            results_enum = sorted(results_enum, key = lambda x: x[0], reverse = not order_type)
+
+                    if indices or len([i for i in commandslist if i.isnumeric()]) in [0, 1]:
+                        if range_command_is_valid:
+                            IPrint(tbl([(i+1, j) for i, j in results_enum], tablefmt='plain'))
+
+
+            else:
+                SAY(visible=visible,
+                    log_message='User attempted to play local song, even though there are no songs in library',
+                    display_message='There are no songs in library',
+                    log_priority=2)
 
         elif commandslist == ['last']:
             last_index, last_name = _sound_files_names_enumerated
@@ -1240,32 +1293,9 @@ def process(command):
 
 
             if indices:
-                results = [] # prettified results (formatted as WYSIWYG)
-
-                for index in indices:
-                    result= HISTORY_QUEUE[::-1][index]
-                    yt_play_type, media_player, inf = result
-
-                    if media_player == -1:
-                        yt_prefix = ["@yl", "@ys"][yt_play_type]
-                        result = (f"{colored.fg('red')}{yt_prefix}: {colored.fg('aquamarine_3')}Title | {inf[0]}"
-                                f"    {colored.fg('navajo_white_1')}Link  | {inf[1]}{colored.attr('reset')}")
-
-                    elif media_player == 0:
-                        result = f":: {colored.fg('plum_1')}{inf[0]}{colored.attr('reset')} | {inf[1]}"
-
-                    elif media_player == 1:
-                        result = f"{colored.fg('hot_pink_1a')}@audio-link: {colored.fg('aquamarine_3')}{text_overflow_prettify(inf)}{colored.attr('reset')}"
-
-                    elif media_player == 2:
-                        result = f"{colored.fg('light_slate_blue')}@webradio/{colored.fg('navajo_white_1')}{inf}{colored.attr('reset')}"
-
-                    elif media_player == 3:
-                        result = (f"{colored.fg('orange_1')}@rs: {colored.fg('aquamarine_3')}Session | {text_overflow_prettify(inf[0])}{colored.attr('reset')}"
-                                f"    {colored.fg('navajo_white_1')}Link    | {text_overflow_prettify(inf[1])}{colored.attr('reset')}")
-
-                results = [HISTORY_QUEUE[::-1][index] for index in indices]
+                results = get_prettified_history(indices)
                 results_enum = list(zip(indices, results))
+
                 if order_results:
                     results_enum = sorted(results_enum, key = lambda x: x[0], reverse = not order_type)
 
@@ -1278,7 +1308,10 @@ def process(command):
 
             else:
                 if len([i for i in commandslist if i.isnumeric()]) in [0, 1] and '-' not in command:
-                    results_enum = list(enumerate(HISTORY_QUEUE[::-1][:rescount]))
+                    if rescount > len(HISTORY_QUEUE):
+                        rescount = len(HISTORY_QUEUE)
+                    results = get_prettified_history(list(range(rescount)))
+                    results_enum = list(enumerate(results))
                     if order_results:
                         results_enum = sorted(results_enum, key = lambda x: x[0], reverse = not order_type)
 
@@ -1394,7 +1427,7 @@ def process(command):
                         IPrint(f"@rs: {currentsong[0]}", visible=visible)
                 else: # pygame
                     cur_song = os.path.splitext(os.path.split(currentsong)[1])[0]
-                    IPrint(f":: {colored.fg('plum_1')}{songindex}{colored.fg('deep_pink_4c')} | {cur_song}{colored.attr('reset')}", visible=visible)
+                    IPrint(f":: {colored.fg('plum_1')}{songindex}{colored.fg('deep_pink_4c')} | {colored.fg('navajo_white_1')}{cur_song}{colored.attr('reset')}", visible=visible)
             else:
                 # currentsong = None
                 IPrint(f"{colored.fg('red')}({colored.attr('reset')}Not Playing{colored.fg('red')}){colored.attr('reset')}", visible=visible)
@@ -1417,7 +1450,7 @@ def process(command):
                         IPrint(f"{colored.fg('orange_1')}@redditsession: {colored.fg('aquamarine_3')}Session | {currentsong[0]}{colored.attr('reset')}", visible=visible)
                         IPrint(f"                {colored.fg('navajo_white_1')}Link    | {currentsong[1]}{colored.attr('reset')}", visible=visible)
 
-                else: # pygame
+                else: # pygame # TODO - Change to VLC or Local or Default
                     IPrint(f":: {colored.fg('plum_1')}{songindex}{colored.attr('reset')} | {currentsong}", visible=visible)
 
             else:
@@ -1513,16 +1546,17 @@ def process(command):
                     cur_prog = get_current_progress()
 
                     prog_sep = f"{colored.fg('green_1')}|{colored.attr('reset')}"
+                    prog_div = f"{colored.fg('navajo_white_1')}\u2014{colored.attr('reset')}"
 
                     if commandslist[0].endswith('*'):
-
-                        IPrint(f"progress: {colored.fg('deep_pink_1a')}{round(cur_prog)}/{round(cur_len)}"
-                            f" {prog_sep} {colored.attr('reset')}remaining: {colored.fg('orange_1')}{round(cur_len-cur_prog)}"
-                            f" {prog_sep} {colored.attr('reset')}elapsed: {colored.fg('light_goldenrod_1')}{round(cur_prog/cur_len*100)}%", visible=visible)
+                        IPrint(f"elapsed: {colored.fg('deep_pink_1a')}{convert(round(cur_prog))} {prog_div} {colored.fg('deep_pink_1a')}{convert(round(cur_len))}"
+                               f" {prog_sep} {colored.attr('reset')}remaining: {colored.fg('orange_1')}{convert(round(cur_len-cur_prog))}"
+                               f" {prog_sep} {colored.attr('reset')}progress: {colored.fg('light_goldenrod_1')}{round(cur_prog/cur_len*100)}%", visible=visible)
                     else:
-                        IPrint(f"{colored.fg('deep_pink_1a')}{round(cur_prog)}/{round(cur_len)}"
-                            f" {prog_sep} {colored.fg('orange_1')}{round(cur_len-cur_prog)}"
-                            f" {prog_sep} {colored.fg('light_goldenrod_1')}{round(cur_prog/cur_len*100)}%", visible=visible)
+                        # IPrint(f"{colored.fg('deep_pink_1a')}{convert(round(cur_prog))}/{convert(round(cur_len))}"
+                        IPrint(f"{colored.fg('deep_pink_1a')}{round(cur_prog)} {prog_div} {colored.fg('deep_pink_1a')}{round(cur_len)}"
+                               f" {prog_sep} {colored.fg('orange_1')}{round(cur_len-cur_prog)}"
+                               f" {prog_sep} {colored.fg('light_goldenrod_1')}{round(cur_prog/cur_len*100)}%", visible=visible)
 
                 else:
                     SAY(visible=visible,
@@ -1671,21 +1705,29 @@ def process(command):
         #     IPrint("", visible=visible)
 
         elif commandslist == ['.rand']:  # Play random song
-            local_play_commands(commandslist=[None, str(rand_song_index())])
+            rand_song_index = rand_song_index_generate()
+            if rand_song_index:
+                local_play_commands(commandslist=[None, str(rand_song_index)])
 
         elif commandslist == ['=rand']:  # Print random song number
-            IPrint(rand_song_index(), visible=visible)
-            convert(get_current_progress(), visible=visible)
+            rand_song_index = rand_song_index_generate()
+            if rand_song_index:
+                IPrint(rand_song_index, visible=visible)
 
         elif commandslist == ['rand']:  # Print random song name
-            IPrint(_sound_files_names_only[rand_song_index()], visible=visible)
+            rand_song_index = rand_song_index_generate()
+            if rand_song_index:
+                IPrint(_sound_files_names_only[rand_song_index], visible=visible)
 
         elif commandslist == ['rand*']:  # Print random song path
-            IPrint(_sound_files[rand_song_index()], visible=visible)
+            rand_song_index = rand_song_index_generate()
+            if rand_song_index:
+                IPrint(_sound_files[rand_song_index], visible=visible)
 
         elif commandslist == ['/rand']:  # Print random song number+name
-            rand_index = rand_song_index()
-            IPrint(f"{rand_index+1}: {_sound_files_names_only[rand_index]}", visible=visible)
+            rand_song_index = rand_song_index_generate()
+            if rand_song_index:
+                IPrint(f"{rand_song_index+1}: {_sound_files_names_only[rand_song_index]}", visible=visible)
 
         elif commandslist == ['reset']:
             if currentsong_length and currentsong_length != -1:
@@ -1823,7 +1865,10 @@ def process(command):
                 print(f'Reddit session sync: The developer @{SYSTEM_SETTINGS["about"]["author"]} will add this feature shortly...')
 
         elif commandslist[0] == 'path':
-            if len(commandslist) == 2:
+            if len(commandslist) == 1 and currentsong and current_media_player == 0:
+                IPrint(f":: {colored.fg('plum_1')}{songindex}{colored.attr('reset')} | {currentsong}", visible=visible)
+
+            elif len(commandslist) == 2:
                 if int(commandslist[1]) > 0:
                     try:
                         IPrint(_sound_files[int(commandslist[1])-1], visible=visible)
@@ -1834,11 +1879,16 @@ def process(command):
 
         elif commandslist[0].lower() in ['find', 'f']:
             if len(commandslist) > 1:
-                myquery = commandslist[1:]
-                searchresults = (searchsongs(queryitems=myquery))
+                if commandslist[-1].isnumeric():
+                    myquery = commandslist[1:-1]
+                    searchresults = (searchsongs(queryitems=myquery))
+                    searchresults = searchresults[:int(commandslist[-1])]
+                else:
+                    myquery = commandslist[1:]
+                    searchresults = (searchsongs(queryitems=myquery))
                 if searchresults != []:
                     IPrint(
-                      f"{colored.fg('orange_1')}Found {len(searchresults)} match{('es')*(len(searchresults)>1)} for: {' '.join(myquery)}{colored.attr('reset')}", visible=visible)
+                    f"{colored.fg('orange_1')}Found {len(searchresults)} match{('es')*(len(searchresults)>1)} for: {' '.join(myquery)}{colored.attr('reset')}", visible=visible)
                     IPrint(tbl(searchresults, tablefmt='mysql', headers=('#', 'Song')), visible=visible)
                 else:
                     IPrint(colored.fg('hot_pink_1a')+"-- No results found --"+colored.attr('reset'), visible=visible)
@@ -1864,6 +1914,7 @@ def process(command):
         elif commandslist in [['lyr'], ['lyrics']]:
             global isshowinglyrics
             isshowinglyrics = not isshowinglyrics
+
             if current_media_player: # FIXME: Broken
                 if current_media_type == 0:
                     IPrint(f"Loading lyrics window for (Time taking)...", visible=visible)
@@ -1878,6 +1929,7 @@ def process(command):
             else:
                 if currentsong:
                     if os.path.isfile(currentsong):
+                        IPrint(lyrics_window_note)
                         get_lyrics.show_window(max_wait_lim = max_wait_limit_to_get_song_length, songfile=currentsong)
 
         elif commandslist[0].lower() in ['v', 'vol', 'volume']:
@@ -2226,3 +2278,6 @@ if __name__ == '__main__':
     startup()
 else:
     print(' '*30, end='\r')  # Get rid of the current '\r'...
+
+# Way to convert chars outside BMP to unicode:
+# out_str = test_str.encode('utf-16','surrogatepass').decode('utf-16')
