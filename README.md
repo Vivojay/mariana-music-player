@@ -196,6 +196,28 @@ Run `main.py` from command line (with desired arguments, for more details, \*\*\
 
 <hr>
 
+## Features
+- Basic controls (mute, elapsed time, list library files, ...)
+- Soft play/pause by default
+- Colourful cheery interface
+- Play random songs from library
+- View prettified progress
+- Absolute and relative seek
+- Viewing, editing lyrics for downloaded songs *(only offline lyrics are supported)*
+- View currently playing files (name or full path)
+- Open currently playing files in windows file explorer
+- View history of all played media in current session
+- Listen to any one of 3 preprovided webradios
+- View Reddit Sessions **(Requires a Reddit API)**
+- Play directly from radio links and YouTube urls
+- Play songs from direct YouTube searches
+- Download songs and videos from YouTube
+- Open currently playing YouTube media in browser (with synced timestamp...)
+
+## Known Issues
+- Seeking locally-playing song succeeds, but shows incorrect progress
+- Rarely: "ConnectionResetError": ... kills the program
+
 ### Footnotes
 
 \*This *may work on Linux*, but is still untested for any OS other than Win10..
