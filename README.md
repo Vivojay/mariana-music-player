@@ -213,6 +213,7 @@ Run `main.py` from command line (with desired arguments, for more details, \*\*\
 - Play songs from direct YouTube searches
 - Download songs and videos from YouTube
 - Open currently playing YouTube media in browser (with synced timestamp...)
+- Customisable via settings located in `settings/settings.yml`
 
 ## Known Issues
 - Seeking locally-playing song succeeds, but shows incorrect progress
