@@ -208,6 +208,11 @@ def first_startup_greet(is_first_boot):
         except ImportError:
             sys.exit('[ERROR] Critical guide setup-file missing, please consider reinstalling this file or the entire program\nAborting Mariana Player. . .')
 
+# Spawn get_media process in the bg
+if _sound_files != []:
+    get_meta_params = {_sound_files, supported_file_types}
+    sp.Popen(['py', '-c', 'meta_getter.py', *get_meta_params], shell=True)
+
 try:
     with open('user/user_data.yml', encoding='utf-8') as u_data_file:
         USER_DATA = yaml.load(u_data_file)
