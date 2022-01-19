@@ -18,6 +18,11 @@ os.chdir(cur_dir)
 
 def get_meta(media_list, supported_file_types):
 
+    """
+    media_list: a list of absolute file paths to all media
+    supported_file_types: a list of supported file types (usually taken from "main.py")
+    """
+
     os.chdir(cur_dir)
     valid_medias_list = []
 
@@ -48,3 +53,13 @@ def get_meta(media_list, supported_file_types):
 
     return valid_medias_list
 
+if __name__ == "__main__":
+    ARGS = sys.argv[1:]
+    if len(ARGS) == 2:
+        try:
+            get_meta(*ARGS)
+            sys.exit(0)
+        except Exception:
+            sys.exit(1)
+    else:
+        sys.exit(1)
