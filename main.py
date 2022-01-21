@@ -1159,7 +1159,7 @@ def process(command):
                 if '-' in command:
 
                     _command = command.replace('o', '').replace('desc', '')
-                    _command = _command.strip().lstrip('ls').split('-')
+                    _command = _command.strip().lstrip(commandslist[0]).split('-')
 
                     if len(_command) == 2:
                         try:
