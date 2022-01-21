@@ -25,11 +25,8 @@ if not os.path.isdir(os.path.join(os.environ['localappdata'], 'Mariana Music Pla
     os.mkdir(os.path.join(os.environ['localappdata'], 'Mariana Music Player v0.4.2'))
 
 os.chdir(CURDIR)
-with open('settings/settings.toml', encoding='utf-8') as fp:
-    SYSTEM_SETTINGS = toml.load(fp)
 
-SUPPORTED_PY_VERSIONS = SYSTEM_SETTINGS['system_settings']['supported_python_version']
-
+SUPPORTED_PY_VERSIONS = [[3, 10], [3, 9]]
 RUN_ONCE = os.path.isfile(os.path.join(os.environ['localappdata'], 'Mariana Music Player v0.4.2\\setup.pypaths'))
 GIT_INSTALLED = not subprocess.call(['git', '--version'],
                                     shell=True,
