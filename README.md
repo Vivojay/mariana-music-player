@@ -177,8 +177,7 @@ etc...
    i.e. Install Python (version < 3.10), git, VLC, FFMPEG (and optionally, the librosa wheel)
 2. Restart all terminals
 3. Download ONLY the initsetup.py file (**No other project files required**)...
-4. Download git, VLC and ffmpeg (See steps )
-5. Run it in console with command: `py "<absolute_path_to_py_file>"` 
+4. 5. Run it in console with command: `py "<absolute_path_to_py_file>"` 
    E.g. `py "C:\Users\Admin\Downloads\initsetup.py"`
 5. Follow the instructions provided...
 
