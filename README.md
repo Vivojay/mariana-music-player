@@ -3,6 +3,7 @@
 ## About
 Feature rich command-line music player for Windows OS (Tested on Win10 only\*).   
 Can play songs of [supported file types](https://github.com/Vivojay/mariana-music-player/blob/dev/settings/system.toml#L18) and perform basic music control operations
+`.wav` formats don't support seeking
 
 ## Setup
 
@@ -216,6 +217,7 @@ Run `main.py` from command line (with desired arguments, for more details, \*\*\
 
 ## Known Issues
 - Seeking locally-playing song succeeds, but shows incorrect progress
+- Seeking is NOT supported for `.wav` files (only .mp3 files are fully supported for local play for now)
 - Rarely: "ConnectionResetError": ... kills the program
 
 ### Footnotes
