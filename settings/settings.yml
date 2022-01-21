@@ -22,3 +22,4 @@ show about: true
 show banner: true
 visible: true
 editor path: C:\WINDOWS\system32\notepad.exe
+get related songs: true # Coming later
