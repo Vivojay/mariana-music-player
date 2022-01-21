@@ -14,7 +14,6 @@
 import os
 import sys
 import json
-import toml
 import subprocess
 
 CURDIR = os.path.dirname(os.path.realpath(__file__))
