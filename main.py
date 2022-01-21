@@ -1109,13 +1109,14 @@ def get_prettified_history(indices):
     return results
 
 def lyrics_ops(show_window):
+    get_related = SETTINGS['get related songs']
     if current_media_player: # FIXME: Broken
         if current_media_type == 0:
             IPrint(f"Loading lyrics window for (Time taking)...", visible=visible)
-            get_lyrics.show_window(max_wait_lim = max_wait_limit_to_get_song_length, show_window=show_window, weblink=currentsong[1], isYT=1)
+            get_lyrics.show_window(max_wait_lim = max_wait_limit_to_get_song_length, get_related=get_related, show_window=show_window, weblink=currentsong[1], isYT=1)
         elif current_media_type == 1:
             IPrint(f"Loading lyrics window for (Time taking)...", visible=visible)
-            get_lyrics.show_window(max_wait_lim = max_wait_limit_to_get_song_length, show_window=show_window, weblink=currentsong)
+            get_lyrics.show_window(max_wait_lim = max_wait_limit_to_get_song_length,  get_related=get_related, show_window=show_window, weblink=currentsong)
         elif current_media_type == 2:
             IPrint(f"Lyrics for Radio are not supported", visible=visible)
         elif current_media_type == 3:
@@ -1125,7 +1126,7 @@ def lyrics_ops(show_window):
             if os.path.isfile(currentsong):
                 if show_window:
                     IPrint(lyrics_window_note, visible=visible)
-                get_lyrics.show_window(max_wait_lim = max_wait_limit_to_get_song_length, show_window=show_window, songfile=currentsong)
+                get_lyrics.show_window(max_wait_lim = max_wait_limit_to_get_song_length, get_related=get_related, show_window=show_window, songfile=currentsong)
 
 def process(command):
     global _sound_files_names_only, visible, currentsong, isplaying, ismuted, cached_volume
