@@ -619,6 +619,7 @@ def stopsong():
             pygame.mixer.music.stop()
         currentsong = None
         isplaying = False
+        purge_old_lyrics_if_exist()
     except Exception:
         IPrint(f'Failed to stop: {currentsong}', visible=visible)
 
@@ -678,10 +679,19 @@ def enqueue(songindices):
     #         err("Queueing error", "Could not enqueue one or more files")
     #         raise
 
+def purge_old_lyrics_if_exist():
+    lyrics_file_path = 'temp/lyrics.txt'
+    try:
+        if os.path.isfile(lyrics_file_path):
+            os.remove(lyrics_file_path)
+    except Exception:
+        raise
 
 def local_play_commands(commandslist, _command=False):
     global cached_volume, currentsong_length
     pygame.mixer.music.set_volume(cached_volume)
+
+    purge_old_lyrics_if_exist()
 
     if not _command:
         if len(commandslist) == 2:
@@ -1098,6 +1108,24 @@ def get_prettified_history(indices):
 
     return results
 
+def lyrics_ops(show_window):
+    if current_media_player: # FIXME: Broken
+        if current_media_type == 0:
+            IPrint(f"Loading lyrics window for (Time taking)...", visible=visible)
+            get_lyrics.show_window(max_wait_lim = max_wait_limit_to_get_song_length, show_window=show_window, weblink=currentsong[1], isYT=1)
+        elif current_media_type == 1:
+            IPrint(f"Loading lyrics window for (Time taking)...", visible=visible)
+            get_lyrics.show_window(max_wait_lim = max_wait_limit_to_get_song_length, show_window=show_window, weblink=currentsong)
+        elif current_media_type == 2:
+            IPrint(f"Lyrics for Radio are not supported", visible=visible)
+        elif current_media_type == 3:
+            IPrint(f"Lyrics for reddit sessions are not supported", visible=visible)
+    else:
+        if currentsong:
+            if os.path.isfile(currentsong):
+                if show_window:
+                    IPrint(lyrics_window_note, visible=visible)
+                get_lyrics.show_window(max_wait_lim = max_wait_limit_to_get_song_length, show_window=show_window, songfile=currentsong)
 
 def process(command):
     global _sound_files_names_only, visible, currentsong, isplaying, ismuted, cached_volume
@@ -1221,7 +1249,7 @@ def process(command):
 
                     if indices or len([i for i in commandslist if i.isnumeric()]) in [0, 1]:
                         if range_command_is_valid:
-                            IPrint(tbl([(i+1, j) for i, j in results_enum], tablefmt='plain'))
+                            IPrint(tbl([(i+1, j) for i, j in results_enum], tablefmt='plain'), visible=visible)
 
 
             else:
@@ -1316,7 +1344,7 @@ def process(command):
 
                 if indices or len([i for i in commandslist if i.isnumeric()]) in [0, 1]:
                     if range_command_is_valid:
-                        IPrint(tbl([(-(i+1), j) for i, j in results_enum], tablefmt='plain'))
+                        IPrint(tbl([(-(i+1), j) for i, j in results_enum], tablefmt='plain'), visible=visible)
 
         elif commandslist == ['last', 'played']:
             if HISTORY_QUEUE:
@@ -1552,7 +1580,7 @@ def process(command):
                                f" {prog_sep} {colored.attr('reset')}remaining: {colored.fg('orange_1')}{convert(round(cur_len-cur_prog))}"
                                f" {prog_sep} {colored.attr('reset')}progress: {colored.fg('light_goldenrod_1')}{round(cur_prog/cur_len*100)}%", visible=visible)
                     else:
-                        # IPrint(f"{colored.fg('deep_pink_1a')}{convert(round(cur_prog))}/{convert(round(cur_len))}"
+                        # IPrint(f"{colored.fg('deep_pink_1a')}{convert(round(cur_prog))}/{convert(round(cur_len))}", visible=visible)
                         IPrint(f"{colored.fg('deep_pink_1a')}{round(cur_prog)} {prog_div} {colored.fg('deep_pink_1a')}{round(cur_len)}"
                                f" {prog_sep} {colored.fg('orange_1')}{round(cur_len-cur_prog)}"
                                f" {prog_sep} {colored.fg('light_goldenrod_1')}{round(cur_prog/cur_len*100)}%", visible=visible)
@@ -1840,6 +1868,7 @@ def process(command):
 
             elif len(commandslist) > 1 and commandslist[1] in ['lyr', 'lyrics']:
                 IPrint(fr'Opening library file in editor', visible=visible)
+                lyrics_ops(show_window = False)
                 if not DEFAULT_EDITOR:
                     restore_default.restore('editor path', SETTINGS)
                     DEFAULT_EDITOR = SETTINGS.get('editor path')
@@ -1922,23 +1951,7 @@ def process(command):
             global isshowinglyrics
             isshowinglyrics = not isshowinglyrics
 
-            if current_media_player: # FIXME: Broken
-                                     # TODO - Mention in "help.md" and "README.md"
-                if current_media_type == 0:
-                    IPrint(f"Loading lyrics window for (Time taking)...", visible=visible)
-                    get_lyrics.show_window(max_wait_lim = max_wait_limit_to_get_song_length, weblink=currentsong[1], isYT=1)
-                elif current_media_type == 1:
-                    IPrint(f"Loading lyrics window for (Time taking)...", visible=visible)
-                    get_lyrics.show_window(max_wait_lim = max_wait_limit_to_get_song_length, weblink=currentsong)
-                elif current_media_type == 2:
-                    IPrint(f"Lyrics for Radio are not supported", visible=visible)
-                elif current_media_type == 3:
-                    IPrint(f"Lyrics for reddit sessions are not supported", visible=visible)
-            else:
-                if currentsong:
-                    if os.path.isfile(currentsong):
-                        IPrint(lyrics_window_note)
-                        get_lyrics.show_window(max_wait_lim = max_wait_limit_to_get_song_length, songfile=currentsong)
+            lyrics_ops(show_window = True)
 
         elif commandslist[0].lower() in ['v', 'vol', 'volume']:
             try:
@@ -2026,6 +2039,7 @@ def process(command):
 
                 elif commandslist[1] in ['lyr', 'lyrics']:
                     IPrint("Attempting to open lyrics file in browser for viewing", visible=visible)
+                    lyrics_ops(show_window = False)
                     if webbrowser._tryorder in [['windows-default'], None]:
                         for brave_path in SYSTEM_SETTINGS['system_settings']['brave_paths']:
                             if os.path.exists(brave_path):
