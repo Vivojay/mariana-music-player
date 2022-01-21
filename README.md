@@ -220,7 +220,7 @@ Run `main.py` from command line (with desired arguments, for more details, \*\*\
 
 ### Footnotes
 
-\*This *may work on Linux*, but is still untested for any OS other than Win10..
+\*Most features *may work on Linux*, but is still untested for any OS other than Win10..
 
 \*\*This player requires **Python version < 3.10** (exclusive of 3.10 itself) and will not work otherwise, because there are currently no unofficial binaries available for the _llvmlite wheel_ compatible with Python versions >= 3.10.
 
