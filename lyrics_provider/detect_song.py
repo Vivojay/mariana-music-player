@@ -138,7 +138,6 @@ def get_song_info(songfile, display_shazam_id=False, get_related=False):
             }
 
         if get_related and song_info != {}:
-        if get_related and song_info != {}:
             sp.Popen(['py', 'get_related.py', song_info['shazam_id']], shell=True)
 
         return song_info
