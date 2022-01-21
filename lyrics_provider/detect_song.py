@@ -138,38 +138,9 @@ def get_song_info(songfile, display_shazam_id=False, get_related=False):
             }
 
         if get_related and song_info != {}:
-            loop2 = asyncio.get_event_loop()
-            related_tracks_data_raw=loop2.run_until_complete(shazam_get_song_info(45612815))
-            related_tracks_data_url=related_tracks_data_raw.get('sections')[4].get('url')
-            related_tracks_data=requests.get(related_tracks_data_url).json()
-            related_track_objects=related_tracks_data.get('tracks')
-
-            related_track_ids = [int(track.get('key')) for track in related_track_objects]
-
-            related_songs_info = []
-
-            for track_id in related_track_ids:
-                loop2 = asyncio.get_event_loop()
-                shazam_song_detection_result = loop2.run_until_complete(shazam_get_song_info(track_id))
-
-                related_song_info = {
-                    "display_name": shazam_song_detection_result.get('share').get('subject'),
-                    "youtube_url": shazam_song_detection_result.get('sections')[2].get('youtubeurl'),
-                    "is_explicit": shazam_song_detection_result.get('hub').get('explicit'),
-                    "shazam_id": shazam_song_detection_result.get('key'), # Stored as a string and converted to int when needed...
-                    "metadata": shazam_song_detection_result.get('sections')[0].get('metadata'),
-                    "lyrics": shazam_song_detection_result.get('sections')[1].get('text'),
-                    "genres": shazam_song_detection_result.get('genres'),
-                }
-
-                related_songs_info.append(related_song_info)
-
-            if related_songs_info: # BETA
-                with open('data/related_songs.yml', 'a', encoding='utf-8') as fp:
-                    pyyaml.dump(related_songs_info,
-                                stream=fp,
-                                allow_unicode=True,
-                                sort_keys=False)
+        if get_related and song_info != {}:
+            sp.Popen(['py', 'get_related.py', song_info['shazam_id']], shell=True)
+            get_related_music.get_related_music()
 
         return song_info
 
