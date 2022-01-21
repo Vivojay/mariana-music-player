@@ -11,6 +11,10 @@ and package into a playlist (Mariana's own simple playlist format??
 
 MIGRATE ENTIRELY TO python-vlc FOR PLAYING SONGS OF ANY KIND(CODEC)...
 
+Timed tagging and commenting withing songs:
+    timed tagging/comenting will generate an editable yml file with some custom extension
+        (maybe as an srt file??)
+
 MAKE THE STEP-BY-STEP WIZARD FOR INITIAL SETUP A BREEZE... (Already kinda is...?)
     ASK 3 QUESTIONS                         ??? (Do we really need it?)
     TELL 3 THINGS                           ??? (Do we really need it?)
