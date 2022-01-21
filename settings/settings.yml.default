@@ -57,6 +57,8 @@ download:
 
 editor path: C:\WINDOWS\system32\notepad.exe
 
+get related songs: true # Coming later
+
 default_user_data:
   # User login feature hasn't been implemented yet...
   # Needs salted hash I/O...
