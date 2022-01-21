@@ -54,6 +54,16 @@ def show_window(max_wait_lim, songfile=None, weblink=None, isYT=False):
 
     text_to_be_displayed, head_text = get_lyrics(songfile=songfile, weblink=weblink, isYT=isYT, max_wait_lim=max_wait_lim)
 
+    # try:
+    # os.path.isdir('../temp/')
+    with open('temp/lyrics.txt', 'w', encoding='utf-8') as fp:
+        fp.write('-'*80+'\n')
+        fp.write(head_text+'\n')
+        fp.write('-'*80+'\n\n')
+        fp.write(text_to_be_displayed+'\n')
+    # except Exception:
+    #     raise
+
     root = tk.Tk()
     root.resizable(True, True)
     root.geometry("550x270")
