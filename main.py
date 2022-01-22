@@ -419,7 +419,7 @@ def exitplayer(sys_exit=False):
     if not current_media_player: pygame.mixer.quit()
     APP_CLOSE_TIME = time.time()
 
-    time_spent_on_app = APP_CLOSE_TIME - APP_BOOT_START_TIME
+    time_spent_on_app = APP_CLOSE_TIME - APP_BOOT_END_TIME
     app_boot_time = APP_BOOT_END_TIME - APP_BOOT_START_TIME
 
     SAY(visible=visible,
