@@ -20,10 +20,12 @@ curdir = os.path.dirname(os.path.realpath(__file__))
 default_python_path = os.path.join(os.path.expanduser('~'), r'AppData\Local\Programs\Python\Python39\python.exe')
 python_ver_command = "\"import sys; print('.'.join([str(i) for i in list(sys.version_info)[:3]]))\""
 
-if not os.path.isdir(os.path.join(os.environ['localappdata'], 'Mariana Music Player v0.4.2')):
-    os.mkdir(os.path.join(os.environ['localappdata'], 'Mariana Music Player v0.4.2'))
+MARIANA_PLAYER_VERSION_FRIENDLY_NAME = '0.5.1 dev'
 
-RUN_ONCE = os.path.isfile(os.path.join(os.environ['localappdata'], 'Mariana Music Player v0.4.2\\setup.pypaths'))
+if not os.path.isdir(os.path.join(os.environ['localappdata'], f'Mariana Music Player v{MARIANA_PLAYER_VERSION_FRIENDLY_NAME}')):
+    os.mkdir(os.path.join(os.environ['localappdata'], f'Mariana Music Player v{MARIANA_PLAYER_VERSION_FRIENDLY_NAME}'))
+
+RUN_ONCE = os.path.isfile(os.path.join(os.environ['localappdata'], f'Mariana Music Player v{MARIANA_PLAYER_VERSION_FRIENDLY_NAME}\\setup.pypaths'))
 
 GIT_INSTALLED = not subprocess.call(['git', '--version'],
                                     shell=True,
