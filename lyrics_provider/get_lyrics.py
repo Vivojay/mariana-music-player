@@ -20,7 +20,7 @@ os.chdir(curdir)
 SUPPORTED_FILE_TYPES = SYSTEM_SETTINGS["system_settings"]["supported_file_types"]
 FOOT_TEXT = "Lyrics Powered by Musixmatch"
 
-def get_lyrics(max_wait_lim, songfile=None, weblink=None, isYT=False):
+def get_lyrics(max_wait_lim, get_related, songfile=None, weblink=None, isYT=False):
     """
     `lyr`: An intermediate string which is processed into `text_to_be_displayed`
     `head_text` and `text_to_be_displayed` are the important final results
@@ -36,7 +36,7 @@ def get_lyrics(max_wait_lim, songfile=None, weblink=None, isYT=False):
     elif songfile:
         if not songfile.endswith(tuple(SUPPORTED_FILE_TYPES)):
             return (text_to_be_displayed, head_text)
-        SONG_INF=lyrics_provider.detect_song.get_song_info(songfile)
+        SONG_INF=lyrics_provider.detect_song.get_song_info(songfile, get_related=get_related)
     else:
         SONG_INF = {}
 
@@ -50,9 +50,9 @@ def get_lyrics(max_wait_lim, songfile=None, weblink=None, isYT=False):
     return (text_to_be_displayed, head_text)
 
 
-def show_window(max_wait_lim, songfile=None, weblink=None, isYT=False):
+def show_window(max_wait_lim, show_window, get_related, songfile=None, weblink=None, isYT=False):
 
-    text_to_be_displayed, head_text = get_lyrics(songfile=songfile, weblink=weblink, isYT=isYT, max_wait_lim=max_wait_lim)
+    text_to_be_displayed, head_text = get_lyrics(songfile=songfile, get_related=get_related, weblink=weblink, isYT=isYT, max_wait_lim=max_wait_lim)
 
     # try:
     # os.path.isdir('../temp/')
@@ -63,6 +63,8 @@ def show_window(max_wait_lim, songfile=None, weblink=None, isYT=False):
         fp.write(text_to_be_displayed+'\n')
     # except Exception:
     #     raise
+
+    if not show_window: return None
 
     root = tk.Tk()
     root.resizable(True, True)
