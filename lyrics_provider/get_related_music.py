@@ -1,9 +1,13 @@
+import os
 import sys
 import asyncio
 import requests
 import yaml as pyyaml
 
 from shazamio import Shazam
+
+CURDIR = os.path.dirname(os.path.realpath(__file__))
+os.chdir(CURDIR)
 
 async def shazam_get_song_info(shazam_id):
     shazam = Shazam()
@@ -47,6 +51,9 @@ def get_related_music(shazam_id):
         related_songs_info.append(related_song_info)
 
     if related_songs_info: # BETA
+        if not os.path.isfile('../data/related_songs.yml'):
+            with open('../data/related_songs.yml', 'w', encoding='utf-8') as fp: pass
+
         with open('../data/related_songs.yml', 'a', encoding='utf-8') as fp:
             pyyaml.dump(related_songs_info,
                         stream=fp,
