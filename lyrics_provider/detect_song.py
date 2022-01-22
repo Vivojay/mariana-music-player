@@ -119,7 +119,7 @@ def get_song_info(songfile, display_shazam_id=False, get_related=False):
             }
 
         if get_related and song_info != {}:
-            sp.Popen(['py', 'lyrics_provider/get_related_music.py', song_info['shazam_id']], shell=True)
+            sp.Popen(['..\.virtenv\Scripts\python.exe', 'lyrics_provider/get_related_music.py', song_info['shazam_id']], shell=True)
 
         return song_info
 
