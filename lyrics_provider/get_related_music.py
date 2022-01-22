@@ -11,7 +11,7 @@ async def shazam_get_song_info(shazam_id):
     return(about_track)  # dict
 
 def get_related_music(shazam_id):
-    shazam_id= = int(shazam_id)
+    shazam_id = int(shazam_id)
 
     loop2 = asyncio.get_event_loop()
 
