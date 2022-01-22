@@ -1,6 +1,6 @@
 #################################################################################################################################
 #
-#           Mariana Player v0.5.1      
+#           Mariana Player v0.5.1 dev
 #     (Read help.md for help on commands)
 #
 #    Running the app:
@@ -339,6 +339,9 @@ if _sound_files_names_only == []:
     if loglevel in [3, 4]:
         IPrint("[INFO] All source directories are empty, you may and add more source directories to your library", visible=visible)
         IPrint("[INFO] To edit this library file (of source directories), refer to the `help.md` markdown file.", visible=visible)
+
+with open('data/snd_files.json', 'w', encoding='utf-8') as fp:
+    json.dump(_sound_files, fp)
 
 try: _ = sp.run('ffmpeg', stdout=sp.DEVNULL, stdin=sp.PIPE, stderr=sp.DEVNULL)
 except FileNotFoundError: FATAL_ERROR_INFO = "ffmpeg not recognised globally, download it and add to path (system environment)"
@@ -2313,8 +2316,7 @@ def startup():
 
     # Spawn get_media process in the bg
     if _sound_files != [] and FIRST_BOOT:
-        get_meta_params = [_sound_files, supported_file_types]
-        sp.Popen(['py', 'meta_getter.py',  str(get_meta_params[0]), str(supported_file_types)], shell=True)
+        sp.Popen(['py', 'meta_getter.py', str(supported_file_types)], shell=True)
 
     if not disable_OS_requirement:
         if sys.platform != 'win32':
