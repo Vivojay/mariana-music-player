@@ -86,6 +86,9 @@ reddit_creds_are_valid = False
 #     print("[WARN] Could not load music computation extension...")
 #     print("[WARN] ...Skipped 23/29")
 
+CURDIR = os.path.dirname(os.path.realpath(__file__))
+os.chdir(CURDIR)
+
 try:
     vas = importlib.import_module("beta.vlc-async-stream")
     vas = importlib.reload(vas)
@@ -152,8 +155,6 @@ except ImportError:
 # TODO - Add option to display type of error in display_message parameter of `SAY`
 #        to print kind of log [ (debg)/(info)/(warn)/(fatl) ] ??
 
-CURDIR = os.path.dirname(os.path.realpath(__file__))
-os.chdir(CURDIR)
 yaml = YAML(typ='safe')  # Allows for safe YAML loading
 
 webbrowser.register_standard_browsers()
