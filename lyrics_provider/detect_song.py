@@ -105,7 +105,6 @@ def get_song_info(songfile, display_shazam_id=False, get_related=False):
             print(f"Shazam ID: {shazam_song_detection_result.get('track')['key']}")
 
         if shazam_song_detection_result['matches'] == []:
-            # print(shazam_song_detection_result)
             song_info = {}
 
         else:
