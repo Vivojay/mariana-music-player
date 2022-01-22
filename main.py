@@ -42,19 +42,19 @@
 # IMPORTS BEGIN #
 
 import time
-APP_BOOT_START_TIME = time.time();                  print("Loaded 1/29", end='\r')
+APP_BOOT_START_TIME = time.time();                  print("Loaded 1/29",  end='\r')
 
-import os;                                          print("Loaded 2/29", end='\r')
+import os;                                          print("Loaded 2/29",  end='\r')
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
-# import itertools;                                   print("Loaded 3/29", end='\r')
+# import itertools;                                   print("Loaded 3/29",  end='\r')
 
-import re;                                          print("Loaded 4/29", end='\r')
+import re;                                          print("Loaded 4/29",  end='\r')
 import sys;                                         print("Loaded 5/29",  end='\r')
 import pygame;                                      print("Loaded 6/29",  end='\r')
-import numpy as np;                                 print("Loaded 7/29", end='\r')
-import random as rand;                              print("Loaded 8/29", end='\r')
-import importlib;                                   print("Loaded 9/29", end='\r')
+import numpy as np;                                 print("Loaded 7/29",  end='\r')
+import random as rand;                              print("Loaded 8/29",  end='\r')
+import importlib;                                   print("Loaded 9/29",  end='\r')
 import colored;                                     print("Loaded 10/29", end='\r')
 import subprocess as sp;                            print("Loaded 11/29", end='\r')
 import restore_default;                             print("Loaded 12/29", end='\r')
@@ -64,7 +64,7 @@ import webbrowser;                                  print("Loaded 15/29", end='\
 
 # import concurrent.futures;                          print("Loaded 16/29", end='\r')
 
-from url_validate import url_is_valid;              print("Loaded 17/29",  end='\r')
+from url_validate import url_is_valid;              print("Loaded 17/29", end='\r')
 from tabulate import tabulate as tbl;               print("Loaded 18/29", end='\r')
 from ruamel.yaml import YAML;                       print("Loaded 19/29", end='\r')
 from collections.abc import Iterable;               print("Loaded 20/29", end='\r')
@@ -91,7 +91,6 @@ os.chdir(CURDIR)
 
 try:
     vas = importlib.import_module("beta.vlc-async-stream")
-    vas = importlib.reload(vas)
     print("Loaded 24/29", end='\r')
 except ImportError:
     online_streaming_ext_load_error = 1
