@@ -28,9 +28,15 @@ def get_related_music(shazam_id):
         loop2 = asyncio.get_event_loop()
         shazam_song_detection_result = loop2.run_until_complete(shazam_get_song_info(track_id))
 
+        extracted_youtube_data = [j for _, j in enumerate(shazam_song_detection_result['sections']) if 'youtubeurl' in j.keys()][0]
+        shazam_youtube_url = extracted_youtube_data.get('youtubeurl')
+        shazam_youtube_url_info = requests.get(shazam_youtube_url).json()
+
+        youtube_url = shazam_youtube_url_info['actions'][0]['uri']
+
         related_song_info = {
             "display_name": shazam_song_detection_result.get('share').get('subject'),
-            "youtube_url": shazam_song_detection_result.get('sections')[2].get('youtubeurl'),
+            "youtube_url": youtube_url,
             "is_explicit": shazam_song_detection_result.get('hub').get('explicit'),
             "shazam_id": shazam_song_detection_result.get('key'), # Stored as a string and converted to int when needed...
             "metadata": shazam_song_detection_result.get('sections')[0].get('metadata'),
@@ -41,7 +47,7 @@ def get_related_music(shazam_id):
         related_songs_info.append(related_song_info)
 
     if related_songs_info: # BETA
-        with open('data/related_songs.yml', 'a', encoding='utf-8') as fp:
+        with open('../data/related_songs.yml', 'a', encoding='utf-8') as fp:
             pyyaml.dump(related_songs_info,
                         stream=fp,
                         allow_unicode=True,
