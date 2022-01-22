@@ -206,7 +206,7 @@ if not RUN_ONCE:
         "py -m pip install --upgrade virtualenv",
 
         # Downloading git repo to desired dir
-        "git clone --single-branch --branch beta https://github.com/Vivojay/mariana-music-player",
+        "git clone --single-branch --branch main https://github.com/Vivojay/mariana-music-player",
 
         # Renaming this program's source dir as "src"
         "move mariana-music-player src",
