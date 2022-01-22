@@ -15,7 +15,7 @@ ARGS = sys.argv[1:]
 cur_dir = os.path.dirname(os.path.realpath(__file__))
 os.chdir(cur_dir)
 
-def get_meta(media_list, supported_file_types):
+def get_meta(supported_file_types):
 
     """
     media_list: a list of absolute file paths to all media
@@ -24,6 +24,9 @@ def get_meta(media_list, supported_file_types):
 
     os.chdir(cur_dir)
     valid_medias_list = []
+
+    with open('data/snd_files.json', 'r', encoding='utf-8') as fp:
+        media_list = json.load(fp)
 
     if type(media_list) == str:
         try:
@@ -61,9 +64,9 @@ def get_meta(media_list, supported_file_types):
 
 if __name__ == "__main__":
     ARGS = sys.argv[1:]
-    if len(ARGS) == 2:
+    if len(ARGS) == 1:
         try:
-            get_meta(*ARGS[:-1], ARGS[-1])
+            get_meta(ARGS[0])
             sys.exit(0)
         except Exception:
             sys.exit(1)
