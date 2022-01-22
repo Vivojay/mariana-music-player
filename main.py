@@ -1871,7 +1871,7 @@ def process(command):
                 sp.Popen([fr"{DEFAULT_EDITOR}", 'lib.lib'], shell = True)
 
             elif len(commandslist) > 1 and commandslist[1] in ['lyr', 'lyrics']:
-                IPrint(fr'Opening library file in editor', visible=visible)
+                IPrint(fr'Opening lyrics file in editor', visible=visible)
                 lyrics_ops(show_window = False)
                 if not DEFAULT_EDITOR:
                     restore_default.restore('editor path', SETTINGS)
