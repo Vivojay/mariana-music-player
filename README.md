@@ -1,4 +1,4 @@
-# Mariana Music Player (v0.5.1)
+# Mariana Music Player (v0.5.1 dev)
 
 ## About
 Feature rich command-line music player for Windows OS (Tested on Win10 only\*).   
