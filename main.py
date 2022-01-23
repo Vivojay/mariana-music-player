@@ -73,8 +73,8 @@ from multiprocessing import Process;                print("Loaded 22/29", end='\
 
 
 online_streaming_ext_load_error = 0
-comtypes_load_error = True # Unavailable due to comtypes issue #244, #180
-                           # Previously: comtypes_load_error = False
+comtypes_load_error = False # Made available after fix from comtypes issue #244, #180
+                            # Previously: comtypes_load_error = True
 lyrics_ext_load_error = 0
 reddit_creds_are_valid = False
 
@@ -136,15 +136,25 @@ except ImportError:
     print("[INFO] Could not load reddit-sessions extension..., module 'praw' missing...")
     print("[INFO] ...Skipped 28/29")
 
-# try:
-#     from beta.master_volume_control import get_master_volume, set_master_volume
-#     print("Loaded 29/29", end='\r')
-# except Exception:
-#     comtypes_load_error = True
-#     SAY(visible=False, # global var `visible` hasn't been defined yet...
-#         log_message="comtypes load failed",
-#         display_message="", # ...because we don't want to display anything on screen to the user
-#         log_priority=2)
+try:
+    from lyrics_provider.detect_song import get_song_info
+    print("Loaded 29/29", end='\r')
+except ImportError:
+    print("[INFO] Could not load lyrics extension...")
+    if not lyrics_ext_load_error:
+        print("[INFO] ...Could not load online streaming extension...")
+    print("[INFO] ...Skipped 29/29")
+
+
+try:
+    from beta.master_volume_control import get_master_volume, set_master_volume
+    print("Loaded 29/29", end='\r')
+except Exception:
+    comtypes_load_error = True
+    SAY(visible=False, # global var `visible` hasn't been defined yet...
+        log_message="comtypes load failed",
+        display_message="", # ...because we don't want to display anything on screen to the user
+        log_priority=2)
 
 # IMPORTS END #
 
@@ -388,6 +398,18 @@ def hist_queue_save(inf):
     HISTORY_QUEUE.append(inf)
 
 
+def open_in_youtube(local_song_file_path):
+    local_song_detected_name = get_song_info(local_song_file_path, get_title_only = True)
+    if local_song_detected_name:
+        _, youtube_search_query_url = YT_query.search_youtube(search=local_song_detected_name)
+        webbrowser.open(youtube_search_query_url)
+        return 0
+    else:
+        SAY(visible=visible,
+            display_message = 'Could not detect the current song',
+            log_message = 'Could not detect the current song',
+            log_priority = 3)
+        return 1
 
 def get_current_progress(): # Will not work because pygame returns
                             # playtime instead of play position
@@ -1295,6 +1317,38 @@ def process(command):
                     display_message='There are no songs in library',
                     log_priority=2)
 
+        elif commandslist[0] == '/open':
+            if current_media_player == 0:
+                if len(commandslist) == 1: # To open current song
+                    if currentsong:
+                        open_in_youtube(currentsong)
+                    else:
+                        SAY(visible=visible,
+                            display_message = 'No song playing currently, try using "/open" with a song number or path instead',
+                            log_message = 'User issued "/open" as an isolated command even when no song is currently playing',
+                            log_priority = 2)
+
+                elif len(commandslist) == 2: # To open custom song
+                    if commandslist[1].isnumeric(): # To open custom song by index
+                        song_index = int(commandslist[1])-1
+                        songfile = _sound_files[song_index]
+                        open_in_youtube(songfile)
+                    else:
+                        if os.path.isfile(commandslist[1]): # To open custom song by absolute filepaths
+                            songfile = commandslist[1]
+                            open_in_youtube(songfile)
+                        else:
+                            SAY(visible=visible,
+                                display_message = 'File path provided for "/open" is inexistent or invalid',
+                                log_message = 'File path provided for "/open" is inexistent or invalid',
+                                log_priority = 2)
+
+            else:
+                SAY(visible=visible,
+                    display_message = '"/open" can only be used for local streaming, try "open" intead',
+                    log_message = '"/open" cannot be used for online streaming, only local',
+                    log_priority = 2)
+
         elif commandslist == ['last']:
             last_index, last_name = _sound_files_names_enumerated
             IPrint(">| ", visible=visible)
@@ -2019,7 +2073,7 @@ def process(command):
                 err(error_topic='Some internal issue occured while setting player volume')
 
         elif commandslist[0].lower() in ['mv', 'mvol', 'mvolume']:
-            '''
+            # '''
             try:
                 if len(commandslist) == 2 and commandslist[1].isnumeric():
                     if '.' in commandslist[1]:
@@ -2047,9 +2101,9 @@ def process(command):
 
             except Exception:
                 err(error_topic='Some internal issue occured while setting the system volume')
-            '''
+            # '''
 
-            print('Sorry, system volume commands have been (temporarily) disabled...\n...due to some internal issue (Issue #244, #180 comtypes)')
+            # print('Sorry, system volume commands have been (temporarily) disabled...\n...due to some internal issue (Issue #244, #180 comtypes)')
 
         elif commandslist in [['l'], ['len'], ['length']]:
             if currentsong and currentsong_length != -1:
