@@ -20,7 +20,7 @@ yaml = YAML(typ='safe')
 if not os.path.isfile('data/related_songs.yml'):
     with open('data/related_songs.yml', 'w') as f: pass
 
-def get_weblink_audio_info(weblink, isYT=False):
+def get_weblink_audio_info(max_wait_lim, weblink, isYT=False):
     os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
     headers = {"Range": "bytes=0-5000"}
