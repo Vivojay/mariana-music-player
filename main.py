@@ -248,7 +248,7 @@ YOUTUBE_PLAY_TYPE = None
 isplaying = False
 currentsong = None  # No song playing initially
 ismuted = False
-isshowinglyrics = False
+lyrics_saved_for_song = False
 currentsong_length = None
 
 songindex = -1
@@ -1112,24 +1112,48 @@ def get_prettified_history(indices):
     return results
 
 def lyrics_ops(show_window):
-    get_related = SETTINGS['get related songs']
-    if current_media_player: # FIXME: Broken
-        if current_media_type == 0:
-            IPrint(f"Loading lyrics window for (Time taking)...", visible=visible)
-            get_lyrics.show_window(max_wait_lim = max_wait_limit_to_get_song_length, get_related=get_related, show_window=show_window, weblink=currentsong[1], isYT=1)
-        elif current_media_type == 1:
-            IPrint(f"Loading lyrics window for (Time taking)...", visible=visible)
-            get_lyrics.show_window(max_wait_lim = max_wait_limit_to_get_song_length,  get_related=get_related, show_window=show_window, weblink=currentsong)
-        elif current_media_type == 2:
-            IPrint(f"Lyrics for Radio are not supported", visible=visible)
-        elif current_media_type == 3:
-            IPrint(f"Lyrics for reddit sessions are not supported", visible=visible)
-    else:
+    global lyrics_saved_for_song, currentsong, ISDEV
+
+    if lyrics_saved_for_song != currentsong: # Song has changed since last save of lyrics,
+                                             # need to refresh the lyrics to match the current song
+        get_related = SETTINGS['get related songs']
+        if current_media_player: # FIXME: Broken
+            if current_media_type == 0:
+                IPrint(f"Loading lyrics window for YT stream (Time taking)...", visible=visible)
+                get_lyrics.show_window(max_wait_lim = max_wait_limit_to_get_song_length, get_related=get_related, show_window=show_window, weblink=currentsong[1], isYT=1)
+            elif current_media_type == 1:
+                IPrint(f"Loading lyrics window for online audio stream (Time taking)...", visible=visible)
+                get_lyrics.show_window(max_wait_lim = max_wait_limit_to_get_song_length,  get_related=get_related, show_window=show_window, weblink=currentsong)
+            elif current_media_type == 2:
+                IPrint(f"Lyrics for webradio are not supported", visible=visible)
+            elif current_media_type == 3:
+                IPrint(f"Lyrics for reddit sessions are not supported", visible=visible)
+
+            lyrics_saved_for_song = currentsong
+
+    # elif ISDEV: # Song hasn't changes, no need to refresh lyrics
+    #             # Just re-display the existing one
+    #     print('Lyrics have already been loaded')
+
+    if not current_media_player:
+        get_related = SETTINGS['get related songs']
+        if get_related and lyrics_saved_for_song == currentsong: # True only if the song has changed.
+                                                                 # If it has, we need to get the related songs ONLY IF it is enabled in settings
+                                                                 # If it's still the same song, no need to get related songs again
+            get_related = False
+
+        refresh_lyrics = get_related
+
         if currentsong:
             if os.path.isfile(currentsong):
                 if show_window:
                     IPrint(lyrics_window_note, visible=visible)
-                get_lyrics.show_window(max_wait_lim = max_wait_limit_to_get_song_length, get_related=get_related, show_window=show_window, songfile=currentsong)
+                get_lyrics.show_window(refresh_lyrics = refresh_lyrics,
+                                       max_wait_lim = max_wait_limit_to_get_song_length,
+                                       get_related = get_related,
+                                       show_window = show_window,
+                                       songfile = currentsong)
+                lyrics_saved_for_song = currentsong
 
 def process(command):
     global _sound_files_names_only, visible, currentsong, isplaying, ismuted, cached_volume
@@ -1952,9 +1976,6 @@ def process(command):
                     pygame.mixer.music.set_volume(cached_volume)
 
         elif commandslist in [['lyr'], ['lyrics']]:
-            global isshowinglyrics
-            isshowinglyrics = not isshowinglyrics
-
             lyrics_ops(show_window = True)
 
         elif commandslist[0].lower() in ['v', 'vol', 'volume']:
