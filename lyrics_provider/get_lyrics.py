@@ -50,19 +50,31 @@ def get_lyrics(max_wait_lim, get_related, songfile=None, weblink=None, isYT=Fals
     return (text_to_be_displayed, head_text)
 
 
-def show_window(max_wait_lim, show_window, get_related, songfile=None, weblink=None, isYT=False):
+def show_window(max_wait_lim, show_window, get_related, refresh_lyrics = True, songfile=None, weblink=None, isYT=False):
 
-    text_to_be_displayed, head_text = get_lyrics(songfile=songfile, get_related=get_related, weblink=weblink, isYT=isYT, max_wait_lim=max_wait_lim)
+    if refresh_lyrics:
+        text_to_be_displayed, head_text = get_lyrics(songfile=songfile, get_related=get_related, weblink=weblink, isYT=isYT, max_wait_lim=max_wait_lim)
+        # try:
+        # os.path.isdir('../temp/')
+        with open('temp/lyrics.txt', 'w', encoding='utf-8') as fp:
+            fp.write('-'*80+'\n')
+            fp.write(head_text+'\n')
+            fp.write('-'*80+'\n\n')
+            fp.write(text_to_be_displayed+'\n')
+        # except Exception:
+        #     raise
+    else:
+        try:
+            with open('temp/lyrics.txt', 'r', encoding='utf-8') as fp:
+                cached_lyrics = fp.read()
+            cached_lyrics_lines = cached_lyrics.split('-'*80)
+            text_to_be_displayed = cached_lyrics_lines[1].strip()
+            head_text = cached_lyrics_lines[2].strip()
 
-    # try:
-    # os.path.isdir('../temp/')
-    with open('temp/lyrics.txt', 'w', encoding='utf-8') as fp:
-        fp.write('-'*80+'\n')
-        fp.write(head_text+'\n')
-        fp.write('-'*80+'\n\n')
-        fp.write(text_to_be_displayed+'\n')
-    # except Exception:
-    #     raise
+        except Exception:
+            head_text = "Lyrics N/A"
+            text_to_be_displayed = "(Lyrics not available)"
+
 
     if not show_window: return None
 
