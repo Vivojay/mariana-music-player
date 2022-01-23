@@ -83,7 +83,7 @@ Now copy the path to that directory (not the path of an extracted file itself) a
 Download VLC media player from their [official site](https://www.videolan.org) with the same architecture (32 or 64 bit) as your python version.  
 Architecture match between VLC and Python (v < 3.10) is critical for python-vlc binding to install properly. 
 
-### Step 6
+### Step 6 (Optional)
 
 #### Installing llvmlite wheel for the *librosa* module (Optional as of now...)
 
