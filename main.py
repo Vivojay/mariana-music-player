@@ -2243,7 +2243,7 @@ def process(command):
                         err("Could not load video... (Maybe check your VPN?)",
                             "Video Load Error", say=False)
                 else:
-                    SAY(visible=visible, display_message='Entered Youtube URL is invalid')
+                    SAY(visible=visible, display_message='Entered Youtube URL is invalid', log_message='Entered Youtube URL is invalid', log_priority = 2)
             else:
                 err("Invalid YouTube-link command, too long")  # Too many args
 
