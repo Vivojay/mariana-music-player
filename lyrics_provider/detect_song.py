@@ -21,9 +21,8 @@ if not os.path.isfile('data/related_songs.yml'):
     with open('data/related_songs.yml', 'w') as f: pass
 
 def get_weblink_audio_info(max_wait_lim, weblink, isYT=False):
-    os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
-    headers = {"Range": "bytes=0-5000"}
+    headers = {"Range": "bytes=0-25000"}
     if isYT:
         try:
             vid = new(weblink)
@@ -38,7 +37,7 @@ def get_weblink_audio_info(max_wait_lim, weblink, isYT=False):
         # Old way -> Downloads whole mka file
         # r = requests.get(weblink)
 
-        # New way -> Try to download first 5000 bytes of mka file only
+        # New way -> Try to download first 25000 bytes of mka file only
         try:
             r = requests.get(weblink, headers=headers)
         except Exception:
