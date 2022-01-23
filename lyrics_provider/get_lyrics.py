@@ -68,18 +68,17 @@ def show_window(max_wait_lim, show_window, get_related, refresh_lyrics = True, s
             with open('temp/lyrics.txt', 'r', encoding='utf-8') as fp:
                 cached_lyrics = fp.read()
             cached_lyrics_lines = cached_lyrics.split('-'*80)
-            text_to_be_displayed = cached_lyrics_lines[1].strip()
-            head_text = cached_lyrics_lines[2].strip()
+            head_text = cached_lyrics_lines[1].strip()
+            text_to_be_displayed = cached_lyrics_lines[2].strip()
 
         except Exception:
             head_text = "Lyrics N/A"
             text_to_be_displayed = "(Lyrics not available)"
 
-
     if not show_window: return None
 
     root = tk.Tk()
-    root.resizable(True, True)
+    root.resizable(True, False)
     root.geometry("550x270")
     root.title("Mariana - Lyrics Window")
 
