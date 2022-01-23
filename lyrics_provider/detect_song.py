@@ -116,13 +116,14 @@ def get_song_info(songfile, display_shazam_id=False, get_related=False, get_titl
                 "genres": shazam_song_detection_result.get('track').get('genres'),
             }
 
-        if not get_title_only:
-            if get_related and song_info != {}:
-                sp.Popen(['..\.virtenv\Scripts\python.exe', 'lyrics_provider/get_related_music.py', song_info['shazam_id']], shell=True)
-
+        if get_title_only:
+            if song_info == {}:
+                return None
+            else:
+                return song_info['display_name']
+        elif get_related:
+            sp.Popen(['..\.virtenv\Scripts\python.exe', 'lyrics_provider/get_related_music.py', song_info['shazam_id']], shell=True)
             return song_info
-        else:
-            return song_info['display_name']
 
     else:
         raise OSError
