@@ -90,7 +90,7 @@ async def shazam_detect_song(songfile):
     return shazam_song_detection_result
 
 
-def get_song_info(songfile, display_shazam_id=False, get_related=False):
+def get_song_info(songfile, display_shazam_id=False, get_related=False, get_title_only=False):
     """
     songfile: Takes a file path and returns its shazam
     display_shazam_id param: If true, displays unique shazam key of the shazamed song
@@ -116,10 +116,13 @@ def get_song_info(songfile, display_shazam_id=False, get_related=False):
                 "genres": shazam_song_detection_result.get('track').get('genres'),
             }
 
-        if get_related and song_info != {}:
-            sp.Popen(['..\.virtenv\Scripts\python.exe', 'lyrics_provider/get_related_music.py', song_info['shazam_id']], shell=True)
+        if not get_title_only:
+            if get_related and song_info != {}:
+                sp.Popen(['..\.virtenv\Scripts\python.exe', 'lyrics_provider/get_related_music.py', song_info['shazam_id']], shell=True)
 
-        return song_info
+            return song_info
+        else:
+            return song_info['display_name']
 
     else:
         raise OSError
