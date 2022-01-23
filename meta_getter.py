@@ -15,6 +15,20 @@ ARGS = sys.argv[1:]
 cur_dir = os.path.dirname(os.path.realpath(__file__))
 os.chdir(cur_dir)
 
+'''
+<       (less than)
+>       (greater than)
+:       (colon - sometimes works, but is actually NTFS Alternate Data Streams)
+"       (double quote)
+/       (forward slash)
+\       (backslash)
+|       (vertical bar or pipe)
+?       (question mark)
+*       (asterisk)
+'''
+
+illegal_path_chars = list('<>:"/\\|?*')
+
 def get_meta(supported_file_types):
 
     """
@@ -42,7 +56,7 @@ def get_meta(supported_file_types):
         elif url_is_valid(media):
             valid_medias_list.append(media)
 
-    for n, media in enumerate(valid_medias_list):
+    for _, media in enumerate(valid_medias_list):
         meta_info = sp.run(['ffprobe',
                             '-v',
                             'quiet',
@@ -57,7 +71,8 @@ def get_meta(supported_file_types):
         meta_info = json.loads(meta_info)
         meta_info['format'].update({'bpm': 120})
 
-        with open(f'data/mediameta_{n}.json', 'w', encoding='utf-8') as fp:
+        media = ''.join(['~' if chr in illegal_path_chars else chr for chr in media])
+        with open(f'data/mediameta_{media}.json', 'w', encoding='utf-8') as fp:
             json.dump(meta_info, fp, indent=2)
 
     return valid_medias_list
