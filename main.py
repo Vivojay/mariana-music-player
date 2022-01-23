@@ -1114,28 +1114,37 @@ def get_prettified_history(indices):
 def lyrics_ops(show_window):
     global lyrics_saved_for_song, currentsong, ISDEV
 
-    if lyrics_saved_for_song != currentsong: # Song has changed since last save of lyrics,
-                                             # need to refresh the lyrics to match the current song
-        get_related = SETTINGS['get related songs']
-        if current_media_player: # FIXME: Broken
-            if current_media_type == 0:
-                IPrint(f"Loading lyrics window for YT stream (Time taking)...", visible=visible)
-                get_lyrics.show_window(max_wait_lim = max_wait_limit_to_get_song_length, get_related=get_related, show_window=show_window, weblink=currentsong[1], isYT=1)
-            elif current_media_type == 1:
-                IPrint(f"Loading lyrics window for online audio stream (Time taking)...", visible=visible)
-                get_lyrics.show_window(max_wait_lim = max_wait_limit_to_get_song_length,  get_related=get_related, show_window=show_window, weblink=currentsong)
-            elif current_media_type == 2:
-                IPrint(f"Lyrics for webradio are not supported", visible=visible)
-            elif current_media_type == 3:
-                IPrint(f"Lyrics for reddit sessions are not supported", visible=visible)
+    refresh_lyrics = not (lyrics_saved_for_song == currentsong) # Song has changed since last save of lyrics,
+                                                                # need to refresh the lyrics to match the current song
+    get_related = SETTINGS['get related songs']
+    if current_media_player: # FIXME: Broken
+        if current_media_type == 0:
+            IPrint(f"Loading lyrics window for YT stream (Time taking)...", visible=visible)
+            get_lyrics.show_window(refresh_lyrics = refresh_lyrics,
+                                    max_wait_lim = max_wait_limit_to_get_song_length,
+                                    get_related=get_related,
+                                    show_window=show_window,
+                                    weblink=currentsong[1],
+                                    isYT=1)
+        elif current_media_type == 1:
+            IPrint(f"Loading lyrics window for online audio stream (Time taking)...", visible=visible)
+            get_lyrics.show_window(refresh_lyrics = refresh_lyrics,
+                                    max_wait_lim = max_wait_limit_to_get_song_length,
+                                    get_related=get_related,
+                                    show_window=show_window,
+                                    weblink=currentsong)
+        elif current_media_type == 2:
+            IPrint(f"Lyrics for webradio are not supported", visible=visible)
+        elif current_media_type == 3:
+            IPrint(f"Lyrics for reddit sessions are not supported", visible=visible)
 
-            lyrics_saved_for_song = currentsong
+        lyrics_saved_for_song = currentsong
 
     # elif ISDEV: # Song hasn't changes, no need to refresh lyrics
     #             # Just re-display the existing one
     #     print('Lyrics have already been loaded')
 
-    if not current_media_player:
+    if current_media_player == 0:
         get_related = SETTINGS['get related songs']
         if get_related and lyrics_saved_for_song == currentsong: # True only if the song has changed.
                                                                  # If it has, we need to get the related songs ONLY IF it is enabled in settings
@@ -1901,7 +1910,13 @@ def process(command):
                     restore_default.restore('editor path', SETTINGS)
                     DEFAULT_EDITOR = SETTINGS.get('editor path')
 
-                sp.Popen([fr"{DEFAULT_EDITOR}", 'temp/lyrics.txt'], shell = True)
+                if os.path.isfile('temp/lyrics.txt'):
+                    sp.Popen([fr"{DEFAULT_EDITOR}", 'temp/lyrics.txt'], shell = True)
+                else:
+                    SAY(visible=visible,
+                        log_message = 'No lyrics available to view',
+                        display_message = 'No lyrics available to view',
+                        log_priority = 2)
 
             else:
                 path = ' '.join(commandslist[1:])
