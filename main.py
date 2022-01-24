@@ -705,12 +705,14 @@ def enqueue(songindices):
     #         raise
 
 def purge_old_lyrics_if_exist():
-    lyrics_file_path = 'temp/lyrics.txt'
-    try:
-        if os.path.isfile(lyrics_file_path):
-            os.remove(lyrics_file_path)
-    except Exception:
-        raise
+    lyrics_file_paths = ['temp/lyrics.txt', 'temp/lyrics.html']
+
+    for lyrics_file_path in lyrics_file_paths:
+        try:
+            if os.path.isfile(lyrics_file_path):
+                os.remove(lyrics_file_path)
+        except Exception:
+            raise
 
 def local_play_commands(commandslist, _command=False):
     global cached_volume, currentsong_length
@@ -2140,16 +2142,16 @@ def process(command):
                                 break
 
                         webbrowser.register('brave', None, webbrowser.BackgroundBrowser(brave_path))
-                        if os.path.isfile('temp/lyrics.txt'):
-                            webbrowser.get('brave').open_new(os.path.join(CURDIR, 'temp/lyrics.txt'))
+                        if os.path.isfile('temp/lyrics.html'):
+                            webbrowser.get('brave').open_new(os.path.join(CURDIR, 'temp/lyrics.html'))
                         else:
                             SAY(visible=visible,
                                 log_message = 'No lyrics available to view',
                                 display_message = 'No lyrics available to view',
                                 log_priority = 2)
                     else:
-                        if os.path.isfile('temp/lyrics.txt'):
-                            webbrowser.get('brave').open_new(os.path.join(CURDIR, 'temp/lyrics.txt'))
+                        if os.path.isfile('temp/lyrics.html'):
+                            webbrowser.get('brave').open_new(os.path.join(CURDIR, 'temp/lyrics.html'))
                         else:
                             SAY(visible=visible,
                                 log_message = 'No lyrics available to view',
