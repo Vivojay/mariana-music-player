@@ -40,6 +40,8 @@ def get_lyrics(max_wait_lim, get_related, songfile=None, weblink=None, isYT=Fals
     else:
         SONG_INF = {}
 
+    if SONG_INF is None: SONG_INF = {}
+
     if SONG_INF != {}:
         head_text = SONG_INF['display_name']
         lyr = SONG_INF.get('lyrics')
