@@ -1,0 +1,28 @@
+@font-face {
+    font-family: Elsie;
+    src: url(font-faces/Elsie/Elsie-Regular.ttf);
+}
+
+h1.main {
+	color: #E07BE0;
+	font-family: Elsie;
+	font-size: 40px;
+}
+
+div:nth-of-type(2n) {
+	color: cyan;
+}
+
+div:nth-of-type(2n-1) {
+	color: #FA198B;
+}
+
+body {
+	background-color: #121212;
+}
+
+p {
+	font-family: 'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', 'Lucida Sans', Arial, sans-serif;
+	line-height: 100%;
+	font-size: 16px;
+}
