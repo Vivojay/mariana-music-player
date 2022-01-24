@@ -51,6 +51,40 @@ def get_lyrics(max_wait_lim, get_related, songfile=None, weblink=None, isYT=Fals
 
     return (text_to_be_displayed, head_text)
 
+def create_lyrics_html():
+    try:
+        with open('temp/lyrics.txt', 'r', encoding='utf-8') as fp:
+            cached_lyrics = fp.read()
+
+        cached_lyrics_lines = cached_lyrics.split('-'*80)
+
+        head_text = cached_lyrics_lines[1].strip()
+        head_text = f"<h1 class = 'main'>{head_text}</h1>"
+
+        lyrics_lines = cached_lyrics_lines[2].strip().splitlines()
+        lyrics_lines = [f"<p>{line}</p>" if line else "</div>\n\n<br>\n\n<div>" for line in lyrics_lines]
+
+        prefix = [
+                    '<!DOCTYPE html>',
+                    '<html>',
+                    '<head>',
+                    '    <meta charset="UTF-8">',
+                    '    <meta name="viewport" content="width=device-width, initial-scale=1.0">',
+                    '    <link rel="stylesheet" href="../res/style.css">',
+                    '    <link rel="preload" href="Elsie-Regular.ttf" as="font" type="font/ttf" crossorigin>',
+                    '</head>'
+        ]
+
+        lyrics_lines = prefix + ['\n', head_text, '\n<hr>\n\n<div>'] + lyrics_lines + ['</html>']
+        lyrics = '\n'.join(lyrics_lines)
+
+        with open('temp/lyrics.html', 'w', encoding='utf-8') as fp:
+            fp.write(lyrics)
+
+        return 0
+    except OSError:
+        return 1
+
 
 def show_window(max_wait_lim, show_window, get_related, refresh_lyrics = True, songfile=None, weblink=None, isYT=False):
 
@@ -65,6 +99,9 @@ def show_window(max_wait_lim, show_window, get_related, refresh_lyrics = True, s
             fp.write(text_to_be_displayed+'\n')
         # except Exception:
         #     raise
+    
+        _ = create_lyrics_html() # TODO - Do something with the value (0 or 1) ?
+
     else:
         try:
             with open('temp/lyrics.txt', 'r', encoding='utf-8') as fp:
