@@ -1096,10 +1096,10 @@ def reload_reddit_creds():
     else: r_seshs = None
 
 def text_overflow_prettify(url):
-	if len(url) > 100:
-		return f"{url[:92]}...{url[-5:]}"
-	else:
-		return url
+    if len(url) > 100:
+        return f"{url[:92]}...{url[-5:]}"
+    else:
+        return url
 
 def get_prettified_history(indices):
     global HISTORY_QUEUE
@@ -1724,8 +1724,8 @@ def process(command):
                 else:
                     SAY(visible=visible,
                         log_message=f'Invalid YouTube URL for video download: {url}',
-						display_message=f'Invalid YouTube URL for video download: {url}',
-						log_priority = 3)
+                        display_message=f'Invalid YouTube URL for video download: {url}',
+                        log_priority = 3)
 
             if len(commandslist) in [1, 2] and url:
                 download_parmeters = {
@@ -1784,8 +1784,8 @@ def process(command):
                 else:
                     SAY(visible=visible,
                         log_message=f'Invalid YouTube URL for audio download: {url}',
-						display_message=f'Invalid YouTube URL for video download: {url}',
-						log_priority = 3)
+                        display_message=f'Invalid YouTube URL for video download: {url}',
+                        log_priority = 3)
 
             if len(commandslist) in [1, 2] and url:
                 download_parmeters = {
