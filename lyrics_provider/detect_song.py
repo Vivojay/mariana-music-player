@@ -125,6 +125,8 @@ def get_song_info(songfile, display_shazam_id=False, get_related=False, get_titl
                 return None
             else:
                 return song_info['display_name']
+        else:
+            return song_info
 
     else:
         raise OSError
