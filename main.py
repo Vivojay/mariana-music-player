@@ -214,7 +214,7 @@ def first_startup_greet(is_first_boot):
             import first_boot_setup
             SOFT_FATAL_ERROR_INFO = first_boot_setup.fbs(about=SYSTEM_SETTINGS)
             if SOFT_FATAL_ERROR_INFO: SOFT_FATAL_ERROR_INFO = "User skipped startup"
-            reload_sounds()
+            reload_sounds(quick_load = False)
         except ImportError:
             sys.exit('[ERROR] Critical guide setup-file missing, please consider reinstalling this file or the entire program\nAborting Mariana Player. . .')
 
@@ -314,44 +314,61 @@ def audio_file_gen(Dir, ext):
                 yield os.path.join(root, filename)
 
 
-def reload_sounds():
+def reload_sounds(quick_load = True):
     global _sound_files, _sound_files_names_only, _sound_files_names_enumerated, paths
 
-    no_lib_found = False
+    # NOTE: 'data/snd_files.json' is the relpath to the quick-loads file
 
-    try:
-        with open('lib.lib', encoding='utf-8') as logfile:
-            paths = logfile.read().splitlines()
-            paths = [path for path in paths if not path.startswith('#')]
-            paths = list(set(paths))
-    except IOError:
-        no_lib_found = True
-        SAY(visible=visible,
-            log_message="Library file suddenly made unavailable",
-            display_message="Library file suddenly vanished -_-",
-            log_priority=2)
+    lib_found = True
 
-    # if _paths != paths: SAY(): Log <- new_dirs_added
+    # Definition for quick-load
+    if quick_load:
+        if os.path.isfile('data/snd_files.json'):
+            with open('data/snd_files.json') as fp:
+                _sound_files = json.load(fp)
 
-    if not no_lib_found:
-        # Use the recursive extractor function and format and store them into usable lists
-        _sound_files = [[list(audio_file_gen(paths[j], supported_file_types[i]))
-                        for i in range(len(supported_file_types))] for j in range(len(paths))]
-        # Flattening irregularly nested sound files
-        _sound_files = list(flatten(_sound_files))
+        else: # Revert to full load (i.e. NOT resorting to quick_load becuase data/snd_files.json is unavailable)
+            quick_load = False
 
+    # Definition for full-load (non quick-load)
+    if not quick_load: # (This may be used either as the first-time load or as a fallback for a failed quick-load)
+        if os.path.isfile('lib.lib'):
+            with open('lib.lib', encoding='utf-8') as logfile:
+                paths = logfile.read().splitlines()
+                paths = [path for path in paths if not path.startswith('#')]
+                paths = list(set(paths))
+
+                # Use the recursive extractor function and format and store them into usable lists
+                _sound_files = [[list(audio_file_gen(paths[j], supported_file_types[i]))
+                                for i in range(len(supported_file_types))] for j in range(len(paths))]
+                # Flattening irregularly nested sound files
+                _sound_files = list(flatten(_sound_files))
+            
+            with open('data/snd_files.json', 'w', encoding='utf-8') as fp:
+                json.dump(_sound_files, fp)
+
+        else:
+            lib_found = False
+            SAY(visible=visible,
+                log_message="Library file suddenly made unavailable",
+                display_message="Library file suddenly vanished -_-",
+                log_priority=2)
+
+    if lib_found:
         _sound_files_names_only = [os.path.splitext(os.path.split(i)[1])[0] for i in _sound_files]
         _sound_files_names_enumerated = [(i+1, j) for i, j in enumerate(_sound_files_names_only)]
 
-reload_sounds()
+if FIRST_BOOT:
+    with open('data/snd_files.json', 'w', encoding='utf-8') as fp:
+        json.dump(_sound_files, fp)
+
+reload_sounds(quick_load = not FIRST_BOOT) # First boot requires quick_load to be disabled,
+                                           # other boots can do away with quick_loads :)
 
 if _sound_files_names_only == []:
     if loglevel in [3, 4]:
         IPrint("[INFO] All source directories are empty, you may and add more source directories to your library", visible=visible)
         IPrint("[INFO] To edit this library file (of source directories), refer to the `help.md` markdown file.", visible=visible)
-
-with open('data/snd_files.json', 'w', encoding='utf-8') as fp:
-    json.dump(_sound_files, fp)
 
 try: _ = sp.run('ffmpeg', stdout=sp.DEVNULL, stdin=sp.PIPE, stderr=sp.DEVNULL)
 except FileNotFoundError: FATAL_ERROR_INFO = "ffmpeg not recognised globally, download it and add to path (system environment)"
@@ -715,10 +732,11 @@ def purge_old_lyrics_if_exist():
             raise
 
 def local_play_commands(commandslist, _command=False):
-    global cached_volume, currentsong_length
+    global cached_volume, currentsong_length, lyrics_saved_for_song
     pygame.mixer.music.set_volume(cached_volume)
-
+    
     purge_old_lyrics_if_exist()
+    lyrics_saved_for_song = None
 
     if not _command:
         if len(commandslist) == 2:
@@ -1141,7 +1159,7 @@ def lyrics_ops(show_window):
     refresh_lyrics = not (lyrics_saved_for_song == currentsong) # Song has changed since last save of lyrics,
                                                                 # need to refresh the lyrics to match the current song
     get_related = SETTINGS['get related songs']
-    if current_media_player: # FIXME: Broken
+    if current_media_player:
         if current_media_type == 0:
             IPrint(f"Loading lyrics window for YT stream (Time taking)...", visible=visible)
             get_lyrics.show_window(refresh_lyrics = refresh_lyrics,
@@ -1220,14 +1238,8 @@ def process(command):
             return False
 
         if commandslist == ['all']:
-            if visible:
-                results_enum = enumerate(_sound_files_names_only)
-                IPrint(tbl([(i+1, j) for i, j in results_enum], tablefmt='plain'), visible=visible)
-            else:
-                SAY(visible=True,
-                display_message="Turn on visibility to access this command",
-                log_message="Accessing all command with visibility switched off",
-                priority=3)
+            results_enum = enumerate(_sound_files_names_only)
+            IPrint(tbl([(i+1, j) for i, j in results_enum], tablefmt='plain'), visible=visible)
 
         # TODO: Need to display files in n columns (Mostly 3 cols) depending upon terminal size (dynamically...)
         if commandslist[0] in ['list', 'ls']:
@@ -1355,6 +1367,9 @@ def process(command):
             last_index, last_name = _sound_files_names_enumerated
             IPrint(">| ", visible=visible)
 
+        if commandslist in [['hist', 'count'], ['history', 'count']]:
+            IPrint(f"History count: {len(HISTORY_QUEUE)}", visible=visible)
+
         elif commandslist[0] in ['hist', 'history']:
             # TODO: Get values for `order_results` and `order_type` from SETTINGS
             indices = [] # Indices of songs to be displayed
@@ -1452,16 +1467,20 @@ def process(command):
                     log_priority=2)
 
         elif commandslist == ['reload']:
+            IPrint("Refreshing lyrics", visible=visible)
+            lyrics_ops(show_window=False)
             IPrint("Reloading sounds", visible=visible)
-            reload_sounds()
-            IPrint("Done...", visible=visible)
-        
+            reload_sounds(quick_load = False)
+            IPrint(f"Loaded {len(_sound_files)}", visible=visible)
+
         elif commandslist == ['refresh']:
+            IPrint("Refreshing lyrics", visible=visible)
+            lyrics_ops(show_window=False)
             IPrint("Reloading sounds", visible=visible)
-            reload_sounds()
+            reload_sounds(quick_load = False)
             IPrint("Reloading settings", visible=visible)
             refresh_settings()
-            IPrint("Done...", visible=visible)
+            IPrint(f"Loaded {len(_sound_files)}", visible=visible)
 
         elif commandslist == ['vis']:
             visible = not visible
