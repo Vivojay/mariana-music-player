@@ -214,7 +214,7 @@ def first_startup_greet(is_first_boot):
             import first_boot_setup
             SOFT_FATAL_ERROR_INFO = first_boot_setup.fbs(about=SYSTEM_SETTINGS)
             if SOFT_FATAL_ERROR_INFO: SOFT_FATAL_ERROR_INFO = "User skipped startup"
-            reload_sounds()
+            reload_sounds(quick_load = False)
         except ImportError:
             sys.exit('[ERROR] Critical guide setup-file missing, please consider reinstalling this file or the entire program\nAborting Mariana Player. . .')
 
@@ -314,44 +314,61 @@ def audio_file_gen(Dir, ext):
                 yield os.path.join(root, filename)
 
 
-def reload_sounds():
+def reload_sounds(quick_load = True):
     global _sound_files, _sound_files_names_only, _sound_files_names_enumerated, paths
 
-    no_lib_found = False
+    # NOTE: 'data/snd_files.json' is the relpath to the quick-loads file
 
-    try:
-        with open('lib.lib', encoding='utf-8') as logfile:
-            paths = logfile.read().splitlines()
-            paths = [path for path in paths if not path.startswith('#')]
-            paths = list(set(paths))
-    except IOError:
-        no_lib_found = True
-        SAY(visible=visible,
-            log_message="Library file suddenly made unavailable",
-            display_message="Library file suddenly vanished -_-",
-            log_priority=2)
+    lib_found = True
 
-    # if _paths != paths: SAY(): Log <- new_dirs_added
+    # Definition for quick-load
+    if quick_load:
+        if os.path.isfile('data/snd_files.json'):
+            with open('data/snd_files.json') as fp:
+                _sound_files = json.load(fp)
 
-    if not no_lib_found:
-        # Use the recursive extractor function and format and store them into usable lists
-        _sound_files = [[list(audio_file_gen(paths[j], supported_file_types[i]))
-                        for i in range(len(supported_file_types))] for j in range(len(paths))]
-        # Flattening irregularly nested sound files
-        _sound_files = list(flatten(_sound_files))
+        else: # Revert to full load (i.e. NOT resorting to quick_load becuase data/snd_files.json is unavailable)
+            quick_load = False
 
+    # Definition for full-load (non quick-load)
+    if not quick_load: # (This may be used either as the first-time load or as a fallback for a failed quick-load)
+        if os.path.isfile('lib.lib'):
+            with open('lib.lib', encoding='utf-8') as logfile:
+                paths = logfile.read().splitlines()
+                paths = [path for path in paths if not path.startswith('#')]
+                paths = list(set(paths))
+
+                # Use the recursive extractor function and format and store them into usable lists
+                _sound_files = [[list(audio_file_gen(paths[j], supported_file_types[i]))
+                                for i in range(len(supported_file_types))] for j in range(len(paths))]
+                # Flattening irregularly nested sound files
+                _sound_files = list(flatten(_sound_files))
+            
+            with open('data/snd_files.json', 'w', encoding='utf-8') as fp:
+                json.dump(_sound_files, fp)
+
+        else:
+            lib_found = False
+            SAY(visible=visible,
+                log_message="Library file suddenly made unavailable",
+                display_message="Library file suddenly vanished -_-",
+                log_priority=2)
+
+    if lib_found:
         _sound_files_names_only = [os.path.splitext(os.path.split(i)[1])[0] for i in _sound_files]
         _sound_files_names_enumerated = [(i+1, j) for i, j in enumerate(_sound_files_names_only)]
 
-reload_sounds()
+if FIRST_BOOT:
+    with open('data/snd_files.json', 'w', encoding='utf-8') as fp:
+        json.dump(_sound_files, fp)
+
+reload_sounds(quick_load = not FIRST_BOOT) # First boot requires quick_load to be disabled,
+                                           # other boots can do away with quick_loads :)
 
 if _sound_files_names_only == []:
     if loglevel in [3, 4]:
         IPrint("[INFO] All source directories are empty, you may and add more source directories to your library", visible=visible)
         IPrint("[INFO] To edit this library file (of source directories), refer to the `help.md` markdown file.", visible=visible)
-
-with open('data/snd_files.json', 'w', encoding='utf-8') as fp:
-    json.dump(_sound_files, fp)
 
 try: _ = sp.run('ffmpeg', stdout=sp.DEVNULL, stdin=sp.PIPE, stderr=sp.DEVNULL)
 except FileNotFoundError: FATAL_ERROR_INFO = "ffmpeg not recognised globally, download it and add to path (system environment)"
@@ -705,18 +722,21 @@ def enqueue(songindices):
     #         raise
 
 def purge_old_lyrics_if_exist():
-    lyrics_file_path = 'temp/lyrics.txt'
-    try:
-        if os.path.isfile(lyrics_file_path):
-            os.remove(lyrics_file_path)
-    except Exception:
-        raise
+    lyrics_file_paths = ['temp/lyrics.txt', 'temp/lyrics.html']
+
+    for lyrics_file_path in lyrics_file_paths:
+        try:
+            if os.path.isfile(lyrics_file_path):
+                os.remove(lyrics_file_path)
+        except Exception:
+            raise
 
 def local_play_commands(commandslist, _command=False):
-    global cached_volume, currentsong_length
+    global cached_volume, currentsong_length, lyrics_saved_for_song
     pygame.mixer.music.set_volume(cached_volume)
-
+    
     purge_old_lyrics_if_exist()
+    lyrics_saved_for_song = None
 
     if not _command:
         if len(commandslist) == 2:
@@ -1094,10 +1114,10 @@ def reload_reddit_creds():
     else: r_seshs = None
 
 def text_overflow_prettify(url):
-	if len(url) > 100:
-		return f"{url[:92]}...{url[-5:]}"
-	else:
-		return url
+    if len(url) > 100:
+        return f"{url[:92]}...{url[-5:]}"
+    else:
+        return url
 
 def get_prettified_history(indices):
     global HISTORY_QUEUE
@@ -1451,12 +1471,12 @@ def process(command):
 
         elif commandslist == ['reload']:
             IPrint("Reloading sounds", visible=visible)
-            reload_sounds()
+            reload_sounds(quick_load = False)
             IPrint("Done...", visible=visible)
         
         elif commandslist == ['refresh']:
             IPrint("Reloading sounds", visible=visible)
-            reload_sounds()
+            reload_sounds(quick_load = False)
             IPrint("Reloading settings", visible=visible)
             refresh_settings()
             IPrint("Done...", visible=visible)
@@ -1722,8 +1742,8 @@ def process(command):
                 else:
                     SAY(visible=visible,
                         log_message=f'Invalid YouTube URL for video download: {url}',
-						display_message=f'Invalid YouTube URL for video download: {url}',
-						log_priority = 3)
+                        display_message=f'Invalid YouTube URL for video download: {url}',
+                        log_priority = 3)
 
             if len(commandslist) in [1, 2] and url:
                 download_parmeters = {
@@ -1782,8 +1802,8 @@ def process(command):
                 else:
                     SAY(visible=visible,
                         log_message=f'Invalid YouTube URL for audio download: {url}',
-						display_message=f'Invalid YouTube URL for video download: {url}',
-						log_priority = 3)
+                        display_message=f'Invalid YouTube URL for video download: {url}',
+                        log_priority = 3)
 
             if len(commandslist) in [1, 2] and url:
                 download_parmeters = {
@@ -2140,16 +2160,16 @@ def process(command):
                                 break
 
                         webbrowser.register('brave', None, webbrowser.BackgroundBrowser(brave_path))
-                        if os.path.isfile('temp/lyrics.txt'):
-                            webbrowser.get('brave').open_new(os.path.join(CURDIR, 'temp/lyrics.txt'))
+                        if os.path.isfile('temp/lyrics.html'):
+                            webbrowser.get('brave').open_new(os.path.join(CURDIR, 'temp/lyrics.html'))
                         else:
                             SAY(visible=visible,
                                 log_message = 'No lyrics available to view',
                                 display_message = 'No lyrics available to view',
                                 log_priority = 2)
                     else:
-                        if os.path.isfile('temp/lyrics.txt'):
-                            webbrowser.get('brave').open_new(os.path.join(CURDIR, 'temp/lyrics.txt'))
+                        if os.path.isfile('temp/lyrics.html'):
+                            webbrowser.get('brave').open_new(os.path.join(CURDIR, 'temp/lyrics.html'))
                         else:
                             SAY(visible=visible,
                                 log_message = 'No lyrics available to view',
