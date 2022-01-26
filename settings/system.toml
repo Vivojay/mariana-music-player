@@ -1,3 +1,8 @@
+#=====================================================================
+# PLEASE DO NOT TOUCH THIS FILE
+# IT ISN'T EXACTLY MEANT TO BE MODIFIED, BUT YOU CAN STILL DO IT...
+#=====================================================================
+
 first_boot = true
 isdev = true
 
@@ -22,4 +27,4 @@ brave_paths = [
     "C:\\Program Files (x86)\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
 ]
 max_hist_size=10_000_000 # 10 mil
-supported_python_versions = [[3, 10], [3, 9]]
+supported_python_versions = [[3, 10], [3, 9], [3, 8], [3, 7], ]
