@@ -358,9 +358,9 @@ def reload_sounds(quick_load = True):
         _sound_files_names_only = [os.path.splitext(os.path.split(i)[1])[0] for i in _sound_files]
         _sound_files_names_enumerated = [(i+1, j) for i, j in enumerate(_sound_files_names_only)]
 
-if FIRST_BOOT:
-    with open('data/snd_files.json', 'w', encoding='utf-8') as fp:
-        json.dump(_sound_files, fp)
+        if FIRST_BOOT:
+            with open('data/snd_files.json', 'w', encoding='utf-8') as fp:
+                json.dump(_sound_files, fp)
 
 reload_sounds(quick_load = not FIRST_BOOT) # First boot requires quick_load to be disabled,
                                            # other boots can do away with quick_loads :)
@@ -554,19 +554,20 @@ def voltransition(
 ):
     global cached_volume, current_media_player
 
-    if current_media_player:
-        for i in range(101):
-            diffvolume = initial+(final-initial)*i
-            time.sleep(transition_time/100)
-            vas.vlc_media_player.get_media_player().audio_set_volume(int(diffvolume))
-    else:
-        for i in range(101):
-            diffvolume = initial+(final-initial)*i/100
-            time.sleep(transition_time/100)
-            pygame.mixer.music.set_volume(round(diffvolume, 2))
+    if not ismuted:
+        if current_media_player:
+            for i in range(101):
+                diffvolume = initial+(final-initial)*i
+                time.sleep(transition_time/100)
+                vas.vlc_media_player.get_media_player().audio_set_volume(int(diffvolume))
+        else:
+            for i in range(101):
+                diffvolume = initial+(final-initial)*i/100
+                time.sleep(transition_time/100)
+                pygame.mixer.music.set_volume(round(diffvolume, 2))
 
-    # if not disablecaching:
-    #     cached_volume = final
+        # if not disablecaching:
+        #     cached_volume = final
 
 
 def vol_trans_process_spawn():
@@ -2412,6 +2413,13 @@ def run():
     save_user_data()
 
     pygame.mixer.init()
+
+    if FIRST_BOOT:
+        startup_sound_path = "res/first_boot_startup_sound.mp3"
+        if os.path.isfile(startup_sound_path):
+            pygame.mixer.music.load(startup_sound_path)
+            pygame.mixer.music.play()
+
     if visible: showbanner()
     mainprompt()
 
