@@ -42,35 +42,35 @@
 # IMPORTS BEGIN #
 
 import time
-APP_BOOT_START_TIME = time.time();                  print("Loaded 1/29",  end='\r')
+APP_BOOT_START_TIME = time.time();                  print("Loaded 1/30",  end='\r')
 
-import os;                                          print("Loaded 2/29",  end='\r')
+import os;                                          print("Loaded 2/30",  end='\r')
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
-# import itertools;                                   print("Loaded 3/29",  end='\r')
+# import itertools;                                   print("Loaded 3/30",  end='\r')
 
-import re;                                          print("Loaded 4/29",  end='\r')
-import sys;                                         print("Loaded 5/29",  end='\r')
-import pygame;                                      print("Loaded 6/29",  end='\r')
-import numpy as np;                                 print("Loaded 7/29",  end='\r')
-import random as rand;                              print("Loaded 8/29",  end='\r')
-import importlib;                                   print("Loaded 9/29",  end='\r')
-import colored;                                     print("Loaded 10/29", end='\r')
-import subprocess as sp;                            print("Loaded 11/29", end='\r')
-import restore_default;                             print("Loaded 12/29", end='\r')
-import toml;                                        print("Loaded 13/29", end='\r')
-import json;                                        print("Loaded 14/29", end='\r')
-import webbrowser;                                  print("Loaded 15/29", end='\r')
+import re;                                          print("Loaded 4/30",  end='\r')
+import sys;                                         print("Loaded 5/30",  end='\r')
+import pygame;                                      print("Loaded 6/30",  end='\r')
+import numpy as np;                                 print("Loaded 7/30",  end='\r')
+import random as rand;                              print("Loaded 8/30",  end='\r')
+import importlib;                                   print("Loaded 9/30",  end='\r')
+import colored;                                     print("Loaded 10/30", end='\r')
+import subprocess as sp;                            print("Loaded 11/30", end='\r')
+import restore_default;                             print("Loaded 12/30", end='\r')
+import toml;                                        print("Loaded 13/30", end='\r')
+import json;                                        print("Loaded 14/30", end='\r')
+import webbrowser;                                  print("Loaded 15/30", end='\r')
 
-# import concurrent.futures;                          print("Loaded 16/29", end='\r')
+# import concurrent.futures;                          print("Loaded 16/30", end='\r')
 
-from url_validate import url_is_valid;              print("Loaded 17/29", end='\r')
-from tabulate import tabulate as tbl;               print("Loaded 18/29", end='\r')
-from ruamel.yaml import YAML;                       print("Loaded 19/29", end='\r')
-from collections.abc import Iterable;               print("Loaded 20/29", end='\r')
-from logger import SAY;                             print("Loaded 21/29", end='\r')
-from multiprocessing import Process;                print("Loaded 22/29", end='\r')
-
+from url_validate import url_is_valid;              print("Loaded 17/30", end='\r')
+from tabulate import tabulate as tbl;               print("Loaded 18/30", end='\r')
+from ruamel.yaml import YAML;                       print("Loaded 19/30", end='\r')
+from collections.abc import Iterable;               print("Loaded 20/30", end='\r')
+from logger import SAY;                             print("Loaded 21/30", end='\r')
+from multiprocessing import Process;                print("Loaded 22/30", end='\r')
+from first_boot_welcome_screen import notify;       print("Loaded 23/30", end='\r')
 
 online_streaming_ext_load_error = 0
 comtypes_load_error = False # Made available after fix from comtypes issue #244, #180
@@ -81,74 +81,74 @@ reddit_creds_are_valid = False
 
 # try:
 #     import librosa
-#     print("Loaded 23/29",  end='\r') # Time taking import (Sometimes, takes ages...)
+#     print("Loaded 23/30",  end='\r') # Time taking import (Sometimes, takes ages...)
 # except ImportError:
 #     print("[WARN] Could not load music computation extension...")
-#     print("[WARN] ...Skipped 23/29")
+#     print("[WARN] ...Skipped 23/30")
 
 CURDIR = os.path.dirname(os.path.realpath(__file__))
 os.chdir(CURDIR)
 
 try:
     vas = importlib.import_module("beta.vlc-async-stream")
-    print("Loaded 24/29", end='\r')
+    print("Loaded 24/30", end='\r')
 except ImportError:
     online_streaming_ext_load_error = 1
     print("[INFO] Could not load online streaming extension...")
-    print("[INFO] ...Skipped 24/29")
+    print("[INFO] ...Skipped 24/30")
 
 try:
     YT_query = importlib.import_module("beta.YT_query")
-    print("Loaded 25/29", end='\r')
+    print("Loaded 25/30", end='\r')
 except ImportError:
     # raise
     if not online_streaming_ext_load_error:
         print("[INFO] Could not load online streaming extension...")
-    print("[INFO] ...Skipped 25/29")
+    print("[INFO] ...Skipped 25/30")
 
 try:
     from beta.IPrint import IPrint, blue_gradient_print, loading, cols
-    print("Loaded 26/29", end='\r')
+    print("Loaded 26/30", end='\r')
 except ImportError:
     lyrics_ext_load_error = 1
     print("[INFO] Could not load coloured print extension...")
-    print("[INFO] ...Skipped 26/29")
+    print("[INFO] ...Skipped 26/30")
 
 try:
     from lyrics_provider import get_lyrics
-    print("Loaded 27/29", end='\r')
+    print("Loaded 27/30", end='\r')
 except ImportError:
     print("[INFO] Could not load lyrics extension...")
     if not lyrics_ext_load_error:
         print("[INFO] ...Could not load online streaming extension...")
-    print("[INFO] ...Skipped 27/29")
+    print("[INFO] ...Skipped 27/30")
 
 try:
     from beta import redditsessions
     if redditsessions.WARNING:
         print("[WARN] Could not load reddit-sessions extension...")
         print(f"[WARN] ...{redditsessions.WARNING}...")
-        print("[WARN] ...Skipped 28/29")
+        print("[WARN] ...Skipped 28/30")
     else:
         reddit_creds_are_valid = True
-        print("Loaded 28/29", end='\r')
+        print("Loaded 28/30", end='\r')
 except ImportError:
     print("[INFO] Could not load reddit-sessions extension..., module 'praw' missing...")
-    print("[INFO] ...Skipped 28/29")
+    print("[INFO] ...Skipped 28/30")
 
 try:
     from lyrics_provider.detect_song import get_song_info
-    print("Loaded 29/29", end='\r')
+    print("Loaded 29/30", end='\r')
 except ImportError:
     print("[INFO] Could not load lyrics extension...")
     if not lyrics_ext_load_error:
         print("[INFO] ...Could not load online streaming extension...")
-    print("[INFO] ...Skipped 29/29")
+    print("[INFO] ...Skipped 29/30")
 
 
 try:
     from beta.master_volume_control import get_master_volume, set_master_volume
-    print("Loaded 29/29", end='\r')
+    print("Loaded 29/30", end='\r')
 except Exception:
     comtypes_load_error = True
     SAY(visible=False, # global var `visible` hasn't been defined yet...
@@ -1365,8 +1365,8 @@ def process(command):
                     log_priority = 2)
 
         elif commandslist == ['last']:
-            last_index, last_name = _sound_files_names_enumerated
-            IPrint(">| ", visible=visible)
+            last_index, last_name = _sound_files_names_enumerated[-1]
+            IPrint(f">| {last_index} | {last_name}", visible=visible)
 
         if commandslist in [['hist', 'count'], ['history', 'count']]:
             IPrint(f"History count: {len(HISTORY_QUEUE)}", visible=visible)
@@ -2419,6 +2419,7 @@ def run():
         if os.path.isfile(startup_sound_path):
             pygame.mixer.music.load(startup_sound_path)
             pygame.mixer.music.play()
+        notify(Time = 6000) # For 6 seconds
 
     if visible: showbanner()
     mainprompt()
