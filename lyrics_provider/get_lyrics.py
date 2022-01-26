@@ -99,7 +99,7 @@ def show_window(max_wait_lim, show_window, get_related, refresh_lyrics = True, s
             fp.write(text_to_be_displayed+'\n')
         # except Exception:
         #     raise
-    
+
         _ = create_lyrics_html() # TODO - Do something with the value (0 or 1) ?
 
     else:
@@ -148,6 +148,7 @@ def show_window(max_wait_lim, show_window, get_related, refresh_lyrics = True, s
     text.config(state='disabled', font = ("Segoe UI", 11))
     text.grid(row=1, column=0, sticky='new')
 
+    # A previous plan (Using the MusixMatch API to get time-synced "rich lyrics"??)
     # location = settings['general']['current_location']
     # if location == 'JP': # Japan users have an agreement with Musixmatch to NOT BE ALLOWED TO COPY / PASTE LYRICS using their API
     #     text.bindtags((str(text), str(root), "all"))
