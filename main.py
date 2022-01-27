@@ -335,6 +335,18 @@ def reload_sounds(quick_load = True):
             with open('lib.lib', encoding='utf-8') as logfile:
                 paths = logfile.read().splitlines()
                 paths = [path for path in paths if not path.startswith('#')]
+
+                from beta import mediadl
+                dl_dir_setup_code = mediadl.setup_dl_dir(SETTINGS, SYSTEM_SETTINGS)
+                if dl_dir_setup_code not in range(4):
+                    dl_dir = dl_dir_setup_code
+                    if sys.platform == 'win32': dl_dir=dl_dir.replace('/', '\\')
+                    else: dl_dir=dl_dir.replace('\\', '/')
+                    paths.append(dl_dir)
+                else:
+                    # ERRORS have already been handled and logged by `mediadl.setup_dl_dir()`
+                    pass
+
                 paths = list(set(paths))
 
                 # Use the recursive extractor function and format and store them into usable lists
@@ -352,6 +364,7 @@ def reload_sounds(quick_load = True):
                 log_message="Library file suddenly made unavailable",
                 display_message="Library file suddenly vanished -_-",
                 log_priority=2)
+
 
     if lib_found:
         _sound_files_names_only = [os.path.splitext(os.path.split(i)[1])[0] for i in _sound_files]
@@ -1468,6 +1481,7 @@ def process(command):
 
         elif commandslist == ['reload']:
             IPrint("Refreshing lyrics", visible=visible)
+            purge_old_lyrics_if_exist()
             lyrics_ops(show_window=False)
             IPrint("Reloading sounds", visible=visible)
             reload_sounds(quick_load = False)
@@ -1475,6 +1489,7 @@ def process(command):
 
         elif commandslist == ['refresh']:
             IPrint("Refreshing lyrics", visible=visible)
+            purge_old_lyrics_if_exist()
             lyrics_ops(show_window=False)
             IPrint("Reloading sounds", visible=visible)
             reload_sounds(quick_load = False)
@@ -1772,7 +1787,7 @@ def process(command):
                         log_message='Download confirmed and initiated',
                         display_message='Your download has started',
                         log_priority = 3)
-                    sp.Popen(['py', 'beta/mediadl.py', json.dumps(download_parmeters)], shell=True)
+                    sp.Popen(['..\.virtenv\Scripts\python.exe', 'beta/mediadl.py', json.dumps(download_parmeters)], shell=True)
 
         elif commandslist[0].lower() == 'download-ya':
             # TODO - Add way for user to customize download settings...
@@ -1832,7 +1847,7 @@ def process(command):
                         log_message='Download confirmed and initiated',
                         display_message='Your download has started',
                         log_priority = 3)
-                    sp.Popen(['py', 'beta/mediadl.py', json.dumps(download_parmeters)], shell=True)
+                    sp.Popen(['..\.virtenv\Scripts\python.exe', 'beta/mediadl.py', json.dumps(download_parmeters)], shell=True)
 
 
         elif commandslist == ['t']:
@@ -1922,9 +1937,14 @@ def process(command):
             if len(commandslist) == 1:
                 if int(commandslist[0]) > 0:
                     try:
-                        IPrint(colored.fg('medium_orchid_1a')+\
-                              _sound_files_names_only[int(commandslist[0])-1]+\
-                              colored.attr('reset'), visible=visible)
+                        song_index_entered = int(commandslist[0])
+                        IPrint(colored.fg('aquamarine_3')+\
+                               f'@{song_index_entered}'+\
+                               colored.fg('orange_1')+\
+                               ' | '+\
+                               colored.fg('medium_orchid_1a')+\
+                               _sound_files_names_only[(song_index_entered)-1]+\
+                               colored.attr('reset'), visible=visible)
                     except IndexError:
                         err('', f'Please input song number between 1 and {len(_sound_files)}')
                 else:
@@ -2435,7 +2455,7 @@ def startup():
 
     # Spawn get_media process in the bg
     if _sound_files != [] and FIRST_BOOT:
-        sp.Popen(['py', 'meta_getter.py', str(supported_file_types)], shell=True)
+        sp.Popen(['..\.virtenv\Scripts\python', 'meta_getter.py', str(supported_file_types)], shell=True)
 
     if not disable_OS_requirement:
         if sys.platform != 'win32':
