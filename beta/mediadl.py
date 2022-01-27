@@ -165,7 +165,7 @@ if __name__ == '__main__':
         try:
             dl_kwargs_dict = json.loads(ARGS[0])
             media_DL_return_code = media_DL(**dl_kwargs_dict)
-            sys.exit(f"EXIT CODE: {media_DL_return_code}")
+            sys.exit(f"DOWNLOAD STATUS CODE: {media_DL_return_code}")
         except Exception:
             sys.exit('ERROR: Invalid command')
     else:
