@@ -1457,9 +1457,9 @@ def process(command):
         elif commandslist == ['last', 'played']:
             if HISTORY_QUEUE:
                 if currentsong and len(HISTORY_QUEUE) >= 2:
-                    IPrint(get_prettified_history([-2])[0], visible=visible)
+                    IPrint(get_prettified_history([1])[0], visible=visible)
                 else:
-                    IPrint(get_prettified_history([-1])[0], visible=visible)
+                    IPrint(get_prettified_history([0])[0], visible=visible)
             else:
                 SAY(visible=visible,
                     display_message='No history recorded yet for the current session',
