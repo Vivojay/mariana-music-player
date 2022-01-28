@@ -1916,7 +1916,7 @@ def process(command):
                                 IPrint(0, visible=visible)
                         elif command.startswith('.'):
                             local_play_commands(commandslist=[None, command[1:]],
-                                          _command=command)
+                                                _command=command)
 
             except Exception:
                 raise
