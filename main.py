@@ -323,7 +323,7 @@ def reload_sounds(quick_load = True):
     # Definition for quick-load
     if quick_load:
         if os.path.isfile('data/snd_files.json'):
-            with open('data/snd_files.json') as fp:
+            with open('data/snd_files.json', encoding="utf-8") as fp:
                 _sound_files = json.load(fp)
 
         else: # Revert to full load (i.e. NOT resorting to quick_load becuase data/snd_files.json is unavailable)
