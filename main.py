@@ -1247,7 +1247,7 @@ def process(command):
                 return False
 
         # Quitting the player w/o conf
-        elif commandslist in [['exit', 'y'], ['quit', 'y'], ['e', 'y']]:
+        elif commandslist in [['exit', 'y'], ['quit', 'y']]:
             return False
 
         if commandslist == ['all']:
@@ -2067,7 +2067,7 @@ def process(command):
                 else:
                     IPrint(colored.fg('hot_pink_1a')+"-- No results found --"+colored.attr('reset'), visible=visible)
 
-        elif commandslist == ['stop']:
+        elif commandslist == ['s', 'stop']:
             stopsong()
 
         elif commandslist == ['m']:
@@ -2404,6 +2404,7 @@ def showversion():
 def showbanner():
     global visible
     banner_lines = []
+
     if visible:
         try:
             with open('res/banner.banner', encoding='utf-8') as file:
@@ -2446,9 +2447,6 @@ def run():
 
 def startup():
     global disable_OS_requirement, SOFT_FATAL_ERROR_INFO
-
-    try: os.system('color 0F') # Needed?!? idk
-    except Exception: pass
 
     try: first_startup_greet(FIRST_BOOT)
     except Exception: raise
