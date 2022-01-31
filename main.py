@@ -336,6 +336,7 @@ def reload_sounds(quick_load = True):
                 paths = logfile.read().splitlines()
                 paths = [path for path in paths if not path.startswith('#')]
 
+
                 from beta import mediadl
                 dl_dir_setup_code = mediadl.setup_dl_dir(SETTINGS, SYSTEM_SETTINGS)
                 if dl_dir_setup_code not in range(4):
@@ -354,7 +355,7 @@ def reload_sounds(quick_load = True):
                                 for i in range(len(supported_file_types))] for j in range(len(paths))]
                 # Flattening irregularly nested sound files
                 _sound_files = list(flatten(_sound_files))
-            
+ 
             with open('data/snd_files.json', 'w', encoding='utf-8') as fp:
                 json.dump(_sound_files, fp)
 
@@ -1481,8 +1482,6 @@ def process(command):
 
         elif commandslist == ['reload']:
             IPrint("Refreshing lyrics", visible=visible)
-            purge_old_lyrics_if_exist()
-            lyrics_ops(show_window=False)
             IPrint("Reloading sounds", visible=visible)
             reload_sounds(quick_load = False)
             IPrint(f"Loaded {len(_sound_files)}", visible=visible)
@@ -1733,27 +1732,29 @@ def process(command):
             # TODO - Add way for user to customize download settings...
             continue_dl = False
             confirm_dl = False
+            url = None
 
-            if current_media_player == 0:
-                SAY(visible=visible,
-                    log_message='Cannot download locally available songs',
-                    display_message='Whoops! Looks like you\'re trying to download a song already present in your hard drive',
-                    log_priority = 3)
+            if len(commandslist) == 1: # Download current/custom YouTube media
+                if current_media_player == 0:
+                    SAY(visible=visible,
+                        log_message='Cannot download locally available songs',
+                        display_message='Whoops! Looks like you\'re trying to download a song already present in your hard drive',
+                        log_priority = 3)
 
-            if len(commandslist) == 1 and current_media_player == 1:
-                if currentsong is not None:
-                    url = currentsong[1]
-                    continue_dl = True
-                else:
-                    url = None
-                    IPrint("No song currently playing", visible=visible)
+                elif current_media_player == 1:
+                    if currentsong is not None:
+                        url = currentsong[1]
+                        continue_dl = True
+                    else:
+                        url = None
+                        IPrint("No song currently playing", visible=visible)
 
-            elif len(commandslist) == 2 and current_media_player == 1:
+            elif len(commandslist) == 2:
                 url = commandslist[1]
                 if url_is_valid(url = url, yt=True):
                     IPrint('Attempting to download YouTube video from:\n  '
-                          f'{colored.fg("sandy_brown")}@ {colored.fg("orchid_2")}{url}{colored.attr("reset")}',
-                          visible=visible)
+                        f'{colored.fg("sandy_brown")}@ {colored.fg("orchid_2")}{url}{colored.attr("reset")}',
+                        visible=visible)
                     continue_dl = True
                 else:
                     SAY(visible=visible,
@@ -1793,24 +1794,26 @@ def process(command):
             # TODO - Add way for user to customize download settings...
             continue_dl = False
             confirm_dl = False
+            url = None
 
-            if current_media_player == 0:
-                SAY(visible=visible,
-                    log_message='Cannot download locally available songs',
-                    display_message='Whoops! Looks like you\'re trying to download a song already present in your hard drive',
-                    log_priority = 3)
+            if len(commandslist) == 1: # Download current/custom YouTube media
+                if current_media_player == 0:
+                    SAY(visible=visible,
+                        log_message='Cannot download locally available songs',
+                        display_message='Whoops! Looks like you\'re trying to download a song already present in your hard drive',
+                        log_priority = 3)
 
-            if len(commandslist) == 1 and current_media_player == 1:
-                if currentsong is not None:
-                    url = currentsong[1]
-                    continue_dl = True
-                else:
-                    url = None
-                    IPrint("No song currently playing", visible=visible)
+                elif current_media_player == 1:
+                    if currentsong is not None:
+                        url = currentsong[1]
+                        continue_dl = True
+                    else:
+                        url = None
+                        IPrint("No song currently playing", visible=visible)
 
-            elif len(commandslist) == 2 and current_media_player == 1:
+            elif len(commandslist) == 2:
                 url = commandslist[1]
-                if url_is_valid(yt=True):
+                if url_is_valid(url = url, yt=True):
                     IPrint('Attempting to download YouTube audio from:\n  '
                           f'{colored.fg("sandy_brown")}@ {colored.fg("orchid_2")}{url}{colored.attr("reset")}',
                           visible=visible)
@@ -2254,7 +2257,7 @@ def process(command):
                         if int(rescount) > max_yt_search_results_threshold:
                             SAY(visible=visible,
                                 log_message = 'Exceeded upper threshold for YT search result count',
-                                display_message = f'YT results limit exceeded, retry with result count <= {max_yt_search_results_threshold}',
+                                display_message = f'YT results limit exceeded, retry with result count <= {max_yt_search_results_threshold} (can be changed in settings)',
                                 log_priority = 2)
 
                 else:
