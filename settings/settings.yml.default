@@ -1,5 +1,6 @@
 # ==========================================================================================================================
-# PLEASE DO NOT MODIFY THIS FILE
+# PLEASE DO NOT MODIFY THIS FILE (FACTORY DEFAULTS)
+# YOU MAY USE THIS FILE TO RESET ALL SETTINGS TO FACTORY DEFAULTS
 # ALSO PLEASE DO NOT DELETE OR MODIFY ANY FILE WITH A .default OR .DEFAULT EXTENSION WITHIN THIS PROGRAM'S DIRECTORY
 #
 # TO VIEW/CHANGE SETTINGS PLEASE LOOK FOR THE config.yml without the `.default` extension...
@@ -58,6 +59,15 @@ download:
 editor path: C:\WINDOWS\system32\notepad.exe
 
 get related songs: true # Coming later
+
+lyrics:
+  use solid color bg: false
+  webview wallpaper:
+    wallpaper folder: # If left empty, defaults to ../res/lyrics-wallpapers
+    wallpaper name: # If left empty, defaults to DEFAULT.jpg
+  solid color bg:
+    color: '#121212'
+
 
 default_user_data:
   # User login feature hasn't been implemented yet...

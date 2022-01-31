@@ -23,3 +23,10 @@ show banner: true
 visible: true
 editor path: C:\WINDOWS\system32\notepad.exe
 get related songs: true # Coming later
+lyrics:
+  use solid color bg: false
+  webview wallpaper:
+    wallpaper folder: # If left empty, defaults to ../res/lyrics-wallpapers
+    wallpaper name: # If left empty, defaults to DEFAULT.jpg
+  solid color bg:
+    color: '#121212'
