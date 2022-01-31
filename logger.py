@@ -53,7 +53,7 @@ def SAY(
     if log_priority:
         with open(out_file, writemode, encoding="utf-8") as logfile:
             if format_style == 0:
-                formatted_log_message = log_message+"\n"
+                formatted_log_message = f"({NOW()}) => {log_message}\n"
             elif format_style == 1:
                 formatted_log_message = f"({llt}) {' '*20} => {log_message}\n"
             elif format_style == 2:
