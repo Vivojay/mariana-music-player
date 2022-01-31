@@ -1,0 +1,42 @@
+@font-face {
+  font-family: Elsie;
+    src: url("font-faces/Elsie/Elsie-Regular.ttf");
+}
+
+@font-face {
+  font-family: Fira_Mono;
+  src: url("font-faces/Fira_Code/static/FiraCode-Medium.ttf");
+}
+
+h1.main {
+  color: #f84ef8;
+  font-family: 'Arima Madurai', sans-serif;
+
+  font-size: 55px;
+  line-height: 100%;
+}
+
+div:nth-of-type(2n) {
+  color: cyan;
+
+  font-family: Fira_Mono, sans-serif;
+  font-size: 16px;
+
+  line-height: 65%;
+
+  letter-spacing: -0.7px;
+  word-spacing: 1.8px;  
+}
+
+div:nth-of-type(2n-1) {
+  color: #ff48a4;
+  
+  font-family: Elsie, sans-serif;
+  font-size: 18.5px;
+
+  line-height: 60%;
+
+  letter-spacing: 0.1px;
+  word-spacing: 2.2px;
+}
+
