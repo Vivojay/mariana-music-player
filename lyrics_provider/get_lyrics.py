@@ -186,8 +186,8 @@ def show_window(max_wait_lim,
                 lyrics_bg_image_file = LYRICS_SETTINGS['webview wallpaper']['wallpaper name or number']
 
                 if type(lyrics_bg_image_file) == int:
-                    lyrics_bg_image_index = int(lyrics_bg_image_file)-1
-                    if lyrics_bg_image_index in range(len(PROVIDED_WALLPAPER_NAMES)):
+                    lyrics_bg_image_index = int(lyrics_bg_image_file)
+                    if lyrics_bg_image_index-1 in range(len(PROVIDED_WALLPAPER_NAMES)):
                         lyrics_bg_image_file = PROVIDED_WALLPAPER_NAMES[lyrics_bg_image_file]
                     else:
                         SAY(visible=visible,
