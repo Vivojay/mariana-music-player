@@ -11,6 +11,8 @@ from shazamio import Shazam, serialize_track
 # import nest_asyncio
 # nest_asyncio.apply()
 
+asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 CURDIR = os.path.dirname(os.path.realpath(__file__))
 os.chdir(CURDIR)
 os.chdir('..')
@@ -22,7 +24,8 @@ if not os.path.isfile('data/related_songs.yml'):
 
 def get_weblink_audio_info(max_wait_lim, weblink, isYT=False):
 
-    headers = {"Range": "bytes=0-25000"}
+    headers_1 = {"Range": "bytes=0-25000"}
+    headers_2 = {"Range": "bytes=0-25000"}
     if isYT:
         try:
             vid = new(weblink)
