@@ -25,7 +25,7 @@ div:nth-of-type(2n) {
   line-height: 65%;
 
   letter-spacing: -0.7px;
-  word-spacing: 1.8px;  
+  word-spacing: 0.2px;  
 }
 
 div:nth-of-type(2n-1) {
@@ -37,6 +37,6 @@ div:nth-of-type(2n-1) {
   line-height: 60%;
 
   letter-spacing: 0.1px;
-  word-spacing: 2.2px;
+  word-spacing: 5px;
 }
 
