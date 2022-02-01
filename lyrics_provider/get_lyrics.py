@@ -1,5 +1,6 @@
 
 import os
+import re
 import toml
 import tkinter as tk
 
@@ -39,6 +40,16 @@ SUPPORTED_FILE_TYPES, LYRICS_SETTINGS = get_settings()
 FOOT_TEXT = "Lyrics Powered by Musixmatch"
 os.chdir(curdir)
 
+def atoi(text):
+    return int(text) if text.isdigit() else text
+
+def natural_keys(text):
+    '''
+    alist.sort(key=natural_keys) sorts in human order
+    http://nedbatchelder.com/blog/200712/human_sorting.html
+    (See Toothy's implementation in the comments)
+    '''
+    return [ atoi(c) for c in re.split(r'(\d+)', text) ]
 
 def get_lyrics(max_wait_lim,
                get_related,
@@ -124,7 +135,8 @@ def show_window(max_wait_lim,
                 weblink=None,
                 isYT=False):
 
-    PROVIDED_WALLPAPER_NAMES = list(sorted(os.listdir('res/lyrics-wallpapers')))
+    PROVIDED_WALLPAPER_NAMES = os.listdir('res/lyrics-wallpapers')
+    PROVIDED_WALLPAPER_NAMES.sort(key=natural_keys)
 
     if refresh_lyrics:
         text_to_be_displayed, head_text = get_lyrics(songfile=songfile,
@@ -154,7 +166,7 @@ def show_window(max_wait_lim,
 
             # Wallpaper directory is explicitly provided
             if lyrics_bg_image_dir and os.path.isdir(lyrics_bg_image_dir):
-                lyrics_bg_image_file = LYRICS_SETTINGS['webview wallpaper']['wallpaper name']
+                lyrics_bg_image_file = LYRICS_SETTINGS['webview wallpaper']['wallpaper name or number']
                 if not lyrics_bg_image_file.endswith('.jpg'):
                     lyrics_bg_image_file += '.jpg'
 
@@ -171,7 +183,7 @@ def show_window(max_wait_lim,
             # Wallpaper directory implicitly reverted to default
             else:
                 lyrics_bg_image_dir = 'lyrics-wallpapers'
-                lyrics_bg_image_file = LYRICS_SETTINGS['webview wallpaper']['wallpaper name']
+                lyrics_bg_image_file = LYRICS_SETTINGS['webview wallpaper']['wallpaper name or number']
 
                 if type(lyrics_bg_image_file) == int:
                     lyrics_bg_image_index = int(lyrics_bg_image_file)-1
