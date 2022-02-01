@@ -1169,6 +1169,7 @@ def get_prettified_history(indices):
 
 def lyrics_ops(show_window):
     global lyrics_saved_for_song, currentsong, ISDEV
+    global visible
 
     refresh_lyrics = not (lyrics_saved_for_song == currentsong) # Song has changed since last save of lyrics,
                                                                 # need to refresh the lyrics to match the current song
@@ -1177,18 +1178,20 @@ def lyrics_ops(show_window):
         if current_media_type == 0:
             IPrint(f"Loading lyrics window for YT stream (Time taking)...", visible=visible)
             get_lyrics.show_window(refresh_lyrics = refresh_lyrics,
-                                    max_wait_lim = max_wait_limit_to_get_song_length,
-                                    get_related=get_related,
-                                    show_window=show_window,
-                                    weblink=currentsong[1],
-                                    isYT=1)
+                                   max_wait_lim = max_wait_limit_to_get_song_length,
+                                   get_related=get_related,
+                                   show_window=show_window,
+                                   weblink=currentsong[1],
+                                   visible=visible,
+                                   isYT=1)
         elif current_media_type == 1:
             IPrint(f"Loading lyrics window for online audio stream (Time taking)...", visible=visible)
             get_lyrics.show_window(refresh_lyrics = refresh_lyrics,
-                                    max_wait_lim = max_wait_limit_to_get_song_length,
-                                    get_related=get_related,
-                                    show_window=show_window,
-                                    weblink=currentsong)
+                                   max_wait_lim = max_wait_limit_to_get_song_length,
+                                   get_related=get_related,
+                                   show_window=show_window,
+                                   visible=visible,
+                                   weblink=currentsong)
         elif current_media_type == 2:
             IPrint(f"Lyrics for webradio are not supported", visible=visible)
         elif current_media_type == 3:
@@ -1217,12 +1220,13 @@ def lyrics_ops(show_window):
                                        max_wait_lim = max_wait_limit_to_get_song_length,
                                        get_related = get_related,
                                        show_window = show_window,
+                                       visible=visible,
                                        songfile = currentsong)
                 lyrics_saved_for_song = currentsong
 
 def process(command):
     global _sound_files_names_only, visible, currentsong, isplaying, ismuted, cached_volume
-    global current_media_player, current_media_type, DEFAULT_EDITOR, YOUTUBE_PLAY_TYPE
+    global current_media_player, current_media_type, DEFAULT_EDITOR, YOUTUBE_PLAY_TYPE, lyrics_saved_for_song
 
     commandslist = command.strip().split()
 
@@ -1241,7 +1245,7 @@ def process(command):
     if commandslist != []:  # Atleast 1 word
 
         # Quitting the player
-        if commandslist in [['exit'], ['quit'], ['e']]:
+        if commandslist in [['exit'], ['quit']]:
             perm = input(colored.fg('light_red')+'Do you want to exit? [Y]es, [N]o (default = N): '+colored.fg('magenta_3c'))
             print(colored.attr('reset'), end = '')
             if perm.strip().lower() == 'y':
@@ -1481,20 +1485,41 @@ def process(command):
                     log_priority=2)
 
         elif commandslist == ['reload']:
-            IPrint("Refreshing lyrics", visible=visible)
             IPrint("Reloading sounds", visible=visible)
             reload_sounds(quick_load = False)
+
             IPrint(f"Loaded {len(_sound_files)}", visible=visible)
 
         elif commandslist == ['refresh']:
-            IPrint("Refreshing lyrics", visible=visible)
+            confirm_refresh = input("Confirm refresh? (This will refresh data of your library files) (y/n): ").lower().strip()
+            while confirm_refresh not in ['y', 'n', 'yes', 'no']:
+                confirm_refresh = input("[INVALID RESPONSE] Do you wish to confirm refresh? (y/n): ").lower().strip()
+
+            if confirm_refresh in ['yes', 'y']:
+                IPrint("Refreshing lyrics (1/4)", visible=visible)
+                purge_old_lyrics_if_exist()
+                lyrics_saved_for_song = False
+                lyrics_ops(show_window=False)
+
+                IPrint("Reloading sounds (2/4)", visible=visible)
+                reload_sounds(quick_load = False)
+                IPrint(f"Loaded {len(_sound_files)}", visible=visible)
+
+                IPrint("Reloading settings (3/4)", visible=visible)
+                refresh_settings()
+
+                IPrint("Spawned meta getter process (4/4)", visible=visible)
+                sp.Popen(['..\.virtenv\Scripts\python', 'meta_getter.py', str(supported_file_types)], shell=True)
+
+                IPrint("Done", visible=visible)
+
+        elif commandslist == [['refresh', 'lyrics'], ['refresh', 'lyr']]:
+            IPrint("Refreshing lyrics...", visible=visible)
             purge_old_lyrics_if_exist()
+            lyrics_saved_for_song = False
             lyrics_ops(show_window=False)
-            IPrint("Reloading sounds", visible=visible)
-            reload_sounds(quick_load = False)
-            IPrint("Reloading settings", visible=visible)
-            refresh_settings()
-            IPrint(f"Loaded {len(_sound_files)}", visible=visible)
+
+            IPrint("Done", visible=visible)
 
         elif commandslist == ['vis']:
             visible = not visible
