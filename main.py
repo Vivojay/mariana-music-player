@@ -1498,14 +1498,14 @@ def process(command):
                     confirm_refresh = input("[INVALID RESPONSE] Do you wish to confirm refresh? (y/n): ").lower().strip()
 
                 if confirm_refresh in ['yes', 'y']:
-                    IPrint("Refreshing lyrics (1/4)", visible=visible)
+                    IPrint("Refreshing lyrics  (1/4)", visible=visible)
                     purge_old_lyrics_if_exist()
                     lyrics_saved_for_song = False
                     lyrics_ops(show_window=False)
 
-                    IPrint("Reloading sounds (2/4)", visible=visible)
+                    IPrint("Reloading sounds   (2/4)", visible=visible)
                     reload_sounds(quick_load = False)
-                    IPrint(f"Loaded {len(_sound_files)}", visible=visible)
+                    IPrint(f"  > Loaded {len(_sound_files)} sounds", visible=visible)
 
                     IPrint("Reloading settings (3/4)", visible=visible)
                     refresh_settings()
@@ -1516,14 +1516,14 @@ def process(command):
                     IPrint("Done", visible=visible)
             
             else:
-                IPrint("Refreshing lyrics (1/3)", visible=visible)
+                IPrint("Refreshing lyrics  (1/3)", visible=visible)
                 purge_old_lyrics_if_exist()
                 lyrics_saved_for_song = False
                 lyrics_ops(show_window=False)
 
-                IPrint("Reloading sounds (2/3)", visible=visible)
+                IPrint("Reloading sounds   (2/3)", visible=visible)
                 reload_sounds(quick_load = False)
-                IPrint(f"Loaded {len(_sound_files)}", visible=visible)
+                IPrint(f"  > Loaded {len(_sound_files)} sounds", visible=visible)
 
                 IPrint("Reloading settings (3/3)", visible=visible)
                 refresh_settings()
