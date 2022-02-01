@@ -24,8 +24,7 @@ if not os.path.isfile('data/related_songs.yml'):
 
 def get_weblink_audio_info(max_wait_lim, weblink, isYT=False):
 
-    headers_1 = {"Range": "bytes=0-25000"}
-    headers_2 = {"Range": "bytes=0-25000"}
+    headers = {"Range": "bytes=0-25000"}
     if isYT:
         try:
             vid = new(weblink)
