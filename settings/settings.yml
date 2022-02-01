@@ -27,6 +27,6 @@ lyrics:
   use solid color bg: false
   webview wallpaper:
     wallpaper folder: # If left empty, defaults to ../res/lyrics-wallpapers
-    wallpaper name: # If left empty, defaults to DEFAULT.jpg
+    wallpaper name or number: 6 # If left empty, defaults to DEFAULT.jpg
   solid color bg:
     color: '#121212'
