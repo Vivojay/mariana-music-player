@@ -11,33 +11,48 @@ import lyrics_provider.detect_song
 from tkinter import ttk
 from ruamel.yaml import YAML
 
+os.chdir(curdir)
+os.chdir('..')
+from logger import SAY
+
 yaml = YAML(typ='safe')
 
-try:
-    with open("settings/system.toml", encoding="utf-8") as file:
-        SYSTEM_SETTINGS = toml.load(file)
-except IOError:
-    SYSTEM_SETTINGS = None
+def get_settings():
+    try:
+        with open("settings/system.toml", encoding="utf-8") as file:
+            SYSTEM_SETTINGS = toml.load(file)
+    except IOError:
+        SYSTEM_SETTINGS = None
 
-try:
-    with open("settings/settings.yml", encoding="utf-8") as file:
-        SETTINGS = yaml.load(file)
-except IOError:
-    SETTINGS = None
+    try:
+        with open("settings/settings.yml", encoding="utf-8") as file:
+            SETTINGS = yaml.load(file)
+    except IOError:
+        SETTINGS = None
+    
+    SUPPORTED_FILE_TYPES = SYSTEM_SETTINGS["system_settings"]["supported_file_types"]
+    LYRICS_SETTINGS = SETTINGS['lyrics']
 
+    return SUPPORTED_FILE_TYPES, LYRICS_SETTINGS
+
+SUPPORTED_FILE_TYPES, LYRICS_SETTINGS = get_settings()
+FOOT_TEXT = "Lyrics Powered by Musixmatch"
 os.chdir(curdir)
 
-SUPPORTED_FILE_TYPES = SYSTEM_SETTINGS["system_settings"]["supported_file_types"]
-FOOT_TEXT = "Lyrics Powered by Musixmatch"
-LYRICS_SETTINGS = SETTINGS['lyrics']
 
-def get_lyrics(max_wait_lim, get_related, songfile=None, weblink=None, isYT=False):
+def get_lyrics(max_wait_lim,
+               get_related,
+               songfile=None,
+               weblink=None,
+               isYT=False):
+
     """
     `lyr`: An intermediate string which is processed into `text_to_be_displayed`
     `head_text` and `text_to_be_displayed` are the important final results
     which are then returned as a tuple
     """
     global SUPPORTED_FILE_TYPES
+    SUPPORTED_FILE_TYPES, _ = get_settings()
 
     head_text = "Lyrics N/A"
     text_to_be_displayed = "(Lyrics not available)"
@@ -83,10 +98,10 @@ def create_lyrics_html():
                     '    <meta name="viewport" content="width=device-width, initial-scale=1.0">',
                     '    <link rel="stylesheet" href="../res/style.css">',
                     '    <link rel="preload" href="Elsie-Regular.ttf" as="font" type="font/ttf" crossorigin>',
-                    '    <link rel="preconnect" href="https://fonts.googleapis.com">'
-                    '    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
-                    '    <link href="https://fonts.googleapis.com/css2?family=Arima+Madurai:wght@500&display=swap" rel="stylesheet">'
-                    '</head>'
+                    '    <link rel="preconnect" href="https://fonts.googleapis.com">',
+                    '    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>',
+                    '    <link href="https://fonts.googleapis.com/css2?family=Arima+Madurai:wght@500&display=swap" rel="stylesheet">',
+                    '</head>',
         ]
 
         lyrics_lines = prefix + ['\n', head_text, '\n<hr>\n\n<div>'] + lyrics_lines + ['</html>']
@@ -100,10 +115,23 @@ def create_lyrics_html():
         return 1
 
 
-def show_window(max_wait_lim, show_window, get_related, refresh_lyrics = True, songfile=None, weblink=None, isYT=False):
+def show_window(max_wait_lim,
+                show_window,
+                get_related,
+                refresh_lyrics = True,
+                visible=True,
+                songfile=None,
+                weblink=None,
+                isYT=False):
+
+    PROVIDED_WALLPAPER_NAMES = list(sorted(os.listdir('res/lyrics-wallpapers')))
 
     if refresh_lyrics:
-        text_to_be_displayed, head_text = get_lyrics(songfile=songfile, get_related=get_related, weblink=weblink, isYT=isYT, max_wait_lim=max_wait_lim)
+        text_to_be_displayed, head_text = get_lyrics(songfile=songfile,
+                                                     get_related=get_related,
+                                                     weblink=weblink,
+                                                     isYT=isYT,
+                                                     max_wait_lim=max_wait_lim)
 
         # Create CSS file from default.css and the provided lyrics wallpaper image name (from settings file)
 
@@ -111,7 +139,8 @@ def show_window(max_wait_lim, show_window, get_related, refresh_lyrics = True, s
             default_css = default_css_file.read()
 
         body_css = 'body {\n'
-        DEFAULT_BG_PATH = 'res/lyrics-wallpapers/DEFAULT.jpg'
+        DEFAULT_BG_PATH = 'lyrics-wallpapers/DEFAULT.jpg'
+        _, LYRICS_SETTINGS = get_settings()
 
         # Using a solid color wallpaper
         if LYRICS_SETTINGS['use solid color bg']:
@@ -123,19 +152,47 @@ def show_window(max_wait_lim, show_window, get_related, refresh_lyrics = True, s
             lyrics_bg_image_abs_path = DEFAULT_BG_PATH
             lyrics_bg_image_dir = LYRICS_SETTINGS['webview wallpaper']['wallpaper folder']
 
-            if lyrics_bg_image_dir and os.path.isdir(lyrics_bg_image_dir): # Wallpaper directory is explicitly provided
+            # Wallpaper directory is explicitly provided
+            if lyrics_bg_image_dir and os.path.isdir(lyrics_bg_image_dir):
                 lyrics_bg_image_file = LYRICS_SETTINGS['webview wallpaper']['wallpaper name']
+                if not lyrics_bg_image_file.endswith('.jpg'):
+                    lyrics_bg_image_file += '.jpg'
 
                 if lyrics_bg_image_file:
                     lyrics_bg_image_file = os.path.join(lyrics_bg_image_dir, lyrics_bg_image_file)
                     if os.path.isfile(lyrics_bg_image_file):
                         lyrics_bg_image_abs_path = os.path.join(lyrics_bg_image_dir, lyrics_bg_image_file)
+                    else:
+                        SAY(visible=visible,
+                            display_message = 'You entered invalid wallpaper file name. Reverting to default',
+                            log_message = 'Wallpaper file name invalid, reverting to default',
+                            log_priority = 2)
 
-            else: # Wallpaper directory reverts to default
+            # Wallpaper directory implicitly reverted to default
+            else:
+                lyrics_bg_image_dir = 'lyrics-wallpapers'
                 lyrics_bg_image_file = LYRICS_SETTINGS['webview wallpaper']['wallpaper name']
 
-                if lyrics_bg_image_file and os.path.isfile(lyrics_bg_image_file):
-                    lyrics_bg_image_abs_path = os.path.join(lyrics_bg_image_dir, lyrics_bg_image_file)
+                if type(lyrics_bg_image_file) == int:
+                    lyrics_bg_image_index = int(lyrics_bg_image_file)-1
+                    if lyrics_bg_image_index in range(len(PROVIDED_WALLPAPER_NAMES)):
+                        lyrics_bg_image_file = PROVIDED_WALLPAPER_NAMES[lyrics_bg_image_file]
+                    else:
+                        SAY(visible=visible,
+                            display_message = 'You entered wallpaper number {0}. Try again with a number between 1 and {1}.'\
+                                              '\nReverting to default'.format(lyrics_bg_image_index, 1, len(PROVIDED_WALLPAPER_NAMES)),
+                            log_message = 'Wallpaper index out of bounds, reverting to default',
+                            log_priority = 2)
+
+                if lyrics_bg_image_file:
+                    if not lyrics_bg_image_file.endswith('.jpg'):
+                        lyrics_bg_image_file += '.jpg'
+
+                    os.chdir(curdir)
+                    os.chdir('../res')
+                    if os.path.isfile(os.path.join(lyrics_bg_image_dir, lyrics_bg_image_file)):
+                        lyrics_bg_image_abs_path = os.path.join(lyrics_bg_image_dir, lyrics_bg_image_file)
+                    os.chdir('..')
 
 
             body_css += \
@@ -147,7 +204,7 @@ def show_window(max_wait_lim, show_window, get_related, refresh_lyrics = True, s
                 '  background-position: center bottom;\n'\
                 '  background-attachment: fixed;'.format(lyrics_bg_image_abs_path.replace('\\', '/'))
         
-        body_css += '\n  }'
+        body_css += '\n}'
 
         default_css += body_css
 
