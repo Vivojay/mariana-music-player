@@ -1491,26 +1491,42 @@ def process(command):
             IPrint(f"Loaded {len(_sound_files)}", visible=visible)
             IPrint(f"Done", visible=visible)
 
-        elif commandslist == ['refresh']:
-            confirm_refresh = input("Confirm refresh? (This will refresh data of your library files) (y/n): ").lower().strip()
-            while confirm_refresh not in ['y', 'n', 'yes', 'no']:
-                confirm_refresh = input("[INVALID RESPONSE] Do you wish to confirm refresh? (y/n): ").lower().strip()
+        elif commandslist in [['refresh'], ['refresh', 'all']]:
+            if commandslist == ['refresh', 'all']:
+                confirm_refresh = input("Confirm refresh all? (This will refresh data of your library files) (y/n): ").lower().strip()
+                while confirm_refresh not in ['y', 'n', 'yes', 'no']:
+                    confirm_refresh = input("[INVALID RESPONSE] Do you wish to confirm refresh? (y/n): ").lower().strip()
 
-            if confirm_refresh in ['yes', 'y']:
-                IPrint("Refreshing lyrics (1/4)", visible=visible)
+                if confirm_refresh in ['yes', 'y']:
+                    IPrint("Refreshing lyrics (1/4)", visible=visible)
+                    purge_old_lyrics_if_exist()
+                    lyrics_saved_for_song = False
+                    lyrics_ops(show_window=False)
+
+                    IPrint("Reloading sounds (2/4)", visible=visible)
+                    reload_sounds(quick_load = False)
+                    IPrint(f"Loaded {len(_sound_files)}", visible=visible)
+
+                    IPrint("Reloading settings (3/4)", visible=visible)
+                    refresh_settings()
+
+                    IPrint("Spawned meta getter background process (4/4)", visible=visible)
+                    sp.Popen(['..\.virtenv\Scripts\python', 'meta_getter.py', str(supported_file_types)], shell=True)
+
+                    IPrint("Done", visible=visible)
+            
+            else:
+                IPrint("Refreshing lyrics (1/3)", visible=visible)
                 purge_old_lyrics_if_exist()
                 lyrics_saved_for_song = False
                 lyrics_ops(show_window=False)
 
-                IPrint("Reloading sounds (2/4)", visible=visible)
+                IPrint("Reloading sounds (2/3)", visible=visible)
                 reload_sounds(quick_load = False)
                 IPrint(f"Loaded {len(_sound_files)}", visible=visible)
 
-                IPrint("Reloading settings (3/4)", visible=visible)
+                IPrint("Reloading settings (3/3)", visible=visible)
                 refresh_settings()
-
-                IPrint("Spawned meta getter process (4/4)", visible=visible)
-                sp.Popen(['..\.virtenv\Scripts\python', 'meta_getter.py', str(supported_file_types)], shell=True)
 
                 IPrint("Done", visible=visible)
 
