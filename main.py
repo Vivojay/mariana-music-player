@@ -1489,6 +1489,7 @@ def process(command):
             reload_sounds(quick_load = False)
 
             IPrint(f"Loaded {len(_sound_files)}", visible=visible)
+            IPrint(f"Done", visible=visible)
 
         elif commandslist == ['refresh']:
             confirm_refresh = input("Confirm refresh? (This will refresh data of your library files) (y/n): ").lower().strip()
@@ -1513,7 +1514,7 @@ def process(command):
 
                 IPrint("Done", visible=visible)
 
-        elif commandslist == [['refresh', 'lyrics'], ['refresh', 'lyr']]:
+        elif commandslist in [['refresh', 'lyrics'], ['refresh', 'lyr']]:
             IPrint("Refreshing lyrics...", visible=visible)
             purge_old_lyrics_if_exist()
             lyrics_saved_for_song = False
