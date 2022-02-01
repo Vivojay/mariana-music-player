@@ -186,13 +186,13 @@ def show_window(max_wait_lim,
                 lyrics_bg_image_file = LYRICS_SETTINGS['webview wallpaper']['wallpaper name or number']
 
                 if type(lyrics_bg_image_file) == int:
-                    lyrics_bg_image_index = int(lyrics_bg_image_file)
-                    if lyrics_bg_image_index-1 in range(len(PROVIDED_WALLPAPER_NAMES)):
-                        lyrics_bg_image_file = PROVIDED_WALLPAPER_NAMES[lyrics_bg_image_file]
+                    lyrics_bg_image_index = int(lyrics_bg_image_file)-1
+                    if lyrics_bg_image_index in range(len(PROVIDED_WALLPAPER_NAMES)):
+                        lyrics_bg_image_file = PROVIDED_WALLPAPER_NAMES[lyrics_bg_image_index]
                     else:
                         SAY(visible=visible,
-                            display_message = 'You entered wallpaper number {0}. Try again with a number between 1 and {1}.'\
-                                              '\nReverting to default'.format(lyrics_bg_image_index, 1, len(PROVIDED_WALLPAPER_NAMES)),
+                            display_message = 'You entered wallpaper number {0}. Try again with a number between 1 and {1}.\n'\
+                                              'Reverting to default'.format(lyrics_bg_image_index, 1, len(PROVIDED_WALLPAPER_NAMES)),
                             log_message = 'Wallpaper index out of bounds, reverting to default',
                             log_priority = 2)
 
