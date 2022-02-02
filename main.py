@@ -1,6 +1,6 @@
 #################################################################################################################################
 #
-#           Mariana Player v0.5.1 dev
+#           Mariana Player v0.5.2 dev
 #     (Read help.md for help on commands)
 #
 #    Running the app:
@@ -2206,16 +2206,22 @@ def process(command):
             if len(commandslist) == 2:
                 if commandslist[1] in ['lib', 'library']:
                     IPrint("Opening library file in browser for viewing", visible=visible)
-                    if webbrowser._tryorder in [['windows-default'], None]:
+                    if webbrowser._tryorder in [['windows-default', 'C:\\Program Files\\Internet Explorer\\IEXPLORE.EXE'], ['windows-default'], None]:
                         for brave_path in SYSTEM_SETTINGS['system_settings']['brave_paths']:
                             if os.path.exists(brave_path):
                                 break
 
-                        webbrowser.register('brave', None, webbrowser.BackgroundBrowser(brave_path))
-                        webbrowser.get('brave').open_new(os.path.join(CURDIR, 'lib.lib'))
+                        try:
+                            webbrowser.register('brave', None, webbrowser.BackgroundBrowser(brave_path))
+                            webbrowser.get('brave').open_new(os.path.join(CURDIR, 'lib.lib'))
+                        except Exception:
+                            webbrowser.open(os.path.join(CURDIR, 'lib.lib'))
 
                     else:
-                        webbrowser.get('brave').open_new(os.path.join(CURDIR, 'lib.lib'))
+                        try:
+                            webbrowser.get('brave').open_new(os.path.join(CURDIR, 'lib.lib'))
+                        except Exception:
+                            webbrowser.open(os.path.join(CURDIR, 'lib.lib'))
 
                 elif commandslist[1] in ['lyr', 'lyrics']:
                     IPrint("Attempting to open lyrics file in browser for viewing", visible=visible)
@@ -2235,7 +2241,10 @@ def process(command):
                                 log_priority = 2)
                     else:
                         if os.path.isfile('temp/lyrics.html'):
-                            webbrowser.get('brave').open_new(os.path.join(CURDIR, 'temp/lyrics.html'))
+                            try:
+                                webbrowser.get('brave').open_new(os.path.join(CURDIR, 'temp/lyrics.html'))
+                            except Exception:
+                                webbrowser.open(os.path.join(CURDIR, 'temp/lyrics.html'))
                         else:
                             SAY(visible=visible,
                                 log_message = 'No lyrics available to view',
