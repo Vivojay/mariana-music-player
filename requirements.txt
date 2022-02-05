@@ -1,6 +1,7 @@
 colored==1.4.3
 comtypes==1.1.10
 # librosa (optional)
+pywin32==303
 numpy==1.22.2
 Pillow==9.0.0
 praw==7.5.0
