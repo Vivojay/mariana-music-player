@@ -27,6 +27,7 @@ lyrics:
   use solid color bg: false
   webview wallpaper:
     wallpaper folder: # If left empty, defaults to ../res/lyrics-wallpapers
-    wallpaper name or number:  # If left empty, defaults to DEFAULT.jpg
+    wallpaper name or number: # If left empty, defaults to DEFAULT.jpg
   solid color bg:
     color: '#121212'
+vlc path: # Mariana reverts to default download location of vlc.exe if not specified
