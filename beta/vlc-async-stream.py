@@ -3,8 +3,13 @@ import os
 import sys
 import ctypes
 
+from ruamel.yaml import YAML
+yaml = YAML(typ='safe')
+
 PY_ARCH = (8 * ctypes.sizeof(ctypes.c_voidp))
 VLC_ARCH = None
+VLC_PATH = None
+SETTINGS = None
 
 def set_media(_type=None, vidurl=None, audurl=None):
 
@@ -36,7 +41,7 @@ def set_media(_type=None, vidurl=None, audurl=None):
             load_media_object(player=player, media=media)
     else:
         print("Media type not provided")
-    
+
     return audurl
 
 def load_media_object(player, media):
@@ -48,18 +53,36 @@ def load_media_object(player, media):
     vlc_media_player = player.media_list_player_new()
     vlc_media_player.set_media_list(media_list)
 
+def get_bit(exe_file_abs_path):
+    import win32file
+    exe_file_abs_path = exe_file_abs_path.replace('\\', '/')
+    if os.path.exists(exe_file_abs_path):
+        exe_arch = win32file.GetBinaryType(exe_file_abs_path)
+        if exe_arch == win32file.SCS_32BIT_BINARY:
+            return 32
+        else:
+            return 64
+    else:
+        return None
 
 def vlc_import():
-    global VLC_ARCH, PY_ARCH, vlc
+    global VLC_ARCH, PY_ARCH, SETTINGS, vlc
     possible_vlc_paths = [
         r'C:\Program Files (x86)\VideoLAN\VLC', # 32 bit VLC
         r'C:\Program Files\VideoLAN\VLC', # 64 bit VLC
     ]
 
+    with open('settings/settings.yml', 'r', encoding='utf-8') as fp:
+        SETTINGS = yaml.load(fp)
+    
+    VLC_PATH = SETTINGS.get('vlc path')
+
+    if VLC_PATH: possible_vlc_paths.insert(0, VLC_PATH)
+
     for index, path in enumerate(possible_vlc_paths):
         if os.path.isdir(path):
             if 'vlc.exe' in os.listdir(path):
-                VLC_ARCH = 32*(index+1)
+                VLC_ARCH = get_bit(os.path.join(path, 'vlc.exe'))
                 try:
                     _=os.add_dll_directory(path)
                     import vlc
@@ -74,7 +97,12 @@ def vlc_import():
     else:
         print(VLC_ARCH, PY_ARCH)
         print("Please install VLC Media Player if you haven't already.")
-        print("If you already have VLC Media Player installed, please enter the path of its install directory (containing \"vlc.exe\" file) in the config file, under the heading \"VLC PATH\"\n\n")
+        print("If you already have VLC Media Player installed, please enter the path of its install directory (containing \"vlc.exe\" file) in the settings file (settings/settings.yml), under the heading \"vlc path\"\n")
+
+        if VLC_PATH:
+            print("\nVLC path may not have been set correctly in the settings file, try setting it to null\n\n")
+        else:
+            print()
 
     if VLC_ARCH:
         if VLC_ARCH != PY_ARCH:
