@@ -3,5 +3,5 @@ default_user_data:
   pwd: null
   stats:
     log_ins: 0
-    play_count: {audio: 0, local: 0, radio: 0, redditsession: 0, total: 0, youtube: 0}
+    play_count: {general: 0, local: 0, radio: 0, redditsession: 0, total: 0, youtube: 0}
     times_spent: []
