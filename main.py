@@ -41,36 +41,37 @@
 
 # IMPORTS BEGIN #
 
+from calendar import c
 import time
-APP_BOOT_START_TIME = time.time();                  print("Loaded 1/30",  end='\r')
+APP_BOOT_START_TIME = time.time();                  print("Loaded 1/31",  end='\r')
 
-import os;                                          print("Loaded 2/30",  end='\r')
+import os;                                          print("Loaded 2/31",  end='\r')
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
-# import itertools;                                   print("Loaded 3/30",  end='\r')
+# import itertools;                                   print("Loaded 3/31",  end='\r')
 
-import re;                                          print("Loaded 4/30",  end='\r')
-import sys;                                         print("Loaded 5/30",  end='\r')
-import pygame;                                      print("Loaded 6/30",  end='\r')
-import numpy as np;                                 print("Loaded 7/30",  end='\r')
-import random as rand;                              print("Loaded 8/30",  end='\r')
-import importlib;                                   print("Loaded 9/30",  end='\r')
-import colored;                                     print("Loaded 10/30", end='\r')
-import subprocess as sp;                            print("Loaded 11/30", end='\r')
-import restore_default;                             print("Loaded 12/30", end='\r')
-import toml;                                        print("Loaded 13/30", end='\r')
-import json;                                        print("Loaded 14/30", end='\r')
-import webbrowser;                                  print("Loaded 15/30", end='\r')
+import re;                                          print("Loaded 4/31",  end='\r')
+import sys;                                         print("Loaded 5/31",  end='\r')
+import pygame;                                      print("Loaded 6/31",  end='\r')
+import numpy as np;                                 print("Loaded 7/31",  end='\r')
+import random as rand;                              print("Loaded 8/31",  end='\r')
+import importlib;                                   print("Loaded 9/31",  end='\r')
+import colored;                                     print("Loaded 10/31", end='\r')
+import subprocess as sp;                            print("Loaded 11/31", end='\r')
+import restore_default;                             print("Loaded 12/31", end='\r')
+import toml;                                        print("Loaded 13/31", end='\r')
+import json;                                        print("Loaded 14/31", end='\r')
+import webbrowser;                                  print("Loaded 15/31", end='\r')
 
-# import concurrent.futures;                          print("Loaded 16/30", end='\r')
+# import concurrent.futures;                          print("Loaded 16/31", end='\r')
 
-from url_validate import url_is_valid;              print("Loaded 17/30", end='\r')
-from tabulate import tabulate as tbl;               print("Loaded 18/30", end='\r')
-from ruamel.yaml import YAML;                       print("Loaded 19/30", end='\r')
-from collections.abc import Iterable;               print("Loaded 20/30", end='\r')
-from logger import SAY;                             print("Loaded 21/30", end='\r')
-from multiprocessing import Process;                print("Loaded 22/30", end='\r')
-from first_boot_welcome_screen import notify;       print("Loaded 23/30", end='\r')
+from url_validate import url_is_valid;              print("Loaded 17/31", end='\r')
+from tabulate import tabulate as tbl;               print("Loaded 18/31", end='\r')
+from ruamel.yaml import YAML;                       print("Loaded 19/31", end='\r')
+from collections.abc import Iterable;               print("Loaded 20/31", end='\r')
+from logger import SAY;                             print("Loaded 21/31", end='\r')
+from multiprocessing import Process;                print("Loaded 22/31", end='\r')
+from first_boot_welcome_screen import notify;       print("Loaded 23/31", end='\r')
 
 online_streaming_ext_load_error = 0
 comtypes_load_error = False # Made available after fix from comtypes issue #244, #180
@@ -80,80 +81,95 @@ reddit_creds_are_valid = False
 
 # try:
 #     import librosa
-#     print("Loaded 23/30",  end='\r') # Time taking import (Sometimes, takes ages...)
+#     print("Loaded 23/31",  end='\r') # Time taking import (Sometimes, takes ages...)
 # except ImportError:
 #     print("[WARN] Could not load music computation extension...")
-#     print("[WARN] ...Skipped 23/30")
+#     print("[WARN] ...Skipped 23/31")
 
 CURDIR = os.path.dirname(os.path.realpath(__file__))
 os.chdir(CURDIR)
 
 try:
     vas = importlib.import_module("beta.vlc-async-stream")
-    print("Loaded 24/30", end='\r')
+    print("Loaded 24/31", end='\r')
 except ImportError:
     online_streaming_ext_load_error = 1
     print("[INFO] Could not load online streaming extension...")
-    print("[INFO] ...Skipped 24/30")
+    print("[INFO] ...Skipped 24/31")
 
 try:
     YT_query = importlib.import_module("beta.YT_query")
-    print("Loaded 25/30", end='\r')
+    print("Loaded 25/31", end='\r')
 except ImportError:
     # raise
     if not online_streaming_ext_load_error:
         print("[INFO] Could not load online streaming extension...")
-    print("[INFO] ...Skipped 25/30")
+    print("[INFO] ...Skipped 25/31")
 
 try:
     from beta.IPrint import IPrint, blue_gradient_print, loading, cols
-    print("Loaded 26/30", end='\r')
+    print("Loaded 26/31", end='\r')
 except ImportError:
     lyrics_ext_load_error = 1
     print("[INFO] Could not load coloured print extension...")
-    print("[INFO] ...Skipped 26/30")
+    print("[INFO] ...Skipped 26/31")
 
 try:
     from lyrics_provider import get_lyrics
-    print("Loaded 27/30", end='\r')
+    print("Loaded 27/31", end='\r')
 except ImportError:
     print("[INFO] Could not load lyrics extension...")
     if not lyrics_ext_load_error:
         print("[INFO] ...Could not load online streaming extension...")
-    print("[INFO] ...Skipped 27/30")
+    print("[INFO] ...Skipped 27/31")
 
 try:
     from beta import redditsessions
     if redditsessions.WARNING:
         print("[WARN] Could not load reddit-sessions extension...")
         print(f"[WARN] ...{redditsessions.WARNING}...")
-        print("[WARN] ...Skipped 28/30")
+        print("[WARN] ...Skipped 28/31")
     else:
         reddit_creds_are_valid = True
-        print("Loaded 28/30", end='\r')
+        print("Loaded 28/31", end='\r')
 except ImportError:
     print("[INFO] Could not load reddit-sessions extension..., module 'praw' missing...")
-    print("[INFO] ...Skipped 28/30")
+    print("[INFO] ...Skipped 28/31")
 
 try:
     from lyrics_provider.detect_song import get_song_info
-    print("Loaded 29/30", end='\r')
+    print("Loaded 29/31", end='\r')
 except ImportError:
     print("[INFO] Could not load lyrics extension...")
     if not lyrics_ext_load_error:
         print("[INFO] ...Could not load online streaming extension...")
-    print("[INFO] ...Skipped 29/30")
+    print("[INFO] ...Skipped 29/31")
 
 
 try:
     from beta.master_volume_control import get_master_volume, set_master_volume
-    print("Loaded 29/30", end='\r')
+    print("Loaded 30/31", end='\r')
 except Exception:
     comtypes_load_error = True
     SAY(visible=False, # global var `visible` hasn't been defined yet...
         log_message="comtypes load failed",
         display_message="", # ...because we don't want to display anything on screen to the user
         log_priority=2)
+
+try:
+    from beta.podcasts import get_latest_podcasts
+    print("Loaded 31/31", end='\r')
+except Exception:
+    try:
+        from lyrics_provider.detect_song import get_song_info
+        print("Loaded 31/31", end='\r')
+    except ImportError:
+        print("[INFO] Could not load lyrics extension...")
+        if not lyrics_ext_load_error:
+            print("[INFO] ...Could not load online streaming extension...")
+        print("[INFO] ...Skipped 31/31")
+
+os.chdir(CURDIR)
 
 # IMPORTS END #
 
@@ -176,7 +192,7 @@ def create_required_files_if_not_exist(*files):
                 pass
 
 create_required_files_if_not_exist(
-    'logs/recents.log',
+    'logs/history.log',
     'logs/general.log',
 )
 
@@ -211,8 +227,10 @@ def first_startup_greet(is_first_boot):
     if is_first_boot:
         try:
             import first_boot_setup
-            SOFT_FATAL_ERROR_INFO = first_boot_setup.fbs(about=SYSTEM_SETTINGS)
-            if SOFT_FATAL_ERROR_INFO: SOFT_FATAL_ERROR_INFO = "User skipped startup"
+            if SOFT_FATAL_ERROR_INFO := first_boot_setup.fbs(
+                about=SYSTEM_SETTINGS
+            ):
+                SOFT_FATAL_ERROR_INFO = "User skipped startup"
             reload_sounds(quick_load = False)
         except ImportError:
             sys.exit('[ERROR] Critical guide setup-file missing, please consider reinstalling this file or the entire program\nAborting Mariana Player. . .')
@@ -220,12 +238,15 @@ def first_startup_greet(is_first_boot):
 try:
     with open('user/user_data.yml', encoding='utf-8') as u_data_file:
         USER_DATA = yaml.load(u_data_file)
-        if list(USER_DATA.keys()) == ['default_user_data']:
-            if not FIRST_BOOT and not ISDEV: # TODO - remove temp ISDEV flag after user login and register feature is fully functional
-                SAY(visible=visible,
-                    display_message = '',
-                    log_message = 'User data found to be empty, reverting to default',
-                    log_priority = 3)
+        if (
+            list(USER_DATA.keys()) == ['default_user_data']
+            and not FIRST_BOOT
+            and not ISDEV
+        ):
+            SAY(visible=visible,
+                display_message = '',
+                log_message = 'User data found to be empty, reverting to default',
+                log_priority = 3)
 except IOError:
     SAY(visible=visible,
         display_message = f'Encountered missing program file @{os.path.join(CURDIR, "user/user_data.yml")}',
@@ -251,7 +272,7 @@ APP_BOOT_END_TIME = time.time()
 EXIT_INFO = 0
 FATAL_ERROR_INFO = None
 SOFT_FATAL_ERROR_INFO = None
-HISTORY_QUEUE = []
+RECENTS_QUEUE = []
 YOUTUBE_PLAY_TYPE = None
 
 isplaying = False
@@ -259,6 +280,7 @@ currentsong = None  # No song playing initially
 ismuted = False
 lyrics_saved_for_song = False
 currentsong_length = None
+faded_to_0 = False
 
 songindex = -1
 current_media_player = 0
@@ -279,9 +301,9 @@ disable_OS_requirement = SYSTEM_SETTINGS['system_settings']['enforce_os_requirem
 
 # Supported file extensions
 # (For *.wav get_pos() in pygame provides played duration and not actual play position)
-supported_file_types = SYSTEM_SETTINGS["system_settings"]['supported_file_types'] 
+supported_file_types = SYSTEM_SETTINGS["system_settings"]['supported_file_types']
 max_wait_limit_to_get_song_length = SYSTEM_SETTINGS['system_settings']['max_wait_limit_to_get_song_length']
-MAX_HISTORY_SIZE = SYSTEM_SETTINGS["system_settings"]['max_hist_size']
+MAX_RECENTS_SIZE = SYSTEM_SETTINGS["system_settings"]['max_recents_size']
 
 visible = SETTINGS['visible']
 loglevel = SETTINGS.get('loglevel')
@@ -392,7 +414,7 @@ except FileNotFoundError: FATAL_ERROR_INFO = "ffprobe not recognised globally, d
 if reddit_creds_are_valid: r_seshs = redditsessions.get_redditsessions()
 else: r_seshs = None
 
-def hist_queue_save(inf):
+def recents_queue_save(inf):
     """
     inf = {
         'yt_play_type': int,
@@ -403,14 +425,14 @@ def hist_queue_save(inf):
     "identity" is a kind of unique locater for a song. It can be a streaming url
     or the filepath of a locally streamed song (as a string)
 
-    Songs are pushed to the HISTORY_QUEUE and when it is full
+    Songs are pushed to the RECENTS_QUEUE and when it is full
     the oldest songs are removed first to clear space for the new ones
 
-    HISTORY_QUEUE has a fixed size (determined by settings.yml)
+    RECENTS_QUEUE has a fixed size (determined by settings.yml)
     (max allowed value = 10,000,000 (1 Million) items)
     """
 
-    global HISTORY_QUEUE, MAX_HISTORY_SIZE
+    global RECENTS_QUEUE, MAX_RECENTS_SIZE
 
     if current_media_player:
         if current_media_type == 0:
@@ -421,16 +443,17 @@ def hist_queue_save(inf):
         inf = [None, -1, inf]
 
     # Clear atleast 1 space for the new item
-    if len(HISTORY_QUEUE) == MAX_HISTORY_SIZE:
-        del HISTORY_QUEUE[0]
+    if len(RECENTS_QUEUE) == MAX_RECENTS_SIZE:
+        del RECENTS_QUEUE[0]
 
     # Store item in the newly cleared space
-    HISTORY_QUEUE.append(inf)
+    RECENTS_QUEUE.append(inf)
 
 
 def open_in_youtube(local_song_file_path):
-    local_song_detected_name = get_song_info(local_song_file_path, get_title_only = True)
-    if local_song_detected_name:
+    if local_song_detected_name := get_song_info(
+        local_song_file_path, get_title_only=True
+    ):
         _, youtube_search_query_url = YT_query.search_youtube(search=local_song_detected_name)
         webbrowser.open(youtube_search_query_url)
         return 0
@@ -445,24 +468,30 @@ def get_current_progress(): # Will not work because pygame returns
                             # playtime instead of play position
                             # when running get_pos() for some
                             # odd reason...
-    if current_media_player:
-        cur_prog = vas.vlc_media_player.get_media_player().get_time()/1000
-    else:
-        cur_prog = pygame.mixer.music.get_pos()/1000
-
-    return cur_prog
+    return (
+        vas.vlc_media_player.get_media_player().get_time() / 1000
+        if current_media_player
+        else pygame.mixer.music.get_pos() / 1000
+    )
 
 def save_user_data():
     global USER_DATA
 
     total_plays = [j for i, j in
                    USER_DATA['default_user_data']['stats']['play_count'].items()
-                   if i in ['local', 'radio', 'audio', 'youtube', 'redditsession']]
+                   if i in ['local', 'radio', 'general', 'youtube', 'redditsession']]
     total_plays = sum(total_plays)
     USER_DATA['default_user_data']['stats']['play_count']['total'] = total_plays
 
     with open('user/user_data.yml', 'w', encoding="utf-8") as u_data_file:
         yaml.dump(USER_DATA, u_data_file)
+
+def save_song_data():
+    global current_media_player, currentsong_length, currentsong
+
+    SONG_DATA = []
+    with open('data/song_data.json', 'w', encoding="utf-8") as s_data_file:
+        json.dump(SONG_DATA, s_data_file)
 
 def exitplayer(sys_exit=False):
     global EXIT_INFO, APP_BOOT_START_TIME, USER_DATA
@@ -525,13 +554,13 @@ def play_local_default_player(songpath, _songindex):
             except:
                 songindex = 'N/A'
 
-            hist_queue_save((songindex, currentsong))
+            recents_queue_save((songindex, currentsong))
 
         else:
             IPrint(colored.fg('dark_olive_green_2') + \
                   f':: {os.path.splitext(os.path.split(songpath)[1])[0]}' + \
                   colored.attr('reset'), visible=visible)
-            hist_queue_save(currentsong)
+            recents_queue_save(currentsong)
 
 
         if not currentsong_length and currentsong_length != -1:
@@ -540,9 +569,13 @@ def play_local_default_player(songpath, _songindex):
         USER_DATA['default_user_data']['stats']['play_count']['local'] += 1
         save_user_data()
 
+        # TODO - Save all song info in `data` dir
+        # save_song_data()
+
+        # Save current song to log/history.log in human readable form
         SAY(visible=visible,
             display_message = '',
-            out_file='logs/recents.log',
+            out_file='logs/history.log',
             log_message = currentsong,
             log_priority = 3,
             format_style = 0)
@@ -563,20 +596,29 @@ def voltransition(
     final=cached_volume,
     disablecaching=False,  # NOT_USED: Enable volume caching by default
     transition_time=0.2,
+    show_progress = False,
     # transition_time=1,
 ):
-    global cached_volume, current_media_player
+    global cached_volume, current_media_player, visible
 
     if not ismuted:
         if current_media_player:
             for i in range(101):
-                diffvolume = initial+(final-initial)*i
+                diffvolume = initial*100+(final-initial)*i
                 time.sleep(transition_time/100)
+
+                if show_progress and visible:
+                    print(f'{colored.fg("orange_1")}    -> {i}%', end='\r')
+                    print(colored.attr('reset'), end = '\r')
                 vas.vlc_media_player.get_media_player().audio_set_volume(int(diffvolume))
         else:
             for i in range(101):
                 diffvolume = initial+(final-initial)*i/100
                 time.sleep(transition_time/100)
+
+                if show_progress and visible:
+                    print(f'{colored.fg("orange_1")}    -> {i}%', end='\r')
+                    print(colored.attr('reset'), end = '\r')
                 pygame.mixer.music.set_volume(round(diffvolume, 2))
 
         # if not disablecaching:
@@ -592,35 +634,36 @@ def vol_trans_process_spawn():
     vol_trans_process.join()
 
 
-def playpausetoggle(softtoggle=True, use_multi=False):  # Soft pause by default
+def playpausetoggle(softtoggle=True, use_multi=False, transition_time=0.2, show_progress=False): # Soft pause by default
     global isplaying, currentsong, cached_volume, current_media_player
 
     try:
         if currentsong:
             if isplaying:
                 # with concurrent.futures.ProcessPoolExecutor() as executor:
-                if softtoggle:
-                    if use_multi:
-                        vol_trans_process_spawn()
-                    else:
-                        voltransition(initial=cached_volume,
-                                      final=0, disablecaching=True)
-                    # executor.submit(voltransition, initial=cached_volume, final=0, disablecaching=True)
+                if use_multi:
+                    vol_trans_process_spawn()
                 else:
-                    if use_multi:
-                        vol_trans_process_spawn()
-                    else:
-                        voltransition(initial=cached_volume, final=0,
-                                      transition_time=0, disablecaching=True)
-                    # executor.submit(voltransition, initial=cached_volume, final=0, transition_time=0, disablecaching=True)
+                    voltransition(initial=cached_volume,
+                                  final=0,
+                                  transition_time=transition_time*(softtoggle),
+                                  disablecaching=True,
+                                  show_progress=show_progress)
+                # executor.submit(voltransition,
+                #                 initial=cached_volume,
+                #                 transition_time=transition_time*(softtoggle),
+                #                 final=0,
+                #                 disablecaching=True)
 
                 if current_media_player:
                     vas.media_player(action='pausetoggle')
                 else:
                     pygame.mixer.music.pause()
 
-                isplaying = False
+                if visible: print(' '*12, end='\r')
                 IPrint("|| Paused", visible=visible)
+                isplaying = False
+
             else:
                 if current_media_player:
                     vas.media_player(action='pausetoggle')
@@ -628,36 +671,28 @@ def playpausetoggle(softtoggle=True, use_multi=False):  # Soft pause by default
                     pygame.mixer.music.unpause()
 
                 # with concurrent.futures.ProcessPoolExecutor() as executor:
-                if softtoggle:
-                    if current_media_player:
-                        vas.vlc_media_player.get_media_player().audio_set_volume(0)
-                    else:
-                        pygame.mixer.music.set_volume(0)
-                    if use_multi:
-                        vol_trans_process_spawn()
-                    else:
-                        voltransition(initial=0, final=cached_volume)
-                    # executor.submit(voltransition, initial=0, final=cached_volume)
+                if current_media_player:
+                    vas.vlc_media_player.get_media_player().audio_set_volume(0)
                 else:
-                    if current_media_player:
-                        vas.vlc_media_player.get_media_player().audio_set_volume(0)
-                    else:
-                        pygame.mixer.music.set_volume(0)
-                    if use_multi:
-                        vol_trans_process_spawn()
-                    else:
-                        voltransition(initial=0, final=cached_volume, transition_time=0)
-                    # executor.submit(voltransition, initial=0, final=cached_volume, transition_time=0)
-
-                isplaying = True
+                    pygame.mixer.music.set_volume(0)
+                if use_multi:
+                    vol_trans_process_spawn()
+                else:
+                    voltransition(initial=0,
+                                  final=cached_volume,
+                                  transition_time=transition_time*(softtoggle),
+                                  disablecaching=True,
+                                  show_progress=show_progress)
+                # executor.submit(voltransition, initial=0, final=cached_volume)
+                if visible: print(' '*12, end='\r')
                 IPrint("|> Resumed", visible=visible)
+                isplaying = True
         else:
             isplaying = False
             err("Nothing to pause/unpause", say=False)
 
     except Exception:
         # raise
-        err(f'Failed to toggle play/pause: {currentsong}', say=False)
         SAY(
             visible=visible,
             log_priority=2,
@@ -673,6 +708,7 @@ def stopsong():
             vas.media_player(action='stop')
         else:
             pygame.mixer.music.stop()
+
         currentsong = None
         isplaying = False
         purge_old_lyrics_if_exist()
@@ -715,6 +751,67 @@ def searchsongs(queryitems):
 #     else:
 #         return tempo
 
+def fade_in_out(initvol=None, finalvol=None, fade_type=0, fade_duration=5):
+    """
+    To fade out, use fade_type = 1
+    To fade in, use fade_type = 0
+    """
+
+    global cached_volume, isplaying, ismuted, faded_to_0
+
+    if initvol is None: initvol = cached_volume
+
+    if ismuted:
+        SAY(visible=visible,
+            display_message='Cannot fade song in or out when muted',
+            log_message='Cannot fade song in or out when muted',
+            log_priority=3)
+
+    if finalvol is not None: # Complex fade has been command issued,
+                             # execute it
+
+        if finalvol != 0: # Music is paused, resume and then fade in to v > 0
+            # Resume music
+            IPrint("|> Resumed", visible=visible)
+            faded_to_0 = False
+            if current_media_player:
+                vas.media_player(action='pausetoggle')
+            else:
+                pygame.mixer.music.unpause()
+                isplaying = True
+
+        voltransition(initial=initvol,
+                      final=finalvol,
+                      transition_time=fade_duration,
+                      disablecaching=True,
+                      show_progress=True)
+
+        if finalvol != 0: cached_volume = finalvol
+        if visible: print(' '*12, end='\r')
+
+        if finalvol == 0:
+            if current_media_player:
+                vas.media_player(action='pausetoggle')
+            else:
+                pygame.mixer.music.unpause()
+
+            IPrint("|> Paused", visible=visible)
+            isplaying = False
+
+    elif fade_type == 0 and isplaying:
+        SAY(visible=visible,
+            display_message='Cannot fade in, song already playing. Try pausing',
+            log_message='Cannot fade in, song already playing. Try pausing',
+            log_priority=3)
+    elif fade_type == 0 or isplaying:
+        playpausetoggle(softtoggle = True, transition_time=fade_duration, show_progress=True)
+
+    else:
+        SAY(visible=visible,
+            display_message='Cannot fade out, no song playing',
+            log_message='Cannot fade out, no song playing',
+            log_priority=3)
+
 def enqueue(songindices):
     print(f'Enqueuing feature is still in progress... The developer @{SYSTEM_SETTINGS["about"]["author"]} will add this feature shortly...')
     # IPrint("Enqueueing", visible=visible)
@@ -748,7 +845,7 @@ def purge_old_lyrics_if_exist():
 def local_play_commands(commandslist, _command=False):
     global cached_volume, currentsong_length, lyrics_saved_for_song
     pygame.mixer.music.set_volume(cached_volume)
-    
+
     purge_old_lyrics_if_exist()
     lyrics_saved_for_song = None
 
@@ -758,8 +855,8 @@ def local_play_commands(commandslist, _command=False):
             if songindex.isnumeric():
                 if int(songindex) in range(1, len(_sound_files)+1):
                     currentsong_length = None
-                    play_local_default_player(_sound_files[int(songindex)-1],
-                                              _songindex=songindex)
+                    play_local_default_player(songpath = _sound_files[int(songindex)-1],
+                                              _songindex = songindex)
                 else:
                     if any(_sound_files):
                         SAY(visible=visible,
@@ -818,20 +915,18 @@ def timeinput_to_timeobj(rawtime):
             else:
                 return (formattedtime, totaltime)
 
-        else:
-            if rawtime.strip() == '-0':
-                return ('0', 0)
+        elif rawtime.strip() == '-0':
+            return ('0', 0)
 
-            elif rawtime.isnumeric():
-                if int(rawtime) > currentsong_length:
-                    return ValueError
-                else:
-                    processed_rawtime = list(
-                        map(lambda x: int(x), convert(int(rawtime)).split(':')))
-                    formattedtime = ' '.join([''.join(map(lambda x: str(x), i)) for i in list(
-                        zip(processed_rawtime, ['h', 'm', 's'][3-len(processed_rawtime):]))])
-                    # print (None, rawtime)
-                    return (formattedtime, rawtime)
+        elif rawtime.isnumeric():
+            if int(rawtime) > currentsong_length:
+                return ValueError
+            processed_rawtime = list(
+                map(lambda x: int(x), convert(int(rawtime)).split(':')))
+            formattedtime = ' '.join([''.join(map(lambda x: str(x), i)) for i in list(
+                zip(processed_rawtime, ['h', 'm', 's'][3-len(processed_rawtime):]))])
+            # print (None, rawtime)
+            return (formattedtime, rawtime)
 
     except Exception:
         # print (None, None)
@@ -841,7 +936,7 @@ def get_currentsong_length():
     global current_media_player, currentsong_length, currentsong_length
     if currentsong:
         if current_media_player:
-            if not currentsong_length and not currentsong_length == -1:
+            if not currentsong_length and currentsong_length != -1:
                 currentsong_length = currentsong_length/1000
         else:
             cursong_obj = pygame.mixer.Sound(currentsong)
@@ -858,7 +953,7 @@ def song_seek(timeval=None, rel_val=None):
                 vas.vlc_media_player.get_media_player().set_time(int(timeval)*1000)
                 return True
             except Exception:
-                raise
+                # raise
                 return None
                 # raise # TODO - remove all "raise"d exceptions?
         else:
@@ -870,9 +965,7 @@ def song_seek(timeval=None, rel_val=None):
                     log_message=f'Unsupported codec for seeking song: {currentsong}', log_priority=2)
                 return None
 
-    elif rel_val:
-        pass
-    else:
+    elif not rel_val:
         SAY(visible=visible, display_message="Error: Can't seek in this song",
             log_message=f'Unsupported codec for seeking song: {currentsong}', log_priority=2)
         return None
@@ -905,6 +998,12 @@ def convert(seconds):
 
     return "{0:0>2.0f}:{1:0>2.0f}:{2:0>2.0f}".format(hour, minutes, seconds)
 
+def isfloat(value):
+    try:
+        float(value)
+        return True
+    except ValueError:
+        return False
 
 def rand_song_index_generate():
     global _sound_files_names_only
@@ -960,7 +1059,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
                     log_priority = 2)
 
         currentsong = (media_name, media_url, YT_aud_url)
-        hist_queue_save(currentsong)
+        recents_queue_save(currentsong)
 
         if print_now_playing and visible:
             if single_video:
@@ -969,13 +1068,13 @@ def play_vas_media(media_url, single_video = None, media_name = None,
                 IPrint(f"Chosen YouTube video:: {colored.fg('plum_1')}{media_name}{colored.attr('reset')}", visible=visible)
             IPrint(f"{colored.fg('light_red')}@ {colored.fg('orange_1')}{media_url}{colored.attr('reset')}", visible=visible)
 
-    elif media_type == 'audio':
+    elif media_type == 'general':
         vas.set_media(_type='audio', audurl=media_url)
 
         current_media_type = 1
         currentsong = media_url
-        hist_queue_save(currentsong)
-        IPrint(f"Chosen custom audio url:: {text_overflow_prettify(media_url)}", visible=visible)
+        recents_queue_save(currentsong)
+        IPrint(f"Chosen custom media url:: {text_overflow_prettify(media_url)}", visible=visible)
 
     elif media_type == 'radio':
         # Here `media_name` is actually the radio name
@@ -983,7 +1082,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
 
         current_media_type = 2
         currentsong = media_name
-        hist_queue_save(currentsong)
+        recents_queue_save(currentsong)
         IPrint(f"Chosen radio: {colored.fg('light_goldenrod_1')}{currentsong}{colored.attr('reset')}", visible=visible)
 
     elif media_type == 'redditsession':
@@ -991,7 +1090,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
 
         current_media_type = 3
         currentsong = (media_name, media_url)
-        hist_queue_save(currentsong)
+        recents_queue_save(currentsong)
 
     else:
         media_type = None
@@ -999,13 +1098,18 @@ def play_vas_media(media_url, single_video = None, media_name = None,
 
     if media_type == 'video': media_type = 'youtube'
     if media_type:
+
         # VAS Media Play
         vas.media_player(action='play')
         vas.vlc_media_player.get_media_player().audio_set_volume(int(cached_volume*100))
 
+        # TODO - Save all song info in `data` dir
+        # save_song_data()
+
+        # Save current song to log/history.log in human readable form
         SAY(visible=visible,
             display_message = '',
-            out_file='logs/recents.log',
+            out_file='logs/history.log',
             log_message = [' \u2014 '.join(currentsong[:-1]) if type(currentsong)==tuple else currentsong][0],
             log_priority = 3,
             format_style = 0)
@@ -1063,15 +1167,14 @@ def choose_media_url(media_url_choices: list, yt: bool = True):
                     _, media_name, media_url = media_url_choices[chosen_index-1]
                     play_vas_media(media_name=media_name, media_url=media_url,
                                    single_video=False)
-                else:
-                    if visible:
-                        print("ERROR: Invalid choice, choose again: ", end='\r')
+                elif visible:
+                    print("ERROR: Invalid choice, choose again: ", end='\r')
 
                 if visible: IPrint('\n', visible=visible)
 
 def refresh_settings():
     global SYSTEM_SETTINGS, visible, supported_file_types, disable_OS_requirement, max_yt_search_results_threshold
-    global max_wait_limit_to_get_song_length, FALLBACK_RESULT_COUNT, DEFAULT_EDITOR, MAX_HISTORY_SIZE
+    global max_wait_limit_to_get_song_length, FALLBACK_RESULT_COUNT, DEFAULT_EDITOR, MAX_RECENTS_SIZE
 
     try:
         with open('settings/system.toml', encoding='utf-8') as file:
@@ -1094,7 +1197,7 @@ def refresh_settings():
     # (wav get_pos() in pygame provides played duration and not actual play position)
     supported_file_types = SYSTEM_SETTINGS["system_settings"]['supported_file_types'] 
     max_wait_limit_to_get_song_length = SYSTEM_SETTINGS['system_settings']['max_wait_limit_to_get_song_length']
-    MAX_HISTORY_SIZE = SYSTEM_SETTINGS["system_settings"]['max_hist_size']
+    MAX_RECENTS_SIZE = SYSTEM_SETTINGS["system_settings"]['max_recents_size']
 
     visible = SETTINGS['visible']
     loglevel = SETTINGS.get('loglevel')
@@ -1127,20 +1230,23 @@ def reload_reddit_creds():
     if reddit_creds_are_valid: r_seshs = redditsessions.get_redditsessions()
     else: r_seshs = None
 
-def text_overflow_prettify(url):
-    if len(url) > 100:
-        return f"{url[:92]}...{url[-5:]}"
+def text_overflow_prettify(url, length_thresh=100):
+    if length_thresh == 100:
+        return f"{url[:92]}...{url[-5:]}" if len(url) > length_thresh else url
+    elif length_thresh >= 14:
+        return f"{url[:length_thresh-8]}...{url[-5:]}" if len(url) > length_thresh else url
     else:
-        return url
+        return
 
-def get_prettified_history(indices):
-    global HISTORY_QUEUE
+
+def get_prettified_recents(indices):
+    global recents_QUEUE
 
     results = [] # prettified results (formatted as WYSIWYG)
 
-    # results = [HISTORY_QUEUE[::-1][index] for index in indices]
+    # results = [RECENTS_QUEUE[::-1][index] for index in indices]
     for index in indices:
-        result= HISTORY_QUEUE[::-1][index]
+        result= RECENTS_QUEUE[::-1][index]
         yt_play_type, media_player, inf = result
 
         if media_player == -1:
@@ -1154,7 +1260,7 @@ def get_prettified_history(indices):
                       f"     {colored.fg('navajo_white_1')}Link  | {inf[1]}{colored.attr('reset')}")
 
         elif media_player == 1:
-            result = f"{colored.fg('hot_pink_1a')}@audio-link: {colored.fg('aquamarine_3')}{text_overflow_prettify(inf)}{colored.attr('reset')}"
+            result = f"{colored.fg('hot_pink_1a')}@media-link: {colored.fg('aquamarine_3')}{text_overflow_prettify(inf)}{colored.attr('reset')}"
 
         elif media_player == 2:
             result = f"{colored.fg('light_slate_blue')}@webradio/{colored.fg('navajo_white_1')}{inf}{colored.attr('reset')}"
@@ -1185,7 +1291,7 @@ def lyrics_ops(show_window):
                                    visible=visible,
                                    isYT=1)
         elif current_media_type == 1:
-            IPrint(f"Loading lyrics window for online audio stream (Time taking)...", visible=visible)
+            IPrint(f"Loading lyrics window for online media stream (Time taking)...", visible=visible)
             get_lyrics.show_window(refresh_lyrics = refresh_lyrics,
                                    max_wait_lim = max_wait_limit_to_get_song_length,
                                    get_related=get_related,
@@ -1225,7 +1331,7 @@ def lyrics_ops(show_window):
                 lyrics_saved_for_song = currentsong
 
 def process(command):
-    global _sound_files_names_only, visible, currentsong, isplaying, ismuted, cached_volume
+    global _sound_files_names_only, visible, currentsong, isplaying, ismuted, cached_volume, faded_to_0
     global current_media_player, current_media_type, DEFAULT_EDITOR, YOUTUBE_PLAY_TYPE, lyrics_saved_for_song
 
     commandslist = command.strip().split()
@@ -1385,10 +1491,71 @@ def process(command):
             last_index, last_name = _sound_files_names_enumerated[-1]
             IPrint(f">| {last_index} | {last_name}", visible=visible)
 
-        if commandslist in [['hist', 'count'], ['history', 'count']]:
-            IPrint(f"History count: {len(HISTORY_QUEUE)}", visible=visible)
+        elif commandslist[0] in ['pod', 'podcast', '.pods', '.podcasts']:
+            if commandslist[0].startswith('.'):
+                display_message=f'/? Invalid command {commandslist[0]}, perhaps you meant "{commandslist[0][:-1]}"'
+            else:
+                display_message=f'/? Invalid command {commandslist[0]}, perhaps you meant "{commandslist[0]}s"'
 
-        elif commandslist[0] in ['hist', 'history']:
+            SAY(visible=visible,
+                display_message=display_message,
+                log_message=f'"[.]podcast[s] command assumed to be misspelled',
+                log_priority=3)
+
+        elif commandslist[0] in ['pods', 'podcasts', '.pod', '.podcast']:
+            result_count = FALLBACK_RESULT_COUNT
+            if len(commandslist) == 2 and commandslist[1].isnumeric():
+                result_count = int(commandslist[1])
+
+            latest_podcasts = get_latest_podcasts()
+
+            latest_podcasts_table = []
+            for pod in latest_podcasts[:result_count]:
+                table_items_1 = [text_overflow_prettify(pod[key].strip('...'), length_thresh=60) if pod.get(key) else None for key in ['title', 'caption'] ]
+                table_items_2 = [pod[key] if pod.get(key) else None for key in ['pub_date', 'is_explicit']]
+                table_items = table_items_1+table_items_2
+                latest_podcasts_table.append(table_items)
+
+            if not commandslist[0].startswith('.'):
+                IPrint(tbl([(i+1, *j) for i, j in enumerate(latest_podcasts_table)],
+                            missingval='(--N/A--)',
+                            headers=('#', 'pod', 'caption', 'published on', 'is explicit'),
+                            tablefmt='pretty',
+                            colalign=('center','left',)),
+                            visible=visible)
+                IPrint('', visible=visible)
+                podcast_index = input(f"{colored.fg('light_slate_blue')}Enter podast session number to tune into: {colored.fg('navajo_white_1')}")
+                print(colored.attr('reset'), end='')
+
+            else:
+                if len(commandslist) == 2:
+                    podcast_index = commandslist[1]
+                else:
+                    podcast_index = ''
+
+            if podcast_index.isnumeric():
+                podcast_index = int(podcast_index)-1
+                if podcast_index in range(len(latest_podcasts_table)):
+                    IPrint(f"Attempting to play podcast: {latest_podcasts[podcast_index]['title']}", visible=visible)
+                    if latest_podcasts[podcast_index].get('url'):
+                        play_vas_media(media_url = latest_podcasts[podcast_index]['url'], media_type='general')
+
+            elif podcast_index.strip() == '':
+                SAY(visible=visible,
+                    display_message='No podcast session number entered, skipping',
+                    log_message='Podcast session index left empty, skipped',
+                    log_priority=3)
+
+            else:
+                SAY(visible=visible,
+                    display_message=f'You have entered an invalid podcast session number',
+                    log_message=f'Invalid podcast session number entered',
+                    log_priority=2)
+
+        if commandslist in [['recent', 'count'], ['recents', 'count']]:
+            IPrint(f"Recents count: {len(RECENTS_QUEUE)}", visible=visible)
+
+        elif commandslist[0] in ['recent', 'recents']:
             # TODO: Get values for `order_results` and `order_type` from SETTINGS
             indices = [] # Indices of songs to be displayed
             rescount = FALLBACK_RESULT_COUNT
@@ -1408,26 +1575,26 @@ def process(command):
 
                 if len(_command) == 2:
                     try:
-                        hist_x_to_y = list(map(lambda i:int(i.strip()), _command))
-                        hist_x_to_y[0] -= 1
-                        if hist_x_to_y[0] < hist_x_to_y[1]:
-                            indices = list(range(*hist_x_to_y))
+                        recents_x_to_y = list(map(lambda i:int(i.strip()), _command))
+                        recents_x_to_y[0] -= 1
+                        if recents_x_to_y[0] < recents_x_to_y[1]:
+                            indices = list(range(*recents_x_to_y))
                         else:
                             SAY(visible=visible,
                                 display_message = 'Range order is reversed. It should be lower to upper',
-                                log_message = 'Invalid order of bounds for listing range of history',
+                                log_message = 'Invalid order of bounds for listing range of recents',
                                 log_priority = 2)
                             range_command_is_valid = False
                     except Exception:
                         SAY(visible=visible,
-                            display_message = 'Invalid bounds for listing history range',
-                            log_message = 'Invalid bounds for listing range of history',
+                            display_message = 'Invalid bounds for listing recents range',
+                            log_message = 'Invalid bounds for listing range of recents',
                             log_priority = 2)
                         range_command_is_valid = False
                 else:
                     SAY(visible=visible,
-                        display_message = 'Invalid command for listing history range',
-                        log_message = 'Invalid command for listing a range of history',
+                        display_message = 'Invalid command for listing recents range',
+                        log_message = 'Invalid command for listing a range of recents',
                         log_priority = 2)
                     range_command_is_valid = False
             else:
@@ -1446,7 +1613,7 @@ def process(command):
 
 
             if indices:
-                results = get_prettified_history(indices)
+                results = get_prettified_recents(indices)
                 results_enum = list(zip(indices, results))
 
                 if order_results:
@@ -1461,9 +1628,9 @@ def process(command):
 
             else:
                 if len([i for i in commandslist if i.isnumeric()]) in [0, 1] and '-' not in command:
-                    if rescount > len(HISTORY_QUEUE):
-                        rescount = len(HISTORY_QUEUE)
-                    results = get_prettified_history(list(range(rescount)))
+                    if rescount > len(RECENTS_QUEUE):
+                        rescount = len(RECENTS_QUEUE)
+                    results = get_prettified_recents(list(range(rescount)))
                     results_enum = list(enumerate(results))
                     if order_results:
                         results_enum = sorted(results_enum, key = lambda x: x[0], reverse = not order_type)
@@ -1473,15 +1640,15 @@ def process(command):
                         IPrint(tbl([(-(i+1), j) for i, j in results_enum], tablefmt='plain'), visible=visible)
 
         elif commandslist == ['last', 'played']:
-            if HISTORY_QUEUE:
-                if currentsong and len(HISTORY_QUEUE) >= 2:
-                    IPrint(get_prettified_history([1])[0], visible=visible)
+            if RECENTS_QUEUE:
+                if currentsong and len(RECENTS_QUEUE) >= 2:
+                    IPrint(get_prettified_recents([1])[0], visible=visible)
                 else:
-                    IPrint(get_prettified_history([0])[0], visible=visible)
+                    IPrint(get_prettified_recents([0])[0], visible=visible)
             else:
                 SAY(visible=visible,
-                    display_message='No history recorded yet for the current session',
-                    log_message='No history to display',
+                    display_message='No recents recorded yet for the current session',
+                    log_message='No recents to display',
                     log_priority=2)
 
         elif commandslist == ['reload']:
@@ -1615,7 +1782,7 @@ def process(command):
                         elif YOUTUBE_PLAY_TYPE == 1:
                             IPrint(f"@ys: {currentsong[0]}", visible=visible)
                     elif current_media_type == 1:
-                        IPrint(f"@al: {currentsong}", visible=visible)
+                        IPrint(f"@ml: {currentsong}", visible=visible)
                     elif current_media_type == 2:
                         IPrint(f"@wra: {currentsong}", visible=visible)
                     elif current_media_type == 3:
@@ -1625,7 +1792,7 @@ def process(command):
                     IPrint(f":: {colored.fg('plum_1')}{songindex}{colored.fg('deep_pink_4c')} | {colored.fg('navajo_white_1')}{cur_song}{colored.attr('reset')}", visible=visible)
             else:
                 # currentsong = None
-                IPrint(f"{colored.fg('red')}({colored.attr('reset')}Not Playing{colored.fg('red')}){colored.attr('reset')}", visible=visible)
+                IPrint(f"{colored.fg('yellow_1')}({colored.fg('aquamarine_1b')}Not Playing{colored.fg('yellow_1')}){colored.attr('reset')}", visible=visible)
 
         elif commandslist == ['now*']:
             if currentsong:
@@ -1638,7 +1805,7 @@ def process(command):
                             IPrint(f"{colored.fg('red')}@youtube-search: {colored.fg('aquamarine_3')}Title | {currentsong[0]}", visible=visible)
                             IPrint(f"                 {colored.fg('navajo_white_1')}Link  | {currentsong[1]}{colored.attr('reset')}", visible=visible)
                     elif current_media_type == 1:
-                        IPrint(f"{colored.fg('hot_pink_1a')}@audio-link: {colored.fg('aquamarine_3')}{currentsong}{colored.attr('reset')}", visible=visible)
+                        IPrint(f"{colored.fg('hot_pink_1a')}@media-link: {colored.fg('aquamarine_3')}{currentsong}{colored.attr('reset')}", visible=visible)
                     elif current_media_type == 2:
                         IPrint(f"{colored.fg('light_slate_blue')}@webradio/{colored.fg('navajo_white_1')}{currentsong}{colored.attr('reset')}", visible=visible)
                     elif current_media_type == 3:
@@ -1649,11 +1816,91 @@ def process(command):
                     IPrint(f":: {colored.fg('plum_1')}{songindex}{colored.attr('reset')} | {currentsong}", visible=visible)
 
             else:
-                currentsong = None
+                # currentsong = None
                 IPrint(f"{colored.fg('red')}({colored.attr('reset')}Not Playing{colored.fg('red')}){colored.attr('reset')}", visible=visible)
 
         elif commandslist[0].lower() == 'play':
             local_play_commands(commandslist=commandslist)
+
+        elif commandslist[:2] in [['fade', 'in'], ['fade', 'out']]:
+            try:
+                """
+                fade in  --> fade_type = 0
+                fade out --> fade_type = 1
+                """
+
+                fade_type=(['in', 'out'].index(commandslist[1]))
+                if len(commandslist) == 2:
+                    fade_in_out(fade_type=fade_type)
+
+                elif len(commandslist) == 3:
+                    if isfloat(commandslist[2]):
+                        fade_duration = float(commandslist[2])
+                        fade_in_out(fade_type=fade_type, fade_duration=fade_duration)
+
+                    else:
+                        SAY(visible=visible,
+                            display_message='Fade duration must be a valid integer',
+                            log_message='Fade duration is not a valid integer',
+                            log_priority=2)
+
+                else:
+                    SAY(visible=visible,
+                        display_message='Invalid use of fade command. Need to specify a single integer for fade duration',
+                        log_message='Invalid use of fade in/out',
+                        log_priority=2)
+
+            except Exception:
+                SAY(visible=visible,
+                    display_message='Failed to fade in/out',
+                    log_message='Failed to fade in/out',
+                    log_priority=2)
+
+        elif commandslist[0] in ['fade']:
+            """
+            Sample usage:
+                Fade from current volume to 30% in 3 seconds -> fade to 30 in 3
+                Fade from 20% to current volume in 2 seconds -> fade from 20 in 2
+                Fade from 20% to 30% in 3 seconds            -> fade from 20 to 30 in 3
+                Fade from 100% to 2% in 5 seconds (default)  -> fade from 100 to 2
+            """
+
+            if commandslist.count('from') == 0:
+                initvol = cached_volume
+            elif commandslist.count('from') == 1:
+                _from_index = commandslist.index('from')
+                if isfloat(commandslist[_from_index+1]):
+                    initvol = float(commandslist[_from_index+1])
+                    if not current_media_player: # default
+                        initvol = initvol/100
+                else: raise Exception
+            elif commandslist.count('from') > 1:
+                raise Exception
+
+            if commandslist.count('to') == 1:
+                _to_index = commandslist.index('to')
+                if isfloat(commandslist[_to_index+1]):
+                    finalvol = float(commandslist[_to_index+1])
+                    finalvol = finalvol/100
+                    if finalvol == 0: faded_to_0 = True
+                else: raise Exception
+            else:
+                raise Exception
+
+            if commandslist.count('in') == 0:
+                fade_duration = 5
+            if commandslist.count('in') == 1:
+                _in_index = commandslist.index('in')
+                if isfloat(commandslist[_in_index+1]):
+                    fade_duration = float(commandslist[_in_index+1])
+                else: raise Exception
+            elif commandslist.count('in') > 1:
+                raise Exception
+
+            if len(commandslist) in range(3, 8):
+                fade_in_out(initvol=initvol, finalvol=finalvol, fade_type=isplaying, fade_duration=fade_duration)
+            else:
+                raise Exception
 
         elif commandslist[0].lower() in ['m?', 'ism?', 'ismute?']:
             # TODO - Make more reliable...?
@@ -1765,9 +2012,9 @@ def process(command):
                 display_message=f'/? Invalid command, perhaps you meant one of:\n'
                 f'  {colored.fg("magenta_3a")}download-yv:{colored.fg("light_sky_blue_1")} Download YouTube video\n'
                 f'  {colored.fg("magenta_3a")}download-ya:{colored.fg("light_sky_blue_1")} Download YouTube audio\n'
-                f'  {colored.fg("magenta_3a")}download-al:{colored.fg("light_sky_blue_1")} Download custom audio link'
+                f'  {colored.fg("magenta_3a")}download-ml:{colored.fg("light_sky_blue_1")} Download custom media link'
                 f'{colored.attr("reset")}\n',
-                log_message=f'"download-(\'ys\'|\'yv\'|\'al\')" command assumed to be misspelled', log_priority=3)
+                log_message=f'"download-(\'ys\'|\'yv\'|\'ml\')" command assumed to be misspelled', log_priority=3)
 
         # Download current/custom YouTube media (as video with audio)
         elif commandslist[0].lower() == 'download-yv':
@@ -1780,7 +2027,7 @@ def process(command):
                 if current_media_player == 0:
                     SAY(visible=visible,
                         log_message='Cannot download locally available songs',
-                        display_message='Whoops! Looks like you\'re trying to download a song already present in your hard drive',
+                        display_message='Whoops! Looks like you\'re trying to download a song already present in your local storage',
                         log_priority = 3)
 
                 elif current_media_player == 1:
@@ -1842,7 +2089,7 @@ def process(command):
                 if current_media_player == 0:
                     SAY(visible=visible,
                         log_message='Cannot download locally available songs',
-                        display_message='Whoops! Looks like you\'re trying to download a song already present in your hard drive',
+                        display_message='Whoops! Looks like you\'re trying to download a song already present in your local storage',
                         log_priority = 3)
 
                 elif current_media_player == 1:
@@ -1894,6 +2141,8 @@ def process(command):
                         log_priority = 3)
                     sp.Popen(['..\.virtenv\Scripts\python.exe', 'beta/mediadl.py', json.dumps(download_parmeters)], shell=True)
 
+        elif commandslist[0].lower() == 'download-ml':
+            pass
 
         elif commandslist == ['t']:
             IPrint(convert(get_current_progress()), visible=visible)
@@ -2076,7 +2325,7 @@ def process(command):
             if current_media_type == 0: # If YT vid is playing...
                 IPrint(f"YouTube audio cannot be synced, only seeked", visible=visible)
             elif current_media_type == 1: # If audio is playing...
-                IPrint(f"audio url cannot be synced, only seeked", visible=visible)
+                IPrint(f"media url cannot be synced, only seeked", visible=visible)
             elif current_media_type == 2: # If radio is playing...
                 vas.media_player(action='resync') # Resync radio to live stream
             elif current_media_type == 3: # If reddit-session is streaming...
@@ -2112,7 +2361,7 @@ def process(command):
                 else:
                     IPrint(colored.fg('hot_pink_1a')+"-- No results found --"+colored.attr('reset'), visible=visible)
 
-        elif commandslist == ['s', 'stop']:
+        elif commandslist in [['s'], ['stop']]:
             stopsong()
 
         elif commandslist == ['m']:
@@ -2342,15 +2591,15 @@ def process(command):
             else:
                 err("Invalid YouTube-link command, too long")  # Too many args
 
-        elif commandslist[0] in ['/al', '/audio-link']:
+        elif commandslist[0] in ['/ml', '/media-link']:
             if len(commandslist) == 2:
                 user_aud_url = commandslist[1]
                 if url_is_valid(user_aud_url, yt=False):
-                    play_vas_media(media_url = commandslist[1], media_type='audio')
+                    play_vas_media(media_url = commandslist[1], media_type='general')
                 else:
-                    err("Invalid audio link") # Too many args
+                    err("Invalid media link") # Too many args
             else:
-                err("Invalid audio-link command, too long") # Too many args
+                err("Invalid media-link command, too long") # Too many args
 
         elif commandslist[0] in ['/wra', '/webradio']:
             if len(commandslist) == 1: # Default station is coffee if not stated otherwise
