@@ -4,7 +4,7 @@ import sys
 import ctypes
 
 from ruamel.yaml import YAML
-from urllib.parse import urlparse, unquote_plus, parse_qs
+from url_validate import id_if_url_is_of_yt_format
 
 yaml = YAML(typ='safe')
 
@@ -12,45 +12,6 @@ PY_ARCH = (8 * ctypes.sizeof(ctypes.c_voidp))
 VLC_ARCH = None
 VLC_PATH = None
 SETTINGS = None
-
-def id_if_url_is_yt(some_url):
-    vid_id = None
-    
-    some_url = unquote_plus(some_url)
-    url_path = urlparse(some_url).path
-    url_query_p = parse_qs(urlparse(some_url).query)
-    
-    if url_query_p.get('v'):
-        if len(url_query_p['v']) == 1:
-            vid_id = url_query_p['v'][0]
-    
-    elif url_query_p.get('url'):
-        if len(url_query_p.get('url')) == 1:
-            vid_url_crude = url_query_p['url'][0]
-            try:
-                url_query_p = parse_qs(urlparse(vid_url_crude).query)
-                if len(url_query_p['v']) == 1:
-                    vid_id = url_query_p['v'][0]
-            except Exception:
-                pass
-    
-    elif url_query_p.get('u'):
-        if len(url_query_p.get('u')) == 1:
-            try:
-                vid_id = url_query_p['u'][0].lstrip('/watch?v=')
-            except Exception:
-                pass
-    
-    elif url_path.count('/v/') == 1 or url_path.count('/embed/') == 1:
-        url_path = url_path.replace('/v/', '').replace('/embed/', '')
-        vid_id = url_path
-    
-    elif url_path.count('/') == 1 and url_path[0] == '/':
-        vid_id = url_path.split('/')[1]
-
-    return vid_id
-
-
 
 def set_media(_type=None, vidurl=None, audurl=None):
 
@@ -77,9 +38,8 @@ def set_media(_type=None, vidurl=None, audurl=None):
         load_media_object(player=player, media=media)
     elif _type == "audio":
         if audurl:
-            if id_if_url_is_yt(audurl):
-                audurl = f'http://www.youtube.com/watch?v={id_if_url_is_yt(audurl)}'
-                # print(audurl)
+            if id_if_url_is_of_yt_format(audurl):
+                audurl = f'http://www.youtube.com/watch?v={id_if_url_is_of_yt_format(audurl)}'
                 audurl = pafy.new(audurl).getbest().url # Get media url (i.e. url with best audio + video)
             media = player.media_new(audurl)
             load_media_object(player=player, media=media)
