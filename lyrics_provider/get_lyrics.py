@@ -2,14 +2,15 @@
 import os
 import re
 import toml
-import tkinter as tk
+import json
+import subprocess
 
 curdir = os.path.dirname(__file__)
 os.chdir(curdir)
 
 import lyrics_provider.detect_song
+import lyrics_provider.lyrics_window_spawn
 
-from tkinter import ttk
 from ruamel.yaml import YAML
 
 os.chdir(curdir)
@@ -81,8 +82,7 @@ def get_lyrics(max_wait_lim,
 
     if SONG_INF != {}:
         head_text = SONG_INF['display_name']
-        lyr = SONG_INF.get('lyrics')
-        if lyr:
+        if lyr := SONG_INF.get('lyrics'):
             lyr = '\n'.join(lyr)
             text_to_be_displayed = lyr
 
@@ -135,6 +135,8 @@ def show_window(max_wait_lim,
                 weblink=None,
                 isYT=False):
 
+    os.chdir(curdir)
+    os.chdir('..')
     PROVIDED_WALLPAPER_NAMES = os.listdir('res/lyrics-wallpapers')
     PROVIDED_WALLPAPER_NAMES.sort(key=natural_keys)
 
@@ -249,48 +251,20 @@ def show_window(max_wait_lim,
 
     if not show_window: return None
 
-    root = tk.Tk()
-    root.resizable(True, False)
-    root.geometry("550x270")
-    root.title("Mariana - Lyrics Window")
+    # Create the window as a separate process
+    # so that it does not-block the main CLI interface
+    # and can be closed by the user
+    # (if the user wants to)
+    #
+
+    lyrics_spawn_params_dict = {
+        'text_to_be_displayed': text_to_be_displayed,
+        'head_text': head_text,
+        'foot_text': FOOT_TEXT,
+    }
+
+    lyrics_spawn_params_str = json.dumps(lyrics_spawn_params_dict)
 
     os.chdir(curdir)
-    os.chdir('..')
+    subprocess.Popen(['py', 'lyrics_window_spawn.py', lyrics_spawn_params_str])
 
-    # Icon for lyrics window
-    p1 = tk.PhotoImage(file = 'res/lyrics_icon.png')
-    root.iconphoto(False, p1)
-
-    # Apply the grid layout
-    root.grid_columnconfigure(0, weight=1)
-    root.grid_rowconfigure(0, weight=1)
-    root.resizable=((0, 0)) # Disable window resizing
-
-    head = tk.Label(root, text=head_text, font=("Segoe UI Bold", 14))
-    foot = tk.Label(root, text=FOOT_TEXT, font=("Arial Italic", 10), fg='brown')
-
-    head.grid(row=0, column=0, sticky='new')
-    foot.grid(row=2, column=0, sticky='sew')
-
-    # Create the text widget
-    text = tk.Text(root, height=10)
-
-    text.delete(1.0, "end")
-    text.insert('end', '\n'+text_to_be_displayed)
-
-    text.config(state='disabled', font = ("Segoe UI", 11))
-    text.grid(row=1, column=0, sticky='new')
-
-    # A previous plan (Using the MusixMatch API to get time-synced "rich lyrics"??)
-    # location = settings['general']['current_location']
-    # if location == 'JP': # Japan users have an agreement with Musixmatch to NOT BE ALLOWED TO COPY / PASTE LYRICS using their API
-    #     text.bindtags((str(text), str(root), "all"))
-
-    # Create a scrollbar widget and set its command to the text widget
-    scrollbar = ttk.Scrollbar(root, orient='vertical', command=text.yview)
-    scrollbar.grid(row=1, column=1, sticky='ns')
-
-    # Communicate back to the scrollbar
-    text['yscrollcommand'] = scrollbar.set
-
-    root.mainloop()
