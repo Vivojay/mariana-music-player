@@ -2270,6 +2270,7 @@ def process(command):
 
         elif command[0] == '.':
             try:
+                # Play by index
                 if len(commandslist) == 1:
                     # Get info of currently loaded audio and display pleasantly...
                     # The info params displayed depend on those specified in the settings...
@@ -2277,7 +2278,8 @@ def process(command):
                     if commandslist[0][1:].isnumeric():
                         local_play_commands(commandslist=[None, ''.join(commandslist[0][1:])])
 
-                if command.startswith('. '):
+                # Play/find by path
+                elif command.startswith('. '):
                     path = ' '.join(commandslist[1:])
                     if os.path.isfile(path):
                         if os.path.splitext(path)[1] in supported_file_types:
@@ -2286,9 +2288,11 @@ def process(command):
                             IPrint(0, visible=visible)
                     else:
                         IPrint(0, visible=visible)
+
                 elif command.startswith('.'):
-                    local_play_commands(commandslist=[None, command[1:]],
-                                        _command=command)
+                    if os.path.isfile(command.strip()[1:]):
+                        local_play_commands(commandslist=[None, command[1:]],
+                                            _command=command)
 
             except Exception:
                 raise
