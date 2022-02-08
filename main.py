@@ -41,7 +41,6 @@
 
 # IMPORTS BEGIN #
 
-from calendar import c
 import time
 APP_BOOT_START_TIME = time.time();                  print("Loaded 1/31",  end='\r')
 
@@ -53,7 +52,7 @@ os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import re;                                          print("Loaded 4/31",  end='\r')
 import sys;                                         print("Loaded 5/31",  end='\r')
 import pygame;                                      print("Loaded 6/31",  end='\r')
-import numpy as np;                                 print("Loaded 7/31",  end='\r')
+# import numpy as np;                                 print("Loaded 7/31",  end='\r')
 import random as rand;                              print("Loaded 8/31",  end='\r')
 import importlib;                                   print("Loaded 9/31",  end='\r')
 import colored;                                     print("Loaded 10/31", end='\r')
@@ -115,6 +114,7 @@ except ImportError:
     print("[INFO] ...Skipped 26/31")
 
 try:
+    os.chdir(CURDIR)
     from lyrics_provider import get_lyrics
     print("Loaded 27/31", end='\r')
 except ImportError:
@@ -157,7 +157,7 @@ except Exception:
         log_priority=2)
 
 try:
-    from beta.podcasts import get_latest_podcasts
+    from beta.podcasts import get_latest_podbean_data
     print("Loaded 31/31", end='\r')
 except Exception:
     try:
@@ -174,8 +174,8 @@ os.chdir(CURDIR)
 # IMPORTS END #
 
 
-# TODO - Replace `err` with SAY
-# TODO - Rename SAY to `err` or `errlogger`...
+# TODO - Replace `err`s with `SAY`s
+# TODO - Rename SAY to `err` or `errlogger`... in whole codebase?
 # TODO - Add option to display type of error in display_message parameter of `SAY`
 #        to print kind of log [ (debg)/(info)/(warn)/(fatl) ] ??
 
@@ -276,11 +276,10 @@ RECENTS_QUEUE = []
 YOUTUBE_PLAY_TYPE = None
 
 isplaying = False
-currentsong = None  # No song playing initially
+currentsong = None  # No audio playing initially
 ismuted = False
 lyrics_saved_for_song = False
 currentsong_length = None
-faded_to_0 = False
 
 songindex = -1
 current_media_player = 0
@@ -291,6 +290,18 @@ lyrics_window_note = "[Please close the lyrics window to continue issuing more c
 current_media_player can be either 0 or 1:
     0: default (pygame)
     1: vlc
+
+random audio (optional repeat, no repeat by default)
+log data about each audio path
+    timestamp of play
+    list of tags
+    favourited? (bool)
+    corrupted? (bool)
+    blacklisted? (bool)
+
+    # Maybe
+    estimated bpm
+    estimated key/scale
 """
 
 # Log levels from logger.py -> [Only for REF]
@@ -421,12 +432,12 @@ def recents_queue_save(inf):
         'type': int,
         'identity': (song_info_as_tuple) OR 'some/absolute/file/path',
     }
-    inf is a dict of "yt_play_type" (applicable only for YT streams), "identity" and "type" of song
-    "identity" is a kind of unique locater for a song. It can be a streaming url
-    or the filepath of a locally streamed song (as a string)
+    inf is a dict of "yt_play_type" (applicable only for YT streams), "identity" and "type" of audio
+    "identity" is a kind of unique locater for a audio. It can be a streaming url
+    or the filepath of a locally streamed audio (as a string)
 
     Songs are pushed to the RECENTS_QUEUE and when it is full
-    the oldest songs are removed first to clear space for the new ones
+    the oldest audios are removed first to clear space for the new ones
 
     RECENTS_QUEUE has a fixed size (determined by settings.yml)
     (max allowed value = 10,000,000 (1 Million) items)
@@ -459,8 +470,8 @@ def open_in_youtube(local_song_file_path):
         return 0
     else:
         SAY(visible=visible,
-            display_message = 'Could not detect the current song',
-            log_message = 'Could not detect the current song',
+            display_message = 'Could not detect the current audio',
+            log_message = 'Could not detect the current audio',
             log_priority = 3)
         return 1
 
@@ -546,7 +557,7 @@ def play_local_default_player(songpath, _songindex):
                   colored.attr('reset'), visible=visible)
 
             # The user is unreliable and may enter the
-            # song path with weird inhumanly erratic and random
+            # audio path with weird inhumanly erratic and random
             # mix of upper and lower case characters.
             # Hence, we need to convert everything to lowercase...
             try:
@@ -569,10 +580,10 @@ def play_local_default_player(songpath, _songindex):
         USER_DATA['default_user_data']['stats']['play_count']['local'] += 1
         save_user_data()
 
-        # TODO - Save all song info in `data` dir
+        # TODO - Save all audio info in `data` dir
         # save_song_data()
 
-        # Save current song to log/history.log in human readable form
+        # Save current audio to log/history.log in human readable form
         SAY(visible=visible,
             display_message = '',
             out_file='logs/history.log',
@@ -587,7 +598,7 @@ def play_local_default_player(songpath, _songindex):
             visible=visible,
             log_priority=2,
             display_message=f"Failed to play \"{songpath}\"",
-            log_message=f"Failed to play song: \"{songpath}\"",
+            log_message=f"Failed to play audio: \"{songpath}\"",
         )
 
 
@@ -697,7 +708,7 @@ def playpausetoggle(softtoggle=True, use_multi=False, transition_time=0.2, show_
             visible=visible,
             log_priority=2,
             display_message=f"Failed to toggle play/pause for \"{currentsong}\"",
-            log_message=f"Failed to toggle play pause for song: \"{currentsong}\"",
+            log_message=f"Failed to toggle play pause for audio: \"{currentsong}\"",
         )
 
 
@@ -730,14 +741,14 @@ def searchsongs(queryitems):
     global _sound_files_names_enumerated
 
     out = []
-    for index, song in _sound_files_names_enumerated:
+    for index, audio in _sound_files_names_enumerated:
         flag = True
         for queryitem in list(set(queryitems)):
-            if queryitem.lower() not in song.lower():
+            if queryitem.lower() not in audio.lower():
                 flag = False
 
         if flag:
-            out.append((index, song))
+            out.append((index, audio))
 
     return out
 
@@ -757,14 +768,14 @@ def fade_in_out(initvol=None, finalvol=None, fade_type=0, fade_duration=5):
     To fade in, use fade_type = 0
     """
 
-    global cached_volume, isplaying, ismuted, faded_to_0
+    global cached_volume, isplaying, ismuted
 
     if initvol is None: initvol = cached_volume
 
     if ismuted:
         SAY(visible=visible,
-            display_message='Cannot fade song in or out when muted',
-            log_message='Cannot fade song in or out when muted',
+            display_message='Cannot fade audio in or out when muted',
+            log_message='Cannot fade audio in or out when muted',
             log_priority=3)
 
     if finalvol is not None: # Complex fade has been command issued,
@@ -772,12 +783,12 @@ def fade_in_out(initvol=None, finalvol=None, fade_type=0, fade_duration=5):
 
         if finalvol != 0: # Music is paused, resume and then fade in to v > 0
             # Resume music
-            IPrint("|> Resumed", visible=visible)
-            faded_to_0 = False
-            if current_media_player:
-                vas.media_player(action='pausetoggle')
-            else:
-                pygame.mixer.music.unpause()
+            if not isplaying:
+                IPrint("|> Resumed", visible=visible)
+                if current_media_player:
+                        vas.media_player(action='pausetoggle')
+                else:
+                    pygame.mixer.music.unpause()
                 isplaying = True
 
         voltransition(initial=initvol,
@@ -790,26 +801,27 @@ def fade_in_out(initvol=None, finalvol=None, fade_type=0, fade_duration=5):
         if visible: print(' '*12, end='\r')
 
         if finalvol == 0:
-            if current_media_player:
-                vas.media_player(action='pausetoggle')
-            else:
-                pygame.mixer.music.unpause()
+            if isplaying:
+                if current_media_player:
+                        vas.media_player(action='pausetoggle')
+                else:
+                    pygame.mixer.music.unpause()
 
-            IPrint("|> Paused", visible=visible)
-            isplaying = False
+                IPrint("|> Paused", visible=visible)
+                isplaying = False
 
     elif fade_type == 0 and isplaying:
         SAY(visible=visible,
-            display_message='Cannot fade in, song already playing. Try pausing',
-            log_message='Cannot fade in, song already playing. Try pausing',
+            display_message='Cannot fade in, audio already playing. Try pausing',
+            log_message='Cannot fade in, audio already playing. Try pausing',
             log_priority=3)
     elif fade_type == 0 or isplaying:
         playpausetoggle(softtoggle = True, transition_time=fade_duration, show_progress=True)
 
     else:
         SAY(visible=visible,
-            display_message='Cannot fade out, no song playing',
-            log_message='Cannot fade out, no song playing',
+            display_message='Cannot fade out, no audio playing',
+            log_message='Cannot fade out, no audio playing',
             log_priority=3)
 
 def enqueue(songindices):
@@ -860,14 +872,14 @@ def local_play_commands(commandslist, _command=False):
                 else:
                     if any(_sound_files):
                         SAY(visible=visible,
-                            log_message='Out of bound song index',
-                            display_message=f'Song number {songindex} does not exist. Please input song number between 1 and {len(_sound_files)}',
+                            log_message='Out of bound audio index',
+                            display_message=f'Song number {songindex} does not exist. Please input audio number between 1 and {len(_sound_files)}',
                             log_priority=3)
 
                     else:
                         SAY(visible=visible,
-                            log_message='User attempted to play local song, even though there are no songs in library',
-                            display_message='There are no songs in library',
+                            log_message='User attempted to play local audio, even though there are no audios in library',
+                            display_message='There are no audios in library',
                             log_priority=2)
 
         else:
@@ -953,7 +965,6 @@ def song_seek(timeval=None, rel_val=None):
                 vas.vlc_media_player.get_media_player().set_time(int(timeval)*1000)
                 return True
             except Exception:
-                # raise
                 return None
                 # raise # TODO - remove all "raise"d exceptions?
         else:
@@ -961,13 +972,13 @@ def song_seek(timeval=None, rel_val=None):
                 pygame.mixer.music.set_pos(int(timeval))  # *1000)
                 return True
             except pygame.error:
-                SAY(visible=visible, display_message="Error: Can't seek in this song",
-                    log_message=f'Unsupported codec for seeking song: {currentsong}', log_priority=2)
+                SAY(visible=visible, display_message="Error: Can't seek in this audio",
+                    log_message=f'Unsupported codec for seeking audio: {currentsong}', log_priority=2)
                 return None
 
     elif not rel_val:
-        SAY(visible=visible, display_message="Error: Can't seek in this song",
-            log_message=f'Unsupported codec for seeking song: {currentsong}', log_priority=2)
+        SAY(visible=visible, display_message="Error: Can't seek in this audio",
+            log_message=f'Unsupported codec for seeking audio: {currentsong}', log_priority=2)
         return None
 
 
@@ -998,7 +1009,7 @@ def convert(seconds):
 
     return "{0:0>2.0f}:{1:0>2.0f}:{2:0>2.0f}".format(hour, minutes, seconds)
 
-def isfloat(value):
+def isdecimal(value):
     try:
         float(value)
         return True
@@ -1009,8 +1020,8 @@ def rand_song_index_generate():
     global _sound_files_names_only
     if len(_sound_files) == 0:
         SAY(visible=visible,
-        log_message='User attempted to play local song, even though there are no songs in library',
-        display_message='There are no songs in library',
+        log_message='User attempted to play local audio, even though there are no audios in library',
+        display_message='There are no audios in library',
         log_priority=2)
         return None
     else:
@@ -1038,7 +1049,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
     global isplaying, current_media_player, visible, currentsong, cached_volume
     global currentsong_length, current_media_type
 
-    # Stop prev songs b4 loading VAS Media...
+    # Stop prev audios b4 loading VAS Media...
     stopsong()
 
     # VAS Media Load/Set
@@ -1103,10 +1114,10 @@ def play_vas_media(media_url, single_video = None, media_name = None,
         vas.media_player(action='play')
         vas.vlc_media_player.get_media_player().audio_set_volume(int(cached_volume*100))
 
-        # TODO - Save all song info in `data` dir
+        # TODO - Save all audio info in `data` dir
         # save_song_data()
 
-        # Save current song to log/history.log in human readable form
+        # Save current audio to log/history.log in human readable form
         SAY(visible=visible,
             display_message = '',
             out_file='logs/history.log',
@@ -1124,7 +1135,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
     if current_media_type == 2:
         currentsong_length = -1
     else:
-        IPrint("Attempting to calculate song length")
+        IPrint("Attempting to calculate audio length")
         length_find_start_time = time.time()
         while True:
             if vas.vlc_media_player.get_media_player().get_length():
@@ -1278,7 +1289,7 @@ def lyrics_ops(show_window):
     global visible
 
     refresh_lyrics = not (lyrics_saved_for_song == currentsong) # Song has changed since last save of lyrics,
-                                                                # need to refresh the lyrics to match the current song
+                                                                # need to refresh the lyrics to match the current audio
     get_related = SETTINGS['get related songs']
     if current_media_player:
         if current_media_type == 0:
@@ -1311,9 +1322,9 @@ def lyrics_ops(show_window):
 
     if current_media_player == 0:
         get_related = SETTINGS['get related songs']
-        if get_related and lyrics_saved_for_song == currentsong: # True only if the song has changed.
-                                                                 # If it has, we need to get the related songs ONLY IF it is enabled in settings
-                                                                 # If it's still the same song, no need to get related songs again
+        if get_related and lyrics_saved_for_song == currentsong: # True only if the audio has changed.
+                                                                 # If it has, we need to get the related audios ONLY IF it is enabled in settings
+                                                                 # If it's still the same audio, no need to get related audios again
             get_related = False
 
         refresh_lyrics = get_related
@@ -1330,8 +1341,54 @@ def lyrics_ops(show_window):
                                        songfile = currentsong)
                 lyrics_saved_for_song = currentsong
 
+    os.chdir(CURDIR)
+
+def display_and_choose_podbean(latest_podcasts, commandslist, result_count, is_rss=False):
+
+    PODTYPE = ['podbean', 'rss'][is_rss]
+
+    latest_podcasts_table = []
+    for pod in latest_podcasts[:result_count]:
+        table_items_1 = [text_overflow_prettify(pod[key].strip('...'), length_thresh=60) if pod.get(key) else None for key in ['title', 'caption'] ]
+        table_items_2 = [pod[key] if pod.get(key) else None for key in ['pub_date', 'is_explicit']]
+        table_items = table_items_1+table_items_2
+        latest_podcasts_table.append(table_items)
+
+    if commandslist[0].startswith('.'):
+        podcast_index = str(result_count)
+    else:
+        IPrint(tbl([(i+1, *j) for i, j in enumerate(latest_podcasts_table)],
+                    missingval='( N/A )',
+                    headers=('#', ['pod', 'title'][is_rss], 'caption', 'published on', 'is explicit'),
+                    tablefmt='pretty',
+                    colalign=('center','left',)),
+                    visible=visible)
+        IPrint('', visible=visible)
+        podcast_index = input(f"{colored.fg('light_slate_blue')}Enter {PODTYPE} session number to tune into: {colored.fg('navajo_white_1')}")
+        print(colored.attr('reset'), end='')
+
+
+    if podcast_index.isnumeric():
+        podcast_index = int(podcast_index)-1
+        if podcast_index in range(len(latest_podcasts_table)):
+            IPrint(f"Attempting to play {colored.fg('green_1')}{['podcast', 'rss'][is_rss]}{colored.attr('reset')}: {latest_podcasts[podcast_index]['title']}", visible=visible)
+            if latest_podcasts[podcast_index].get('url'):
+                play_vas_media(media_url = latest_podcasts[podcast_index]['url'], media_type='general')
+
+    elif podcast_index.strip() == '':
+        SAY(visible=visible,
+            display_message=f'No {PODTYPE} session number entered, skipping',
+            log_message=f'{PODTYPE.title()} session index left empty, skipped',
+            log_priority=3)
+
+    else:
+        SAY(visible=visible,
+            display_message=f'You have entered an invalid {PODTYPE} session number',
+            log_message=f'Invalid {PODTYPE} session number entered',
+            log_priority=2)
+
 def process(command):
-    global _sound_files_names_only, visible, currentsong, isplaying, ismuted, cached_volume, faded_to_0
+    global _sound_files_names_only, visible, currentsong, isplaying, ismuted, cached_volume
     global current_media_player, current_media_type, DEFAULT_EDITOR, YOUTUBE_PLAY_TYPE, lyrics_saved_for_song
 
     commandslist = command.strip().split()
@@ -1370,7 +1427,7 @@ def process(command):
 
             if len(_sound_files) != 0:
                 # TODO: Get values for `order_results` and `order_type` from SETTINGS
-                indices = [] # Indices of songs to be displayed
+                indices = [] # Indices of audios to be displayed
                 rescount = FALLBACK_RESULT_COUNT
                 order_results = False
                 order_type = 1 # Default value (1): Display in ascending order
@@ -1395,19 +1452,19 @@ def process(command):
                             else:
                                 SAY(visible=visible,
                                     display_message = 'Range order is reversed. It should be lower to upper',
-                                    log_message = 'Invalid order of bounds for listing range of songs',
+                                    log_message = 'Invalid order of bounds for listing range of audios',
                                     log_priority = 2)
                                 range_command_is_valid = False
                         except Exception:
                             SAY(visible=visible,
-                                display_message = 'Invalid bounds for listing range of songs',
-                                log_message = 'Invalid bounds for listing range of songs',
+                                display_message = 'Invalid bounds for listing range of audios',
+                                log_message = 'Invalid bounds for listing range of audios',
                                 log_priority = 2)
                             range_command_is_valid = False
                     else:
                         SAY(visible=visible,
-                            display_message = 'Invalid command for listing a range of songs',
-                            log_message = 'Invalid command for listing a range of songs',
+                            display_message = 'Invalid command for listing a range of audios',
+                            log_message = 'Invalid command for listing a range of audios',
                             log_priority = 2)
                         range_command_is_valid = False
                 else:
@@ -1451,28 +1508,28 @@ def process(command):
 
             else:
                 SAY(visible=visible,
-                    log_message='User attempted to play local song, even though there are no songs in library',
-                    display_message='There are no songs in library',
+                    log_message='User attempted to play local audio, even though there are no audios in library',
+                    display_message='There are no audios in library',
                     log_priority=2)
 
         elif commandslist[0] == '/open':
             if current_media_player == 0:
-                if len(commandslist) == 1: # To open current song
+                if len(commandslist) == 1: # To open current audio
                     if currentsong:
                         open_in_youtube(currentsong)
                     else:
                         SAY(visible=visible,
-                            display_message = 'No song playing currently, try using "/open" with a song number or path instead',
-                            log_message = 'User issued "/open" as an isolated command even when no song is currently playing',
+                            display_message = 'No audio playing currently, try using "/open" with a audio number or path instead',
+                            log_message = 'User issued "/open" as an isolated command even when no audio is currently playing',
                             log_priority = 2)
 
-                elif len(commandslist) == 2: # To open custom song
-                    if commandslist[1].isnumeric(): # To open custom song by index
+                elif len(commandslist) == 2: # To open custom audio
+                    if commandslist[1].isnumeric(): # To open custom audio by index
                         song_index = int(commandslist[1])-1
                         songfile = _sound_files[song_index]
                         open_in_youtube(songfile)
                     else:
-                        if os.path.isfile(commandslist[1]): # To open custom song by absolute filepaths
+                        if os.path.isfile(commandslist[1]): # To open custom audio by absolute filepaths
                             songfile = commandslist[1]
                             open_in_youtube(songfile)
                         else:
@@ -1491,7 +1548,29 @@ def process(command):
             last_index, last_name = _sound_files_names_enumerated[-1]
             IPrint(f">| {last_index} | {last_name}", visible=visible)
 
-        elif commandslist[0] in ['pod', 'podcast', '.pods', '.podcasts']:
+        elif commandslist[0] in ['/rss', '/rss-link']:
+            if len(commandslist) == 2:
+                rss_link = commandslist[1]
+                if url_is_valid(rss_link):
+                    IPrint(f"Attempting to play {colored.fg('green_1')}rss link{colored.attr('reset')}", visible=visible)
+                    latest_podcasts = get_latest_podbean_data(rss_link=rss_link)
+                    display_and_choose_podbean(latest_podcasts=latest_podcasts,
+                                               commandslist=commandslist,
+                                               result_count=FALLBACK_RESULT_COUNT,
+                                               is_rss=True)
+                else:
+                    SAY(visible=visible,
+                        display_message = 'Invalid rss url provided',
+                        log_message = 'Url for RSS media invalid',
+                        log_priority = 2)
+            else:
+                SAY(visible=visible,
+                    display_message = 'Invalid rss command provided. Must have exactly 1 argument, i.e. rss link',
+                    log_message = 'Invalid rss command provided',
+                    log_priority = 2)
+
+        # Misspelled podbean podcast commands 
+        elif commandslist[0] in ['pod', 'podbean', '.pods', '.podbeans']:
             if commandslist[0].startswith('.'):
                 display_message=f'/? Invalid command {commandslist[0]}, perhaps you meant "{commandslist[0][:-1]}"'
             else:
@@ -1499,65 +1578,44 @@ def process(command):
 
             SAY(visible=visible,
                 display_message=display_message,
-                log_message=f'"[.]podcast[s] command assumed to be misspelled',
+                log_message=f'"podbean command assumed to be misspelled',
                 log_priority=3)
 
-        elif commandslist[0] in ['pods', 'podcasts', '.pod', '.podcast']:
+        # Podbean music: default vendor => 1001tracklists
+        # '1001tracklists'
+        elif commandslist[0] in ['pods', 'podbeans', '.pod', '.podbean']:
             result_count = FALLBACK_RESULT_COUNT
-            if len(commandslist) == 2 and commandslist[1].isnumeric():
-                result_count = int(commandslist[1])
+            podbean_vendor = '1001tracklists'
 
-            latest_podcasts = get_latest_podcasts()
+            if len(commandslist) in [2, 3]: # Either pod[bean]s <count> or
+                                            # pod[bean]s <count> <vendor>
+                podbean_command_numbers_at = [i for i,j in enumerate(commandslist) if j.isnumeric()]
 
-            latest_podcasts_table = []
-            for pod in latest_podcasts[:result_count]:
-                table_items_1 = [text_overflow_prettify(pod[key].strip('...'), length_thresh=60) if pod.get(key) else None for key in ['title', 'caption'] ]
-                table_items_2 = [pod[key] if pod.get(key) else None for key in ['pub_date', 'is_explicit']]
-                table_items = table_items_1+table_items_2
-                latest_podcasts_table.append(table_items)
-
-            if not commandslist[0].startswith('.'):
-                IPrint(tbl([(i+1, *j) for i, j in enumerate(latest_podcasts_table)],
-                            missingval='(--N/A--)',
-                            headers=('#', 'pod', 'caption', 'published on', 'is explicit'),
-                            tablefmt='pretty',
-                            colalign=('center','left',)),
-                            visible=visible)
-                IPrint('', visible=visible)
-                podcast_index = input(f"{colored.fg('light_slate_blue')}Enter podast session number to tune into: {colored.fg('navajo_white_1')}")
-                print(colored.attr('reset'), end='')
-
-            else:
-                if len(commandslist) == 2:
-                    podcast_index = commandslist[1]
+                if len(podbean_command_numbers_at) == 0:
+                    podbean_vendor = commandslist[1]
+                elif len(podbean_command_numbers_at) == 1:
+                    result_count = int(commandslist[podbean_command_numbers_at[0]])
+                    if len(commandslist) == 3:
+                        podbean_vendor = commandslist[3-podbean_command_numbers_at[0]]
                 else:
-                    podcast_index = ''
+                    SAY(visible=visible,
+                        display_message = 'Too many numbers provided, try using only 1',
+                        log_message = 'Too many numbers provided for pod family of command',
+                        log_priority = 2)
 
-            if podcast_index.isnumeric():
-                podcast_index = int(podcast_index)-1
-                if podcast_index in range(len(latest_podcasts_table)):
-                    IPrint(f"Attempting to play podcast: {latest_podcasts[podcast_index]['title']}", visible=visible)
-                    if latest_podcasts[podcast_index].get('url'):
-                        play_vas_media(media_url = latest_podcasts[podcast_index]['url'], media_type='general')
-
-            elif podcast_index.strip() == '':
-                SAY(visible=visible,
-                    display_message='No podcast session number entered, skipping',
-                    log_message='Podcast session index left empty, skipped',
-                    log_priority=3)
-
-            else:
-                SAY(visible=visible,
-                    display_message=f'You have entered an invalid podcast session number',
-                    log_message=f'Invalid podcast session number entered',
-                    log_priority=2)
+            IPrint(f"Playing from {colored.fg('green_1')}{podbean_vendor}{colored.attr('reset')}")
+            latest_podcasts = get_latest_podbean_data(vendor=podbean_vendor)
+            display_and_choose_podbean(latest_podcasts=latest_podcasts,
+                                       commandslist=commandslist,
+                                       result_count=result_count,
+                                       is_rss=False)
 
         if commandslist in [['recent', 'count'], ['recents', 'count']]:
             IPrint(f"Recents count: {len(RECENTS_QUEUE)}", visible=visible)
 
         elif commandslist[0] in ['recent', 'recents']:
             # TODO: Get values for `order_results` and `order_type` from SETTINGS
-            indices = [] # Indices of songs to be displayed
+            indices = [] # Indices of audios to be displayed
             rescount = FALLBACK_RESULT_COUNT
             order_results = False
             order_type = 1 # Default value (1): Display in ascending order
@@ -1713,30 +1771,30 @@ def process(command):
             if not current_media_player: # default player currently active
                 offset = None
                 if songindex not in ['N/A', -1]:
-                    if len(commandslist) == 1: # default to 1 song skip
+                    if len(commandslist) == 1: # default to 1 audio skip
                         offset = 1
                     elif len(commandslist) > 1:
                         if commandslist[1].isnumeric():
                             if int(commandslist[1]) != 0:
-                                # number of songs to be skipped is provided by the user
+                                # number of audios to be skipped is provided by the user
                                 # store offset as either +ve for fwd skip (next)
                                 # or                     -ve for bwd seeks (prev)
                                 offset = int(commandslist[1])
                             else:
                                 SAY(visible=visible,
-                                    display_message = 'Provided 0 songs to skip. Not allowed',
-                                    log_message = 'Number of songs to skip was 0',
+                                    display_message = 'Provided 0 audios to skip. Not allowed',
+                                    log_message = 'Number of audios to skip was 0',
                                     log_priority = 2)
                         else:
                             SAY(visible=visible,
-                                display_message = 'Number of songs to skip must be a positives integer',
-                                log_message = 'Number of songs to skip wasn not a valid +ve int',
+                                display_message = 'Number of audios to skip must be a positives integer',
+                                log_message = 'Number of audios to skip wasn not a valid +ve int',
                                 log_priority = 2)
 
                     if offset:
                         if commandslist[0] in ['prev', '.prev']: offset *= -1
                         offsetted_index = songindex + offset
-                        if offsetted_index in range(1, len(_sound_files)+1): # is song found at offsetted index?
+                        if offsetted_index in range(1, len(_sound_files)+1): # is audio found at offsetted index?
                             if commandslist[0][0] == '.':
                                 local_play_commands(commandslist=[None, str(offsetted_index)])
                             else:
@@ -1747,14 +1805,14 @@ def process(command):
                                     offset_err_disp_msg = 'Cannot skip backward as you have reached beginning of library'
                                     offset_err_log_msg = 'Reached beginning of library, cannot skip bwd'
                                 else:
-                                    offset_err_disp_msg = f'Number of songs to skip forward was too large, try "next" command with <= {len(_sound_files)-songindex} skips'
+                                    offset_err_disp_msg = f'Number of audios to skip forward was too large, try "next" command with <= {len(_sound_files)-songindex} skips'
                                     offset_err_log_msg = 'Reached upper bound of index in library when skipping fwd'
                             else:
                                 if offsetted_index == len(_sound_files_names_only):
                                     offset_err_disp_msg = 'Cannot skip forward as you have reached end of library'
                                     offset_err_log_msg = 'Reached end of library, cannot skip fwd'
                                 else:
-                                    offset_err_disp_msg = f'Number of songs to skip backward was too large, try "prev" command with <= {songindex} skips'
+                                    offset_err_disp_msg = f'Number of audios to skip backward was too large, try "prev" command with <= {songindex} skips'
                                     offset_err_log_msg = 'Reached index 0 in library when skipping bwd'
 
                             SAY(visible=visible,
@@ -1764,12 +1822,12 @@ def process(command):
                 else:
                     if songindex == -1:
                         SAY(visible=visible,
-                            display_message = 'Cannot skip. No song is currently playing',
-                            log_message = 'Cannot skip when no song is playing',
+                            display_message = 'Cannot skip. No audio is currently playing',
+                            log_message = 'Cannot skip when no audio is playing',
                             log_priority = 2)
                     if songindex == 'N/A':
                         SAY(visible=visible,
-                            display_message = 'Cannot skip songs when playing individual song files outside of your music library',
+                            display_message = 'Cannot skip audios when playing individual audio files outside of your music library',
                             log_message = 'Cannot skip when playing explicit filepaths outside library',
                             log_priority = 2)
 
@@ -1834,7 +1892,7 @@ def process(command):
                     fade_in_out(fade_type=fade_type)
 
                 elif len(commandslist) == 3:
-                    if isfloat(commandslist[2]):
+                    if isdecimal(commandslist[2]):
                         fade_duration = float(commandslist[2])
                         fade_in_out(fade_type=fade_type, fade_duration=fade_duration)
 
@@ -1869,33 +1927,55 @@ def process(command):
                 initvol = cached_volume
             elif commandslist.count('from') == 1:
                 _from_index = commandslist.index('from')
-                if isfloat(commandslist[_from_index+1]):
+                if isdecimal(commandslist[_from_index+1]):
                     initvol = float(commandslist[_from_index+1])
-                    if not current_media_player: # default
-                        initvol = initvol/100
-                else: raise Exception
+                    initvol = initvol/100
+                else:
+                    SAY(visible=visible,
+                        display_message = 'Invalid initial volume provided. Must be between 0 and 100',
+                        log_message = 'Invalid initial volume provided',
+                        log_priority = 2)
             elif commandslist.count('from') > 1:
-                raise Exception
+                SAY(visible=visible,
+                    display_message = 'Invalid fade command syntax (check initial volume)',
+                    log_message = 'Invalid fade command syntax (initial volume)',
+                    log_priority = 2)
+
 
             if commandslist.count('to') == 1:
                 _to_index = commandslist.index('to')
-                if isfloat(commandslist[_to_index+1]):
+                if isdecimal(commandslist[_to_index+1]):
                     finalvol = float(commandslist[_to_index+1])
                     finalvol = finalvol/100
-                    if finalvol == 0: faded_to_0 = True
-                else: raise Exception
+                else:
+                    SAY(visible=visible,
+                        display_message = 'Invalid final volume provided. Must be between 0 and 100',
+                        log_message = 'Invalid initial volume provided',
+                        log_priority = 2)
             else:
-                raise Exception
+                SAY(visible=visible,
+                    display_message = 'Invalid fade command syntax (check final volume)',
+                    log_message = 'Invalid fade command syntax (final volume)',
+                    log_priority = 2)
+
 
             if commandslist.count('in') == 0:
                 fade_duration = 5
             if commandslist.count('in') == 1:
                 _in_index = commandslist.index('in')
-                if isfloat(commandslist[_in_index+1]):
+                if isdecimal(commandslist[_in_index+1]):
                     fade_duration = float(commandslist[_in_index+1])
-                else: raise Exception
+                else:
+                    SAY(visible=visible,
+                        display_message = 'Invalid final volume provided. Must be between 0 and 100',
+                        log_message = 'Invalid initial volume provided',
+                        log_priority = 2)
+
             elif commandslist.count('in') > 1:
-                raise Exception
+                SAY(visible=visible,
+                    display_message = 'Invalid fade command syntax (check duration)',
+                    log_message = 'Invalid fade command syntax (duration)',
+                    log_priority = 2)
 
             if len(commandslist) in range(3, 8):
                 fade_in_out(initvol=initvol, finalvol=finalvol, fade_type=isplaying, fade_duration=fade_duration)
@@ -1952,7 +2032,7 @@ def process(command):
                         # When using relative seek
 
                         else:
-                            SAY(visible=visible, display_message="Error: Seek value too large for this song",
+                            SAY(visible=visible, display_message="Error: Seek value too large for this audio",
                                 log_message=f'Seek value too large for: {currentsong}', log_priority=2)
                     elif time_validity == 1:
                         SAY(visible=visible, display_message="Error: Seek value can't have a decimal point",
@@ -1968,13 +2048,13 @@ def process(command):
             else:
                 if currentsong_length == -1:
                     SAY(visible=visible,
-                        display_message="Error: Can't seek song, as song length could not be loaded",
+                        display_message="Error: Can't seek audio, as audio length could not be loaded",
                         log_message=f'Song length could not be loaded, cannot seek',
                         log_priority=2)
                 else:
                     SAY(visible=visible,
-                        display_message="Error: No song to seek",
-                        log_message=f'Seeked song w/o playing any',
+                        display_message="Error: No audio to seek",
+                        log_message=f'Seeked audio w/o playing any',
                         log_priority=2)
 
         elif commandslist in [['prog'], ['progress'], ['prog*'], ['progress*']]:
@@ -2002,8 +2082,8 @@ def process(command):
 
                 else:
                     SAY(visible=visible,
-                        display_message = f'Progress cannot be displayed for song of unknown length',
-                        log_message = 'Progress undefined for song of unknown length',
+                        display_message = f'Progress cannot be displayed for audio of unknown length',
+                        log_message = 'Progress undefined for audio of unknown length',
                         log_priority = 2) # Log fatal crash
 
         elif commandslist[0].lower() in ['download',  'download-yt',  'download-au',  'download-a',
@@ -2026,8 +2106,8 @@ def process(command):
             if len(commandslist) == 1: # Download current/custom YouTube media
                 if current_media_player == 0:
                     SAY(visible=visible,
-                        log_message='Cannot download locally available songs',
-                        display_message='Whoops! Looks like you\'re trying to download a song already present in your local storage',
+                        log_message='Cannot download locally available audios',
+                        display_message='Whoops! Looks like you\'re trying to download a audio already present in your local storage',
                         log_priority = 3)
 
                 elif current_media_player == 1:
@@ -2036,14 +2116,14 @@ def process(command):
                         continue_dl = True
                     else:
                         url = None
-                        IPrint("No song currently playing", visible=visible)
+                        IPrint("No audio currently playing", visible=visible)
 
             elif len(commandslist) == 2:
                 url = commandslist[1]
-                if url_is_valid(url = url, yt=True):
+                if url_is_valid(url = url):
                     IPrint('Attempting to download YouTube video from:\n  '
-                        f'{colored.fg("sandy_brown")}@ {colored.fg("orchid_2")}{url}{colored.attr("reset")}',
-                        visible=visible)
+                          f'{colored.fg("sandy_brown")}@ {colored.fg("orchid_2")}{url}{colored.attr("reset")}',
+                          visible=visible)
                     continue_dl = True
                 else:
                     SAY(visible=visible,
@@ -2088,8 +2168,8 @@ def process(command):
             if len(commandslist) == 1: # Download current/custom YouTube media
                 if current_media_player == 0:
                     SAY(visible=visible,
-                        log_message='Cannot download locally available songs',
-                        display_message='Whoops! Looks like you\'re trying to download a song already present in your local storage',
+                        log_message='Cannot download locally available audios',
+                        display_message='Whoops! Looks like you\'re trying to download a audio already present in your local storage',
                         log_priority = 3)
 
                 elif current_media_player == 1:
@@ -2098,11 +2178,11 @@ def process(command):
                         continue_dl = True
                     else:
                         url = None
-                        IPrint("No song currently playing", visible=visible)
+                        IPrint("No audio currently playing", visible=visible)
 
             elif len(commandslist) == 2:
                 url = commandslist[1]
-                if url_is_valid(url = url, yt=True):
+                if url_is_valid(url = url):
                     IPrint('Attempting to download YouTube audio from:\n  '
                           f'{colored.fg("sandy_brown")}@ {colored.fg("orchid_2")}{url}{colored.attr("reset")}',
                           visible=visible)
@@ -2147,32 +2227,32 @@ def process(command):
         elif commandslist == ['t']:
             IPrint(convert(get_current_progress()), visible=visible)
 
-        # TODO - Add following command and interctive helps
+        # TODO - Add interactive help commands (similar to the following for rand command)
         # with syntax ?<command-name> ...
         # elif commandslist == ['? rand']:  # Random comand help
         #     IPrint("", visible=visible)
 
-        elif commandslist == ['.rand']:  # Play random song
+        elif commandslist == ['.rand']:  # Play random audio
             rand_song_index = rand_song_index_generate()
             if rand_song_index:
                 local_play_commands(commandslist=[None, str(rand_song_index)])
 
-        elif commandslist == ['=rand']:  # Print random song number
+        elif commandslist == ['=rand']:  # Print random audio number
             rand_song_index = rand_song_index_generate()
             if rand_song_index:
                 IPrint(rand_song_index, visible=visible)
 
-        elif commandslist == ['rand']:  # Print random song name
+        elif commandslist == ['rand']:  # Print random audio name
             rand_song_index = rand_song_index_generate()
             if rand_song_index:
                 IPrint(_sound_files_names_only[rand_song_index], visible=visible)
 
-        elif commandslist == ['rand*']:  # Print random song path
+        elif commandslist == ['rand*']:  # Print random audio path
             rand_song_index = rand_song_index_generate()
             if rand_song_index:
                 IPrint(_sound_files[rand_song_index], visible=visible)
 
-        elif commandslist == ['/rand']:  # Print random song number+name
+        elif commandslist == ['/rand']:  # Print random audio number+name
             rand_song_index = rand_song_index_generate()
             if rand_song_index:
                 IPrint(f"{rand_song_index+1}: {_sound_files_names_only[rand_song_index]}", visible=visible)
@@ -2182,35 +2262,33 @@ def process(command):
                 try:
                     song_seek('0')
                 except Exception:
-                    SAY(visible=visible, display_message="Error: Can't reset this song",
+                    SAY(visible=visible, display_message="Error: Can't reset this audio",
                         log_message=f'Error in resetting: {currentsong}', log_priority=2)
             else:
-                SAY(visible=visible, display_message="Error: No song to seek",
-                    log_message=f'Seeked song w/o playing any', log_priority=2)
+                SAY(visible=visible, display_message="Error: No audio to seek",
+                    log_message=f'Seeked audio w/o playing any', log_priority=2)
 
         elif command[0] == '.':
             try:
                 if len(commandslist) == 1:
-                    # Get info of currently loaded song and display pleasantly...
+                    # Get info of currently loaded audio and display pleasantly...
                     # The info params displayed depend on those specified in the settings...
                     # getstats() # TODO - Make such a function...???
                     if commandslist[0][1:].isnumeric():
                         local_play_commands(commandslist=[None, ''.join(commandslist[0][1:])])
 
-                if all([not i.replace(' ', '').isnumeric() for i in command.split('.')]): # Identifying a file-existence-check command
-                    if len(command.split('.')) == 3:
-                        if command.startswith('. '):
-                            path = ' '.join(commandslist[1:])
-                            if os.path.isfile(path):
-                                if os.path.splitext(path)[1] in supported_file_types:
-                                    IPrint(1, visible=visible)
-                                else:
-                                    IPrint(0, visible=visible)
-                            else:
-                                IPrint(0, visible=visible)
-                        elif command.startswith('.'):
-                            local_play_commands(commandslist=[None, command[1:]],
-                                                _command=command)
+                if command.startswith('. '):
+                    path = ' '.join(commandslist[1:])
+                    if os.path.isfile(path):
+                        if os.path.splitext(path)[1] in supported_file_types:
+                            IPrint(1, visible=visible)
+                        else:
+                            IPrint(0, visible=visible)
+                    else:
+                        IPrint(0, visible=visible)
+                elif command.startswith('.'):
+                    local_play_commands(commandslist=[None, command[1:]],
+                                        _command=command)
 
             except Exception:
                 raise
@@ -2240,9 +2318,9 @@ def process(command):
                                _sound_files_names_only[(song_index_entered)-1]+\
                                colored.attr('reset'), visible=visible)
                     except IndexError:
-                        err('', f'Please input song number between 1 and {len(_sound_files)}')
+                        err('', f'Please input audio number between 1 and {len(_sound_files)}')
                 else:
-                    err('', f'Please input song number between 1 and {len(_sound_files)}')
+                    err('', f'Please input audio number between 1 and {len(_sound_files)}')
 
         elif commandslist in [['count'], ['howmany'], ['total']]:
             IPrint(len(_sound_files_names_only), visible=visible)
@@ -2257,7 +2335,7 @@ def process(command):
                         if os.path.splitext(currentsong)[1] in supported_file_types:
                             if sys.platform == 'win32':
                                 currentsong=currentsong.replace('/', '\\')
-                                IPrint(f"Opening currently playing song: {currentsong}", visible=visible)
+                                IPrint(f"Opening currently playing audio: {currentsong}", visible=visible)
                                 os.system(f'explorer /select, {currentsong}')
                             else:
                                 currentsong=currentsong.replace('\\', '/')
@@ -2282,7 +2360,7 @@ def process(command):
                                 log_priority = 2,
                                 format_style = 1)
                     else:
-                        err("No song playing, no file selected to open")
+                        err("No audio playing, no file selected to open")
 
             elif len(commandslist) > 1 and commandslist[1] in ['lib', 'library']:
                 IPrint(fr'Opening library file in editor', visible=visible)
@@ -2308,17 +2386,29 @@ def process(command):
                         log_priority = 2)
 
             else:
-                path = ' '.join(commandslist[1:])
-                if os.path.isfile(path):
-                    if os.path.splitext(path)[1] in supported_file_types:
+                if len(commandslist) == 2 and commandslist[1].isnumeric():
+                    user_entered_song_index = int(commandslist)-1
+                    if user_entered_song_index in range(len(_sound_files_names_only)):
+                        path = _sound_files[user_entered_song_index]
                         if sys.platform == 'win32': path=path.replace('/', '\\')
                         else: path=path.replace('\\', '/')
-                        IPrint(f"Opening currently playing song: {path}", visible=visible)
-                        os.system(f'explorer /select, {path}')
+
+                else:
+                    path = ' '.join(commandslist[1:])
+                    if os.path.isfile(path):
+                        if os.path.splitext(path)[1] in supported_file_types:
+                            if sys.platform == 'win32': path=path.replace('/', '\\')
+                            else: path=path.replace('\\', '/')
+                            IPrint(f"Opening audio via path at: {path}", visible=visible)
+                            os.system(f'explorer /select, {path}')
+                        else:
+                            SAY(visible=visible,
+                                display_message = 'File type is unsupported, file existence cannot be guaranteed. (Will always be shown as 0)',
+                                log_message = 'Existence of file of unsupported type cannot be guaranteed, will show as 0',
+                                log_priority = 2)
+                            IPrint(0, visible=visible)
                     else:
                         IPrint(0, visible=visible)
-                else:
-                    IPrint(0, visible=visible)
 
         elif commandslist in [['sm'], ['sync'], ['sync', 'media']]:
             IPrint("Syncing current media...", visible=visible)
@@ -2341,9 +2431,9 @@ def process(command):
                     try:
                         IPrint(_sound_files[int(commandslist[1])-1], visible=visible)
                     except IndexError:
-                        err('', f'Please input song number between 1 and {len(_sound_files)}')
+                        err('', f'Please input audio number between 1 and {len(_sound_files)}')
                 else:
-                    err('', f'Please input song number between 1 and {len(_sound_files)}')
+                    err('', f'Please input audio number between 1 and {len(_sound_files)}')
 
         elif commandslist[0].lower() in ['find', 'f']:
             if len(commandslist) > 1:
@@ -2594,7 +2684,7 @@ def process(command):
         elif commandslist[0] in ['/ml', '/media-link']:
             if len(commandslist) == 2:
                 user_aud_url = commandslist[1]
-                if url_is_valid(user_aud_url, yt=False):
+                if url_is_valid(user_aud_url):
                     play_vas_media(media_url = commandslist[1], media_type='general')
                 else:
                     err("Invalid media link") # Too many args
