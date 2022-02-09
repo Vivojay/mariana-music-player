@@ -1,6 +1,6 @@
 #################################################################################################################################
 #
-#           Mariana Player v0.5.2 dev
+#           Mariana Player v0.6.0 dev-5
 #     (Read help.md for help on commands)
 #
 #    Running the app:
@@ -49,21 +49,22 @@ os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
 # import itertools;                                   print("Loaded 3/31",  end='\r')
 
-import re;                                          print("Loaded 4/31",  end='\r')
-import sys;                                         print("Loaded 5/31",  end='\r')
-import pygame;                                      print("Loaded 6/31",  end='\r')
-# import numpy as np;                                 print("Loaded 7/31",  end='\r')
-import random as rand;                              print("Loaded 8/31",  end='\r')
-import importlib;                                   print("Loaded 9/31",  end='\r')
-import colored;                                     print("Loaded 10/31", end='\r')
-import subprocess as sp;                            print("Loaded 11/31", end='\r')
-import restore_default;                             print("Loaded 12/31", end='\r')
-import toml;                                        print("Loaded 13/31", end='\r')
-import json;                                        print("Loaded 14/31", end='\r')
-import webbrowser;                                  print("Loaded 15/31", end='\r')
+import re;                                          print("Loaded 3/31",  end='\r')
+import sys;                                         print("Loaded 4/31",  end='\r')
+import pygame;                                      print("Loaded 5/31",  end='\r')
+# import numpy as np;                                 print("Loaded 6/31",  end='\r')
+import random as rand;                              print("Loaded 7/31",  end='\r')
+import importlib;                                   print("Loaded 8/31",  end='\r')
+import colored;                                     print("Loaded 9/31", end='\r')
+import subprocess as sp;                            print("Loaded 10/31", end='\r')
+import restore_default;                             print("Loaded 11/31", end='\r')
+import toml;                                        print("Loaded 12/31", end='\r')
+import json;                                        print("Loaded 13/31", end='\r')
+import webbrowser;                                  print("Loaded 14/31", end='\r')
 
-# import concurrent.futures;                          print("Loaded 16/31", end='\r')
+# import concurrent.futures;                          print("Loaded 15/31", end='\r')
 
+from getpass import getpass;                        print("Loaded 16/31", end='\r')
 from url_validate import url_is_valid;              print("Loaded 17/31", end='\r')
 from tabulate import tabulate as tbl;               print("Loaded 18/31", end='\r')
 from ruamel.yaml import YAML;                       print("Loaded 19/31", end='\r')
@@ -1045,7 +1046,8 @@ def validate_time(rawtime):
 
 # `media_url` is the only mandatory param in `play_vas_media`
 def play_vas_media(media_url, single_video = None, media_name = None,
-                   print_now_playing = True, media_type = 'video'):
+                   print_now_playing = True, media_type = 'video',
+                   show_link_chosen_msg = False):
 
     global isplaying, current_media_player, visible, currentsong, cached_volume
     global currentsong_length, current_media_type
@@ -1086,7 +1088,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
         current_media_type = 1
         currentsong = media_url
         recents_queue_save(currentsong)
-        IPrint(f"Chosen custom media url:: {text_overflow_prettify(media_url)}", visible=visible)
+        IPrint(f"Chosen custom media url:: {text_overflow_prettify(media_url)}", visible=visible*show_link_chosen_msg)
 
     elif media_type == 'radio':
         # Here `media_name` is actually the radio name
@@ -1136,7 +1138,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
     if current_media_type == 2:
         currentsong_length = -1
     else:
-        IPrint("Attempting to calculate audio length")
+        IPrint(f"{colored.fg('grey_50')}Attempting to calculate audio length{colored.fg('grey_50')}", visible=visible)
         length_find_start_time = time.time()
         while True:
             if vas.vlc_media_player.get_media_player().get_length():
@@ -1243,11 +1245,19 @@ def reload_reddit_creds():
     if reddit_creds_are_valid: r_seshs = redditsessions.get_redditsessions()
     else: r_seshs = None
 
-def text_overflow_prettify(url, length_thresh=100):
+def text_overflow_prettify(text, length_thresh=100, end_length = 8, as_tuple=False):
     if length_thresh == 100:
-        return f"{url[:92]}...{url[-5:]}" if len(url) > length_thresh else url
+        if as_tuple:
+            final = (text[:92], text[-5:]) if len(text) > length_thresh else (text, None)
+        else:
+            final = f"{text[:92]}...{text[-5:]}" if len(text) > length_thresh else text
+        return final
     elif length_thresh >= 14:
-        return f"{url[:length_thresh-8]}...{url[-5:]}" if len(url) > length_thresh else url
+        if as_tuple:
+            final = (text[:length_thresh-(end_length+3)], text[-end_length:]) if len(text) > length_thresh else (text, None)
+        else:
+            final = f"{text[:length_thresh-(end_length+3)]}...{text[-end_length:]}" if len(text) > length_thresh else text
+        return final
     else:
         return
 
@@ -1360,7 +1370,8 @@ def display_and_choose_podbean(latest_podbeans, commandslist, result_count, is_r
         podbean_index = str(result_count)
     else:
         IPrint(tbl([(i+1, *j) for i, j in enumerate(latest_podbeans_table)],
-                    missingval=f'{colored.fg("red")}( N/A ){colored.attr("reset")}',
+                    # missingval=f'{colored.fg("red")}( N/A ){colored.attr("reset")}',
+                    missingval='( N/A )',
                     headers=('#', ['pod', 'title'][is_rss], 'caption', 'published on', 'is explicit'),
                     tablefmt='pretty',
                     colalign=('center','left',)),
@@ -1373,9 +1384,21 @@ def display_and_choose_podbean(latest_podbeans, commandslist, result_count, is_r
     if podbean_index.isnumeric():
         podbean_index = int(podbean_index)-1
         if podbean_index in range(len(latest_podbeans_table)):
-            IPrint(f"Attempting to play {colored.fg('green_1')}{podtype}{colored.attr('reset')}: {latest_podbeans[podbean_index]['title']}", visible=visible)
+            IPrint(f"Attempting to play {podtype}: {colored.fg('green_1')}{latest_podbeans[podbean_index]['title']}{colored.attr('reset')}", visible=visible)
             if latest_podbeans[podbean_index].get('url'):
-                play_vas_media(media_url = latest_podbeans[podbean_index]['url'], media_type='general')
+                if caption := latest_podbeans[podbean_index].get('caption'):
+                    if visible:
+                        caption_shortened_1, caption_shortened_2 = text_overflow_prettify(caption, length_thresh=200, end_length=16, as_tuple=True)
+                        caption_shortened_formatted = f"{colored.fg('hot_pink_1a')}{caption_shortened_1}"\
+                                                      f"{colored.fg('orange_1')}..."\
+                                                      f"{colored.fg('hot_pink_1a')}{caption_shortened_2}"\
+                                                      f"{colored.attr('reset')}"
+
+                        print(caption_shortened_formatted) # This will only print if `visible` == True
+
+                play_vas_media(media_url = latest_podbeans[podbean_index]['url'],
+                               media_type='general',
+                               show_link_chosen_msg=False)
 
     elif podbean_index.strip() == '':
         SAY(visible=visible,
@@ -1574,12 +1597,9 @@ def process(command):
 
         # Misspelled podbean commands
         elif commandslist[0] in ['pod', 'podbean', '.pods', '.podbeans']:
+            warn_msg = None
             if commandslist[0].startswith('.'):
-                display_message=f'/? Invalid command {commandslist[0]}, perhaps you meant "{commandslist[0][:-1]}"'
-                SAY(visible=visible,
-                    display_message=display_message,
-                    log_message=f'"podbean command assumed to be misspelled',
-                    log_priority=3)
+                warn_msg=f'/? Invalid command {commandslist[0]}, perhaps you meant "{commandslist[0][:-1]}"'
             else:
                 if len(commandslist) in [2, 3]:
                     if commandslist[1] == 'vendors':
@@ -1588,14 +1608,18 @@ def process(command):
                             if commandslist[2] == 'all': result_count=None
                             if commandslist[2].isnumeric(): result_count=int(commandslist[2])
                         if result_count and len(pod_vendors) > result_count:
-                            IPrint("Showing the first {} vendors (you may change this 'fallback' result count in settings)".format(result_count), visible=visible)
+                            IPrint(f"{0}Showing the first {1} vendors (you may change this 'fallback' result count in settings){2}".format(colored.fg('orange_1'), result_count, colored.attr('reset')), visible=visible)
                         for pod_vendor in list(pod_vendors.keys())[:result_count]: print(f"  {colored.fg('aquamarine_3')}--> {colored.attr('reset')}{pod_vendor}")
+                    else:
+                        warn_msg=f'/? Invalid command {commandslist[0]}, perhaps you meant "{commandslist[0]}s"'
                 else:
-                    display_message=f'/? Invalid command {commandslist[0]}, perhaps you meant "{commandslist[0]}s"'
-                    SAY(visible=visible,
-                        display_message=display_message,
-                        log_message=f'"podbean command assumed to be misspelled',
-                        log_priority=3)
+                    warn_msg=f'/? Invalid command {commandslist[0]}, perhaps you meant "{commandslist[0]}s"'
+            
+            if warn_msg:
+                SAY(visible=visible,
+                    display_message=warn_msg,
+                    log_message=f'"podbean command assumed to be misspelled',
+                    log_priority=3)
 
         # Podbean music: default vendor => 1001tracklists
         # '1001tracklists'
@@ -1620,15 +1644,15 @@ def process(command):
                         log_message = 'Too many numbers provided for pod family of command',
                         log_priority = 2)
 
-            IPrint(f"Playing from {colored.fg('green_1')}{podbean_vendor}{colored.attr('reset')}")
+            IPrint(f"Playing from {colored.fg('green_1')}{podbean_vendor}{colored.attr('reset')}", visible=visible)
             latest_podbeans = get_latest_podbean_data(vendor=podbean_vendor)
 
             if latest_podbeans is not None:
                 display_and_choose_podbean(latest_podbeans=latest_podbeans,
-                                        commandslist=commandslist,
-                                        result_count=result_count,
-                                        is_rss=False)
-            else: # No podcasts found for provided vendor
+                                           commandslist=commandslist,
+                                           result_count=result_count,
+                                           is_rss=False)
+            elif podbean_vendor in ['vendor', 'vendors']: # No podcasts found for provided vendor
                 SAY(visible=visible,
                     display_message = 'Podbean vendor unknown. List vendors with "pod[bean] vendors"',
                     log_message = 'Unknown pod vendor mentioned',
@@ -2794,12 +2818,15 @@ def process(command):
                         log_priority=2)
 
 def mainprompt():
+    global visible
     while True:
         try:
-            command = input(colored.bg('gold_1')+\
-                            colored.fg('black')+')> '+\
-                            colored.attr('reset')+\
-                            colored.fg('dark_turquoise'))
+            prompt = colored.bg('gold_1')+\
+                     colored.fg('black')+')> '+\
+                     colored.attr('reset')+\
+                     colored.fg('dark_turquoise')
+
+            command = input(prompt) if visible else getpass(prompt)
             print(colored.attr('reset'), end='')
             outcode = process(command)
 
