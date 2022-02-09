@@ -157,7 +157,7 @@ except Exception:
         log_priority=2)
 
 try:
-    from beta.podcasts import get_latest_podbean_data
+    from beta.podcasts import get_latest_podbean_data, vendors as pod_vendors
     print("Loaded 31/31", end='\r')
 except Exception:
     try:
@@ -320,6 +320,7 @@ visible = SETTINGS['visible']
 loglevel = SETTINGS.get('loglevel')
 DEFAULT_EDITOR = SETTINGS.get('editor path')
 FALLBACK_RESULT_COUNT = SETTINGS['display items count']['general']['fallback']
+MAX_RESULT_COUNT = SETTINGS['display items count']['general']['maximum']
 max_yt_search_results_threshold = SETTINGS['display items count']['youtube-search results']['maximum']
 
 if not loglevel:
@@ -1214,6 +1215,7 @@ def refresh_settings():
     loglevel = SETTINGS.get('loglevel')
     DEFAULT_EDITOR = SETTINGS.get('editor path')
     FALLBACK_RESULT_COUNT = SETTINGS['display items count']['general']['fallback']
+    MAX_RESULT_COUNT = SETTINGS['display items count']['general']['maximum']
     max_yt_search_results_threshold = SETTINGS['display items count']['youtube-search results']['maximum']
 
     if not loglevel:
@@ -1343,48 +1345,48 @@ def lyrics_ops(show_window):
 
     os.chdir(CURDIR)
 
-def display_and_choose_podbean(latest_podcasts, commandslist, result_count, is_rss=False):
+def display_and_choose_podbean(latest_podbeans, commandslist, result_count, is_rss=False):
 
-    PODTYPE = ['podbean', 'rss'][is_rss]
+    podtype = ['podbean', 'rss'][is_rss]
 
-    latest_podcasts_table = []
-    for pod in latest_podcasts[:result_count]:
+    latest_podbeans_table = []
+    for pod in latest_podbeans[:result_count]:
         table_items_1 = [text_overflow_prettify(pod[key].strip('...'), length_thresh=60) if pod.get(key) else None for key in ['title', 'caption'] ]
         table_items_2 = [pod[key] if pod.get(key) else None for key in ['pub_date', 'is_explicit']]
         table_items = table_items_1+table_items_2
-        latest_podcasts_table.append(table_items)
+        latest_podbeans_table.append(table_items)
 
     if commandslist[0].startswith('.'):
-        podcast_index = str(result_count)
+        podbean_index = str(result_count)
     else:
-        IPrint(tbl([(i+1, *j) for i, j in enumerate(latest_podcasts_table)],
-                    missingval='( N/A )',
+        IPrint(tbl([(i+1, *j) for i, j in enumerate(latest_podbeans_table)],
+                    missingval=f'{colored.fg("red")}( N/A ){colored.attr("reset")}',
                     headers=('#', ['pod', 'title'][is_rss], 'caption', 'published on', 'is explicit'),
                     tablefmt='pretty',
                     colalign=('center','left',)),
                     visible=visible)
         IPrint('', visible=visible)
-        podcast_index = input(f"{colored.fg('light_slate_blue')}Enter {PODTYPE} session number to tune into: {colored.fg('navajo_white_1')}")
+        podbean_index = input(f"{colored.fg('light_slate_blue')}Enter {podtype} session number to tune into: {colored.fg('navajo_white_1')}")
         print(colored.attr('reset'), end='')
 
 
-    if podcast_index.isnumeric():
-        podcast_index = int(podcast_index)-1
-        if podcast_index in range(len(latest_podcasts_table)):
-            IPrint(f"Attempting to play {colored.fg('green_1')}{['podcast', 'rss'][is_rss]}{colored.attr('reset')}: {latest_podcasts[podcast_index]['title']}", visible=visible)
-            if latest_podcasts[podcast_index].get('url'):
-                play_vas_media(media_url = latest_podcasts[podcast_index]['url'], media_type='general')
+    if podbean_index.isnumeric():
+        podbean_index = int(podbean_index)-1
+        if podbean_index in range(len(latest_podbeans_table)):
+            IPrint(f"Attempting to play {colored.fg('green_1')}{podtype}{colored.attr('reset')}: {latest_podbeans[podbean_index]['title']}", visible=visible)
+            if latest_podbeans[podbean_index].get('url'):
+                play_vas_media(media_url = latest_podbeans[podbean_index]['url'], media_type='general')
 
-    elif podcast_index.strip() == '':
+    elif podbean_index.strip() == '':
         SAY(visible=visible,
-            display_message=f'No {PODTYPE} session number entered, skipping',
-            log_message=f'{PODTYPE.title()} session index left empty, skipped',
+            display_message=f'No {podtype} session number entered, skipping',
+            log_message=f'{podtype.title()} session index left empty, skipped',
             log_priority=3)
 
     else:
         SAY(visible=visible,
-            display_message=f'You have entered an invalid {PODTYPE} session number',
-            log_message=f'Invalid {PODTYPE} session number entered',
+            display_message=f'You have entered an invalid {podtype} session number',
+            log_message=f'Invalid {podtype} session number entered',
             log_priority=2)
 
 def process(command):
@@ -1419,7 +1421,8 @@ def process(command):
             return False
 
         if commandslist == ['all']:
-            results_enum = enumerate(_sound_files_names_only)
+            rescount = MAX_RESULT_COUNT
+            results_enum = enumerate(_sound_files_names_only[:rescount])
             IPrint(tbl([(i+1, j) for i, j in results_enum], tablefmt='plain'), visible=visible)
 
         # TODO: Need to display files in n columns (Mostly 3 cols) depending upon terminal size (dynamically...)
@@ -1553,8 +1556,8 @@ def process(command):
                 rss_link = commandslist[1]
                 if url_is_valid(rss_link):
                     IPrint(f"Attempting to play {colored.fg('green_1')}rss link{colored.attr('reset')}", visible=visible)
-                    latest_podcasts = get_latest_podbean_data(rss_link=rss_link)
-                    display_and_choose_podbean(latest_podcasts=latest_podcasts,
+                    latest_podbeans = get_latest_podbean_data(rss_link=rss_link)
+                    display_and_choose_podbean(latest_podbeans=latest_podbeans,
                                                commandslist=commandslist,
                                                result_count=FALLBACK_RESULT_COUNT,
                                                is_rss=True)
@@ -1569,20 +1572,34 @@ def process(command):
                     log_message = 'Invalid rss command provided',
                     log_priority = 2)
 
-        # Misspelled podbean podcast commands 
+        # Misspelled podbean commands
         elif commandslist[0] in ['pod', 'podbean', '.pods', '.podbeans']:
             if commandslist[0].startswith('.'):
                 display_message=f'/? Invalid command {commandslist[0]}, perhaps you meant "{commandslist[0][:-1]}"'
+                SAY(visible=visible,
+                    display_message=display_message,
+                    log_message=f'"podbean command assumed to be misspelled',
+                    log_priority=3)
             else:
-                display_message=f'/? Invalid command {commandslist[0]}, perhaps you meant "{commandslist[0]}s"'
-
-            SAY(visible=visible,
-                display_message=display_message,
-                log_message=f'"podbean command assumed to be misspelled',
-                log_priority=3)
+                if len(commandslist) in [2, 3]:
+                    if commandslist[1] == 'vendors':
+                        result_count=FALLBACK_RESULT_COUNT
+                        if len(commandslist) == 3:
+                            if commandslist[2] == 'all': result_count=None
+                            if commandslist[2].isnumeric(): result_count=int(commandslist[2])
+                        if result_count and len(pod_vendors) > result_count:
+                            IPrint("Showing the first {} vendors (you may change this 'fallback' result count in settings)".format(result_count), visible=visible)
+                        for pod_vendor in list(pod_vendors.keys())[:result_count]: print(f"  {colored.fg('aquamarine_3')}--> {colored.attr('reset')}{pod_vendor}")
+                else:
+                    display_message=f'/? Invalid command {commandslist[0]}, perhaps you meant "{commandslist[0]}s"'
+                    SAY(visible=visible,
+                        display_message=display_message,
+                        log_message=f'"podbean command assumed to be misspelled',
+                        log_priority=3)
 
         # Podbean music: default vendor => 1001tracklists
         # '1001tracklists'
+
         elif commandslist[0] in ['pods', 'podbeans', '.pod', '.podbean']:
             result_count = FALLBACK_RESULT_COUNT
             podbean_vendor = '1001tracklists'
@@ -1604,11 +1621,18 @@ def process(command):
                         log_priority = 2)
 
             IPrint(f"Playing from {colored.fg('green_1')}{podbean_vendor}{colored.attr('reset')}")
-            latest_podcasts = get_latest_podbean_data(vendor=podbean_vendor)
-            display_and_choose_podbean(latest_podcasts=latest_podcasts,
-                                       commandslist=commandslist,
-                                       result_count=result_count,
-                                       is_rss=False)
+            latest_podbeans = get_latest_podbean_data(vendor=podbean_vendor)
+
+            if latest_podbeans is not None:
+                display_and_choose_podbean(latest_podbeans=latest_podbeans,
+                                        commandslist=commandslist,
+                                        result_count=result_count,
+                                        is_rss=False)
+            else: # No podcasts found for provided vendor
+                SAY(visible=visible,
+                    display_message = 'Podbean vendor unknown. List vendors with "pod[bean] vendors"',
+                    log_message = 'Unknown pod vendor mentioned',
+                    log_priority = 2)
 
         if commandslist in [['recent', 'count'], ['recents', 'count']]:
             IPrint(f"Recents count: {len(RECENTS_QUEUE)}", visible=visible)
