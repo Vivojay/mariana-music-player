@@ -13,8 +13,8 @@ title = "Mariana CLI Music Player"
 
 [ver]
 maj = 0
-min = 5
-rel = 3
+min = 6
+rel = 0 (dev)
 
 [system_settings]
 enable_best_quality_downloads = 1
