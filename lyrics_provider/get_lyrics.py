@@ -9,7 +9,6 @@ curdir = os.path.dirname(__file__)
 os.chdir(curdir)
 
 import lyrics_provider.detect_song
-import lyrics_provider.lyrics_window_spawn
 
 from ruamel.yaml import YAML
 
@@ -153,7 +152,7 @@ def show_window(max_wait_lim,
             default_css = default_css_file.read()
 
         body_css = 'body {\n'
-        DEFAULT_BG_PATH = 'lyrics-wallpapers/DEFAULT.jpg'
+        DEFAULT_BG_PATH = 'lyrics-wallpapers/DEFAULT (Large).jpg'
         _, LYRICS_SETTINGS = get_settings()
 
         # Using a solid color wallpaper
