@@ -1,6 +1,6 @@
 #################################################################################################################################
 #
-#           Mariana Player v0.6.0 dev-5
+#           Mariana Player v0.5.2 dev
 #     (Read help.md for help on commands)
 #
 #    Running the app:
@@ -52,7 +52,7 @@ os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import re;                                          print("Loaded 3/31",  end='\r')
 import sys;                                         print("Loaded 4/31",  end='\r')
 import pygame;                                      print("Loaded 5/31",  end='\r')
-# import numpy as np;                                 print("Loaded 6/31",  end='\r')
+import numpy as np;                                 print("Loaded 6/31",  end='\r')
 import random as rand;                              print("Loaded 7/31",  end='\r')
 import importlib;                                   print("Loaded 8/31",  end='\r')
 import colored;                                     print("Loaded 9/31", end='\r')
@@ -64,6 +64,8 @@ import webbrowser;                                  print("Loaded 14/31", end='\
 
 # import concurrent.futures;                          print("Loaded 15/31", end='\r')
 
+import sounddevice;                                 print("Loaded 15/31", end='\r')
+# from scipy.io.wavfile import read;                  print("Loaded 15/31", end='\r')
 from getpass import getpass;                        print("Loaded 16/31", end='\r')
 from url_validate import url_is_valid;              print("Loaded 17/31", end='\r')
 from tabulate import tabulate as tbl;               print("Loaded 18/31", end='\r')
@@ -283,14 +285,12 @@ lyrics_saved_for_song = False
 currentsong_length = None
 
 songindex = -1
-current_media_player = 0
 
 lyrics_window_note = "[Please close the lyrics window to continue issuing more commands...]"
+current_media_type = None
 
 """
-current_media_player can be either 0 or 1:
-    0: default (pygame)
-    1: vlc
+NO SUCH THING AS current_media_player now
 
 random audio (optional repeat, no repeat by default)
 log data about each audio path
@@ -447,13 +447,13 @@ def recents_queue_save(inf):
 
     global RECENTS_QUEUE, MAX_RECENTS_SIZE
 
-    if current_media_player:
+    if current_media_type is None: # Playing local
+        inf = [None, -1, inf]
+    else:
         if current_media_type == 0:
             inf = [YOUTUBE_PLAY_TYPE, current_media_type, inf]
         else:
             inf = [None, current_media_type, inf]
-    else:
-        inf = [None, -1, inf]
 
     # Clear atleast 1 space for the new item
     if len(RECENTS_QUEUE) == MAX_RECENTS_SIZE:
@@ -477,15 +477,8 @@ def open_in_youtube(local_song_file_path):
             log_priority = 3)
         return 1
 
-def get_current_progress(): # Will not work because pygame returns
-                            # playtime instead of play position
-                            # when running get_pos() for some
-                            # odd reason...
-    return (
-        vas.vlc_media_player.get_media_player().get_time() / 1000
-        if current_media_player
-        else pygame.mixer.music.get_pos() / 1000
-    )
+def get_current_progress():
+    return (vas.vlc_media_player.get_media_player().get_time() / 1000)
 
 def save_user_data():
     global USER_DATA
@@ -500,7 +493,7 @@ def save_user_data():
         yaml.dump(USER_DATA, u_data_file)
 
 def save_song_data():
-    global current_media_player, currentsong_length, currentsong
+    global currentsong_length, currentsong
 
     SONG_DATA = []
     with open('data/song_data.json', 'w', encoding="utf-8") as s_data_file:
@@ -510,7 +503,6 @@ def exitplayer(sys_exit=False):
     global EXIT_INFO, APP_BOOT_START_TIME, USER_DATA
 
     stopsong()
-    if not current_media_player: pygame.mixer.quit()
     APP_CLOSE_TIME = time.time()
 
     time_spent_on_app = APP_CLOSE_TIME - APP_BOOT_END_TIME
@@ -539,17 +531,15 @@ def exitplayer(sys_exit=False):
 #     with open('', encoding='utf-8') as settingsfile:
 #         settings = yaml.load(settingsfile)
 
-
 def play_local_default_player(songpath, _songindex):
-    global isplaying, currentsong, currentsong_length, songindex, current_media_player
+    global isplaying, currentsong, currentsong_length, songindex
     global USER_DATA, current_media_type, SONG_CHANGED
 
     try:
-        if current_media_player:
-            vas.media_player(action='stop')
-        pygame.mixer.music.load(songpath)
-        pygame.mixer.music.play()
-        current_media_player = 0
+        vas.set_media(_type='local', localpath=songpath)
+        vas.media_player(action='play')
+        vas.vlc_media_player.get_media_player().audio_set_volume(int(cached_volume*100))
+
         isplaying = True
         currentsong = songpath
 
@@ -576,14 +566,34 @@ def play_local_default_player(songpath, _songindex):
             recents_queue_save(currentsong)
 
 
-        if not currentsong_length and currentsong_length != -1:
-            get_currentsong_length()
         current_media_type = None
         USER_DATA['default_user_data']['stats']['play_count']['local'] += 1
         save_user_data()
 
+        while not vas.vlc_media_player.get_media_player().is_playing(): pass
+
         # TODO - Save all audio info in `data` dir
         # save_song_data()
+
+        IPrint(f"{colored.fg('grey_50')}Attempting to calculate audio length{colored.fg('grey_50')}", visible=visible)
+        length_find_start_time = time.time()
+        while True:
+            if vas.vlc_media_player.get_media_player().get_length():
+                currentsong_length = vas.vlc_media_player.get_media_player().get_length()/1000
+                break
+            if time.time() - length_find_start_time >= max_wait_limit_to_get_song_length:
+                currentsong_length = -1
+                break
+
+        if currentsong_length == -1:
+            SAY(visible=visible,
+                log_message = "Cannot get length for vas media",
+                display_message = "",
+                log_priority=3)
+        isplaying = True
+
+        if not currentsong_length and currentsong_length != -1:
+            get_currentsong_length()
 
         # Save current audio to log/history.log in human readable form
         SAY(visible=visible,
@@ -594,6 +604,7 @@ def play_local_default_player(songpath, _songindex):
             format_style = 0)
 
     except Exception:
+        raise
         err(f'Failed to play: {os.path.splitext(os.path.split(songpath)[1])[0]}',
             say=False)
         SAY(
@@ -612,27 +623,17 @@ def voltransition(
     show_progress = False,
     # transition_time=1,
 ):
-    global cached_volume, current_media_player, visible
+    global cached_volume, visible
 
     if not ismuted:
-        if current_media_player:
-            for i in range(101):
-                diffvolume = initial*100+(final-initial)*i
-                time.sleep(transition_time/100)
+        for i in range(101):
+            diffvolume = initial*100+(final-initial)*i
+            time.sleep(transition_time/100)
 
-                if show_progress and visible:
-                    print(f'{colored.fg("orange_1")}    -> {i}%', end='\r')
-                    print(colored.attr('reset'), end = '\r')
-                vas.vlc_media_player.get_media_player().audio_set_volume(int(diffvolume))
-        else:
-            for i in range(101):
-                diffvolume = initial+(final-initial)*i/100
-                time.sleep(transition_time/100)
-
-                if show_progress and visible:
-                    print(f'{colored.fg("orange_1")}    -> {i}%', end='\r')
-                    print(colored.attr('reset'), end = '\r')
-                pygame.mixer.music.set_volume(round(diffvolume, 2))
+            if show_progress and visible:
+                print(f'{colored.fg("orange_1")}    -> {i}%', end='\r')
+                print(colored.attr('reset'), end = '\r')
+            vas.vlc_media_player.get_media_player().audio_set_volume(int(diffvolume))
 
         # if not disablecaching:
         #     cached_volume = final
@@ -648,7 +649,7 @@ def vol_trans_process_spawn():
 
 
 def playpausetoggle(softtoggle=True, use_multi=False, transition_time=0.2, show_progress=False): # Soft pause by default
-    global isplaying, currentsong, cached_volume, current_media_player
+    global isplaying, currentsong, cached_volume
 
     try:
         if currentsong:
@@ -668,26 +669,18 @@ def playpausetoggle(softtoggle=True, use_multi=False, transition_time=0.2, show_
                 #                 final=0,
                 #                 disablecaching=True)
 
-                if current_media_player:
-                    vas.media_player(action='pausetoggle')
-                else:
-                    pygame.mixer.music.pause()
+                vas.media_player(action='pausetoggle')
 
                 if visible: print(' '*12, end='\r')
                 IPrint("|| Paused", visible=visible)
                 isplaying = False
 
             else:
-                if current_media_player:
-                    vas.media_player(action='pausetoggle')
-                else:
-                    pygame.mixer.music.unpause()
+                vas.media_player(action='pausetoggle')
 
                 # with concurrent.futures.ProcessPoolExecutor() as executor:
-                if current_media_player:
-                    vas.vlc_media_player.get_media_player().audio_set_volume(0)
-                else:
-                    pygame.mixer.music.set_volume(0)
+                vas.vlc_media_player.get_media_player().audio_set_volume(0)
+
                 if use_multi:
                     vol_trans_process_spawn()
                 else:
@@ -715,12 +708,9 @@ def playpausetoggle(softtoggle=True, use_multi=False, transition_time=0.2, show_
 
 
 def stopsong():
-    global isplaying, currentsong, current_media_player
+    global isplaying, currentsong
     try:
-        if current_media_player:
-            vas.media_player(action='stop')
-        else:
-            pygame.mixer.music.stop()
+        vas.media_player(action='stop')
 
         currentsong = None
         isplaying = False
@@ -787,10 +777,7 @@ def fade_in_out(initvol=None, finalvol=None, fade_type=0, fade_duration=5):
             # Resume music
             if not isplaying:
                 IPrint("|> Resumed", visible=visible)
-                if current_media_player:
-                        vas.media_player(action='pausetoggle')
-                else:
-                    pygame.mixer.music.unpause()
+                vas.media_player(action='pausetoggle')
                 isplaying = True
 
         voltransition(initial=initvol,
@@ -804,11 +791,7 @@ def fade_in_out(initvol=None, finalvol=None, fade_type=0, fade_duration=5):
 
         if finalvol == 0:
             if isplaying:
-                if current_media_player:
-                        vas.media_player(action='pausetoggle')
-                else:
-                    pygame.mixer.music.unpause()
-
+                vas.media_player(action='pausetoggle')
                 IPrint("|> Paused", visible=visible)
                 isplaying = False
 
@@ -947,14 +930,10 @@ def timeinput_to_timeobj(rawtime):
         return (None, None)
 
 def get_currentsong_length():
-    global current_media_player, currentsong_length, currentsong_length
+    global currentsong_length, currentsong_length
     if currentsong:
-        if current_media_player:
-            if not currentsong_length and currentsong_length != -1:
-                currentsong_length = currentsong_length/1000
-        else:
-            cursong_obj = pygame.mixer.Sound(currentsong)
-            currentsong_length = cursong_obj.get_length()
+        if not currentsong_length and currentsong_length != -1:
+            currentsong_length = currentsong_length/1000
 
     return currentsong_length
 
@@ -962,21 +941,12 @@ def song_seek(timeval=None, rel_val=None):
     global currentsong
 
     if timeval:
-        if current_media_player:
-            try:
-                vas.vlc_media_player.get_media_player().set_time(int(timeval)*1000)
-                return True
-            except Exception:
-                return None
-                # raise # TODO - remove all "raise"d exceptions?
-        else:
-            try:
-                pygame.mixer.music.set_pos(int(timeval))  # *1000)
-                return True
-            except pygame.error:
-                SAY(visible=visible, display_message="Error: Can't seek in this audio",
-                    log_message=f'Unsupported codec for seeking audio: {currentsong}', log_priority=2)
-                return None
+        try:
+            vas.vlc_media_player.get_media_player().set_time(int(timeval)*1000)
+            return True
+        except Exception:
+            return None
+            # raise # TODO - remove all "raise"d exceptions?
 
     elif not rel_val:
         SAY(visible=visible, display_message="Error: Can't seek in this audio",
@@ -1049,14 +1019,13 @@ def play_vas_media(media_url, single_video = None, media_name = None,
                    print_now_playing = True, media_type = 'video',
                    show_link_chosen_msg = False):
 
-    global isplaying, current_media_player, visible, currentsong, cached_volume
+    global isplaying, visible, currentsong, cached_volume
     global currentsong_length, current_media_type
 
     # Stop prev audios b4 loading VAS Media...
     stopsong()
 
     # VAS Media Load/Set
-    current_media_player = 1 # Set current media player as VLC
     if media_type == 'video':
         YT_aud_url = vas.set_media(_type='yt_video', vidurl=media_url)
         current_media_type = 0
@@ -1158,7 +1127,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
 
 
 def choose_media_url(media_url_choices: list, yt: bool = True):
-    global current_media_player, isplaying, currentsong
+    global isplaying, currentsong
 
     if yt:
         if len(media_url_choices) == 1:
@@ -1303,36 +1272,35 @@ def lyrics_ops(show_window):
     refresh_lyrics = not (lyrics_saved_for_song == currentsong) # Song has changed since last save of lyrics,
                                                                 # need to refresh the lyrics to match the current audio
     get_related = SETTINGS['get related songs']
-    if current_media_player:
-        if current_media_type == 0:
-            IPrint(f"Loading lyrics window for YT stream (Time taking)...", visible=visible)
-            get_lyrics.show_window(refresh_lyrics = refresh_lyrics,
-                                   max_wait_lim = max_wait_limit_to_get_song_length,
-                                   get_related=get_related,
-                                   show_window=show_window,
-                                   weblink=currentsong[1],
-                                   visible=visible,
-                                   isYT=1)
-        elif current_media_type == 1:
-            IPrint(f"Loading lyrics window for online media stream (Time taking)...", visible=visible)
-            get_lyrics.show_window(refresh_lyrics = refresh_lyrics,
-                                   max_wait_lim = max_wait_limit_to_get_song_length,
-                                   get_related=get_related,
-                                   show_window=show_window,
-                                   visible=visible,
-                                   weblink=currentsong)
-        elif current_media_type == 2:
-            IPrint(f"Lyrics for webradio are not supported", visible=visible)
-        elif current_media_type == 3:
-            IPrint(f"Lyrics for reddit sessions are not supported", visible=visible)
+    if current_media_type == 0:
+        IPrint(f"Loading lyrics window for YT stream (Time taking)...", visible=visible)
+        get_lyrics.show_window(refresh_lyrics = refresh_lyrics,
+                                max_wait_lim = max_wait_limit_to_get_song_length,
+                                get_related=get_related,
+                                show_window=show_window,
+                                weblink=currentsong[1],
+                                visible=visible,
+                                isYT=1)
+    elif current_media_type == 1:
+        IPrint(f"Loading lyrics window for online media stream (Time taking)...", visible=visible)
+        get_lyrics.show_window(refresh_lyrics = refresh_lyrics,
+                                max_wait_lim = max_wait_limit_to_get_song_length,
+                                get_related=get_related,
+                                show_window=show_window,
+                                visible=visible,
+                                weblink=currentsong)
+    elif current_media_type == 2:
+        IPrint(f"Lyrics for webradio are not supported", visible=visible)
+    elif current_media_type == 3:
+        IPrint(f"Lyrics for reddit sessions are not supported", visible=visible)
 
-        lyrics_saved_for_song = currentsong
+    lyrics_saved_for_song = currentsong
 
     # elif ISDEV: # Song hasn't changes, no need to refresh lyrics
     #             # Just re-display the existing one
     #     print('Lyrics have already been loaded')
 
-    if current_media_player == 0:
+    if current_media_type is None:
         get_related = SETTINGS['get related songs']
         if get_related and lyrics_saved_for_song == currentsong: # True only if the audio has changed.
                                                                  # If it has, we need to get the related audios ONLY IF it is enabled in settings
@@ -1414,21 +1382,16 @@ def display_and_choose_podbean(latest_podbeans, commandslist, result_count, is_r
 
 def process(command):
     global _sound_files_names_only, visible, currentsong, isplaying, ismuted, cached_volume
-    global current_media_player, current_media_type, DEFAULT_EDITOR, YOUTUBE_PLAY_TYPE, lyrics_saved_for_song
+    global current_media_type, DEFAULT_EDITOR, YOUTUBE_PLAY_TYPE, lyrics_saved_for_song
 
     commandslist = command.strip().split()
 
-    if current_media_player:
-        try:
-            if vas.vlc_media_player.get_state().value == 6:
-                currentsong = None
-                isplaying = False
-        except Exception:
-            pass
-
-    else:
-        if pygame.mixer.music.get_pos() == -1:
+    try:
+        if vas.vlc_media_player.get_state().value == 6:
             currentsong = None
+            isplaying = False
+    except Exception:
+        pass
 
     if commandslist != []:  # Atleast 1 word
 
@@ -1539,7 +1502,7 @@ def process(command):
                     log_priority=2)
 
         elif commandslist[0] == '/open':
-            if current_media_player == 0:
+            if current_media_type is None:
                 if len(commandslist) == 1: # To open current audio
                     if currentsong:
                         open_in_youtube(currentsong)
@@ -1816,7 +1779,7 @@ def process(command):
             IPrint('visibility on', visible=visible)
 
         elif commandslist[0] in ['prev', 'next', '.prev', '.next']:
-            if not current_media_player: # default player currently active
+            if current_media_type is None: # default player currently active
                 offset = None
                 if songindex not in ['N/A', -1]:
                     if len(commandslist) == 1: # default to 1 audio skip
@@ -1881,7 +1844,7 @@ def process(command):
 
         elif commandslist == ['now']:
             if currentsong:
-                if current_media_player: # VLC
+                if current_media_type is not None: # VLC
                     if current_media_type == 0:
                         if YOUTUBE_PLAY_TYPE == 0:
                             IPrint(f"@yl: {currentsong[0]}", visible=visible)
@@ -1902,7 +1865,7 @@ def process(command):
 
         elif commandslist == ['now*']:
             if currentsong:
-                if current_media_player: # VLC
+                if current_media_type is not None: # VLC
                     if current_media_type == 0:
                         if YOUTUBE_PLAY_TYPE == 0:
                             IPrint(f"{colored.fg('red')}@youtube-link: {colored.fg('aquamarine_3')}Title | {currentsong[0]}", visible=visible)
@@ -1928,7 +1891,21 @@ def process(command):
         elif commandslist[0].lower() == 'play':
             local_play_commands(commandslist=commandslist)
 
-        elif commandslist[:2] in [['fade', 'in'], ['fade', 'out']]:
+        if len(commandslist) == 2:
+            if commandslist[1] == 'device':
+                device_kind = None
+                if commandslist[0] in ['output', 'input']:
+                    device_kind = commandslist[0]
+                elif commandslist[0] in ['out', 'in']:
+                    device_kind = commandslist[0]+'put'
+
+                if device_kind:
+                    if sounddevice._initialized: sounddevice._terminate()
+                    if not sounddevice._initialized: sounddevice._initialize()
+                    if device_name := sounddevice.query_devices(kind = device_kind).get('name'):
+                        IPrint(f"{colored.fg('navajo_white_1')}{device_kind} device: {colored.attr('reset')}{device_name}", visible=visible)
+
+        if commandslist[:2] in [['fade', 'in'], ['fade', 'out']]:
             try:
                 """
                 fade in  --> fade_type = 0
@@ -2046,12 +2023,14 @@ def process(command):
 
         elif commandslist[0].lower() in ['isl?', 'isloaded?']:
             # TODO - Make more reliable...?
-            if current_media_player:
+            if current_media_type is not None:
                 IPrint(vas.vlc.media, visible=visible)
             IPrint(int(bool(currentsong)), visible=visible)
 
         elif commandslist[0].lower() == 'seek':
+            print(1)
             if currentsong_length:
+                print(2)
                 if len(commandslist) == 2:
                     if commandslist[1].startswith('+'):
                         rawtime = str(int(get_current_progress()) + int(commandslist[1][1:]))
@@ -2152,13 +2131,13 @@ def process(command):
             url = None
 
             if len(commandslist) == 1: # Download current/custom YouTube media
-                if current_media_player == 0:
+                if current_media_type is None:
                     SAY(visible=visible,
                         log_message='Cannot download locally available audios',
                         display_message='Whoops! Looks like you\'re trying to download a audio already present in your local storage',
                         log_priority = 3)
 
-                elif current_media_player == 1:
+                else:
                     if currentsong is not None:
                         url = currentsong[1]
                         continue_dl = True
@@ -2214,13 +2193,13 @@ def process(command):
             url = None
 
             if len(commandslist) == 1: # Download current/custom YouTube media
-                if current_media_player == 0:
+                if current_media_type is None:
                     SAY(visible=visible,
                         log_message='Cannot download locally available audios',
                         display_message='Whoops! Looks like you\'re trying to download a audio already present in your local storage',
                         log_priority = 3)
 
-                elif current_media_player == 1:
+                else:
                     if currentsong is not None:
                         url = currentsong[1]
                         continue_dl = True
@@ -2382,7 +2361,7 @@ def process(command):
 
         if commandslist[0] == 'open':
             if commandslist == ['open']:
-                if currentsong and current_media_player == 0:
+                if currentsong and current_media_type is None:
                     if os.path.isfile(currentsong):
                         if os.path.splitext(currentsong)[1] in supported_file_types:
                             if sys.platform == 'win32':
@@ -2396,7 +2375,7 @@ def process(command):
                     else:
                         IPrint(0, visible=visible)
                 else:
-                    if current_media_player: # VLC
+                    if current_media_type is not None: # VLC
                         if current_media_type == 0:
                             webbrowser.open(f"{currentsong[1]}&t={int(get_current_progress())}s")
                         elif current_media_type == 1:
@@ -2475,7 +2454,7 @@ def process(command):
                 print(f'Reddit session sync: The developer @{SYSTEM_SETTINGS["about"]["author"]} will add this feature shortly...')
 
         elif commandslist[0] == 'path':
-            if len(commandslist) == 1 and currentsong and current_media_player == 0:
+            if len(commandslist) == 1 and currentsong and current_media_type is None:
                 IPrint(f":: {colored.fg('plum_1')}{songindex}{colored.attr('reset')} | {currentsong}", visible=visible)
 
             elif len(commandslist) == 2:
@@ -2510,16 +2489,10 @@ def process(command):
             ismuted = not ismuted
 
             if ismuted:
-                if current_media_player:
-                    vas.vlc_media_player.get_media_player().audio_set_mute(1)
-                else:
-                    pygame.mixer.music.set_volume(0)
+                vas.vlc_media_player.get_media_player().audio_set_mute(1)
             else:
-                if current_media_player:
-                    vas.vlc_media_player.get_media_player().audio_set_mute(0)
-                    vas.vlc_media_player.get_media_player().audio_set_volume(cached_volume*100)
-                else:
-                    pygame.mixer.music.set_volume(cached_volume)
+                vas.vlc_media_player.get_media_player().audio_set_mute(0)
+                vas.vlc_media_player.get_media_player().audio_set_volume(cached_volume*100)
 
         elif commandslist in [['lyr'], ['lyrics']]:
             lyrics_ops(show_window = True)
@@ -2533,11 +2506,7 @@ def process(command):
                     else:
                         volper = int(commandslist[1])
                         if volper in range(101):
-                            if current_media_player:
-                                vas.vlc_media_player.get_media_player().audio_set_volume(volper)
-                            else:
-                                pygame.mixer.music.set_volume(volper/100)
-
+                            vas.vlc_media_player.get_media_player().audio_set_volume(volper)
                             cached_volume = volper/100
                         else:
                             SAY(visible=visible, display_message='Volume percentage is out of range, it must be between 0 and 100',
@@ -2874,8 +2843,8 @@ def showbanner():
 def run():
     global disable_OS_requirement, visible, USER_DATA
 
-    if disable_OS_requirement and visible and sys.platform != 'win32':
-        print("WARNING: OS requirement is disabled, performance may be affected on your Non Windows OS")
+    if disable_OS_requirement and sys.platform != 'win32':
+        IPrint("WARNING: OS requirement is disabled, performance may be affected on your Non Windows OS", visible=visible)
 
     USER_DATA['default_user_data']['stats']['log_ins'] += 1
     save_user_data()
