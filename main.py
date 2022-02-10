@@ -841,7 +841,7 @@ def purge_old_lyrics_if_exist():
 
 def local_play_commands(commandslist, _command=False):
     global cached_volume, currentsong_length, lyrics_saved_for_song
-    pygame.mixer.music.set_volume(cached_volume)
+    # pygame.mixer.music.set_volume(cached_volume)
 
     purge_old_lyrics_if_exist()
     lyrics_saved_for_song = None
@@ -1861,7 +1861,7 @@ def process(command):
                     IPrint(f":: {colored.fg('plum_1')}{songindex}{colored.fg('deep_pink_4c')} | {colored.fg('navajo_white_1')}{cur_song}{colored.attr('reset')}", visible=visible)
             else:
                 # currentsong = None
-                IPrint(f"{colored.fg('yellow_1')}({colored.fg('aquamarine_1b')}Not Playing{colored.fg('yellow_1')}){colored.attr('reset')}", visible=visible)
+                IPrint(f"{colored.fg('red')}({colored.fg('aquamarine_1b')}Not Playing{colored.fg('red')}){colored.attr('reset')}", visible=visible)
 
         elif commandslist == ['now*']:
             if currentsong:
@@ -1886,7 +1886,7 @@ def process(command):
 
             else:
                 # currentsong = None
-                IPrint(f"{colored.fg('red')}({colored.attr('reset')}Not Playing{colored.fg('red')}){colored.attr('reset')}", visible=visible)
+                IPrint(f"{colored.fg('red')}({colored.fg('aquamarine_1b')}Not Playing{colored.fg('red')}){colored.attr('reset')}", visible=visible)
 
         elif commandslist[0].lower() == 'play':
             local_play_commands(commandslist=commandslist)
@@ -2028,9 +2028,7 @@ def process(command):
             IPrint(int(bool(currentsong)), visible=visible)
 
         elif commandslist[0].lower() == 'seek':
-            print(1)
             if currentsong_length:
-                print(2)
                 if len(commandslist) == 2:
                     if commandslist[1].startswith('+'):
                         rawtime = str(int(get_current_progress()) + int(commandslist[1][1:]))
@@ -2454,8 +2452,11 @@ def process(command):
                 print(f'Reddit session sync: The developer @{SYSTEM_SETTINGS["about"]["author"]} will add this feature shortly...')
 
         elif commandslist[0] == 'path':
-            if len(commandslist) == 1 and currentsong and current_media_type is None:
-                IPrint(f":: {colored.fg('plum_1')}{songindex}{colored.attr('reset')} | {currentsong}", visible=visible)
+            if len(commandslist) == 1:
+                if currentsong and current_media_type is None:
+                    IPrint(f":: {colored.fg('plum_1')}{songindex}{colored.attr('reset')} | {currentsong}", visible=visible)
+                else:
+                    IPrint(f"{colored.fg('red')}({colored.fg('aquamarine_1b')}Not Playing{colored.fg('red')}){colored.attr('reset')}", visible=visible)
 
             elif len(commandslist) == 2:
                 if int(commandslist[1]) > 0:
