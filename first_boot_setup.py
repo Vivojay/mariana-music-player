@@ -1,9 +1,56 @@
 import os
-import sys
 import toml
 
 curdir=os.path.dirname(__file__)
 os.chdir(curdir)
+
+def download_cloud_mariana_samples(about):
+    import sys
+    import tqdm
+    import requests
+    import zipfile
+
+    from ruamel.yaml import YAML
+    from beta.mediadl import setup_dl_dir
+
+    yaml = YAML(typ='safe')
+
+    SYSTEM_SETTINGS = about
+    with open('settings/settings.yml', encoding='utf-8') as u_data_file:
+        SETTINGS = yaml.load(u_data_file)
+
+    dl_dir_setup_code = setup_dl_dir(SETTINGS, SYSTEM_SETTINGS)
+    if dl_dir_setup_code in range(4): return dl_dir_setup_code
+    output_zip_path = os.path.join(dl_dir_setup_code, 'mariana_samples.zip')
+
+    if sys.platform == 'win32': output_zip_path=output_zip_path.replace('/', '\\')
+    else: output_zip_path=output_zip_path.replace('\\', '/')
+
+    mariana_samples_url = 'https://www.dropbox.com/s/s2cgmuwadkrsjl7/Mariana%20Cloud%20Music%20Collection.zip?dl=1'
+
+    # Mariana Cloud Music Collection (zip file) is located at: https://www.dropbox.com/s/s2cgmuwadkrsjl7/Mariana%20Cloud%20Music%20Collection.zip?dl=1
+    resp = requests.get(mariana_samples_url, stream=True)
+    total = 178238582 # Got this from one of the many download methods I tried for this...
+    with open(output_zip_path, 'wb') as file, tqdm(
+        desc=output_zip_path,
+        total=total,
+        unit='iB',
+        unit_scale=True,
+        unit_divisor=1024,
+        ncols=60,
+    ) as bar:
+        for data in resp.iter_content(chunk_size=1024):
+            size = file.write(data)
+            bar.update(size)
+
+    with zipfile.ZipFile(output_zip_path, 'r') as zip_ref:
+        zip_ref.extractall(os.path.join('mariana_music_samples', dl_dir_setup_code))
+
+    try:
+        os.remove(output_zip_path)
+    except Exception:
+        pass
+
 
 def fbs(about): # First boot setup
     greet_string = f"Welcome to Mariana Player v{about['ver']['maj']}.{about['ver']['min']}.{about['ver']['rel']}"
@@ -40,14 +87,26 @@ def fbs(about): # First boot setup
                 print(f"Saving directory paths in your library\n  @location: {os.path.join(curdir, 'lib.lib')}!")
                 break
             
-            local_file_dir = list(set(local_file_dir))
-            
+            local_file_dirs = list(set(local_file_dirs))
+
             with open("lib.lib", 'a') as libfile:
                 for _dir in local_file_dirs:
                     libfile.write(_dir+'\n')
-    
+
+
+    sample_songs_download_permission = input("Would you like to download a signature collection of 25 sample songs by Mariana? (y/n): ").lower().strip()
+    while sample_songs_download_permission not in ['y', 'n', 'yes', 'no']:
+        sample_songs_download_permission = input("[INVALID RESPONSE] Would you like to download a signature Mariana music collection? (y/n): ").lower().strip()
+
+    if sample_songs_download_permission in ['yes', 'y']:
+        sample_songs_download_permission = True
     else:
-        print("Ok, done!")
+        sample_songs_download_permission = False
+
+    if sample_songs_download_permission:
+        download_cloud_mariana_samples(about)
+
+    print("\nOk, done!")
 
     run_now = input("\n\nWould you like to run Mariana Player now? (y/n) ").lower().strip()
     while run_now not in ['y', 'n', 'yes', 'no']:
