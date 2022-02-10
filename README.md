@@ -218,9 +218,9 @@ Run `main.py` from command line (with desired arguments, for more details, \*\*\
 - Customisable via settings located in `settings/settings.yml`
 
 ## Known Issues
-- Seeking locally-playing song succeeds, but shows incorrect progress
-- Seeking is NOT supported for `.wav` files (only .mp3 files are fully supported for local play for now)
-- Rarely: "ConnectionResetError": ... kills the program
+- Rarely: "ConnectionResetError": ... is shown on screen (non breaking)
+- Very Rarely: "Segment fault pygame": ... breaking error
+- Rarely: Random Thread Exception: ... is shown on screen (non breaking)
 
 ### Footnotes
 
