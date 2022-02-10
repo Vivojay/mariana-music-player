@@ -16,7 +16,9 @@ PyYAML==6.0
 regex==2022.1.18
 ruamel.yaml==0.17.20
 shazamio==0.0.6
+sounddevice==0.4.4
 tabulate==0.8.9
+tqdm==4.62.3
 toml==0.10.2
 youtube-dl==2021.12.17
 
