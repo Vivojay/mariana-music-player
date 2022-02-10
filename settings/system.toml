@@ -20,7 +20,19 @@ rel = 0
 enable_best_quality_downloads = 1
 enforce_os_requirement = true
 max_wait_limit_to_get_song_length = 15
-supported_file_types = [ ".wav", ".mp3",]
+supported_file_types = [
+    ".wav",
+    ".mp3",
+    ".mka",
+    ".mkv",
+    ".mpeg",
+    ".wma",
+    ".amr",
+    ".flac",
+    ".alac",
+    ".ogg",
+    ".webm",
+]
 mariana_dl_dir = "MarianaPlayer"
 brave_paths = [
     "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
