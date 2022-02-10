@@ -1272,6 +1272,7 @@ def lyrics_ops(show_window):
     refresh_lyrics = not (lyrics_saved_for_song == currentsong) # Song has changed since last save of lyrics,
                                                                 # need to refresh the lyrics to match the current audio
     get_related = SETTINGS['get related songs']
+
     if current_media_type == 0:
         IPrint(f"Loading lyrics window for YT stream (Time taking)...", visible=visible)
         get_lyrics.show_window(refresh_lyrics = refresh_lyrics,
@@ -1294,7 +1295,9 @@ def lyrics_ops(show_window):
     elif current_media_type == 3:
         IPrint(f"Lyrics for reddit sessions are not supported", visible=visible)
 
-    lyrics_saved_for_song = currentsong
+    
+    if current_media_type is not None:
+        lyrics_saved_for_song = currentsong
 
     # elif ISDEV: # Song hasn't changes, no need to refresh lyrics
     #             # Just re-display the existing one
@@ -1734,35 +1737,35 @@ def process(command):
                     confirm_refresh = input("[INVALID RESPONSE] Do you wish to confirm refresh? (y/n): ").lower().strip()
 
                 if confirm_refresh in ['yes', 'y']:
-                    IPrint("Refreshing lyrics  (1/4)", visible=visible)
+                    IPrint("Reloading settings (1/4)", visible=visible)
+                    refresh_settings()
+
+                    IPrint("Refreshing lyrics  (2/4)", visible=visible)
                     purge_old_lyrics_if_exist()
                     lyrics_saved_for_song = False
                     lyrics_ops(show_window=False)
 
-                    IPrint("Reloading sounds   (2/4)", visible=visible)
+                    IPrint("Reloading sounds   (3/4)", visible=visible)
                     reload_sounds(quick_load = False)
                     IPrint(f"  > Loaded {len(_sound_files)} sounds", visible=visible)
-
-                    IPrint("Reloading settings (3/4)", visible=visible)
-                    refresh_settings()
 
                     IPrint("Spawned meta getter background process (4/4)", visible=visible)
                     sp.Popen(['..\.virtenv\Scripts\python', 'meta_getter.py', str(supported_file_types)], shell=True)
 
                     IPrint("Done", visible=visible)
-            
+
             else:
-                IPrint("Refreshing lyrics  (1/3)", visible=visible)
+                IPrint("Reloading settings (1/3)", visible=visible)
+                refresh_settings()
+
+                IPrint("Refreshing lyrics  (2/3)", visible=visible)
                 purge_old_lyrics_if_exist()
                 lyrics_saved_for_song = False
                 lyrics_ops(show_window=False)
 
-                IPrint("Reloading sounds   (2/3)", visible=visible)
+                IPrint("Reloading sounds   (3/3)", visible=visible)
                 reload_sounds(quick_load = False)
                 IPrint(f"  > Loaded {len(_sound_files)} sounds", visible=visible)
-
-                IPrint("Reloading settings (3/3)", visible=visible)
-                refresh_settings()
 
                 IPrint("Done", visible=visible)
 
