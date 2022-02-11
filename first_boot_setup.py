@@ -94,7 +94,7 @@ def fbs(about): # First boot setup
                     libfile.write(_dir+'\n')
 
 
-    sample_songs_download_permission = input("Would you like to download a signature collection of 25 sample songs by Mariana? (y/n): ").lower().strip()
+    sample_songs_download_permission = input("Would you like to download a signature collection of 25 sample songs by Mariana\n(SPACE REQUIRED: 170MB)? (y/n): ").lower().strip()
     while sample_songs_download_permission not in ['y', 'n', 'yes', 'no']:
         sample_songs_download_permission = input("[INVALID RESPONSE] Would you like to download a signature Mariana music collection? (y/n): ").lower().strip()
 
