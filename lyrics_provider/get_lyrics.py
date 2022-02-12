@@ -162,7 +162,7 @@ def show_window(max_wait_lim,
 
         # Using an image wallpaper
         else:
-            # Initialize lyrics bg image path to the DEFAULT wallpaper (DEFAULT.jpg)
+            # Initialize lyrics bg image path to the DEFAULT wallpaper (1.DEFAULT.jpg)
             lyrics_bg_image_abs_path = DEFAULT_BG_PATH
             lyrics_bg_image_dir = LYRICS_SETTINGS['webview wallpaper']['wallpaper folder']
 
