@@ -153,7 +153,7 @@ def show_window(max_wait_lim,
             default_css = default_css_file.read()
 
         body_css = 'body {\n'
-        DEFAULT_BG_PATH = 'lyrics-wallpapers/1.DEFAULT (Large).jpg'
+        DEFAULT_BG_PATH = 'lyrics-wallpapers/1.DEFAULT.jpg'
         _, LYRICS_SETTINGS = get_settings()
 
         # Using a solid color wallpaper
