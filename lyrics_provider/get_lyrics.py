@@ -136,6 +136,7 @@ def show_window(max_wait_lim,
 
     os.chdir(curdir)
     os.chdir('..')
+
     PROVIDED_WALLPAPER_NAMES = os.listdir('res/lyrics-wallpapers')
     PROVIDED_WALLPAPER_NAMES.sort(key=natural_keys)
 
@@ -152,7 +153,7 @@ def show_window(max_wait_lim,
             default_css = default_css_file.read()
 
         body_css = 'body {\n'
-        DEFAULT_BG_PATH = 'lyrics-wallpapers/DEFAULT (Large).jpg'
+        DEFAULT_BG_PATH = 'lyrics-wallpapers/1.DEFAULT (Large).jpg'
         _, LYRICS_SETTINGS = get_settings()
 
         # Using a solid color wallpaper
@@ -186,7 +187,7 @@ def show_window(max_wait_lim,
                 lyrics_bg_image_dir = 'lyrics-wallpapers'
                 lyrics_bg_image_file = LYRICS_SETTINGS['webview wallpaper']['wallpaper name or number']
 
-                if type(lyrics_bg_image_file) == int:
+                if isinstance(lyrics_bg_image_file, int):
                     lyrics_bg_image_index = int(lyrics_bg_image_file)-1
                     if lyrics_bg_image_index in range(len(PROVIDED_WALLPAPER_NAMES)):
                         lyrics_bg_image_file = PROVIDED_WALLPAPER_NAMES[lyrics_bg_image_index]
