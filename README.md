@@ -35,6 +35,7 @@ Restart your terminal window for `git` to become available to it...
 ## NOTE
 ### You have a choice before continuing with the manual setup given below...
 **There is a new kind of quick-setup (for Windows OS Only)... via the "INSTALLATION.py" file.** Click [here](https://www.dropbox.com/s/jtw33u265anaeyo/INSTALLATION.py?dl=1) to download.  
+
 **It allows you to single-handedly download and setup this entire music player quickly and easily**  
 **To try out this new easy way of installation, follow the steps given [here](#QUICK-SETUP)...**  
 
