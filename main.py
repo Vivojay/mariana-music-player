@@ -1,6 +1,6 @@
 #################################################################################################################################
 #
-#           Mariana Player v0.5.2 dev
+#           Mariana Player v0.6.1 dev
 #     (Read help.md for help on commands)
 #
 #    Running the app:
@@ -294,11 +294,12 @@ NO SUCH THING AS current_media_player now
 
 random audio (optional repeat, no repeat by default)
 log data about each audio path
-    timestamp of play
-    list of tags
+    timestamp of play (int --> in unix time??)
+    list of tags (str List)
     favourited? (bool)
     corrupted? (bool)
     blacklisted? (bool)
+    duration played (int --> in ms)
 
     # Maybe
     estimated bpm
@@ -531,7 +532,7 @@ def exitplayer(sys_exit=False):
 #     with open('', encoding='utf-8') as settingsfile:
 #         settings = yaml.load(settingsfile)
 
-def play_local_default_player(songpath, _songindex):
+def play_local_default_player(songpath, _songindex, is_queue=False):
     global isplaying, currentsong, currentsong_length, songindex
     global USER_DATA, current_media_type, SONG_CHANGED
 
@@ -560,10 +561,15 @@ def play_local_default_player(songpath, _songindex):
             recents_queue_save((songindex, currentsong))
 
         else:
-            IPrint(colored.fg('dark_olive_green_2') + \
-                  f':: {os.path.splitext(os.path.split(songpath)[1])[0]}' + \
-                  colored.attr('reset'), visible=visible)
-            recents_queue_save(currentsong)
+            if is_queue:
+                IPrint(colored.fg('dark_olive_green_2') + '::queue' + \
+                       colored.attr('reset'), visible=visible)
+
+            else:
+                IPrint(colored.fg('dark_olive_green_2') + \
+                    f':: {os.path.splitext(os.path.split(songpath)[1])[0]}' + \
+                    colored.attr('reset'), visible=visible)
+                recents_queue_save(currentsong)
 
 
         current_media_type = None
@@ -604,15 +610,10 @@ def play_local_default_player(songpath, _songindex):
             format_style = 0)
 
     except Exception:
-        raise
-        err(f'Failed to play: {os.path.splitext(os.path.split(songpath)[1])[0]}',
-            say=False)
-        SAY(
-            visible=visible,
+        SAY(visible=visible,
             log_priority=2,
             display_message=f"Failed to play \"{songpath}\"",
-            log_message=f"Failed to play audio: \"{songpath}\"",
-        )
+            log_message=f"Failed to play audio: \"{songpath}\"")
 
 
 def voltransition(
@@ -647,6 +648,20 @@ def vol_trans_process_spawn():
     vol_trans_process.start()
     vol_trans_process.join()
 
+# https://stackoverflow.com/a/3463582/17685480
+def remove_adjacent(seq): # works on any sequence, not just on numbers
+    i = 1
+    n = len(seq)
+    while i < n: # avoid calling len(seq) each time around
+        if seq[i] == seq[i-1]:
+            del seq[i]
+            # value returned by seq.pop(i) is ignored; slower than del seq[i]
+            n -= 1
+        else:
+            i += 1
+    
+    #### return seq #### don't do this
+    # function acts in situ; should follow convention and return None
 
 def playpausetoggle(softtoggle=True, use_multi=False, transition_time=0.2, show_progress=False): # Soft pause by default
     global isplaying, currentsong, cached_volume
@@ -695,7 +710,7 @@ def playpausetoggle(softtoggle=True, use_multi=False, transition_time=0.2, show_
                 isplaying = True
         else:
             isplaying = False
-            err("Nothing to pause/unpause", say=False)
+            SAY("Nothing to pause/unpause", say=False)
 
     except Exception:
         # raise
@@ -717,17 +732,6 @@ def stopsong():
         purge_old_lyrics_if_exist()
     except Exception:
         IPrint(f'Failed to stop: {currentsong}', visible=visible)
-
-
-def err(error_topic='', message='', say=True):
-    global visible
-    IPrint(colored.fg('red')+f'x| ERROR {error_topic}'+colored.attr('reset'), visible=visible)
-    if message:
-        IPrint(colored.fg('red')+'x|  '+message+colored.attr('reset'), visible=visible)
-
-    if say:
-        SAY(visible=visible, log_priority=2, display_message=error_topic)
-
 
 def searchsongs(queryitems):
     global _sound_files_names_enumerated
@@ -810,24 +814,38 @@ def fade_in_out(initvol=None, finalvol=None, fade_type=0, fade_duration=5):
             log_priority=3)
 
 def enqueue(songindices):
-    print(f'Enqueuing feature is still in progress... The developer @{SYSTEM_SETTINGS["about"]["author"]} will add this feature shortly...')
-    # IPrint("Enqueueing", visible=visible)
-    # global song_paths_to_enqueue
+    print(f'Enqueueing feature is still in progress... The developer {colored.fg("magenta_3a")}@{SYSTEM_SETTINGS["about"]["author"]}{colored.attr("reset")} will add this feature shortly...')
+    '''
+    # TODO - Refine the following feature and add to production
+    IPrint("Enqueueing", visible=visible)
+    global song_paths_to_enqueue
 
-    # song_paths_to_enqueue = []
+    song_paths_to_enqueue = []
 
-    # for songindex in songindices:
-    #     song_paths_to_enqueue.append(_sound_files[int(songindex)-1])
+    for songindex in songindices:
+        if int(songindex)-1 in range(len(_sound_files)):
+            song_paths_to_enqueue.append(_sound_files[int(songindex)-1])
+        else:
+            IPrint(f"Skipping index: {int(songindex)-1}", visible=visible)
 
-    # for songpath in song_paths_to_enqueue:
-    #     try:
-    #         pygame.mixer.music.queue(songpath)
-    #         IPrint("Queued", visible=visible)
-    #         if isplaying:
-    #             pygame.mixer.music.unpause()
-    #     except Exception:
-    #         err("Queueing error", "Could not enqueue one or more files")
-    #         raise
+    if song_paths_to_enqueue:
+        song_paths_to_enqueue = list(set(song_paths_to_enqueue))
+        for songpath in song_paths_to_enqueue:
+            try:
+                IPrint(f"Queued {song_paths_to_enqueue.index(songpath)+1}", visible=visible)
+            except Exception:
+                SAY(visible=visible,
+                    display_message = "Queueing error",
+                    log_message = "Could not enqueue one or more files",
+                    log_pripority = 2)
+                raise
+
+        play_local_default_player(song_paths_to_enqueue, _songindex=None, is_queue=True)
+
+    else:
+        IPrint("No songs to queue", visible=visible)
+    '''
+
 
 def purge_old_lyrics_if_exist():
     lyrics_file_paths = ['temp/lyrics.txt', 'temp/lyrics.html']
@@ -1483,7 +1501,7 @@ def process(command):
                 if len([i for i in commandslist if i.isnumeric()]) == 0 and '-' not in command and len(commandslist) != 1:
                     # List files matching provided regex pattern
                     # Need to implement a check to validate the provided regex pattern
-                    print(f'Regex search is still in progress... The developer @{SYSTEM_SETTINGS["about"]["author"]} will add this feature shortly...')
+                    print(f'Regex search is still in progress... The developer {colored.fg("magenta_3a")}@{SYSTEM_SETTINGS["about"]["author"]}{colored.attr("reset")} will add this feature shortly...')
                     # regex_pattern
                     # regexp = re.compile(regex_pattern)
 
@@ -1508,7 +1526,11 @@ def process(command):
             if current_media_type is None:
                 if len(commandslist) == 1: # To open current audio
                     if currentsong:
-                        open_in_youtube(currentsong)
+                        try:
+                            open_in_youtube(currentsong)
+                        except OSError:
+                            SAY(visible=visible,
+                                display_message="Video Load Error: Could not load video... (Maybe check your VPN?)", say=False)
                     else:
                         SAY(visible=visible,
                             display_message = 'No audio playing currently, try using "/open" with a audio number or path instead',
@@ -1584,7 +1606,7 @@ def process(command):
             if warn_msg:
                 SAY(visible=visible,
                     display_message=warn_msg,
-                    log_message=f'"podbean command assumed to be misspelled',
+                    log_message=f'podbean command assumed to be misspelled',
                     log_priority=3)
 
         # Podbean music: default vendor => 1001tracklists
@@ -1694,7 +1716,7 @@ def process(command):
             if len([i for i in commandslist if i.isnumeric()]) == 0 and '-' not in command and len(commandslist) != 1:
                 # List files matching provided regex pattern
                 # Need to implement a check to validate the provided regex pattern
-                print(f'Regex search is still in progress... The developer @{SYSTEM_SETTINGS["about"]["author"]} will add this feature shortly...')
+                print(f'Regex search is still in progress... The developer {colored.fg("magenta_3a")}@{SYSTEM_SETTINGS["about"]["author"]}{colored.attr("reset")} will add this feature shortly...')
                 # regex_pattern
                 # regexp = re.compile(regex_pattern)
 
@@ -2047,7 +2069,10 @@ def process(command):
                         timeobj = timeinput_to_timeobj(rawtime)
                         if not timeobj == ValueError:
                             if timeobj == (None, None):
-                                err('Invalid time format', 'Invalid time object')
+                                SAY(visible=visible,
+                                    display_message = 'Internal Error',
+                                    log_message = 'Invalid time format: Invalid time object',
+                                    log_priority = 2)
                             else:
                                 _ = song_seek(timeval=timeobj[1])
                                 if _:
@@ -2350,15 +2375,21 @@ def process(command):
                                _sound_files_names_only[(song_index_entered)-1]+\
                                colored.attr('reset'), visible=visible)
                     except IndexError:
-                        err('', f'Please input audio number between 1 and {len(_sound_files)}')
+                        SAY(visible=visible,
+                            display_message = f'Please input audio number between 1 and {len(_sound_files)}',
+                            log_message = 'Invalid song index provided for listing name',
+                            log_priority = 2)
                 else:
-                    err('', f'Please input audio number between 1 and {len(_sound_files)}')
+                    SAY(visible=visible,
+                        display_message = f'Please input audio number between 1 and {len(_sound_files)}',
+                        log_message = 'Invalid song index provided for listing name',
+                        log_priority = 2)
 
         elif commandslist in [['count'], ['howmany'], ['total']]:
             IPrint(len(_sound_files_names_only), visible=visible)
 
         elif commandslist[0] == 'weblinks':
-            print(f'Weblinks feature is still in progress... The developer @{SYSTEM_SETTINGS["about"]["author"]} will add this feature shortly...')
+            print(f'Weblinks feature is still in progress... The developer {colored.fg("magenta_3a")}@{SYSTEM_SETTINGS["about"]["author"]}{colored.attr("reset")} will add this feature shortly...')
 
         if commandslist[0] == 'open':
             if commandslist == ['open']:
@@ -2392,7 +2423,10 @@ def process(command):
                                 log_priority = 2,
                                 format_style = 1)
                     else:
-                        err("No audio playing, no file selected to open")
+                        SAY(visible=visible,
+                            display_message = "No audio playing, no file selected to open",
+                            log_message = "No audio playing, no file selected to open",
+                            log_priority = 2)
 
             elif len(commandslist) > 1 and commandslist[1] in ['lib', 'library']:
                 IPrint(fr'Opening library file in editor', visible=visible)
@@ -2452,7 +2486,7 @@ def process(command):
                 vas.media_player(action='resync') # Resync radio to live stream
             elif current_media_type == 3: # If reddit-session is streaming...
                 # TODO - Find a way to get the current stream timestamp of current RPAN session
-                print(f'Reddit session sync: The developer @{SYSTEM_SETTINGS["about"]["author"]} will add this feature shortly...')
+                print(f'Reddit session sync: The developer {colored.fg("magenta_3a")}@{SYSTEM_SETTINGS["about"]["author"]}{colored.attr("reset")} will add this feature shortly...')
 
         elif commandslist[0] == 'path':
             if len(commandslist) == 1:
@@ -2466,9 +2500,15 @@ def process(command):
                     try:
                         IPrint(_sound_files[int(commandslist[1])-1], visible=visible)
                     except IndexError:
-                        err('', f'Please input audio number between 1 and {len(_sound_files)}')
+                        SAY(visible=visible,
+                            display_message = f'Please input audio number between 1 and {len(_sound_files)}',
+                            log_message = 'Invalid song index provided for listing name',
+                            log_priority = 2)
                 else:
-                    err('', f'Please input audio number between 1 and {len(_sound_files)}')
+                    SAY(visible=visible,
+                        display_message = f'Please input audio number between 1 and {len(_sound_files)}',
+                        log_message = 'Invalid song index provided for listing name',
+                        log_priority = 2)
 
         elif commandslist[0].lower() in ['find', 'f']:
             if len(commandslist) > 1:
@@ -2520,7 +2560,10 @@ def process(command):
                     IPrint(f"}}}} {cached_volume*100} %", visible=visible)
 
             except Exception:
-                err(error_topic='Some internal issue occured while setting player volume')
+                SAY(visible=visible,
+                    display_message = 'Some internal issue occured while setting player volume',
+                    log_message = 'Some internal issue occured while setting player volume',
+                    log_priority = 2)
 
         elif commandslist[0].lower() in ['mv', 'mvol', 'mvolume']:
             # '''
@@ -2550,7 +2593,11 @@ def process(command):
                             SAY(visible=visible, display_message='ERROR: Couldn\'t get system master volume', log_message=f'Unknown error while getting master volume as percent: {currentsong}', log_priority=2)
 
             except Exception:
-                err(error_topic='Some internal issue occured while setting the system volume')
+                SAY(visible=visible,
+                    display_message = 'Some internal issue occured while setting the system volume',
+                    log_message = 'Some internal issue occured while setting the system volume',
+                    log_priority = 2)
+
             # '''
 
             # print('Sorry, system volume commands have been (temporarily) disabled...\n...due to some internal issue (Issue #244, #180 comtypes)')
@@ -2650,15 +2697,20 @@ def process(command):
                     try:
                         ytv_choices = [YT_query.search_youtube(search=qr_val)]
                     except OSError:
-                        err("Could not load video... (Maybe check your VPN?)",
-                            "Video Load Error", say=False)
+                        SAY(visible=visible,
+                            display_message = 'Video Load Error: Could not load video... (Maybe check your VPN?)',
+                            log_message = 'Video load error: Could not load video',
+                            log_priority = 2)
+
                 elif rescount.isnumeric():
                     if int(rescount) == 1:
                         try:
                             ytv_choices = [YT_query.search_youtube(search=qr_val)]
                         except OSError:
-                            err("Could not load video... (Maybe check your VPN?)",
-                                "Video Load Error", say=False)
+                            SAY(visible=visible,
+                                display_message = 'Video Load Error: Could not load video... (Maybe check your VPN?)',
+                                log_message = 'Video load error: Could not load video',
+                                log_priority = 2)
                     elif int(rescount) in range(2, max_yt_search_results_threshold+1):
                         ytv_choices = YT_query.search_youtube(
                             search=qr_val, rescount=int(rescount))
@@ -2699,12 +2751,18 @@ def process(command):
                     try:
                         play_vas_media(media_url=media_url, single_video=True)
                     except OSError:
-                        err("Could not load video... (Maybe check your VPN?)",
-                            "Video Load Error", say=False)
+                        SAY(visible=visible,
+                            display_message = 'Video Load Error: Could not load video... (Maybe check your VPN?)',
+                            log_message = 'Video load error: Could not load video',
+                            log_priority = 2)
+
                 else:
                     SAY(visible=visible, display_message='Entered Youtube URL is invalid', log_message='Entered Youtube URL is invalid', log_priority = 2)
             else:
-                err("Invalid YouTube-link command, too long")  # Too many args
+                SAY(visible=visible,
+                    display_message = "Invalid YouTube-link command (too long)",  # Too many args
+                    log_message = "Invalid YouTube-link command (too long)",
+                    log_priority = 2)
 
         elif commandslist[0] in ['/ml', '/media-link']:
             if len(commandslist) == 2:
@@ -2712,9 +2770,15 @@ def process(command):
                 if url_is_valid(user_aud_url):
                     play_vas_media(media_url = commandslist[1], media_type='general')
                 else:
-                    err("Invalid media link") # Too many args
+                    SAY(visible=visible,
+                        display_message = "Invalid media link (too long)",
+                        log_message = "Invalid media link (too long)",
+                        log_priority = 2)
             else:
-                err("Invalid media-link command, too long") # Too many args
+                SAY(visible=visible,
+                    display_message = "Invalid media-link command (too long)",  # Too many args
+                    log_message = "Invalid media-link command (too long)",
+                    log_priority = 2)
 
         elif commandslist[0] in ['/wra', '/webradio']:
             if len(commandslist) == 1: # Default station is coffee if not stated otherwise
@@ -2743,7 +2807,11 @@ def process(command):
                         log_priority = 2)
                     IPrint(tbl([(f"{colored.fg('light_red')}/wra {i+1}{colored.attr('reset')}", j) for i, j in enumerate(r_stations)], tablefmt='plain'), visible=visible)
             else:
-                err("Unknown webradio command, too long")  # Too many args
+                SAY(visible=visible,
+                    display_message = "Unknown webradio command (too long)",
+                    log_message = "Unknown webradio command (too long)",
+                    log_priority = 2)
+
 
         elif commandslist[0] in ['/rs', '/reddit-sessions']:
 
@@ -2789,6 +2857,25 @@ def process(command):
                         display_message=f'You have entered an invalid reddit session command',
                         log_message=f'Invalid reddit session command entered',
                         log_priority=2)
+
+        elif commandslist in [['vivojay', 'favourite'], ['vivojay', 'fav']]:
+            dev_fav_song = 'https://www.youtube.com/watch?v=izWf40-3n1Y'
+            YOUTUBE_PLAY_TYPE = 0
+            if url_is_valid(dev_fav_song):
+                try:
+                    play_vas_media(media_url=dev_fav_song, single_video=True)
+                except OSError:
+                    SAY(visible=visible,
+                        display_message = 'Video Load Error: Could not load video... (Maybe check your VPN?)',
+                        log_message = 'Video load error: Could not load video',
+                        log_priority = 2)
+            else:
+                SAY(visible=visible,
+                    display_message='vivojay\'s fav song\'s youtube link isn\'t alive anymore !',
+                    log_message='vivojay\'s fav song\'s youtube link isn\'t alive anymore !',
+                    log_priority = 2)
+
+
 
 def mainprompt():
     global visible
