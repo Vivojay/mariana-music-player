@@ -13,7 +13,9 @@ VLC_ARCH = None
 VLC_PATH = None
 SETTINGS = None
 
-def set_media(_type=None, vidurl=None, audurl=None):
+def set_media(_type=None, vidurl=None, audurl=None, localpath=None):
+
+    # `localpath` may be a single path or a list of absolute paths to local media
 
     try: media_player(action='stop')
     except Exception: pass
@@ -23,8 +25,8 @@ def set_media(_type=None, vidurl=None, audurl=None):
 
     if _type.startswith("radio"):
         radio_type = _type.split("/")[1]
-        media = player.media_new(f"https://s2-webradio.antenne.de/{radio_type}")
-        load_media_object(player=player, media=media)
+        load_media_object(player=player,
+        				  mrls_list=[f"https://s2-webradio.antenne.de/{radio_type}"])
 
     elif _type == "yt_video":
         if vidurl:
@@ -34,25 +36,32 @@ def set_media(_type=None, vidurl=None, audurl=None):
         if not audurl:
             raise ValueError
 
-        media = player.media_new(audurl)
-        load_media_object(player=player, media=media)
+        load_media_object(player=player, mrls_list=[audurl,])
+
     elif _type == "audio":
         if audurl:
             if id_if_url_is_of_yt_format(audurl):
                 audurl = f'http://www.youtube.com/watch?v={id_if_url_is_of_yt_format(audurl)}'
                 audurl = pafy.new(audurl).getbest().url # Get media url (i.e. url with best audio + video)
-            media = player.media_new(audurl)
-            load_media_object(player=player, media=media)
+            load_media_object(player=player, mrls_list=[audurl,])
+
+    elif _type == 'local':
+        if not isinstance(localpath, list): localpath = [localpath]
+        load_media_object(player=player, mrls_list=localpath)
+
     else:
         print("Media type not provided")
 
     return audurl
 
-def load_media_object(player, media):
+def load_media_object(player, mrls_list):
     global vlc_media_player
 
     media_list = player.media_list_new()
-    media_list.add_media(media)
+
+    for mrl in mrls_list:
+        media = player.media_new(mrl)
+        media_list.add_media(media)
 
     vlc_media_player = player.media_list_player_new()
     vlc_media_player.set_media_list(media_list)

@@ -40,20 +40,20 @@ def setup_dl_dir(SETTINGS, SYSTEM_SETTINGS):
 
     if not dl_dir_is_valid:
         SAY(visible = True,
-            log_message=f'Invalid dl dir, defaulting to ~/Music',
-            display_message='',
-            log_priority=2,
-        )
+            log_message = 'Invalid dl dir, defaulting to ~/Music',
+            display_message = '',
+            log_priority=2,)
+
         return returncode
 
     try:
         make_separate_mariana_dl_dir = SETTINGS['download']['make a separate mariana folder within "downloads folder"']
     except Exception:
         SAY(visible = True,
-            log_message=f'Invalid/non-existent setting for creating separate download directory for Mariana Player',
+            log_message = 'Invalid/non-existent setting for creating separate download directory for Mariana Player',
             display_message='',
-            log_priority=2,
-        )
+            log_priority=2,)
+
         return 2 # SETTING for 'make a separate mariana folder within "downloads folder"'
                  # is non-existent
 
@@ -61,6 +61,8 @@ def setup_dl_dir(SETTINGS, SYSTEM_SETTINGS):
         try:
             mariana_dl_dir = SYSTEM_SETTINGS['system_settings']['mariana_dl_dir']
             dl_dir = os.path.join(dl_dir, mariana_dl_dir)
+            if sys.platform == 'win32': dl_dir=dl_dir.replace('/', '\\')
+            else: dl_dir=dl_dir.replace('\\', '/')
             if not os.path.isdir(dl_dir):
                 os.mkdir(dl_dir)
         except Exception:
@@ -77,7 +79,7 @@ def media_DL(SETTINGS,
              dry_run=False,
              quiet = True,
             ):
-    
+
     """
     SETTINGS: dict (settings/settings.yml) (User's personal settings)
     media_url: audio/video url for downloading...
@@ -135,27 +137,24 @@ def media_DL(SETTINGS,
     }
 
     if typ == 0:
-        ydl_opts.update({
-            'postprocessors': [{
+        ydl_opts['postprocessors'] = [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
                 'preferredquality': '192',
-            }],
-        })
+            }]
 
     if type(media_urls) != list:
         media_urls = [media_urls]
 
-    if not dry_run:
-        try:
-            with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-                ydl.download(media_urls)
-            returncode = 4 # Successful Download
-        except Exception:
-            returncode = 5 # Failed Download
-    else:
+    if dry_run:
         return ydl_opts # Operation run as dry-run
 
+    try:
+        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+            ydl.download(media_urls)
+        returncode = 4 # Successful Download
+    except Exception:
+        returncode = 5 # Failed Download
     return returncode
 
 
