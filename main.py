@@ -1772,7 +1772,7 @@ def process(command):
                     IPrint(f"  > Loaded {len(_sound_files)} sounds", visible=visible)
 
                     IPrint("Spawned meta getter background process (4/4)", visible=visible)
-                    sp.Popen(['..\.virtenv\Scripts\python', 'meta_getter.py', str(supported_file_types)], shell=True)
+                    sp.Popen([sys.executable, 'meta_getter.py', str(supported_file_types)], shell=True)
 
                     IPrint("Done", visible=visible)
 
@@ -2210,7 +2210,7 @@ def process(command):
                         log_message='Download confirmed and initiated',
                         display_message='Your download has started',
                         log_priority = 3)
-                    sp.Popen(['..\.virtenv\Scripts\python.exe', 'beta/mediadl.py', json.dumps(download_parmeters)], shell=True)
+                    sp.Popen([sys.executable, 'beta/mediadl.py', json.dumps(download_parmeters)], shell=True)
 
         elif commandslist[0].lower() == 'download-ya':
             # TODO - Add way for user to customize download settings...
@@ -2272,7 +2272,7 @@ def process(command):
                         log_message='Download confirmed and initiated',
                         display_message='Your download has started',
                         log_priority = 3)
-                    sp.Popen(['..\.virtenv\Scripts\python.exe', 'beta/mediadl.py', json.dumps(download_parmeters)], shell=True)
+                    sp.Popen([sys.executable, 'beta/mediadl.py', json.dumps(download_parmeters)], shell=True)
 
         elif commandslist[0].lower() == 'download-ml':
             pass
@@ -2961,7 +2961,7 @@ def startup():
 
     # Spawn get_media process in the bg
     if _sound_files != [] and FIRST_BOOT:
-        sp.Popen(['..\.virtenv\Scripts\python', 'meta_getter.py', str(supported_file_types)], shell=True)
+        sp.Popen([sys.executable, 'meta_getter.py', str(supported_file_types)], shell=True)
 
     if not disable_OS_requirement:
         if sys.platform != 'win32':
