@@ -6,10 +6,10 @@ os.chdir(curdir)
 
 def download_cloud_mariana_samples(about):
     import sys
-    import tqdm
     import requests
     import zipfile
 
+    from tqdm import tqdm
     from ruamel.yaml import YAML
     from beta.mediadl import setup_dl_dir
 
