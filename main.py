@@ -1639,7 +1639,7 @@ def process(command):
                         log_message = 'Too many numbers provided for pod family of command',
                         log_priority = 2)
 
-            IPrint(f"{['Play', 'Show'][commandslist[0][0] == '.']}ing from {colored.fg('green_1')}{podbean_vendor}{colored.attr('reset')}", visible=visible)
+            IPrint(f"{['Show', 'Play'][commandslist[0][0] == '.']}ing from {colored.fg('green_1')}{podbean_vendor}{colored.attr('reset')}", visible=visible)
             latest_podbeans = get_latest_podbean_data(vendor=podbean_vendor)
 
             if latest_podbeans is not None:
