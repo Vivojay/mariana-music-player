@@ -1,6 +1,6 @@
 #################################################################################################################################
 #
-#           Mariana Player v0.6.1 dev
+#           Mariana Player v0.6.2 dev
 #     (Read help.md for help on commands)
 #
 #    Running the app:
