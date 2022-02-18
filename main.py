@@ -1,6 +1,6 @@
 #################################################################################################################################
 #
-#           Mariana Player v0.6.2 dev
+#           Mariana Player v0.6.1 dev
 #     (Read help.md for help on commands)
 #
 #    Running the app:
@@ -332,6 +332,12 @@ if not loglevel:
 # From last session info
 cached_volume = 1  # Set as a factor between 0 to 1 times of max volume player volume
 
+def OrderedSet(iterable):
+    result = []
+    [result.append(i) for i in iterable if i not in result]
+    return result
+
+
 # Flattens list of any depth
 def flatten(l):
     for el in l:
@@ -384,7 +390,7 @@ def reload_sounds(quick_load = True):
                     # ERRORS have already been handled and logged by `mediadl.setup_dl_dir()`
                     pass
 
-                paths = list(set(paths))
+                paths = list(OrderedSet(paths))
 
                 # Use the recursive extractor function and format and store them into usable lists
                 _sound_files = [[list(audio_file_gen(paths[j], supported_file_types[i]))
@@ -610,10 +616,11 @@ def play_local_default_player(songpath, _songindex, is_queue=False):
             format_style = 0)
 
     except Exception:
+        #raise
         SAY(visible=visible,
-            log_priority=2,
             display_message=f"Failed to play \"{songpath}\"",
-            log_message=f"Failed to play audio: \"{songpath}\"")
+            log_message=f"Failed to play audio: \"{songpath}\"",
+            log_priority=2,)
 
 
 def voltransition(
@@ -739,7 +746,7 @@ def searchsongs(queryitems):
     out = []
     for index, audio in _sound_files_names_enumerated:
         flag = True
-        for queryitem in list(set(queryitems)):
+        for queryitem in list(OrderedSet(queryitems)):
             if queryitem.lower() not in audio.lower():
                 flag = False
 
@@ -829,7 +836,7 @@ def enqueue(songindices):
             IPrint(f"Skipping index: {int(songindex)-1}", visible=visible)
 
     if song_paths_to_enqueue:
-        song_paths_to_enqueue = list(set(song_paths_to_enqueue))
+        song_paths_to_enqueue = list(OrderedSet(song_paths_to_enqueue))
         for songpath in song_paths_to_enqueue:
             try:
                 IPrint(f"Queued {song_paths_to_enqueue.index(songpath)+1}", visible=visible)
@@ -1379,7 +1386,7 @@ def display_and_choose_podbean(latest_podbeans, commandslist, result_count, is_r
                     if visible:
                         caption_shortened_1, caption_shortened_2 = text_overflow_prettify(caption, length_thresh=200, end_length=16, as_tuple=True)
                         caption_shortened_formatted = f"{colored.fg('hot_pink_1a')}{caption_shortened_1}"\
-                                                      f"{colored.fg('orange_1')}..."\
+                                                      f"{colored.fg('aquamarine_1b')}..."\
                                                       f"{colored.fg('hot_pink_1a')}{caption_shortened_2}"\
                                                       f"{colored.attr('reset')}"
 
@@ -1596,7 +1603,7 @@ def process(command):
                             if commandslist[2] == 'all': result_count=None
                             if commandslist[2].isnumeric(): result_count=int(commandslist[2])
                         if result_count and len(pod_vendors) > result_count:
-                            IPrint(f"{0}Showing the first {1} vendors (you may change this 'fallback' result count in settings){2}".format(colored.fg('orange_1'), result_count, colored.attr('reset')), visible=visible)
+                            IPrint("{0}Showing the first {1} vendors (you may change this 'fallback' result count in settings){2}".format(colored.fg('orange_1'), result_count, colored.attr('reset')), visible=visible)
                         for pod_vendor in list(pod_vendors.keys())[:result_count]: print(f"  {colored.fg('aquamarine_3')}--> {colored.attr('reset')}{pod_vendor}")
                     else:
                         warn_msg=f'/? Invalid command {commandslist[0]}, perhaps you meant "{commandslist[0]}s"'
@@ -1632,7 +1639,7 @@ def process(command):
                         log_message = 'Too many numbers provided for pod family of command',
                         log_priority = 2)
 
-            IPrint(f"Playing from {colored.fg('green_1')}{podbean_vendor}{colored.attr('reset')}", visible=visible)
+            IPrint(f"{['Play', 'Show'][commandslist[0][0] == '.']}ing from {colored.fg('green_1')}{podbean_vendor}{colored.attr('reset')}", visible=visible)
             latest_podbeans = get_latest_podbean_data(vendor=podbean_vendor)
 
             if latest_podbeans is not None:
