@@ -95,7 +95,11 @@ def get_latest_podbean_data(vendor = '', rss_link = None):
 
                 # Saved data exists and was successfully loaded
                 if saved_podcast_data:
-                    if ((last_podcast_data_write_date is not None and last_podcast_data_write_date < current_date) or not last_podcast_data_write_date):
+                    if (
+                           (last_podcast_data_write_date is not None and \
+                            last_podcast_data_write_date < current_date) or not \
+                            last_podcast_data_write_date
+                        ):
                         # If a write date exists and it's older than today, or if it doesn't exist, refresh the data
                         podcasts_raw = refresh_podcast_data(rss_link=rss_link, output_file=output_file)
                     else:
@@ -117,6 +121,8 @@ def get_latest_podbean_data(vendor = '', rss_link = None):
                  'url':          pod.get('enclosure_url'),
                  'pub_date':     pod.get('published_date'),
                  'title':        pod.get('title')} for pod in podcasts_raw]
+
+    podcasts.sort(key=lambda x: dt.strptime(x['pub_date'], "%a, %d %b %Y %H:%M:%S %z"), reverse=False)
 
     return podcasts
 
