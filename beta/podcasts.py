@@ -122,7 +122,8 @@ def get_latest_podbean_data(vendor = '', rss_link = None):
                  'pub_date':     pod.get('published_date'),
                  'title':        pod.get('title')} for pod in podcasts_raw]
 
-    podcasts.sort(key=lambda x: dt.strptime(x['pub_date'], "%a, %d %b %Y %H:%M:%S %z"), reverse=False)
+    # Sorting podcasts by date of publish (newest first)
+    podcasts.sort(key=lambda x: dt.strptime(x['pub_date'], "%a, %d %b %Y %H:%M:%S %z"), reverse=True)
 
     return podcasts
 
