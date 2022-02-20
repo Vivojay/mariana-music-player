@@ -2460,12 +2460,13 @@ def process(command):
 
             else:
                 if len(commandslist) == 2 and commandslist[1].isnumeric():
-                    user_entered_song_index = int(commandslist)-1
+                    user_entered_song_index = int(commandslist[1])-1
                     if user_entered_song_index in range(len(_sound_files_names_only)):
                         path = _sound_files[user_entered_song_index]
                         if sys.platform == 'win32': path=path.replace('/', '\\')
                         else: path=path.replace('\\', '/')
-
+                        IPrint(f"Opening audio at index {user_entered_song_index+1}: {_sound_files_names_only[user_entered_song_index]}", visible=visible)
+                        os.system(f'explorer /select, {_sound_files[user_entered_song_index]}')
                 else:
                     path = ' '.join(commandslist[1:])
                     if os.path.isfile(path):
@@ -2498,7 +2499,7 @@ def process(command):
         elif commandslist[0] == 'path':
             if len(commandslist) == 1:
                 if currentsong and current_media_type is None:
-                    IPrint(f":: {colored.fg('plum_1')}{songindex}{colored.attr('reset')} | {currentsong}", visible=visible)
+                    IPrint(f":: {colored.fg('plum_1')}{currentsong}{colored.attr('reset')}", visible=visible)
                 else:
                     IPrint(f"{colored.fg('red')}({colored.fg('aquamarine_1b')}Not Playing{colored.fg('red')}){colored.attr('reset')}", visible=visible)
 
