@@ -9,7 +9,7 @@ def download_cloud_mariana_samples(about):
     import requests
     import zipfile
 
-    from tqdm import tqdm
+    from tqdm.auto import tqdm
     from ruamel.yaml import YAML
     from beta.mediadl import setup_dl_dir
 
@@ -26,13 +26,16 @@ def download_cloud_mariana_samples(about):
     if sys.platform == 'win32': output_zip_path=output_zip_path.replace('/', '\\')
     else: output_zip_path=output_zip_path.replace('\\', '/')
 
+    # Mariana Cloud Music Collection (zip file) is located at: https://www.dropbox.com/s/s2cgmuwadkrsjl7/Mariana%20Cloud%20Music%20Collection.zip?dl=1
     mariana_samples_url = 'https://www.dropbox.com/s/s2cgmuwadkrsjl7/Mariana%20Cloud%20Music%20Collection.zip?dl=1'
 
-    # Mariana Cloud Music Collection (zip file) is located at: https://www.dropbox.com/s/s2cgmuwadkrsjl7/Mariana%20Cloud%20Music%20Collection.zip?dl=1
     resp = requests.get(mariana_samples_url, stream=True)
-    total = 178238582 # Got this from one of the many download methods I tried for this...
+    total = 178238582 # Got this from one of the many download methods I tried ...
+
+    print('', end='', flush=True)
     with open(output_zip_path, 'wb') as file, tqdm(
-        desc=output_zip_path,
+        # desc=output_zip_path,
+        desc='',
         total=total,
         unit='iB',
         unit_scale=True,
