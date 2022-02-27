@@ -194,7 +194,11 @@ Run `main.py` from command line (with desired arguments, for more details, \*\*\
 
 ## Mariana Player in Action
 
+Original Light version of lyrics displayer
 ![image](https://user-images.githubusercontent.com/67545205/147845057-eab483b2-4e8c-43ce-9f0d-349d2e655437.png)
+
+New dark lyrics window + lyrics view
+![image](https://user-images.githubusercontent.com/67545205/155896613-6568b657-9104-4570-a05e-f0e8332db739.png)
 
 <hr>
 
