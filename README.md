@@ -24,3 +24,33 @@ you can do it all using the `pygame.mixer.music` as follows:
 ## Usage
 Install PyPI modules from pip using `pip install -r requirements.txt` \
 Run `main.py` from command line with desired arguments, for more details, [look here](rick/roll).
+
+## Errors
+### 1
+**Invoked via:** `lyr` command
+Pic: ![image](https://user-images.githubusercontent.com/67545205/156342876-18e20aec-7eab-485b-a6c6-ed18fd1077c8.png)
+
+**Err log:**
+```
+Exception ignored in: <function _compointer_base.__del__ at 0x00000174829A6820>
+Traceback (most recent call last):
+  File "C:\Users\Vivo Jay\Desktop\mplayer-4\.virtenv\lib\site-packages\comtypes\__init__.py", line 912, in __del__
+    self.Release()
+  File "C:\Users\Vivo Jay\Desktop\mplayer-4\.virtenv\lib\site-packages\comtypes\__init__.py", line 1166, in Release
+    return self.__com_Release()
+OSError: exception: access violation writing 0x0000000000000001
+Exception ignored in: <function _compointer_base.__del__ at 0x00000174829A6820>
+Traceback (most recent call last):
+  File "C:\Users\Vivo Jay\Desktop\mplayer-4\.virtenv\lib\site-packages\comtypes\__init__.py", line 912, in __del__
+    self.Release()
+  File "C:\Users\Vivo Jay\Desktop\mplayer-4\.virtenv\lib\site-packages\comtypes\__init__.py", line 1166, in Release
+    return self.__com_Release()
+OSError: exception: access violation writing 0x0000000000000001
+Exception ignored in: <function _compointer_base.__del__ at 0x00000174829A6820>
+Traceback (most recent call last):
+  File "C:\Users\Vivo Jay\Desktop\mplayer-4\.virtenv\lib\site-packages\comtypes\__init__.py", line 912, in __del__
+    self.Release()
+  File "C:\Users\Vivo Jay\Desktop\mplayer-4\.virtenv\lib\site-packages\comtypes\__init__.py", line 1166, in Release
+    return self.__com_Release()
+OSError: exception: access violation writing 0x0000000000000001
+```
