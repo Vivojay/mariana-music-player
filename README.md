@@ -1,4 +1,10 @@
-# Mariana Music Player (v0.5.1 dev-1)
+# Mariana Music Player (v0.7.0 dev)
+
+<img src="https://user-images.githubusercontent.com/67545205/162047313-0150f6e2-ba91-4cb6-8bc1-e448cb869a00.png" width="120">
+
+_OPEN SOURCE COMMAND-LINE MUSIC PLAYER_
+<img src="https://user-images.githubusercontent.com/67545205/162052812-5535ec1b-25ad-430d-b012-63a8938aedfb.png" width="2000">
+
 
 ## About
 Feature rich command-line music player for Windows OS (Tested on Win10 only\*).   
@@ -9,9 +15,12 @@ Can play songs of [supported file types](https://github.com/Vivojay/mariana-musi
 
 ### Step 0
 
-#### NOTE:
+## NOTE:
 
-Do not install this program directly before going through these steps in order if you are new to git, python wheels and setting up virtual environments using virtualenv
+### Do not install this program directly before going through these steps in order if you are new to git, python wheels and setting up virtual environments using virtualenv.  
+### Use [this link](https://www.dropbox.com/s/jtw33u265anaeyo/INSTALLATION.py?dl=1) instead
+
+# 
 
 ### Step 1
 
@@ -34,7 +43,7 @@ Restart your terminal window for `git` to become available to it...
 
 ## NOTE
 ### You have a choice before continuing with the manual setup given below...
-**There is a new kind of quick-setup... via the "INSTALLATION.py" file.** Click [here](https://www.dropbox.com/s/jtw33u265anaeyo/INSTALLATION.py?dl=1) to download.  
+**There is a new kind of quick-setup (for Windows OS Only)... via the "INSTALLATION.py" file.** Click [here](https://www.dropbox.com/s/jtw33u265anaeyo/INSTALLATION.py?dl=1) to download.  
 **It allows you to single-handedly download and setup this entire music player quickly and easily**  
 **To try out this new easy way of installation, follow the steps given [here](#QUICK-SETUP)...**  
 
@@ -71,11 +80,13 @@ In the same location run `.\.virtenv\Scripts\activate` and wait for a`(.virtenv)
 
 ### Step 4
 
-Now you need to install a release of *ffmpeg* from their official site at [www.ffmpeg.org](https://ffmpeg.org/download.html)  
+Now you need to install a release of _ffmpeg_ from their official site at [www.ffmpeg.org](https://ffmpeg.org/download.html)  
 
 Choosing an essential build should be enough, although you may choose to go for a full build while you're at it (you may need it for something else later...)  
 
 Once downloaded, extract the downloaded zip file to a known location (E.g. "C:\Users\Admin\Desktop")  
+Since the _ffmpeg_ project build will be an archive of the '.7z' format, to unzip and extract it, you will need to install the _7zip_ archiver from the [7zip official site](www.7zip.org)  
+
 Now copy the path to that directory (not the path of an extracted file itself) and add this to the system variables path ([see here for a short tutorial](https://www.youtube.com/watch?v=r1AtmY-RMyQ))  
 
 ### Step 5
@@ -192,7 +203,11 @@ Run `main.py` from command line (with desired arguments, for more details, \*\*\
 
 ## Mariana Player in Action
 
+Original Light version of lyrics displayer
 ![image](https://user-images.githubusercontent.com/67545205/147845057-eab483b2-4e8c-43ce-9f0d-349d2e655437.png)
+
+New dark lyrics window + lyrics view
+![image](https://user-images.githubusercontent.com/67545205/155896613-6568b657-9104-4570-a05e-f0e8332db739.png)
 
 <hr>
 
@@ -216,9 +231,9 @@ Run `main.py` from command line (with desired arguments, for more details, \*\*\
 - Customisable via settings located in `settings/settings.yml`
 
 ## Known Issues
-- Seeking locally-playing song succeeds, but shows incorrect progress
-- Seeking is NOT supported for `.wav` files (only .mp3 files are fully supported for local play for now)
-- Rarely: "ConnectionResetError": ... kills the program
+- Rarely: "ConnectionResetError": ... is shown on screen (non breaking)
+- Very Rarely: "Segment fault pygame": ... breaking error
+- Rarely: Random Thread Exception: ... is shown on screen (non breaking)
 
 ### Footnotes
 
