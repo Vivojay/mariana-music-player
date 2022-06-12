@@ -1,6 +1,7 @@
 import urllib
 import re
 import pafy
+
 # import IPrint
 import beta.IPrint
 
@@ -32,25 +33,27 @@ def vid_info(vid_url: str, detailed=False):
                         "size": astream.get_filesize(),
                         "url": astream.url,
                         "type": astream.extension,
-                        "acodec": astream._info['acodec'],
+                        "acodec": astream._info["acodec"],
                         "duration": stream_duration(astream),
                         "notes": astream.notes,
-                    } for astream in astreams
+                    }
+                    for astream in astreams
                 ],
                 "videos": [
                     {
                         "resolution": vstream.resolution,
                         "title": vstream.title,
-                        "fps": vstream._info['fps'],
+                        "fps": vstream._info["fps"],
                         "size": vstream.get_filesize(),
                         "url": vstream.url,
                         "type": vstream.extension,
-                        "vcodec": vstream._info['vcodec'],
+                        "vcodec": vstream._info["vcodec"],
                         "duration": stream_duration(vstream),
                         "notes": vstream.notes,
-                    } for vstream in vstreams
+                    }
+                    for vstream in vstreams
                 ],
-            }
+            },
         }
     else:
         vidInfoObj = {
@@ -59,7 +62,7 @@ def vid_info(vid_url: str, detailed=False):
             "streams": {
                 "bestaudurl": pafyVidObj.getbestaudio().url,
                 "bestvidurl": pafyVidObj.getbestvideo().url,
-            }
+            },
         }
 
     return vidInfoObj
@@ -68,13 +71,13 @@ def vid_info(vid_url: str, detailed=False):
 def stream_duration(stream):
     duration = 0
     try:
-        _ = stream._info['fragments']
+        _ = stream._info["fragments"]
     except KeyError:
         return "NA"
 
-    for i in stream._info['fragments']:
+    for i in stream._info["fragments"]:
         try:
-            duration += i['duration']
+            duration += i["duration"]
         except Exception:
             pass
 
@@ -92,17 +95,14 @@ def search_youtube(search: str, rescount: int = 1, display_results: bool = True,
     #     if(res.getcode() == 200):
     #         return search
 
-    search_url = "https://www.youtube.com/results?search_query={}".format(
-        search.replace(" ", "+"))
+    search_url = "https://www.youtube.com/results?search_query={}".format(search.replace(" ", "+"))
 
     html = urllib.request.urlopen(search_url)
-    vid_ids = list(OrderedDict.fromkeys(re.findall(
-        r"watch\?v=(\S{11})", html.read().decode())))[:rescount]
-    vid_urls = [
-        f"https://www.youtube.com/watch?v={vid_id}" for vid_id in vid_ids]
+    vid_ids = list(OrderedDict.fromkeys(re.findall(r"watch\?v=(\S{11})", html.read().decode())))[:rescount]
+    vid_urls = [f"https://www.youtube.com/watch?v={vid_id}" for vid_id in vid_ids]
 
     if rescount == 1 and display_results:
-        vid_title = (vid_info(vid_urls[0], detailed=not True)['title'])
+        vid_title = vid_info(vid_urls[0], detailed=not True)["title"]
         out = (vid_title, vid_urls[0])
 
         if extra_output:
@@ -115,13 +115,13 @@ def search_youtube(search: str, rescount: int = 1, display_results: bool = True,
         out = []
         for vid in vid_urls:
             try:
-                out.append((vid_info(vid, detailed=not True)['title'], vid))
+                out.append((vid_info(vid, detailed=not True)["title"], vid))
             except OSError:
                 out.append(None)
 
         out = [(i, *j) for i, j in list(enumerate(out))]
-        out = [(lambda x, y, z: (x+1, y, z))(*i) for i in out]
+        out = [(lambda x, y, z: (x + 1, y, z))(*i) for i in out]
         if display_results:
-            print(tbl(out, headers=('#', 'NAME', 'URL')))
+            print(tbl(out, headers=("#", "NAME", "URL")))
 
         return out

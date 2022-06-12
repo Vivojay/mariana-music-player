@@ -12,13 +12,13 @@ from shazamio import Shazam, serialize_track
 
 CURDIR = os.path.dirname(os.path.realpath(__file__))
 os.chdir(CURDIR)
-os.chdir('..')
+os.chdir("..")
 
-yaml = YAML(typ='safe')
+yaml = YAML(typ="safe")
 
 
 def get_weblink_audio_info(weblink, isYT=False):
-    os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
+    os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "hide"
 
     if isYT:
         try:
@@ -26,7 +26,7 @@ def get_weblink_audio_info(weblink, isYT=False):
             audio_url = vid.getworstaudio().url
             r = requests.get(audio_url)
         except Exception:
-            return None # TODO - write to log: couldn't clean temp dir
+            return None  # TODO - write to log: couldn't clean temp dir
     else:
         # Old way -> Downloads whole mka file
         # r = requests.get(weblink)
@@ -38,41 +38,41 @@ def get_weblink_audio_info(weblink, isYT=False):
     bytecontent = r.content
 
     try:
-        if not os.path.isdir("temp"): os.mkdir("temp")
-        with open("temp/song_detect.mka", 'wb') as soundfile:
+        if not os.path.isdir("temp"):
+            os.mkdir("temp")
+        with open("temp/song_detect.mka", "wb") as soundfile:
             soundfile.write(bytecontent)
 
         src_path = "temp/song_detect.mka"
         dest_path = "temp/song_detect.mp3"
 
         try:
-            sp.run(["ffmpeg",
-                    "-loglevel", "quiet",
-                    "-hide_banner", "-y",
-                    "-i",
-                    src_path,
-                    dest_path],
-                    stderr = sp.DEVNULL,
-                    stdout = sp.DEVNULL,
-                    stdin = sp.PIPE)
+            sp.run(
+                ["ffmpeg", "-loglevel", "quiet", "-hide_banner", "-y", "-i", src_path, dest_path],
+                stderr=sp.DEVNULL,
+                stdout=sp.DEVNULL,
+                stdin=sp.PIPE,
+            )
         except FileNotFoundError:
-            return None # TODO - write to log: "ffmpeg not recognised globally"
+            return None  # TODO - write to log: "ffmpeg not recognised globally"
 
         if os.path.isfile("temp/song_detect.mka"):
-            try: os.remove("temp/song_detect.mka")
+            try:
+                os.remove("temp/song_detect.mka")
             except OSError:
-                pass # TODO - write to log: couldn't clean temp dir
+                pass  # TODO - write to log: couldn't clean temp dir
 
         if os.path.isfile("temp/song_detect.mp3"):
             out = get_song_info("temp/song_detect.mp3")
-            try: os.remove("temp/song_detect.mp3")
+            try:
+                os.remove("temp/song_detect.mp3")
             except OSError:
-                pass # TODO - write to log: couldn't clean temp dir
+                pass  # TODO - write to log: couldn't clean temp dir
         else:
-            return None # TODO - write to log: File coversion to mp3 unsuccessful
+            return None  # TODO - write to log: File coversion to mp3 unsuccessful
 
     except Exception:
-        return None # TODO - write to log: couldn't clean temp dir
+        return None  # TODO - write to log: couldn't clean temp dir
     return out
 
 
@@ -80,6 +80,7 @@ async def shazam_detect_song(songfile):
     global shazam_song_detection_result
     shazam = Shazam()
     shazam_song_detection_result = await shazam.recognize_song(songfile)
+
 
 async def shazam_get_song_info(shazam_id):
     shazam = Shazam()
@@ -107,25 +108,25 @@ def get_song_info(songfile, display_shazam_id=False):
         if display_shazam_id:
             print(f"Shazam ID: {shazam_song_detection_result.get('track')['key']}")
 
-        if shazam_song_detection_result['matches'] == []:
+        if shazam_song_detection_result["matches"] == []:
             # print(shazam_song_detection_result)
             song_info = []
 
         else:
             song_info = {
-                "display_name": shazam_song_detection_result.get('track').get('share').get('subject'),
-                "is_explicit": shazam_song_detection_result.get('track').get('hub').get('explicit'),
-                "shazam_id": shazam_song_detection_result.get('track').get('key'),
-                "metadata": shazam_song_detection_result.get('track').get('sections')[0].get('metadata'),
-                "lyrics": shazam_song_detection_result.get('track').get('sections')[1].get('text'),
-                "genres": shazam_song_detection_result.get('track').get('genres'),
+                "display_name": shazam_song_detection_result.get("track").get("share").get("subject"),
+                "is_explicit": shazam_song_detection_result.get("track").get("hub").get("explicit"),
+                "shazam_id": shazam_song_detection_result.get("track").get("key"),
+                "metadata": shazam_song_detection_result.get("track").get("sections")[0].get("metadata"),
+                "lyrics": shazam_song_detection_result.get("track").get("sections")[1].get("text"),
+                "genres": shazam_song_detection_result.get("track").get("genres"),
             }
 
             # print(song_info)
 
             # Functionality for getting information about the song does not work...
-            # 
-            # 
+            #
+            #
             # try:
             #     shazam_about_song_result = shazam_get_song_info(shazam_id=song_info['shazam_id'])
             #     print(shazam_about_song_result)
@@ -137,4 +138,3 @@ def get_song_info(songfile, display_shazam_id=False):
 
     else:
         raise OSError
-
