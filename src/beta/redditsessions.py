@@ -6,14 +6,14 @@ from tabulate import tabulate as tbl
 
 curdir = os.path.dirname(__file__)
 os.chdir(curdir)
-os.chdir('..')
+os.chdir("..")
 
-r_creds_file = 'user/reddit_credentials.json'
+r_creds_file = "user/reddit_credentials.json"
 WARNING = None
 redditsessions = None
 
 # Sample "reddit_credentials.json" file format in users folder
-'''
+"""
 {
     "client_id": <client_id>,
     "client_secret": <client_secret>,
@@ -21,12 +21,13 @@ redditsessions = None
     "redirect_uri":  <redirect_uri>,
     "refresh_token": <refresh_token>,
 }
-'''
+"""
+
 
 def instantiate():
     global REDDIT
     if os.path.isfile(r_creds_file):
-        with open(r_creds_file, 'r', encoding='utf-8-sig') as r_creds_file_obj:
+        with open(r_creds_file, "r", encoding="utf-8-sig") as r_creds_file_obj:
             try:
                 r_creds = json.load(r_creds_file_obj)
                 REDDIT = praw.Reddit(**r_creds)
@@ -49,25 +50,20 @@ def get_redditsessions():
     rs_list = [
         (
             {
-                'url': i.url,
-                'title': i.title,
-                'audiolink': i.rpan_video['hls_url'],
-                'upvotes':i.ups,
-                'downvotes': round(i.ups*((1/i.upvote_ratio)-1))
+                "url": i.url,
+                "title": i.title,
+                "audiolink": i.rpan_video["hls_url"],
+                "upvotes": i.ups,
+                "downvotes": round(i.ups * ((1 / i.upvote_ratio) - 1)),
             }
-        ) for i in redditsessions.hot(limit=10)
+        )
+        for i in redditsessions.hot(limit=10)
     ]
     return rs_list
 
 
 def display_seshs_as_table(sesh_list):
-    params = ['title', 'upvotes', 'downvotes']
-    display_seshs = [
-        {
-            param: val for param, val in sesh.items()
-            if param in params
-        } for sesh in sesh_list
-    ]
-    
-    return display_seshs, params
+    params = ["title", "upvotes", "downvotes"]
+    display_seshs = [{param: val for param, val in sesh.items() if param in params} for sesh in sesh_list]
 
+    return display_seshs, params
