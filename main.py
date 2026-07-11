@@ -514,7 +514,7 @@ def play_local_default_player(songpath, _songindex, is_queue=False):
         vas.vlc_media_player.get_media_player().audio_set_volume(int(cached_volume*100))
 
         isplaying = True
-        currentsong = songpath
+        currentsong = songpath[0] if isinstance(songpath, list) else songpath
 
         if _songindex:
             IPrint(colored.fg('dark_olive_green_2') + \
@@ -548,7 +548,7 @@ def play_local_default_player(songpath, _songindex, is_queue=False):
         USER_DATA['default_user_data']['stats']['play_count']['local'] += 1
         save_user_data()
 
-        while not vas.vlc_media_player.get_media_player().is_playing(): pass
+        vas.wait_until_playing(max_wait_limit_to_get_song_length)
 
         # TODO - Save all audio info in `data` dir
         # save_song_data()
@@ -683,7 +683,12 @@ def playpausetoggle(softtoggle=True, use_multi=False, transition_time=0.2, show_
                 isplaying = True
         else:
             isplaying = False
-            SAY("Nothing to pause/unpause", say=False)
+            SAY(
+                visible=visible,
+                log_priority=3,
+                display_message="Nothing to pause/unpause",
+                log_message="Nothing to pause/unpause",
+            )
 
     except Exception:
         # raise
@@ -787,9 +792,6 @@ def fade_in_out(initvol=None, finalvol=None, fade_type=0, fade_duration=5):
             log_priority=3)
 
 def enqueue(songindices):
-    print(f'Enqueueing feature is still in progress... The developer {colored.fg("magenta_3a")}@{SYSTEM_SETTINGS["about"]["author"]}{colored.attr("reset")} will add this feature shortly...')
-    '''
-    # TODO - Refine the following feature and add to production
     IPrint("Enqueueing", visible=visible)
     global song_paths_to_enqueue
 
@@ -810,14 +812,13 @@ def enqueue(songindices):
                 SAY(visible=visible,
                     display_message = "Queueing error",
                     log_message = "Could not enqueue one or more files",
-                    log_pripority = 2)
+                    log_priority = 2)
                 raise
 
         play_local_default_player(song_paths_to_enqueue, _songindex=None, is_queue=True)
 
     else:
         IPrint("No songs to queue", visible=visible)
-    '''
 
 
 def purge_old_lyrics_if_exist():
@@ -931,7 +932,7 @@ def get_currentsong_length():
 def song_seek(timeval=None, rel_val=None):
     global currentsong
 
-    if timeval:
+    if timeval is not None:
         try:
             vas.vlc_media_player.get_media_player().set_time(int(timeval)*1000)
             return True
@@ -1093,7 +1094,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
     USER_DATA['default_user_data']['stats']['play_count'][media_type] += 1
     save_user_data()
 
-    while not vas.vlc_media_player.get_media_player().is_playing(): pass
+    vas.wait_until_playing(max_wait_limit_to_get_song_length)
 
     if current_media_type == 2:
         currentsong_length = -1
@@ -2370,7 +2371,7 @@ def process(command):
                         elif current_media_type == 1:
                             webbrowser.open(currentsong)
                         elif current_media_type == 2:
-                            webbrowser.open(f"https://s2-webradio.antenne.de/{currentsong}")
+                            webbrowser.open(vas.radio_stream_url(currentsong))
                         elif current_media_type == 3:
                             webbrowser.open(currentsong[1])
                         else:
@@ -2847,13 +2848,22 @@ def showbanner():
     
     if visible: showversion()
 
+def initialize_audio_output():
+    try:
+        pygame.mixer.init()
+    except pygame.error as error:
+        raise RuntimeError(
+            "Mariana Player could not initialize an audio output device. "
+            "Connect or enable speakers and verify Windows audio settings."
+        ) from error
+
+
 def run():
     global enforce_os_requirement, visible, USER_DATA
 
+    initialize_audio_output()
     USER_DATA['default_user_data']['stats']['log_ins'] += 1
     save_user_data()
-
-    pygame.mixer.init()
 
     if FIRST_BOOT:
         startup_sound_path = "res/first_boot_startup_sound.mp3"

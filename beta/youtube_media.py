@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import shutil
 from typing import Any
 
 from yt_dlp import YoutubeDL
@@ -13,6 +14,20 @@ class YouTubeError(RuntimeError):
     """Raised when yt-dlp cannot resolve a requested YouTube resource."""
 
 
+def integration_options() -> dict[str, Any]:
+    options: dict[str, Any] = {
+        "socket_timeout": 30,
+        "retries": 5,
+        "fragment_retries": 5,
+        "file_access_retries": 3,
+    }
+    for runtime, executable in (("deno", "deno"), ("node", "node"), ("quickjs", "qjs")):
+        if runtime_path := shutil.which(executable):
+            options["js_runtimes"] = {runtime: {"path": runtime_path}}
+            break
+    return options
+
+
 def _options(**overrides: Any) -> dict[str, Any]:
     options: dict[str, Any] = {
         "quiet": True,
@@ -20,6 +35,7 @@ def _options(**overrides: Any) -> dict[str, Any]:
         "skip_download": True,
         "noplaylist": True,
     }
+    options.update(integration_options())
     options.update(overrides)
     return options
 

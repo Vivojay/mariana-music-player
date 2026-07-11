@@ -24,6 +24,8 @@ attrs==26.1.0
     # via aiohttp
 boolean-py==5.0
     # via license-expression
+brotli==1.2.0
+    # via yt-dlp
 build==1.5.1
     # via pip-tools
 cachecontrol[filecache]==0.14.4
@@ -31,7 +33,9 @@ cachecontrol[filecache]==0.14.4
     #   cachecontrol
     #   pip-audit
 certifi==2026.6.17
-    # via requests
+    # via
+    #   requests
+    #   yt-dlp
 cffi==2.1.0
     # via sounddevice
 charset-normalizer==3.4.9
@@ -83,6 +87,8 @@ multidict==6.7.1
     # via
     #   aiohttp
     #   yarl
+mutagen==1.48.1
+    # via yt-dlp
 numpy==2.5.1
     # via shazamio
 packageurl-python==0.17.6
@@ -120,6 +126,8 @@ pycaw==20251023
     # via -r requirements.in
 pycparser==3.0
     # via cffi
+pycryptodomex==3.23.0
+    # via yt-dlp
 pydantic==2.13.4
     # via shazamio
 pydantic-core==2.46.4
@@ -151,6 +159,7 @@ requests==2.34.2
     #   -r requirements.in
     #   cachecontrol
     #   pip-audit
+    #   yt-dlp
 rich==15.0.0
     # via pip-audit
 ruamel-yaml==0.19.1
@@ -189,13 +198,19 @@ typing-extensions==4.16.0
 typing-inspection==0.4.2
     # via pydantic
 urllib3==2.7.0
-    # via requests
+    # via
+    #   requests
+    #   yt-dlp
+websockets==16.1
+    # via yt-dlp
 wheel==0.47.0
     # via pip-tools
 yarl==1.24.2
     # via aiohttp
-yt-dlp==2026.7.4
+yt-dlp[default]==2026.7.4
     # via -r requirements.in
+yt-dlp-ejs==0.8.0
+    # via yt-dlp
 
 # The following packages are considered to be unsafe in a requirements file:
 # pip

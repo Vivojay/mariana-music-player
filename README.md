@@ -9,6 +9,7 @@ YouTube search/playback/downloads, podcasts, and Shazam-powered song recognition
 - CPython 3.12.x, 64-bit
 - [VLC media player 3.x](https://www.videolan.org/vlc/), 64-bit
 - [FFmpeg and FFprobe](https://ffmpeg.org/download.html) available on `PATH`
+- [Deno](https://deno.com/) or [Node.js 22+](https://nodejs.org/) available on `PATH` for reliable YouTube extraction
 
 Python and VLC must use the same architecture. FFmpeg is needed for media conversion, metadata extraction, downloads,
 and sampling online audio for recognition; local-only playback can still start without it.
@@ -78,6 +79,8 @@ python -m piptools compile --output-file requirements-dev.txt requirements-dev.i
 - **VLC not found:** install 64-bit VLC in its standard directory or set `vlc path` in `settings/settings.yml`.
 - **FFmpeg/FFprobe warning:** add the directory containing `ffmpeg.exe` and `ffprobe.exe` to the system `PATH`, then open
   a new terminal.
+- **JavaScript runtime warning:** install Deno or Node.js 22+ and add it to `PATH`; yt-dlp uses it for YouTube's current
+  JavaScript challenges.
 - **No audio device:** confirm Windows can see an output device before starting Mariana.
 - **Dependency mismatch:** recreate `.venv` and install from `requirements.txt`; do not mix the old 2022 dependency set
   with the modern lock.

@@ -12,6 +12,7 @@ from yt_dlp import YoutubeDL
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 from logger import SAY
+from beta.youtube_media import integration_options
 
 
 """
@@ -103,11 +104,12 @@ def media_DL(SETTINGS,
     else:
         dl_dir = dl_dir_setup_code
 
-    ydl_outtmpl = os.path.join(dl_dir, "%(title)s.%(ext)s")
-
     if typ not in [0, 1]: # Invalid dl typ, revert to settings...
         typ = SETTINGS['download']['type'].lower().strip()
         typ = ['audio', 'video'].index(typ)
+
+    output_kind = ('audio', 'video')[typ]
+    ydl_outtmpl = os.path.join(dl_dir, f"%(title)s [{output_kind}].%(ext)s")
 
     if quality is None:
         if typ == 0:
@@ -133,6 +135,7 @@ def media_DL(SETTINGS,
                                        # (GUI progress bar prolly cuz it'll be non blocking 
                                        # + Better looking...)
     }
+    ydl_opts.update(integration_options())
 
     if typ == 0:
         ydl_opts['postprocessors'] = [{
@@ -151,7 +154,13 @@ def media_DL(SETTINGS,
         with YoutubeDL(ydl_opts) as ydl:
             ydl.download(media_urls)
         returncode = 4 # Successful Download
-    except Exception:
+    except Exception as error:
+        SAY(
+            visible=True,
+            display_message="YouTube download failed; check the network, FFmpeg, and JavaScript runtime.",
+            log_message=f"YouTube download failed: {error}",
+            log_priority=2,
+        )
         returncode = 5 # Failed Download
     return returncode
 

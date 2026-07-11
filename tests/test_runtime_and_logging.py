@@ -25,10 +25,13 @@ def test_fatal_logging_writes_general_and_crash_logs(tmp_path: Path):
 def test_runtime_report_is_actionable(monkeypatch):
     monkeypatch.setattr("runtime_check.shutil.which", lambda _name: None)
     monkeypatch.setattr("runtime_check.find_vlc_directory", lambda _path=None: None)
+    monkeypatch.setattr("runtime_check.has_audio_output", lambda: False)
     report = check_runtime()
     messages = format_runtime_report(report)
     assert any("ffmpeg" in message for message in messages)
     assert any("VLC" in message for message in messages)
+    assert any("JavaScript runtime" in message for message in messages)
+    assert any("audio output" in message for message in messages)
 
 
 def test_runtime_report_rejects_incompatible_vlc(monkeypatch):

@@ -6,6 +6,7 @@ import beta.redditsessions as reddit
 import beta.youtube_media as youtube_media
 from beta.mediadl import media_DL
 from lyrics_provider.detect_song import normalize_song_info
+import lyrics_provider.detect_song as detect_song
 
 
 class FakeResponse:
@@ -39,6 +40,17 @@ def test_stream_url_normalizes_direct_media(monkeypatch):
     assert youtube_media.stream_url("https://youtube.test/watch", audio_only=True) == "https://media.test/audio"
 
 
+def test_youtube_options_discover_node(monkeypatch):
+    monkeypatch.setattr(
+        youtube_media.shutil,
+        "which",
+        lambda executable: "C:/node/node.exe" if executable == "node" else None,
+    )
+    options = youtube_media.integration_options()
+    assert options["js_runtimes"] == {"node": {"path": "C:/node/node.exe"}}
+    assert options["retries"] == 5
+
+
 def test_podcast_feed_is_normalized(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(podcasts.requests, "get", lambda *_args, **_kwargs: FakeResponse())
     output = tmp_path / "feed.json"
@@ -68,6 +80,15 @@ def test_shazam_response_is_normalized():
     assert normalized["lyrics"] == ["line one", "line two"]
 
 
+def test_online_lyrics_sampling_fails_cleanly_on_ffmpeg_timeout(monkeypatch):
+    monkeypatch.setattr(
+        detect_song.sp,
+        "run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(detect_song.sp.TimeoutExpired("ffmpeg", 1)),
+    )
+    assert detect_song.get_weblink_audio_info(5, "https://example.test/audio.mp3") == {}
+
+
 def test_downloader_dry_run_preserves_quality_settings(tmp_path: Path):
     settings = {
         "download": {
@@ -80,6 +101,17 @@ def test_downloader_dry_run_preserves_quality_settings(tmp_path: Path):
     options = media_DL(settings, {"system_settings": {}}, ["https://example.test"], dry_run=True)
     assert options["format"] == "bestaudio/best"
     assert options["postprocessors"][0]["key"] == "FFmpegExtractAudio"
+    assert "[audio]" in options["outtmpl"]
+
+    video_options = media_DL(
+        settings,
+        {"system_settings": {}},
+        ["https://example.test"],
+        typ=1,
+        quality={"audio": 1, "video": 1},
+        dry_run=True,
+    )
+    assert "[video]" in video_options["outtmpl"]
 
 
 def test_reddit_commands_have_a_graceful_retirement_contract():

@@ -22,8 +22,12 @@ anyio==4.14.1
     # via shazamio
 attrs==26.1.0
     # via aiohttp
+brotli==1.2.0
+    # via yt-dlp
 certifi==2026.6.17
-    # via requests
+    # via
+    #   requests
+    #   yt-dlp
 cffi==2.1.0
     # via sounddevice
 charset-normalizer==3.4.9
@@ -53,6 +57,8 @@ multidict==6.7.1
     # via
     #   aiohttp
     #   yarl
+mutagen==1.48.1
+    # via yt-dlp
 numpy==2.5.1
     # via shazamio
 pillow==12.3.0
@@ -67,6 +73,8 @@ pycaw==20251023
     # via -r requirements.in
 pycparser==3.0
     # via cffi
+pycryptodomex==3.23.0
+    # via yt-dlp
 pydantic==2.13.4
     # via shazamio
 pydantic-core==2.46.4
@@ -82,7 +90,9 @@ pywin32==312
 pyyaml==6.0.3
     # via -r requirements.in
 requests==2.34.2
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   yt-dlp
 ruamel-yaml==0.19.1
     # via -r requirements.in
 sgmllib3k==1.0.0
@@ -110,8 +120,14 @@ typing-extensions==4.16.0
 typing-inspection==0.4.2
     # via pydantic
 urllib3==2.7.0
-    # via requests
+    # via
+    #   requests
+    #   yt-dlp
+websockets==16.1
+    # via yt-dlp
 yarl==1.24.2
     # via aiohttp
-yt-dlp==2026.7.4
+yt-dlp[default]==2026.7.4
     # via -r requirements.in
+yt-dlp-ejs==0.8.0
+    # via yt-dlp

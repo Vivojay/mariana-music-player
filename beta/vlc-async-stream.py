@@ -1,6 +1,7 @@
 import ctypes
 import importlib
 import os
+import time
 from pathlib import Path
 
 from ruamel.yaml import YAML
@@ -20,11 +21,36 @@ VLC_AVAILABLE = False
 VLC_ERROR = "VLC 3.x is unavailable; install 64-bit VLC to use online playback."
 vlc = None
 vlc_media_player = None
+vlc_media_list = None
+
+RADIO_STREAMS = {
+    "coffee": "https://somafm.com/m3u/gsclassic.m3u",
+    "chillout": "https://somafm.com/m3u/groovesalad.m3u",
+    "lounge": "https://somafm.com/m3u/illstreet.m3u",
+}
 
 
 def require_vlc():
     if not VLC_AVAILABLE or vlc is None:
         raise RuntimeError(VLC_ERROR)
+
+
+def wait_until_playing(timeout=15, poll_interval=0.05):
+    require_vlc()
+    deadline = time.monotonic() + timeout
+    player = vlc_media_player.get_media_player()
+    while time.monotonic() < deadline:
+        if player.is_playing():
+            return True
+        time.sleep(poll_interval)
+    raise TimeoutError(f"VLC did not start playback within {timeout} seconds")
+
+
+def radio_stream_url(name):
+    try:
+        return RADIO_STREAMS[name]
+    except KeyError as error:
+        raise ValueError(f"Unknown radio station: {name}") from error
 
 
 def set_media(_type=None, vidurl=None, audurl=None, localpath=None):
@@ -40,7 +66,7 @@ def set_media(_type=None, vidurl=None, audurl=None, localpath=None):
 
     if _type.startswith("radio"):
         radio_type = _type.split("/")[1]
-        load_media_object(player=player, mrls_list=[f"https://s2-webradio.antenne.de/{radio_type}"])
+        load_media_object(player=player, mrls_list=[radio_stream_url(radio_type)])
     elif _type == "yt_video":
         if vidurl:
             audurl = stream_url(vidurl, audio_only=True)
@@ -64,7 +90,7 @@ def set_media(_type=None, vidurl=None, audurl=None, localpath=None):
 
 
 def load_media_object(player, mrls_list):
-    global vlc_media_player
+    global vlc_media_list, vlc_media_player
 
     media_list = player.media_list_new()
     for mrl in mrls_list:
@@ -73,6 +99,7 @@ def load_media_object(player, mrls_list):
 
     vlc_media_player = player.media_list_player_new()
     vlc_media_player.set_media_list(media_list)
+    vlc_media_list = media_list
 
 
 def vlc_import():
@@ -125,10 +152,12 @@ def media_player(action=None, playing_time=None):
     elif action == "stop":
         vlc_media_player.stop()
     elif action == "resync":
-        cur_state = bool(vlc_media_player.get_state())
+        was_playing = bool(vlc_media_player.get_media_player().is_playing())
         vlc_media_player.stop()
         vlc_media_player.play()
-        if cur_state:
+        if was_playing:
+            wait_until_playing()
+        else:
             vlc_media_player.pause()
 
 

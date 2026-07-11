@@ -1,7 +1,6 @@
 import os
 import sys
 import asyncio
-import requests
 import subprocess as sp
 from pathlib import Path
 
@@ -12,8 +11,6 @@ from beta.youtube_media import stream_url
 
 # import nest_asyncio
 # nest_asyncio.apply()
-
-HTTP_TIMEOUT = (5, 30)
 
 APP_DIR = Path(__file__).resolve().parents[1]
 TEMP_DIR = APP_DIR / 'temp'
@@ -26,68 +23,41 @@ if not RELATED_SONGS_PATH.is_file():
     RELATED_SONGS_PATH.touch()
 
 def get_weblink_audio_info(max_wait_lim, weblink, isYT=False):
-
-    headers = {"Range": "bytes=0-25000"}
-    if isYT:
-        try:
-            audio_url = stream_url(weblink, audio_only=True)
-            r = requests.get(audio_url, headers=headers, timeout=HTTP_TIMEOUT)
-            r.raise_for_status()
-        except Exception:
-            return {} # TODO - write to log: couldn't clean temp dir
-    else:
-        # Old way -> Downloads whole mka file
-        # r = requests.get(weblink)
-
-        # New way -> Tries to download first 25000 bytes of mka file only
-        try:
-            r = requests.get(weblink, headers=headers, timeout=HTTP_TIMEOUT)
-            r.raise_for_status()
-        except Exception:
-            try:
-                r = requests.get(weblink, timeout=HTTP_TIMEOUT)
-                r.raise_for_status()
-            except requests.RequestException:
-                return {}
-
-    bytecontent = r.content
-
+    duration = max(5, min(int(max_wait_lim or 15), 20))
+    dest_path = TEMP_DIR / "song_detect.mp3"
     try:
         TEMP_DIR.mkdir(parents=True, exist_ok=True)
-        src_path = TEMP_DIR / "song_detect.mka"
-        dest_path = TEMP_DIR / "song_detect.mp3"
-        with src_path.open('wb') as soundfile:
-            soundfile.write(bytecontent)
-
+        if dest_path.exists():
+            dest_path.unlink()
+        source = stream_url(weblink, audio_only=True) if isYT else weblink
+        sp.run(
+            [
+                "ffmpeg",
+                "-loglevel", "error",
+                "-hide_banner",
+                "-y",
+                "-rw_timeout", "30000000",
+                "-i", source,
+                "-t", str(duration),
+                "-vn",
+                str(dest_path),
+            ],
+            check=True,
+            stderr=sp.DEVNULL,
+            stdout=sp.DEVNULL,
+            stdin=sp.DEVNULL,
+            timeout=duration + 35,
+        )
+        if not dest_path.is_file():
+            return {}
+        return get_song_info(str(dest_path))
+    except (FileNotFoundError, sp.SubprocessError, OSError, ValueError):
+        return {}
+    finally:
         try:
-            sp.run(["ffmpeg",
-                    "-loglevel", "quiet",
-                    "-hide_banner", "-y",
-                    "-i",
-                    str(src_path),
-                    str(dest_path)],
-                    stderr = sp.DEVNULL,
-                    stdout = sp.DEVNULL,
-                    stdin = sp.PIPE)
-        except FileNotFoundError:
-            return {} # TODO - write to log: "ffmpeg not recognised globally"
-
-        if src_path.is_file():
-            try: src_path.unlink()
-            except OSError:
-                pass # TODO - write to log: couldn't clean temp dir
-
-        if dest_path.is_file():
-            out = get_song_info(str(dest_path))
-            try: dest_path.unlink()
-            except OSError:
-                pass # TODO - write to log: couldn't clean temp dir
-        else:
-            return {} # TODO - write to log: File coversion to mp3 unsuccessful
-
-    except Exception:
-        return {} # TODO - write to log: couldn't clean temp dir
-    return out
+            dest_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 async def shazam_detect_song(songfile):

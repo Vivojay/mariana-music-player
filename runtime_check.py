@@ -68,6 +68,16 @@ def inspect_vlc_installation(vlc_directory: Path) -> tuple[int | None, tuple[int
         return None, None
 
 
+def has_audio_output() -> bool:
+    try:
+        import sounddevice
+
+        devices = sounddevice.query_devices()
+        return any(device.get("max_output_channels", 0) > 0 for device in devices)
+    except Exception:
+        return False
+
+
 def check_runtime(configured_vlc_path: str | None = None) -> RuntimeReport:
     errors: list[str] = []
     warnings: list[str] = []
@@ -87,6 +97,17 @@ def check_runtime(configured_vlc_path: str | None = None) -> RuntimeReport:
             warnings.append(
                 f"{executable} is not on PATH; downloads, metadata, and lyrics sampling may be unavailable."
             )
+
+    if not any(shutil.which(executable) for executable in ("deno", "node", "qjs")):
+        warnings.append(
+            "No supported JavaScript runtime was found; install Deno or Node 22+ and add it to PATH "
+            "for reliable YouTube extraction."
+        )
+
+    if not has_audio_output():
+        warnings.append(
+            "No usable audio output device was detected; connect or enable speakers before starting playback."
+        )
 
     vlc_directory = find_vlc_directory(configured_vlc_path)
     if vlc_directory is None:
