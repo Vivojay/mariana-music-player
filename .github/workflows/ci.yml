@@ -8,9 +8,6 @@ jobs:
   windows-python-312:
     runs-on: windows-latest
     timeout-minutes: 20
-    env:
-      SDL_AUDIODRIVER: dummy
-      PYGAME_HIDE_SUPPORT_PROMPT: hide
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -26,17 +23,33 @@ jobs:
         run: python -m pip check
       - name: Compile Python sources
         run: python -m compileall -q .
-      - name: Check critical legacy errors
+      - name: Check critical syntax and name errors
         run: python -m ruff check --select E9,F63,F7,F82 .
       - name: Check modernized modules
-        run: python -m ruff check config_manager.py runtime_check.py terminal_colors.py beta/youtube_media.py tests
+        run: python -m ruff check config_manager.py runtime_check.py terminal_colors.py beta/ffmpeg_player.py beta/youtube_media.py mariana recommendation_engine tests
       - name: Run tests
         run: >-
           python -m pytest -q
           --cov
           --cov-report=term-missing
           --cov-report=xml
-          --cov-fail-under=55
+          --cov-fail-under=70
+      - name: Enforce new-package branch coverage
+        run: >-
+          python -m pytest -q
+          tests/test_ffmpeg_playback_core.py
+          tests/test_playback_state_machine.py
+          tests/test_real_media_pipeline.py
+          tests/test_media_models_and_queue.py
+          tests/test_identity_and_lyrics.py
+          tests/test_radio_catalog.py
+          tests/test_custom_download.py
+          tests/test_recommendation_engine.py
+          tests/test_optional_embeddings.py
+          --cov=mariana
+          --cov=recommendation_engine
+          --cov-branch
+          --cov-fail-under=90
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4

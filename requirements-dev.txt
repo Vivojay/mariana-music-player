@@ -4,24 +4,6 @@
 #
 #    pip-compile --output-file=requirements-dev.txt requirements-dev.in
 #
-aiofiles==23.2.1
-    # via shazamio
-aiohappyeyeballs==2.7.1
-    # via aiohttp
-aiohttp==3.14.1
-    # via
-    #   aiohttp-retry
-    #   shazamio
-aiohttp-retry==2.9.1
-    # via shazamio
-aiosignal==1.4.0
-    # via aiohttp
-annotated-types==0.7.0
-    # via pydantic
-anyio==4.14.1
-    # via shazamio
-attrs==26.1.0
-    # via aiohttp
 boolean-py==5.0
     # via license-expression
 brotli==1.2.0
@@ -58,25 +40,16 @@ coverage[toml]==7.15.0
     # via pytest-cov
 cyclonedx-python-lib==11.11.0
     # via pip-audit
-dataclass-factory==2.16
-    # via shazamio
 defusedxml==0.7.1
     # via py-serializable
 feedparser==6.0.12
     # via -r requirements.in
 filelock==3.29.7
     # via cachecontrol
-frozenlist==1.8.0
-    # via
-    #   aiohttp
-    #   aiosignal
 hypothesis==6.156.6
     # via -r requirements-dev.in
 idna==3.18
-    # via
-    #   anyio
-    #   requests
-    #   yarl
+    # via requests
 iniconfig==2.3.0
     # via pytest
 license-expression==30.4.4
@@ -87,14 +60,10 @@ mdurl==0.1.2
     # via markdown-it-py
 msgpack==1.2.1
     # via cachecontrol
-multidict==6.7.1
-    # via
-    #   aiohttp
-    #   yarl
 mutagen==1.48.1
-    # via yt-dlp
-numpy==2.5.1
-    # via shazamio
+    # via
+    #   -r requirements.in
+    #   yt-dlp
 packageurl-python==0.17.6
     # via cyclonedx-python-lib
 packaging==26.2
@@ -120,10 +89,6 @@ pluggy==1.6.0
     # via
     #   pytest
     #   pytest-cov
-propcache==0.5.2
-    # via
-    #   aiohttp
-    #   yarl
 psutil==7.2.2
     # via pycaw
 py-serializable==2.1.0
@@ -134,14 +99,6 @@ pycparser==3.0
     # via cffi
 pycryptodomex==3.23.0
     # via yt-dlp
-pydantic==2.13.4
-    # via shazamio
-pydantic-core==2.46.4
-    # via pydantic
-pydub==0.25.1
-    # via shazamio
-pygame==2.6.1
-    # via -r requirements.in
 pygments==2.20.0
     # via
     #   pytest
@@ -158,8 +115,6 @@ pytest==9.1.1
     #   pytest-cov
 pytest-cov==7.1.0
     # via -r requirements-dev.in
-python-vlc==3.0.21203
-    # via -r requirements.in
 pywin32==312
     # via -r requirements.in
 pyyaml==6.0.3
@@ -178,10 +133,6 @@ ruff==0.15.21
     # via -r requirements-dev.in
 sgmllib3k==1.0.0
     # via feedparser
-shazamio==0.8.1
-    # via -r requirements.in
-shazamio-core==1.1.2
-    # via shazamio
 sortedcontainers==2.4.0
     # via
     #   cyclonedx-python-lib
@@ -199,16 +150,7 @@ tomli-w==1.2.0
 tqdm==4.68.4
     # via -r requirements.in
 typing-extensions==4.16.0
-    # via
-    #   aiohttp
-    #   aiosignal
-    #   anyio
-    #   cyclonedx-python-lib
-    #   pydantic
-    #   pydantic-core
-    #   typing-inspection
-typing-inspection==0.4.2
-    # via pydantic
+    # via cyclonedx-python-lib
 urllib3==2.7.0
     # via
     #   requests
@@ -217,8 +159,6 @@ websockets==16.1
     # via yt-dlp
 wheel==0.47.0
     # via pip-tools
-yarl==1.24.2
-    # via aiohttp
 yt-dlp[default]==2026.7.4
     # via -r requirements.in
 yt-dlp-ejs==0.8.0

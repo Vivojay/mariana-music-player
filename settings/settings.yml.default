@@ -24,7 +24,26 @@ show banner: true
 visible: true
 editor path: C:\WINDOWS\system32\notepad.exe
 get related songs: true
-vlc path:
+
+media tools:
+  ffmpeg bin: C:\Users\Vivan.Jaiswal\Documents\ffmpeg-2025-12-18-git-78c75d546a-essentials_build\bin
+  fpcalc bin:
+
+playback:
+  crossfade seconds: 0
+  buffer seconds: 8
+
+identification:
+  acoustid api key:
+
+radio:
+  health probe seconds: 5
+
+recommendations:
+  autofill: false
+  exploration: 0.10
+  mmr diversity: 0.75
+  listenbrainz token:
 
 lyrics:
   use solid color bg: false

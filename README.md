@@ -1,86 +1,131 @@
-# Mariana Music Player v0.6.2
+# Mariana Music Player
 
-Mariana is a command-line music player for 64-bit Windows. It supports local audio, VLC-backed streams and radio,
-YouTube search/playback/downloads, podcasts, and Shazam-powered song recognition and lyrics.
+Mariana is a local-first command-line media player for 64-bit Windows. The
+0.7 development platform decodes audio with FFmpeg into a bounded PCM pipeline,
+plays it through `sounddevice`, and uses FFplay only as an external diagnostic
+or video fallback. The currently declared release remains 0.6.2 until every
+release gate—including manual speaker and soak acceptance—has passed.
+
+Supported sources include local audio, YouTube, podcasts, custom HTTP media,
+HLS/PLS/M3U streams, and internet radio. Queue, identity, lyrics, radio health,
+interaction history, and recommendation models are persisted in SQLite.
 
 ## Supported environment
 
-- Windows 10 or Windows 11, 64-bit
-- CPython 3.12.x, 64-bit
-- [VLC media player 3.x](https://www.videolan.org/vlc/), 64-bit
-- [FFmpeg and FFprobe](https://ffmpeg.org/download.html) available on `PATH`
-- [Deno](https://deno.com/) or [Node.js 22+](https://nodejs.org/) available on `PATH` for reliable YouTube extraction
+- Windows 10 or 11 x64
+- CPython 3.12 x64
+- FFmpeg, FFprobe, and FFplay from the same x64 build
+- Node.js 22+ for reliable yt-dlp extraction
+- Chromaprint `fpcalc` 1.6.0 for acoustic identification
 
-Python and VLC must use the same architecture. FFmpeg is needed for media conversion, metadata extraction, downloads,
-and sampling online audio for recognition; local-only playback can still start without it.
+The checked-in settings currently point at:
+
+```text
+C:\Users\Vivan.Jaiswal\Documents\ffmpeg-2025-12-18-git-78c75d546a-essentials_build\bin
+```
+
+Change `media tools.ffmpeg bin` in `settings/settings.yml` on another machine,
+or put the three FFmpeg executables on `PATH`.
 
 ## Installation
-
-Clone the repository and enter it:
 
 ```powershell
 git clone https://github.com/Vivojay/mariana-music-player.git
 Set-Location mariana-music-player
-```
-
-Create and activate a Python 3.12 virtual environment:
-
-```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-```
-
-Install the fully pinned runtime:
-
-```powershell
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python -m pip check
-```
-
-Run Mariana:
-
-```powershell
+.\tools\install_chromaprint.ps1
 python main.py
 ```
 
-The first run asks for local music folders and optionally offers the Mariana sample collection. The sample download can
-be declined without limiting normal operation.
+The Chromaprint installer downloads the official Windows x64 1.6.0 archive and
+rejects it unless SHA-256 equals
+`30179d3d0dc4cc92f1a0995c1a2e523fb4867724c2ee6a6ceae474f8e4d6937a`.
 
-## Development checks
+AcoustID requires an application API key. Set `ACOUSTID_API_KEY` or
+`identification.acoustid api key`. Without a key, playback continues and
+identification returns a typed unavailable result—it never guesses.
 
-Install the locked development environment:
+## Playback and command compatibility
+
+Existing local, URL, YouTube, podcast, pause, stop, seek, progress, volume,
+mute, fade, lyrics, next/previous, recent, and download syntax remains. New
+command families include:
+
+```text
+queue add|insert|remove|move|swap|jump|list|clear
+queue next|previous|shuffle|repeat|consume|save|load|undo|redo|autofill
+radio search|list|play|favorite|refresh|health
+recommend [count]
+recommend autofill [count]
+recommend train
+like
+dislike
+download-ml <URL> [mp3|flac|wav|m4a|opus] [output path]
+```
+
+Capabilities are explicit. Pause, stop, volume, mute, progress, history,
+queueing, and `now` apply to successfully decoded sources. Seeking is rejected
+for live/non-seekable streams. Radio resync restarts at the live edge. Mariana
+does not bypass DRM, authentication, geographic restrictions, or server access
+controls.
+
+## Open identification and lyrics
+
+Playback PCM feeds the sole acoustic fingerprint implementation, Chromaprint.
+AcoustID resolves fingerprints, MusicBrainz enriches recording/work metadata,
+and LRCLIB supplies synchronized or plain lyrics. Local embedded lyrics and
+adjacent `.lrc` files take precedence. Conservative acceptance requires score
+`>=0.85`, runner-up margin `>=0.05`, and duration agreement within five seconds
+when duration is known. Missing and ambiguous results remain missing or
+ambiguous.
+
+MusicBrainz calls carry a Mariana User-Agent, are limited to one request per
+second, and use cached offline fallback. Lyrics cache records provider,
+retrieval time, identity confidence, and attribution.
+
+## Recommendations and privacy
+
+The default CPU engine stays on-device. It combines stable metadata features,
+an online Bayesian preference ranker, 10% Thompson exploration, MMR diversity
+at 0.75, recent-session context, explicit negative feedback, and a maximum of
+two tracks by one artist in a ten-item window. Every result explains its
+signals. Lightweight retraining occurs after 50 weighted events and model
+artifacts are written atomically while the previous champion is retained.
+
+The optional frozen LAION-CLAP tier has its own lock:
+
+```powershell
+python -m pip install -r requirements-recommendation-ai.txt
+```
+
+It is not part of core playback. ListenBrainz is opt-in and disabled until a
+token is supplied. Raw audio and local listening history are not uploaded.
+RecBole/Implicit challenger research is isolated from the runtime; see
+`recommendation_engine/RESEARCH.md`.
+
+## Verification
 
 ```powershell
 python -m pip install -r requirements-dev.txt
 python -m compileall -q .
-python -m ruff check --select E9,F63,F7,F82 .
-python -m pytest -q
+python -m ruff check .
+python -m pytest -q --cov --cov-branch --cov-report=term-missing
 python -m pip_audit -r requirements.txt
 ```
 
-`requirements.in` contains direct runtime dependencies. Regenerate the lock after an intentional dependency update:
+Normal tests mock public services and audio hardware. Real-process tests create
+WAV, MP3, FLAC, OGG, AAC, and WebM fixtures and exercise installed FFmpeg,
+FFprobe, and `fpcalc`. Opt-in network probes use `MARIANA_LIVE_TESTS=1`.
 
-```powershell
-python -m piptools compile --output-file requirements.txt requirements.in
-python -m piptools compile --output-file requirements-dev.txt requirements-dev.in
-```
+## Reliability boundary
 
-## Compatibility notes
-
-- Existing Mariana command syntax is preserved; see [help.md](help.md).
-- Reddit live sessions/RPAN no longer exists. Its former command aliases remain recognized and display a retirement
-  message instead of failing.
-- YouTube operations use yt-dlp and may occasionally require a yt-dlp update when YouTube changes its delivery system.
-- Online failures should not prevent local playback from starting.
-
-## Troubleshooting
-
-- **VLC not found:** install 64-bit VLC in its standard directory or set `vlc path` in `settings/settings.yml`.
-- **FFmpeg/FFprobe warning:** add the directory containing `ffmpeg.exe` and `ffprobe.exe` to the system `PATH`, then open
-  a new terminal.
-- **JavaScript runtime warning:** install Deno or Node.js 22+ and add it to `PATH`; yt-dlp uses it for YouTube's current
-  JavaScript challenges.
-- **No audio device:** confirm Windows can see an output device before starting Mariana.
-- **Dependency mismatch:** recreate `.venv` and install from `requirements.txt`; do not mix the old 2022 dependency set
-  with the modern lock.
+Mariana guarantees typed failures, transactional state, bounded buffers and
+timeouts, and child-process cleanup under tested conditions. It cannot promise
+that a third-party stream stays online, that AcoustID contains a fingerprint,
+or that LRCLIB contains lyrics. Manual speaker output, rapid device switching,
+and the eight-hour soak remain release gates and must not be inferred from unit
+tests.

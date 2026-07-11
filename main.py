@@ -1,9 +1,9 @@
 #################################################################################################################################
 #
-#           Mariana Player v0.6.2 dev
+#           Mariana Player v0.7.0 dev
 #     (Read help.md for help on commands)
 #
-#    Supported runtime: 64-bit Windows, CPython 3.12, VLC 3.x.
+#    Supported runtime: 64-bit Windows and CPython 3.12.
 #    Install the locked dependencies from requirements.txt and run `python main.py`.
 #    FFmpeg and FFprobe should be available on PATH for online media and metadata features.
 
@@ -20,13 +20,10 @@ import time
 APP_BOOT_START_TIME = time.time();                  print("Loaded 1/31",  end='\r')
 
 import os;                                          print("Loaded 2/31",  end='\r')
-os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
-
 # import itertools;                                   print("Loaded 3/31",  end='\r')
 
 import re;                                          print("Loaded 3/31",  end='\r')
 import sys;                                         print("Loaded 4/31",  end='\r')
-import pygame;                                      print("Loaded 5/31",  end='\r')
 print("Loaded 6/31",  end='\r')
 import random as rand;                              print("Loaded 7/31",  end='\r')
 import importlib;                                   print("Loaded 8/31",  end='\r')
@@ -52,6 +49,13 @@ from multiprocessing import Process;                print("Loaded 22/31", end='\
 from first_boot_welcome_screen import notify;       print("Loaded 23/31", end='\r')
 from config_manager import load_system_settings, load_user_settings
 from runtime_check import check_runtime, format_runtime_report
+from mariana.database import MarianaDatabase
+from mariana.download import DownloadError, download_media
+from mariana.identity import AcoustIDClient, IdentificationService, LRCLIBClient, MusicBrainzClient
+from mariana.models import MediaCapabilities, MediaRef, MediaSource, PlaybackState
+from mariana.queueing import PersistentQueue, QueueError
+from mariana.radio import RadioCatalog, RadioError
+from recommendation_engine import Candidate, RecommendationEngine
 
 online_streaming_ext_load_error = 0
 comtypes_load_error = False # Made available after fix from comtypes issue #244, #180
@@ -70,13 +74,8 @@ CURDIR = os.path.dirname(os.path.realpath(__file__))
 os.chdir(CURDIR)
 
 try:
-    vas = importlib.import_module("beta.vlc-async-stream")
-    if vas.VLC_AVAILABLE:
-        print("Loaded 24/31", end='\r')
-    else:
-        online_streaming_ext_load_error = 1
-        print(f"[WARN] Online/VLC playback is unavailable: {vas.VLC_ERROR}")
-        print("[WARN] ...Skipped 24/31")
+    vas = importlib.import_module("beta.ffmpeg_player")
+    print("Loaded 24/31", end='\r')
 except ImportError:
     online_streaming_ext_load_error = 1
     print("[INFO] Could not load online streaming extension...")
@@ -121,14 +120,8 @@ except ImportError:
     print("[INFO] Could not load reddit-sessions extension..., module 'praw' missing...")
     print("[INFO] ...Skipped 28/31")
 
-try:
-    from lyrics_provider.detect_song import get_song_info
-    print("Loaded 29/31", end='\r')
-except ImportError:
-    print("[INFO] Could not load lyrics extension...")
-    if not lyrics_ext_load_error:
-        print("[INFO] ...Could not load online streaming extension...")
-    print("[INFO] ...Skipped 29/31")
+from lyrics_provider.detect_song import get_song_info
+print("Loaded 29/31", end='\r')
 
 
 try:
@@ -145,14 +138,8 @@ try:
     from beta.podcasts import get_latest_podbean_data, vendors as pod_vendors
     print("Loaded 31/31", end='\r')
 except Exception:
-    try:
-        from lyrics_provider.detect_song import get_song_info
-        print("Loaded 31/31", end='\r')
-    except ImportError:
-        print("[INFO] Could not load lyrics extension...")
-        if not lyrics_ext_load_error:
-            print("[INFO] ...Could not load online streaming extension...")
-        print("[INFO] ...Skipped 31/31")
+    print("[INFO] Could not load podcast extension...")
+    print("[INFO] ...Skipped 31/31")
 
 # IMPORTS END #
 
@@ -238,6 +225,30 @@ except IOError:
 
 SETTINGS = load_user_settings()
 
+MEDIA_TOOLS = SETTINGS.get('media tools', {})
+DATABASE = MarianaDatabase()
+DATABASE.migrate_legacy_play_counts(Path(CURDIR) / 'user' / 'user_data.yml')
+QUEUE = PersistentQueue(DATABASE)
+RADIO = RadioCatalog(DATABASE)
+IDENTITY = IdentificationService(
+    DATABASE,
+    acoustid=AcoustIDClient(SETTINGS.get('identification', {}).get('acoustid api key')),
+    musicbrainz=MusicBrainzClient(),
+    lrclib=LRCLIBClient(),
+    fpcalc_bin=MEDIA_TOOLS.get('fpcalc bin'),
+)
+RECOMMENDER = RecommendationEngine(
+    DATABASE,
+    exploration=SETTINGS.get('recommendations', {}).get('exploration', 0.10),
+    mmr_lambda=SETTINGS.get('recommendations', {}).get('mmr diversity', 0.75),
+)
+vas.configure(
+    ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'),
+    crossfade_seconds=SETTINGS.get('playback', {}).get('crossfade seconds', 0),
+    catalog=RADIO,
+)
+get_lyrics.configure(IDENTITY, vas.controller)
+
 
 # Variables
 APP_BOOT_END_TIME = time.time()
@@ -258,7 +269,7 @@ songindex = -1
 lyrics_window_note = "[Please close the lyrics window to continue issuing more commands...]"
 current_media_type = None
 
-RUNTIME_REPORT = check_runtime(SETTINGS.get('vlc path'))
+RUNTIME_REPORT = check_runtime(MEDIA_TOOLS.get('ffmpeg bin'), MEDIA_TOOLS.get('fpcalc bin'))
 for runtime_message in format_runtime_report(RUNTIME_REPORT):
     print(f"[{runtime_message}]")
 if RUNTIME_REPORT.errors:
@@ -288,7 +299,7 @@ log data about each audio path
 enforce_os_requirement = SYSTEM_SETTINGS['system_settings']['enforce_os_requirement']
 
 # Supported file extensions
-# (For *.wav get_pos() in pygame provides played duration and not actual play position)
+# Progress is derived from PCM frames emitted to the output device.
 supported_file_types = SYSTEM_SETTINGS["system_settings"]['supported_file_types']
 max_wait_limit_to_get_song_length = SYSTEM_SETTINGS['system_settings']['max_wait_limit_to_get_song_length']
 MAX_RECENTS_SIZE = SYSTEM_SETTINGS["system_settings"]['max_recents_size']
@@ -453,8 +464,156 @@ def open_in_youtube(local_song_file_path):
             log_priority = 3)
         return 1
 
+
+def _media_from_argument(argument):
+    if argument.isnumeric() and int(argument) in range(1, len(_sound_files) + 1):
+        return MediaRef(MediaSource.LOCAL, str(Path(_sound_files[int(argument) - 1]).resolve()))
+    if Path(argument).is_file():
+        return MediaRef(MediaSource.LOCAL, str(Path(argument).resolve()))
+    if argument.startswith(('http://', 'https://')):
+        source = MediaSource.YOUTUBE if any(host in argument for host in ('youtube.com', 'youtu.be')) else MediaSource.URL
+        return MediaRef(source, argument, resolver_data={'youtube': source == MediaSource.YOUTUBE})
+    raise QueueError(f'Not a library index, local path, or media URL: {argument}')
+
+
+def _play_queue_item(item):
+    global currentsong, current_media_type, isplaying, currentsong_length
+    media = item.media
+    if media.source == MediaSource.LOCAL:
+        play_local_default_player(media.original_uri, _songindex=None)
+    else:
+        vas.controller.play(media)
+        currentsong = media.title or media.original_uri
+        currentsong_length = media.duration or -1
+        current_media_type = {
+            MediaSource.YOUTUBE: 0,
+            MediaSource.URL: 1,
+            MediaSource.PODCAST: 1,
+            MediaSource.RADIO: 2,
+            MediaSource.RECOMMENDATION: 0,
+        }.get(media.source, 1)
+        isplaying = True
+    RECOMMENDER.record_event(media, 'start')
+    items = QUEUE.items()
+    try:
+        position = next(index for index, queued in enumerate(items) if queued.queue_id == item.queue_id)
+        if position + 1 < len(items) and items[position + 1].media.capabilities.finite:
+            vas.controller.prefetch(items[position + 1].media)
+    except Exception:
+        pass
+
+
+def queue_command(arguments):
+    operation = arguments[0].lower() if arguments else 'list'
+    if operation == 'list':
+        rows = [
+            (index + 1, '*' if QUEUE.current() and QUEUE.current().queue_id == item.queue_id else '', item.priority, item.media.title or item.media.original_uri)
+            for index, item in enumerate(QUEUE.items())
+        ]
+        IPrint(tbl(rows, headers=('#', '', 'Priority', 'Media'), tablefmt='plain') if rows else '(queue empty)', visible=visible)
+    elif operation in {'add', 'insert'}:
+        if operation == 'insert':
+            if len(arguments) < 3 or not arguments[1].isdigit():
+                raise QueueError('Usage: queue insert <position> <media>')
+            position, value = int(arguments[1]) - 1, ' '.join(arguments[2:])
+        else:
+            if len(arguments) < 2:
+                raise QueueError('Usage: queue add <media>')
+            position, value = None, ' '.join(arguments[1:])
+        item = QUEUE.add(_media_from_argument(value), position=position)
+        RECOMMENDER.record_event(item.media, 'manual_queue', candidate=Candidate(item.media))
+        IPrint(f'Queued: {item.media.title or item.media.original_uri}', visible=visible)
+    elif operation == 'remove':
+        QUEUE.remove(int(arguments[1]) - 1)
+    elif operation == 'move':
+        QUEUE.move(int(arguments[1]) - 1, int(arguments[2]) - 1)
+    elif operation == 'swap':
+        QUEUE.swap(int(arguments[1]) - 1, int(arguments[2]) - 1)
+    elif operation == 'jump':
+        _play_queue_item(QUEUE.jump(int(arguments[1]) - 1))
+    elif operation in {'next', 'previous'}:
+        item = QUEUE.next() if operation == 'next' else QUEUE.previous()
+        if item:
+            _play_queue_item(item)
+        else:
+            IPrint('(end of queue)', visible=visible)
+    elif operation == 'clear':
+        QUEUE.clear()
+    elif operation == 'shuffle':
+        seed = int(arguments[1]) if len(arguments) > 1 else None
+        IPrint(f'Shuffle seed: {QUEUE.shuffle(seed)}', visible=visible)
+    elif operation == 'repeat':
+        QUEUE.set_repeat(arguments[1].lower())
+    elif operation == 'consume':
+        QUEUE.set_consume(arguments[1].lower() in {'on', 'true', '1'})
+    elif operation == 'autofill':
+        QUEUE.set_autofill(arguments[1].lower() in {'on', 'true', '1'})
+    elif operation == 'save':
+        QUEUE.save(' '.join(arguments[1:]))
+    elif operation == 'load':
+        QUEUE.load(' '.join(arguments[1:]))
+    elif operation in {'undo', 'redo'}:
+        changed = QUEUE.undo() if operation == 'undo' else QUEUE.redo()
+        IPrint('Queue restored' if changed else 'No queue history available', visible=visible)
+    else:
+        raise QueueError(f'Unknown queue operation: {operation}')
+
+
+def radio_command(arguments):
+    operation = arguments[0].lower() if arguments else 'list'
+    if operation == 'list':
+        stations = RADIO.list(favorites=len(arguments) > 1 and arguments[1] == 'favorites')
+        IPrint(tbl([(station.slug, station.name, station.provider) for station in stations], headers=('ID', 'Station', 'Source'), tablefmt='plain'), visible=visible)
+    elif operation == 'search':
+        stations = RADIO.search(' '.join(arguments[1:]))
+        IPrint(tbl([(station.slug, station.name, station.country or '') for station in stations], headers=('ID', 'Station', 'Country'), tablefmt='plain'), visible=visible)
+    elif operation == 'play':
+        station = RADIO.get(arguments[1])
+        endpoint = RADIO.endpoints(station)[0]
+        item = QUEUE.add(
+            MediaRef(
+                MediaSource.RADIO,
+                endpoint,
+                title=station.name,
+                capabilities=MediaCapabilities(
+                    finite=False,
+                    live=True,
+                    seekable=False,
+                    downloadable=False,
+                ),
+            ),
+            allow_duplicate=True,
+        )
+        QUEUE.jump(len(QUEUE.items()) - 1)
+        _play_queue_item(item)
+    elif operation == 'favorite':
+        station = RADIO.favorite(arguments[1], not (len(arguments) > 2 and arguments[2].lower() == 'off'))
+        IPrint(f'Favorite updated: {station.name}', visible=visible)
+    elif operation in {'health', 'refresh'}:
+        stations = [RADIO.get(arguments[1])] if len(arguments) > 1 else RADIO.list()
+        for station in stations:
+            IPrint(RADIO.health(station.station_id, ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'), force=operation == 'refresh'), visible=visible)
+    else:
+        raise RadioError(f'Unknown radio operation: {operation}')
+
+
+def recommendation_command(arguments):
+    operation = arguments[0].lower() if arguments else 'list'
+    if operation in {'list', 'show'}:
+        results = RECOMMENDER.recommend(limit=int(arguments[1]) if len(arguments) > 1 else 10)
+        IPrint(tbl([(index + 1, result.media.title or result.media.original_uri, '; '.join(result.reasons)) for index, result in enumerate(results)], headers=('#', 'Track', 'Why'), tablefmt='plain'), visible=visible)
+    elif operation == 'autofill':
+        count = int(arguments[1]) if len(arguments) > 1 else 10
+        for result in RECOMMENDER.recommend(limit=count, exclude_ids={item.media.stable_id for item in QUEUE.items()}):
+            QUEUE.add(result.media)
+    elif operation == 'train':
+        model = RECOMMENDER.retrain_if_due(force=True)
+        IPrint(f'Active model: {model}', visible=visible)
+    else:
+        raise QueueError(f'Unknown recommendation operation: {operation}')
+
 def get_current_progress():
-    return (vas.vlc_media_player.get_media_player().get_time() / 1000)
+    return vas.player.get_time() / 1000
 
 def save_user_data():
     global USER_DATA
@@ -514,7 +673,7 @@ def play_local_default_player(songpath, _songindex, is_queue=False):
     try:
         vas.set_media(_type='local', localpath=songpath)
         vas.media_player(action='play')
-        vas.vlc_media_player.get_media_player().audio_set_volume(int(cached_volume*100))
+        vas.player.audio_set_volume(int(cached_volume*100))
 
         isplaying = True
         currentsong = songpath[0] if isinstance(songpath, list) else songpath
@@ -559,8 +718,8 @@ def play_local_default_player(songpath, _songindex, is_queue=False):
         IPrint(f"{colored.fg('grey_50')}Attempting to calculate audio length{colored.fg('grey_50')}", visible=visible)
         length_find_start_time = time.time()
         while True:
-            if vas.vlc_media_player.get_media_player().get_length():
-                currentsong_length = vas.vlc_media_player.get_media_player().get_length()/1000
+            if vas.player.get_length():
+                currentsong_length = vas.player.get_length()/1000
                 break
             if time.time() - length_find_start_time >= max_wait_limit_to_get_song_length:
                 currentsong_length = -1
@@ -610,7 +769,7 @@ def voltransition(
             if show_progress and visible:
                 print(f'{colored.fg("orange_1")}    -> {i}%', end='\r')
                 print(colored.attr('reset'), end = '\r')
-            vas.vlc_media_player.get_media_player().audio_set_volume(int(diffvolume))
+            vas.player.audio_set_volume(int(diffvolume))
 
         # if not disablecaching:
         #     cached_volume = final
@@ -670,7 +829,7 @@ def playpausetoggle(softtoggle=True, use_multi=False, transition_time=0.2, show_
                 vas.media_player(action='pausetoggle')
 
                 # with concurrent.futures.ProcessPoolExecutor() as executor:
-                vas.vlc_media_player.get_media_player().audio_set_volume(0)
+                vas.player.audio_set_volume(0)
 
                 if use_multi:
                     vol_trans_process_spawn()
@@ -836,7 +995,7 @@ def purge_old_lyrics_if_exist():
 
 def local_play_commands(commandslist, _command=False):
     global cached_volume, currentsong_length, lyrics_saved_for_song
-    # pygame.mixer.music.set_volume(cached_volume)
+    # Output volume is controlled by the shared PCM stream.
 
     purge_old_lyrics_if_exist()
     lyrics_saved_for_song = None
@@ -928,7 +1087,7 @@ def get_currentsong_length():
     global currentsong_length
     if currentsong:
         if not currentsong_length and currentsong_length != -1:
-            length_ms = vas.vlc_media_player.get_media_player().get_length()
+            length_ms = vas.player.get_length()
             currentsong_length = length_ms / 1000 if length_ms else -1
 
     return currentsong_length
@@ -938,7 +1097,7 @@ def song_seek(timeval=None, rel_val=None):
 
     if timeval is not None:
         try:
-            vas.vlc_media_player.get_media_player().set_time(int(timeval)*1000)
+            vas.player.set_time(int(timeval)*1000)
             return True
         except Exception:
             return None
@@ -1080,7 +1239,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
 
         # VAS Media Play
         vas.media_player(action='play')
-        vas.vlc_media_player.get_media_player().audio_set_volume(int(cached_volume*100))
+        vas.player.audio_set_volume(int(cached_volume*100))
 
         # TODO - Save all audio info in `data` dir
         # save_song_data()
@@ -1106,8 +1265,8 @@ def play_vas_media(media_url, single_video = None, media_name = None,
         IPrint(f"{colored.fg('grey_50')}Attempting to calculate audio length{colored.fg('grey_50')}", visible=visible)
         length_find_start_time = time.time()
         while True:
-            if vas.vlc_media_player.get_media_player().get_length():
-                currentsong_length = vas.vlc_media_player.get_media_player().get_length()/1000
+            if vas.player.get_length():
+                currentsong_length = vas.player.get_length()/1000
                 break
             if time.time() - length_find_start_time >= max_wait_limit_to_get_song_length:
                 currentsong_length = -1
@@ -1161,7 +1320,7 @@ def refresh_settings():
     enforce_os_requirement = SYSTEM_SETTINGS['system_settings']['enforce_os_requirement']
 
     # Supported file extensions
-    # (wav get_pos() in pygame provides played duration and not actual play position)
+    # Progress is based on emitted PCM frames for every supported format.
     supported_file_types = SYSTEM_SETTINGS["system_settings"]['supported_file_types'] 
     max_wait_limit_to_get_song_length = SYSTEM_SETTINGS['system_settings']['max_wait_limit_to_get_song_length']
     MAX_RECENTS_SIZE = SYSTEM_SETTINGS["system_settings"]['max_recents_size']
@@ -1372,7 +1531,7 @@ def process(command):
     commandslist = command.strip().split()
 
     try:
-        if vas.vlc_media_player.get_state().value == 6:
+        if vas.controller.snapshot().state == PlaybackState.IDLE and isplaying:
             currentsong = None
             isplaying = False
     except Exception:
@@ -1833,7 +1992,7 @@ def process(command):
 
         elif commandslist == ['now']:
             if currentsong:
-                if current_media_type is not None: # VLC
+                if current_media_type is not None: # Online media
                     if current_media_type == 0:
                         if YOUTUBE_PLAY_TYPE == 0:
                             IPrint(f"@yl: {currentsong[0]}", visible=visible)
@@ -1845,7 +2004,7 @@ def process(command):
                         IPrint(f"@wra: {currentsong}", visible=visible)
                     elif current_media_type == 3:
                         IPrint(f"@rs: {currentsong[0]}", visible=visible)
-                else: # pygame
+                else: # Local media
                     cur_song = os.path.splitext(os.path.split(currentsong)[1])[0]
                     IPrint(f":: {colored.fg('plum_1')}{songindex}{colored.fg('deep_pink_4c')} | {colored.fg('navajo_white_1')}{cur_song}{colored.attr('reset')}", visible=visible)
             else:
@@ -1854,7 +2013,7 @@ def process(command):
 
         elif commandslist == ['now*']:
             if currentsong:
-                if current_media_type is not None: # VLC
+                if current_media_type is not None: # Online media
                     if current_media_type == 0:
                         if YOUTUBE_PLAY_TYPE == 0:
                             IPrint(f"{colored.fg('red')}@youtube-link: {colored.fg('aquamarine_3')}Title | {currentsong[0]}", visible=visible)
@@ -1870,7 +2029,7 @@ def process(command):
                         IPrint(f"{colored.fg('orange_1')}@redditsession: {colored.fg('aquamarine_3')}Session | {currentsong[0]}{colored.attr('reset')}", visible=visible)
                         IPrint(f"                {colored.fg('navajo_white_1')}Link    | {currentsong[1]}{colored.attr('reset')}", visible=visible)
 
-                else: # pygame # TODO - Change to VLC or Local or Default
+                else: # Local media
                     IPrint(f":: {colored.fg('plum_1')}{songindex}{colored.attr('reset')} | {currentsong}", visible=visible)
 
             else:
@@ -1989,10 +2148,15 @@ def process(command):
                     log_message = 'Invalid fade command syntax (duration)',
                     log_priority = 2)
 
-            if len(commandslist) in range(3, 8):
-                fade_in_out(initvol=initvol, finalvol=finalvol, fade_type=isplaying, fade_duration=fade_duration)
-            else:
-                raise Exception
+                if len(commandslist) in range(3, 8):
+                    fade_in_out(initvol=initvol, finalvol=finalvol, fade_type=isplaying, fade_duration=fade_duration)
+                else:
+                    SAY(
+                        visible=visible,
+                        display_message='Invalid fade command syntax',
+                        log_message='Invalid fade command length',
+                        log_priority=2,
+                    )
 
         elif commandslist[0].lower() in ['m?', 'ism?', 'ismute?']:
             # TODO - Make more reliable...?
@@ -2011,7 +2175,7 @@ def process(command):
         elif commandslist[0].lower() in ['isl?', 'isloaded?']:
             # TODO - Make more reliable...?
             if current_media_type is not None:
-                IPrint(vas.vlc.media, visible=visible)
+                IPrint(vas.current_media, visible=visible)
             IPrint(int(bool(currentsong)), visible=visible)
 
         elif commandslist[0].lower() == 'seek':
@@ -2237,7 +2401,26 @@ def process(command):
                     sp.Popen([sys.executable, 'beta/mediadl.py', json.dumps(download_parmeters)], shell=False)
 
         elif commandslist[0].lower() == 'download-ml':
-            pass
+            if len(commandslist) not in (2, 3, 4):
+                IPrint('Usage: download-ml <URL> [mp3|flac|wav|m4a|opus] [output path]', visible=visible)
+            else:
+                media_url = commandslist[1]
+                output_format = commandslist[2].lower() if len(commandslist) >= 3 else 'mp3'
+                if len(commandslist) == 4:
+                    destination = Path(commandslist[3]).expanduser()
+                else:
+                    downloads = Path(SETTINGS['download']['downloads folder']).expanduser()
+                    destination = downloads / f'mariana-download-{int(time.time())}.{output_format}'
+                try:
+                    result = download_media(
+                        media_url,
+                        destination,
+                        output_format=output_format,
+                        ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'),
+                    )
+                    IPrint(f'Downloaded: {result}', visible=visible)
+                except DownloadError as error:
+                    SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
 
         elif commandslist == ['t']:
             IPrint(convert(get_current_progress()), visible=visible)
@@ -2365,7 +2548,7 @@ def process(command):
                     else:
                         IPrint(0, visible=visible)
                 else:
-                    if current_media_type is not None: # VLC
+                    if current_media_type is not None: # Online media
                         if current_media_type == 0:
                             webbrowser.open(f"{currentsong[1]}&t={int(get_current_progress())}s")
                         elif current_media_type == 1:
@@ -2492,10 +2675,10 @@ def process(command):
             ismuted = not ismuted
 
             if ismuted:
-                vas.vlc_media_player.get_media_player().audio_set_mute(1)
+                vas.player.audio_set_mute(1)
             else:
-                vas.vlc_media_player.get_media_player().audio_set_mute(0)
-                vas.vlc_media_player.get_media_player().audio_set_volume(cached_volume*100)
+                vas.player.audio_set_mute(0)
+                vas.player.audio_set_volume(cached_volume*100)
 
         elif commandslist in [['lyr'], ['lyrics']]:
             lyrics_ops(show_window = True)
@@ -2509,7 +2692,7 @@ def process(command):
                     else:
                         volper = int(commandslist[1])
                         if volper in range(101):
-                            vas.vlc_media_player.get_media_player().audio_set_volume(volper)
+                            vas.player.audio_set_volume(volper)
                             cached_volume = volper/100
                         else:
                             SAY(visible=visible, display_message='Volume percentage is out of range, it must be between 0 and 100',
@@ -2739,6 +2922,32 @@ def process(command):
                     log_message = "Invalid media-link command (too long)",
                     log_priority = 2)
 
+        elif commandslist[0].lower() == 'queue':
+            try:
+                queue_command(commandslist[1:])
+            except (QueueError, ValueError, IndexError) as error:
+                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+
+        elif commandslist[0].lower() == 'radio':
+            try:
+                radio_command(commandslist[1:])
+            except (RadioError, QueueError, ValueError, IndexError) as error:
+                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+
+        elif commandslist[0].lower() in {'recommend', 'recommendations'}:
+            try:
+                recommendation_command(commandslist[1:])
+            except (QueueError, ValueError, IndexError) as error:
+                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+
+        elif commandslist[0].lower() in {'like', 'dislike'}:
+            media = vas.controller.snapshot().media
+            if media:
+                RECOMMENDER.record_event(media, commandslist[0].lower(), candidate=Candidate(media))
+                IPrint(f'{commandslist[0].title()} recorded', visible=visible)
+            else:
+                IPrint('No active media', visible=visible)
+
         elif commandslist[0] in ['/wra', '/webradio']:
             if len(commandslist) == 1: # Default station is coffee if not stated otherwise
                 r_station = 'coffee'
@@ -2850,8 +3059,10 @@ def showbanner():
 
 def initialize_audio_output():
     try:
-        pygame.mixer.init()
-    except pygame.error as error:
+        devices = sounddevice.query_devices()
+        if not any(device.get('max_output_channels', 0) > 0 for device in devices):
+            raise RuntimeError('No output device is available')
+    except Exception as error:
         raise RuntimeError(
             "Mariana Player could not initialize an audio output device. "
             "Connect or enable speakers and verify Windows audio settings."
@@ -2868,8 +3079,8 @@ def run():
     if FIRST_BOOT:
         startup_sound_path = "res/first_boot_startup_sound.mp3"
         if os.path.isfile(startup_sound_path):
-            pygame.mixer.music.load(startup_sound_path)
-            pygame.mixer.music.play()
+            vas.set_media(_type='local', localpath=startup_sound_path)
+            vas.media_player(action='play')
         notify(Time = 6000) # For 6 seconds
 
     if visible: showbanner()

@@ -21,6 +21,25 @@ All searches are fuzzy
 
 ## Controls/Commands
 
+### Persistent queue, radio, and recommendations
+
+| Command | Description |
+| --- | --- |
+| `queue add <media>` | Add a library index, path, or URL |
+| `queue insert/remove/move/swap/jump` | Mutate queue order transactionally |
+| `queue list/clear/undo/redo` | Inspect or restore queue state |
+| `queue shuffle [seed]` | Reproducible shuffle |
+| `queue repeat off\|one\|all` | Set repeat mode |
+| `queue save/load <name>` | Persist or restore a named queue |
+| `radio search/list/play/favorite/refresh/health` | Discover and validate stations |
+| `recommend [count]` | Show explainable local recommendations |
+| `recommend autofill [count]` | Add recommendations to the queue |
+| `like` / `dislike` | Record explicit preference feedback |
+| `download-ml <URL> [format] [path]` | Bounded custom-media download |
+
+Seeking applies only when the active source reports that capability. Use radio
+resync to restart a live stream at its current edge.
+
 ### General
 
 | Command   | Description                    |

@@ -1,41 +1,30 @@
-# Mariana Player test strategy
+# Mariana test strategy
 
-The normal suite is deterministic: network, audio hardware, VLC, Shazam, RSS, and
-yt-dlp boundaries are mocked while their response normalization and failure
-contracts are exercised. It runs on Windows and enforces branch-aware coverage.
+The deterministic suite mocks external network and audio-device boundaries but
+uses real SQLite transactions. It covers configuration migration, canonical
+media references, queue property tests and crash restoration, FFmpeg state and
+PCM math, conservative AcoustID policy, MusicBrainz rate/caching behavior,
+LRCLIB resolution, radio playlists/failover, recommendation ranking/models,
+downloads, first boot, podcasts, YouTube, logging, and the legacy CLI surface.
 
-## Normal gate
+`test_real_media_pipeline.py` additionally invokes the installed tools to
+generate, inspect, decode, seek, and clean up WAV, MP3, FLAC, OGG, AAC, and WebM
+media and to produce a real Chromaprint fingerprint.
 
 ```powershell
-python -m pytest -q --cov --cov-report=term-missing --cov-fail-under=55
+python -m pytest -q --cov --cov-branch --cov-report=term-missing
 ```
 
-The suite covers:
-
-- additive configuration migration and invalid configuration roots;
-- URL parsing with property-generated YouTube IDs;
-- yt-dlp search, metadata, streaming, downloader options, and failures;
-- fresh, cached, stale, corrupt, custom, and invalid podcast feeds;
-- Shazam response normalization, related tracks, lyrics cache/HTML/CSS, and GUI spawning;
-- safe first-boot archive download and path-traversal rejection;
-- VLC media construction, radio aliases, state changes, timeouts, and missing-runtime behavior;
-- local/online/radio playback state, seeking, volume, pause/fade/stop, recents, and representative command families;
-- metadata extraction, logging formats, runtime checks, first-boot input validation, and retired RPAN behavior.
-
-## Live service probes
+Opt-in network probes:
 
 ```powershell
 $env:MARIANA_LIVE_TESTS = "1"
 python -m pytest -q -m live
 ```
 
-These validate the installed FFmpeg/FFprobe/JavaScript runtime and make real
-YouTube, podcast, and Shazam requests. They are opt-in because public services
-can fail or rate-limit independently of the application.
-
-## Manual Windows acceptance
-
-Automated tests cannot prove speaker output or observe interactive GUI quality.
-Before a release, verify local MP3 playback, pause/resume, seek, volume/mute,
-queueing, VLC radio playback, one YouTube download, lyrics display, device-loss
-messages, and clean exit on a Windows 64-bit machine with VLC 3.x.
+Public services can fail independently, so their live probes are not normal CI
+gates. Manual Windows acceptance must still verify real speaker output, output
+device loss/recovery, rapid pause/seek/next, radio failover, synchronized lyric
+display, one custom download, recommendation explanations, and clean exit. An
+eight-hour mixed local/URL/radio soak is required before changing the release
+version to 0.7.0.

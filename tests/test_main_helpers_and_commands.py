@@ -5,6 +5,7 @@ import pytest
 from hypothesis import given, strategies as st
 
 import main
+from mariana.models import PlaybackSnapshot, PlaybackState
 
 
 def test_ordered_set_flatten_and_search_helpers(monkeypatch):
@@ -192,7 +193,7 @@ def test_safe_command_families_dispatch(monkeypatch):
 
 def test_volume_and_pause_command_dispatch(monkeypatch):
     player = SimpleNamespace(audio_set_volume=lambda value: setattr(player, "volume", value))
-    monkeypatch.setattr(main.vas, "vlc_media_player", SimpleNamespace(get_media_player=lambda: player))
+    monkeypatch.setattr(main.vas, "player", player)
     toggles = []
     monkeypatch.setattr(main, "playpausetoggle", lambda **kwargs: toggles.append(kwargs))
     monkeypatch.setattr(main, "cached_volume", 0.5)
@@ -261,7 +262,7 @@ def test_play_vas_media_state_machine(
     monkeypatch.setattr(main, "stopsong", lambda: None)
     monkeypatch.setattr(main.vas, "set_media", lambda **kwargs: set_calls.append(kwargs) or "direct-audio")
     monkeypatch.setattr(main.vas, "media_player", lambda **kwargs: play_calls.append(kwargs))
-    monkeypatch.setattr(main.vas, "vlc_media_player", SimpleNamespace(get_media_player=lambda: player))
+    monkeypatch.setattr(main.vas, "player", player)
     monkeypatch.setattr(main.vas, "wait_until_playing", lambda _timeout: True)
     monkeypatch.setattr(main, "recents_queue_save", lambda value: recents.append(value))
     monkeypatch.setattr(main, "save_user_data", lambda: None)
@@ -286,7 +287,7 @@ def test_play_vas_media_handles_unresolved_title_and_invalid_type(monkeypatch):
     monkeypatch.setattr(main, "stopsong", lambda: None)
     monkeypatch.setattr(main.vas, "set_media", lambda **_kwargs: "direct")
     monkeypatch.setattr(main.vas, "media_player", lambda **_kwargs: None)
-    monkeypatch.setattr(main.vas, "vlc_media_player", SimpleNamespace(get_media_player=lambda: player))
+    monkeypatch.setattr(main.vas, "player", player)
     monkeypatch.setattr(main.vas, "wait_until_playing", lambda _timeout: True)
     monkeypatch.setattr(main.YT_query, "vid_info", lambda _url: (_ for _ in ()).throw(OSError("offline")))
     monkeypatch.setattr(main, "recents_queue_save", lambda _value: None)
@@ -309,7 +310,7 @@ def test_progress_length_seek_and_volume_transition(monkeypatch):
     player = PlaybackPlayer(length=90_000)
     volumes = []
     player.audio_set_volume = lambda value: volumes.append(value)
-    monkeypatch.setattr(main.vas, "vlc_media_player", SimpleNamespace(get_media_player=lambda: player))
+    monkeypatch.setattr(main.vas, "player", player)
     monkeypatch.setattr(main, "currentsong", "track.mp3")
     monkeypatch.setattr(main, "currentsong_length", None)
     assert main.get_currentsong_length() == 90
@@ -349,7 +350,7 @@ def test_play_pause_stop_and_fade_transitions(monkeypatch):
     transitions = []
     player = PlaybackPlayer()
     monkeypatch.setattr(main.vas, "media_player", lambda **kwargs: actions.append(kwargs["action"]))
-    monkeypatch.setattr(main.vas, "vlc_media_player", SimpleNamespace(get_media_player=lambda: player))
+    monkeypatch.setattr(main.vas, "player", player)
     monkeypatch.setattr(main, "voltransition", lambda **kwargs: transitions.append(kwargs))
     monkeypatch.setattr(main, "purge_old_lyrics_if_exist", lambda: actions.append("purge"))
     monkeypatch.setattr(main, "IPrint", lambda *_a, **_k: None)
@@ -427,6 +428,11 @@ def test_seek_progress_and_status_command_families(monkeypatch):
     monkeypatch.setattr(main, "ismuted", False)
     monkeypatch.setattr(main, "get_current_progress", lambda: 20)
     monkeypatch.setattr(main, "song_seek", lambda timeval=None, **_kwargs: seeks.append(timeval) or True)
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING),
+    )
 
     main.process("seek +10")
     main.process("progress*")
