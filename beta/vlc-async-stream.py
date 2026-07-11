@@ -1,10 +1,10 @@
-import pafy
 import os
 import sys
 import ctypes
 
 from ruamel.yaml import YAML
 from url_validate import id_if_url_is_of_yt_format
+from beta.youtube_media import stream_url
 
 yaml = YAML(typ='safe')
 
@@ -30,9 +30,7 @@ def set_media(_type=None, vidurl=None, audurl=None, localpath=None):
 
     elif _type == "yt_video":
         if vidurl:
-            vid = pafy.new(vidurl)
-            aud = vid.getbestaudio()
-            audurl = aud.url
+            audurl = stream_url(vidurl, audio_only=True)
         if not audurl:
             raise ValueError
 
@@ -42,7 +40,7 @@ def set_media(_type=None, vidurl=None, audurl=None, localpath=None):
         if audurl:
             if id_if_url_is_of_yt_format(audurl):
                 audurl = f'http://www.youtube.com/watch?v={id_if_url_is_of_yt_format(audurl)}'
-                audurl = pafy.new(audurl).getbest().url # Get media url (i.e. url with best audio + video)
+                audurl = stream_url(audurl, audio_only=True)
             load_media_object(player=player, mrls_list=[audurl,])
 
     elif _type == 'local':

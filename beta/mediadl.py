@@ -4,7 +4,7 @@ from __future__ import unicode_literals
 import os
 import sys
 import json
-import youtube_dl.YoutubeDL
+from yt_dlp import YoutubeDL
 
 
 # Relative imports
@@ -150,7 +150,7 @@ def media_DL(SETTINGS,
         return ydl_opts # Operation run as dry-run
 
     try:
-        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+        with YoutubeDL(ydl_opts) as ydl:
             ydl.download(media_urls)
         returncode = 4 # Successful Download
     except Exception:

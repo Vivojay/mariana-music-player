@@ -1,72 +1,63 @@
-import os
-import sys
-import asyncio
-import requests
-import yaml as pyyaml
+"""Fetch and persist Shazam recommendations for a recognized track."""
 
+from __future__ import annotations
+
+import asyncio
+import sys
+from pathlib import Path
+
+import yaml
 from shazamio import Shazam
 
-CURDIR = os.path.dirname(os.path.realpath(__file__))
-os.chdir(CURDIR)
 
-async def shazam_get_song_info(shazam_id):
-    shazam = Shazam()
-    about_track = await shazam.track_about(track_id=shazam_id)
-    return(about_track)  # dict
+APP_DIR = Path(__file__).resolve().parents[1]
+RELATED_SONGS_PATH = APP_DIR / "data" / "related_songs.yml"
+
+
+def _youtube_url(track):
+    for section in track.get("sections") or []:
+        youtube_url = section.get("youtubeurl")
+        if youtube_url:
+            return youtube_url
+    for action in (track.get("hub") or {}).get("actions") or []:
+        if action.get("type") == "uri" and "youtube" in str(action.get("uri", "")).lower():
+            return action["uri"]
+    return None
+
+
+def _normalize_related_track(track):
+    metadata = []
+    lyrics = []
+    for section in track.get("sections") or []:
+        if section.get("type") == "SONG":
+            metadata = section.get("metadata") or []
+        elif section.get("type") == "LYRICS":
+            lyrics = section.get("text") or []
+    return {
+        "display_name": (track.get("share") or {}).get("subject") or track.get("title"),
+        "youtube_url": _youtube_url(track),
+        "is_explicit": (track.get("hub") or {}).get("explicit"),
+        "shazam_id": track.get("key"),
+        "metadata": metadata,
+        "lyrics": lyrics,
+        "genres": track.get("genres") or {},
+    }
+
+
+async def _fetch_related(shazam_id: int, limit: int = 10):
+    response = await Shazam().related_tracks(track_id=shazam_id, limit=limit, offset=0)
+    tracks = response.get("tracks") or response.get("data") or []
+    return [_normalize_related_track(track) for track in tracks]
+
 
 def get_related_music(shazam_id):
-    shazam_id = int(shazam_id)
-
-    loop2 = asyncio.get_event_loop()
-
-    related_tracks_data_raw=loop2.run_until_complete(shazam_get_song_info(shazam_id))
-    related_tracks_data_url=related_tracks_data_raw.get('sections')[4].get('url')
-    related_tracks_data=requests.get(related_tracks_data_url).json()
-    related_track_objects=related_tracks_data.get('tracks')
-
-    related_track_ids = [int(track.get('key')) for track in related_track_objects]
-
-    related_songs_info = []
-
-    for track_id in related_track_ids:
-        loop2 = asyncio.get_event_loop()
-        shazam_song_detection_result = loop2.run_until_complete(shazam_get_song_info(track_id))
-
-        extracted_youtube_data = [j for _, j in enumerate(shazam_song_detection_result['sections']) if 'youtubeurl' in j.keys()][0]
-        shazam_youtube_url = extracted_youtube_data.get('youtubeurl')
-        shazam_youtube_url_info = requests.get(shazam_youtube_url).json()
-
-        youtube_url = shazam_youtube_url_info['actions'][0]['uri']
-
-        related_song_info = {
-            "display_name": shazam_song_detection_result.get('share').get('subject'),
-            "youtube_url": youtube_url,
-            "is_explicit": shazam_song_detection_result.get('hub').get('explicit'),
-            "shazam_id": shazam_song_detection_result.get('key'), # Stored as a string and converted to int when needed...
-            "metadata": shazam_song_detection_result.get('sections')[0].get('metadata'),
-            "lyrics": shazam_song_detection_result.get('sections')[1].get('text'),
-            "genres": shazam_song_detection_result.get('genres'),
-        }
-
-        related_songs_info.append(related_song_info)
-
-    if related_songs_info: # BETA
-        if not os.path.isfile('../data/related_songs.yml'):
-            with open('../data/related_songs.yml', 'w', encoding='utf-8') as fp: pass
-
-        with open('../data/related_songs.yml', 'a', encoding='utf-8') as fp:
-            pyyaml.dump(related_songs_info,
-                        stream=fp,
-                        allow_unicode=True,
-                        sort_keys=False)
-
+    related_songs_info = asyncio.run(_fetch_related(int(shazam_id)))
+    if related_songs_info:
+        RELATED_SONGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with RELATED_SONGS_PATH.open("a", encoding="utf-8") as stream:
+            yaml.safe_dump(related_songs_info, stream, allow_unicode=True, sort_keys=False)
     return related_songs_info
 
-if __name__ == '__main__':
-    ARGS = sys.argv[1:]
-    if len(ARGS) == 1:
-        try:
-            get_related_music(ARGS[0])
-        except Exception:
-            pass
 
+if __name__ == "__main__" and len(sys.argv) == 2:
+    get_related_music(sys.argv[1])

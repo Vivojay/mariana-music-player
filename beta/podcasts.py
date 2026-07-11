@@ -1,9 +1,11 @@
 import os
 import json
 import requests
+import feedparser
+from calendar import timegm
 from datetime import datetime as dt
 
-current_date = dt.today().date()
+HTTP_TIMEOUT = (5, 30)
 
 
 # TODO: Add a WHOLE LOT more.... and read from a file instead
@@ -55,24 +57,43 @@ vendors = {
 }
 
 def refresh_podcast_data(rss_link, output_file):
-    from pyPodcastParser.Podcast import Podcast
+    response = requests.get(rss_link, timeout=HTTP_TIMEOUT)
+    response.raise_for_status()
+    parsed = feedparser.parse(response.content)
+    if parsed.bozo and not parsed.entries:
+        raise ValueError(f"Invalid podcast feed: {rss_link}")
 
-    response = requests.get(rss_link)
-    podcast = Podcast(response.content)
     podcasts_raw = []
-
-    for item in [pod.to_dict() for pod in podcast.items]:
-        if item not in podcasts_raw:
-            podcasts_raw.append(item)
+    for entry in parsed.entries:
+        enclosures = entry.get('enclosures') or []
+        enclosure_url = next(
+            (enclosure.get('href') for enclosure in enclosures if enclosure.get('href')),
+            entry.get('link'),
+        )
+        image = entry.get('image') or {}
+        published_tuple = entry.get('published_parsed') or entry.get('updated_parsed')
+        published_timestamp = timegm(published_tuple) if published_tuple else 0
+        podcasts_raw.append(
+            {
+                'itunes_explicit': entry.get('itunes_explicit'),
+                'itunes_subtitle': entry.get('itunes_subtitle') or entry.get('summary') or '',
+                'itune_image': image.get('href') if isinstance(image, dict) else None,
+                'enclosure_url': enclosure_url,
+                'published_date': entry.get('published') or entry.get('updated') or '',
+                'published_timestamp': published_timestamp,
+                'title': entry.get('title') or '[Untitled podcast episode]',
+            }
+        )
 
     with open(output_file, 'w', encoding='utf-8') as fp:
         json.dump({"podcasts_raw": podcasts_raw,
-                   "last_write_date": current_date.strftime('%d-%m-%Y')}, fp, indent=3)
+                   "last_write_date": dt.today().date().strftime('%d-%m-%Y')}, fp, indent=3)
 
     return podcasts_raw
 
 def get_latest_podbean_data(vendor = '', rss_link = None):
-    global saved_podcast_data, last_podcast_data_write_date, current_date
+    global saved_podcast_data, last_podcast_data_write_date
+    current_date = dt.today().date()
     podcasts_raw = None
     saved_podcast_data = None
     last_podcast_data_write_date = None
@@ -120,10 +141,11 @@ def get_latest_podbean_data(vendor = '', rss_link = None):
                  'artwork':      pod.get('itune_image'),
                  'url':          pod.get('enclosure_url'),
                  'pub_date':     pod.get('published_date'),
+                 'published_timestamp': pod.get('published_timestamp', 0),
                  'title':        pod.get('title')} for pod in podcasts_raw]
 
     # Sorting podcasts by date of publish (newest first)
-    podcasts.sort(key=lambda x: dt.strptime(x['pub_date'], "%a, %d %b %Y %H:%M:%S %z"), reverse=True)
+    podcasts.sort(key=lambda x: x['published_timestamp'], reverse=True)
 
     return podcasts
 

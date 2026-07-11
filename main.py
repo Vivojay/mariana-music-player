@@ -2822,49 +2822,7 @@ def process(command):
 
 
         elif commandslist[0] in ['/rs', '/reddit-sessions']:
-
-            reload_reddit_creds()
-
-            if r_seshs:
-                global r_seshs_data
-                r_seshs_data, rs_params = redditsessions.display_seshs_as_table(r_seshs)
-                r_seshs_data_processed = [[i+1]+j for i,j in enumerate([list(i.values()) for i in r_seshs_data])]
-                if len(commandslist) == 1:
-                    r_seshs_table = tbl(r_seshs_data_processed,
-                                        tablefmt='simple',
-                                        headers=["#", "RPAN Session"]+[*rs_params[1:]])
-                    IPrint(r_seshs_table, visible=visible)
-                    IPrint('\n', visible=visible)
-                    sesh_index = input(f"{colored.fg('light_slate_blue')}Enter RPAN session number to tune into: {colored.fg('navajo_white_1')}")
-                    print(colored.attr('reset'), end='')
-                elif len(commandslist) == 2:
-                    sesh_index = commandslist[1]
-
-                if len(commandslist) <= 3:
-                    if sesh_index.strip():
-                        IPrint("[INFO] Reddit sessions sometimes may take ages to start and seek...", visible=visible)
-                    else:
-                        IPrint(f"{colored.fg('hot_pink_1a')}Skipping RPAN stream (left empty){colored.attr('reset')}")
-                    if sesh_index.isnumeric():
-                        sesh_index = int(sesh_index)-1
-                        if sesh_index in range(len(r_seshs_data)):
-                            sesh_name=r_seshs_data[sesh_index].get('title')
-                            if not sesh_name: sesh_name = '[UNRESOLVED REDDIT SESSION]'
-                            IPrint(f"Tuning into RPAN: {colored.fg('indian_red_1b')}{sesh_name}{colored.attr('reset')}", visible=visible)
-                            play_vas_media(media_url=r_seshs[sesh_index]['audiolink'],
-                                        media_type='redditsession',
-                                        media_name=sesh_name)
-                    else:
-                        if sesh_index.strip():
-                            SAY(visible=visible,
-                                display_message=f'You have entered an invalid RPAN session number',
-                                log_message=f'Invalid RPAN session number entered',
-                                log_priority=2)
-                else:
-                    SAY(visible=visible,
-                        display_message=f'You have entered an invalid reddit session command',
-                        log_message=f'Invalid reddit session command entered',
-                        log_priority=2)
+            IPrint(redditsessions.RETIRED_MESSAGE, visible=visible)
 
         elif commandslist in [['vivojay', 'favourite'], ['vivojay', 'fav']]:
             dev_fav_song = 'https://www.youtube.com/watch?v=izWf40-3n1Y'

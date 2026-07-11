@@ -2,6 +2,8 @@ import requests
 
 from urllib.parse import urlparse, unquote_plus, parse_qs
 
+HTTP_TIMEOUT = (5, 15)
+
 def id_if_url_is_of_yt_format(some_url):
     vid_id = None
 
@@ -49,12 +51,12 @@ def url_is_valid(url, yt=None): # yt param only added for compatibility with oth
     yt = id_if_url_is_of_yt_format(url)
 
     try:
-        status_code = requests.head(url).status_code
+        status_code = requests.head(url, allow_redirects=True, timeout=HTTP_TIMEOUT).status_code
         if not yt: return status_code < 400
         elif yt is not None:
-            # Extra steps for verification of YouTube URLs
-            oEmbed_request_output = requests.get(f'https://www.youtube.com/oembed?format=json&url=https://www.youtube.com/watch?v={yt}').text
-            return oEmbed_request_output.strip().lower() != 'bad request'
+            from beta.youtube_media import is_resolvable
+
+            return is_resolvable(f'https://www.youtube.com/watch?v={yt}')
         else:
             return False
     except Exception:
