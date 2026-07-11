@@ -1,4 +1,15 @@
-Future Ideas and Issues to Address.md
-README.md
-help_future.md
-help.md
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.virtenv/
+.venv/
+venv/
+
+# Runtime-generated files
+/temp/
+/logs/
+/data/snd_files.json
+/data/related_songs.yml
+/res/style.css
