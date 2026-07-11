@@ -14,6 +14,8 @@ import pytest
 from beta.podcasts import refresh_podcast_data
 from beta.youtube_media import search, stream_url
 from mariana.identity import fingerprint_file
+from mariana.database import MarianaDatabase
+from mariana.radio import RadioCatalog
 
 
 pytestmark = [
@@ -48,3 +50,13 @@ def test_live_chromaprint_returns_a_fingerprint():
     duration, fingerprint = fingerprint_file(sample)
     assert duration > 0
     assert fingerprint
+
+
+def test_live_official_radio_endpoint_decodes(tmp_path):
+    with MarianaDatabase(tmp_path / "radio.db") as database:
+        result = RadioCatalog(database).health(
+            "groove-salad",
+            ffmpeg_bin=str(Path(shutil.which("ffmpeg")).parent),
+            force=True,
+        )
+    assert result["status"] == "healthy", result

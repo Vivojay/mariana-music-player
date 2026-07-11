@@ -69,7 +69,7 @@ CURATED_STATIONS = [
         "ANTENNE BAYERN",
         [
             "https://stream.antenne.de/antenne/stream/mp3",
-            "https://stream.antenne.de/antenne/stream/aac",
+            "https://stream.antenne.de/antenne/stream/aacp",
         ],
         homepage="https://www.antenne.de/",
         country="Germany",
@@ -129,12 +129,31 @@ def resolve_playlist(
     seen.add(url)
     client = session or requests.Session()
     try:
-        response = client.get(url, headers={"User-Agent": USER_AGENT}, timeout=timeout)
+        response = client.get(url, headers={"User-Agent": USER_AGENT}, timeout=timeout, stream=True)
         response.raise_for_status()
     except requests.RequestException as error:
         raise RadioError(f"Radio endpoint is unavailable: {error}") from error
-    text = response.text[:1_000_000]
-    kind = _playlist_kind(url, response.headers.get("Content-Type", ""), text)
+    content_type = response.headers.get("Content-Type", "")
+    path = urlparse(url).path.lower()
+    playlist_hint = path.endswith((".m3u", ".m3u8", ".pls")) or any(
+        marker in content_type.lower() for marker in ("mpegurl", "scpls")
+    )
+    if content_type.lower().startswith("audio/") and not playlist_hint:
+        response.close() if hasattr(response, "close") else None
+        return [url]
+    if hasattr(response, "iter_content"):
+        chunks = []
+        size = 0
+        for chunk in response.iter_content(chunk_size=16_384):
+            chunks.append(chunk)
+            size += len(chunk)
+            if size >= 1_000_000:
+                break
+        text = b"".join(chunks)[:1_000_000].decode("utf-8", errors="replace")
+    else:
+        text = response.text[:1_000_000]
+    response.close() if hasattr(response, "close") else None
+    kind = _playlist_kind(url, content_type, text)
     if kind is None:
         return [url]
     if kind == "hls":
