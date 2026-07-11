@@ -37,7 +37,7 @@ def get_settings():
     return SUPPORTED_FILE_TYPES, LYRICS_SETTINGS
 
 SUPPORTED_FILE_TYPES, LYRICS_SETTINGS = get_settings()
-FOOT_TEXT = "Lyrics Powered by Musixmatch"
+FOOT_TEXT = "Lyrics Powered by ShazamIO"
 os.chdir(curdir)
 
 def atoi(text):
