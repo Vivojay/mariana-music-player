@@ -114,6 +114,15 @@ def test_musicbrainz_enrichment_cache_and_failure_fallback():
     assert len(session.calls) == 1
 
 
+def test_musicbrainz_retries_with_backoff_and_recovers(monkeypatch):
+    session = Session([requests.Timeout("first"), requests.Timeout("second"), Response({"title": "Recovered"})])
+    sleeps = []
+    monkeypatch.setattr("mariana.identity.time.sleep", sleeps.append)
+    client = MusicBrainzClient(session=session, minimum_interval=0, retries=3, backoff=0.25)
+    assert client.recording("recording")["title"] == "Recovered"
+    assert sleeps == [0.25, 0.5]
+
+
 def test_lrclib_exact_search_no_lyrics_and_offline():
     identity = TrackIdentity(
         IdentityStatus.IDENTIFIED, title="Song", artist="Artist", album="Album", duration=180, confidence=0.9

@@ -546,6 +546,7 @@ def _on_queue_item_complete(media):
             next_item = QUEUE.add(recommendations[0].media)
             QUEUE.jump(len(QUEUE.items()) - 1)
     if next_item is None:
+        RECOMMENDER.retrain_if_due()
         return
     snapshot = vas.controller.snapshot()
     if snapshot.media and snapshot.media.stable_id == next_item.media.stable_id:
@@ -937,6 +938,7 @@ def stopsong():
                 context={'position': snapshot.position, 'duration': snapshot.duration},
             )
         vas.media_player(action='stop')
+        RECOMMENDER.retrain_if_due()
 
         currentsong = None
         isplaying = False

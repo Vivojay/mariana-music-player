@@ -155,10 +155,20 @@ class AcoustIDClient:
 
 
 class MusicBrainzClient:
-    def __init__(self, *, session=None, timeout: float = 15, minimum_interval: float = 1.0):
+    def __init__(
+        self,
+        *,
+        session=None,
+        timeout: float = 15,
+        minimum_interval: float = 1.0,
+        retries: int = 3,
+        backoff: float = 0.5,
+    ):
         self.session = session or requests.Session()
         self.timeout = timeout
         self.minimum_interval = minimum_interval
+        self.retries = max(1, retries)
+        self.backoff = max(0.0, backoff)
         self._last_request = 0.0
         self._lock = threading.Lock()
         self._cache: dict[str, dict[str, Any]] = {}
@@ -167,20 +177,26 @@ class MusicBrainzClient:
         if not refresh and mbid in self._cache:
             return self._cache[mbid]
         with self._lock:
-            delay = self.minimum_interval - (time.monotonic() - self._last_request)
-            if delay > 0:
-                time.sleep(delay)
-            try:
-                response = self.session.get(
-                    f"{MUSICBRAINZ_URL}/recording/{mbid}",
-                    params={"fmt": "json", "inc": "artists+releases+work-rels+tags"},
-                    headers={"User-Agent": USER_AGENT},
-                    timeout=self.timeout,
-                )
-                self._last_request = time.monotonic()
-                response.raise_for_status()
-                payload = response.json()
-            except (requests.RequestException, ValueError, AttributeError):
+            payload = None
+            for attempt in range(self.retries):
+                delay = self.minimum_interval - (time.monotonic() - self._last_request)
+                if delay > 0:
+                    time.sleep(delay)
+                try:
+                    response = self.session.get(
+                        f"{MUSICBRAINZ_URL}/recording/{mbid}",
+                        params={"fmt": "json", "inc": "artists+releases+work-rels+tags"},
+                        headers={"User-Agent": USER_AGENT},
+                        timeout=self.timeout,
+                    )
+                    self._last_request = time.monotonic()
+                    response.raise_for_status()
+                    payload = response.json()
+                    break
+                except (requests.RequestException, ValueError, AttributeError):
+                    if attempt + 1 < self.retries:
+                        time.sleep(self.backoff * (2**attempt))
+            if payload is None:
                 return self._cache.get(mbid)
         self._cache[mbid] = payload
         return payload
