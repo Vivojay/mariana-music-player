@@ -1,0 +1,17 @@
+colored==2.3.2
+comtypes==1.4.16
+feedparser==6.0.12
+Pillow==12.3.0
+pycaw==20251023
+pygame==2.6.1
+python-vlc==3.0.21203
+pywin32==312
+PyYAML==6.0.3
+requests==2.34.2
+ruamel.yaml==0.19.1
+shazamio==0.8.1
+sounddevice==0.5.5
+tabulate==0.10.0
+toml==0.10.2
+tqdm==4.68.4
+yt-dlp==2026.7.4
