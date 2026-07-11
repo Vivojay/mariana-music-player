@@ -1,20 +1,16 @@
-"""Runtime prerequisite checks for Mariana Player.
-
-The checks intentionally report optional multimedia capabilities without
-preventing local-only operation from starting.
-"""
+"""Runtime prerequisite checks for Mariana's FFmpeg media platform."""
 
 from __future__ import annotations
 
 import ctypes
 import os
+from pathlib import Path
 import shutil
+import subprocess
 import sys
 from dataclasses import dataclass
-from pathlib import Path
 
 
-APP_DIR = Path(__file__).resolve().parent
 SUPPORTED_PYTHON = (3, 12)
 
 
@@ -22,66 +18,48 @@ SUPPORTED_PYTHON = (3, 12)
 class RuntimeReport:
     errors: tuple[str, ...]
     warnings: tuple[str, ...]
-    vlc_directory: Path | None
+    executables: dict[str, str | None]
 
     @property
     def supported(self) -> bool:
         return not self.errors
 
 
-def find_vlc_directory(configured_path: str | None = None) -> Path | None:
-    candidates = []
-    if configured_path:
-        candidates.append(Path(configured_path).expanduser())
-    if os.environ.get("VLC_HOME"):
-        candidates.append(Path(os.environ["VLC_HOME"]).expanduser())
-    candidates.extend(
-        [
-            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "VideoLAN" / "VLC",
-            Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "VideoLAN" / "VLC",
-        ]
-    )
-    for candidate in candidates:
-        if (candidate / "vlc.exe").is_file():
-            return candidate.resolve()
-    return None
+def _configured_executable(name: str, directory: str | None = None) -> str | None:
+    if directory:
+        candidate = Path(directory).expanduser()
+        if candidate.is_dir():
+            candidate /= f"{name}.exe" if os.name == "nt" else name
+        if candidate.is_file():
+            return str(candidate.resolve())
+    return shutil.which(name)
 
 
-def inspect_vlc_installation(vlc_directory: Path) -> tuple[int | None, tuple[int, int, int, int] | None]:
-    """Return the VLC executable architecture and file version when available."""
+def inspect_ffmpeg(executable: str) -> str | None:
     try:
-        import win32api
-        import win32file
-
-        executable = str(vlc_directory / "vlc.exe")
-        binary_type = win32file.GetBinaryType(executable)
-        architecture = 32 if binary_type == win32file.SCS_32BIT_BINARY else 64
-        info = win32api.GetFileVersionInfo(executable, "\\")
-        version = (
-            info["FileVersionMS"] >> 16,
-            info["FileVersionMS"] & 0xFFFF,
-            info["FileVersionLS"] >> 16,
-            info["FileVersionLS"] & 0xFFFF,
+        result = subprocess.run(
+            [executable, "-version"], capture_output=True, text=True, timeout=5, check=True
         )
-        return architecture, version
-    except (ImportError, OSError, TypeError, KeyError):
-        return None, None
+        return (result.stdout.splitlines() or [None])[0]
+    except (OSError, subprocess.SubprocessError):
+        return None
 
 
 def has_audio_output() -> bool:
     try:
         import sounddevice
 
-        devices = sounddevice.query_devices()
-        return any(device.get("max_output_channels", 0) > 0 for device in devices)
+        return any(device.get("max_output_channels", 0) > 0 for device in sounddevice.query_devices())
     except Exception:
         return False
 
 
-def check_runtime(configured_vlc_path: str | None = None) -> RuntimeReport:
+def check_runtime(
+    configured_ffmpeg_path: str | None = None,
+    configured_fpcalc_path: str | None = None,
+) -> RuntimeReport:
     errors: list[str] = []
     warnings: list[str] = []
-
     if sys.version_info[:2] != SUPPORTED_PYTHON:
         errors.append(
             "Mariana Player currently supports Python 3.12.x; "
@@ -90,44 +68,33 @@ def check_runtime(configured_vlc_path: str | None = None) -> RuntimeReport:
     if sys.platform != "win32":
         errors.append("Mariana Player currently supports Windows only.")
     if ctypes.sizeof(ctypes.c_void_p) * 8 != 64:
-        errors.append("Mariana Player requires 64-bit Python and 64-bit VLC.")
+        errors.append("Mariana Player requires 64-bit Python.")
 
+    executables = {
+        name: _configured_executable(name, configured_ffmpeg_path)
+        for name in ("ffmpeg", "ffprobe", "ffplay")
+    }
+    local_fpcalc = Path(__file__).resolve().parent / ".tools" / "chromaprint-1.6.0"
+    local_matches = list(local_fpcalc.rglob("fpcalc.exe")) if local_fpcalc.exists() else []
+    executables["fpcalc"] = _configured_executable("fpcalc", configured_fpcalc_path) or (
+        str(local_matches[0]) if local_matches else None
+    )
     for executable in ("ffmpeg", "ffprobe"):
-        if shutil.which(executable) is None:
-            warnings.append(
-                f"{executable} is not on PATH; downloads, metadata, and lyrics sampling may be unavailable."
-            )
-
+        if not executables[executable]:
+            errors.append(f"{executable} is required for playback and media inspection.")
+    if not executables["ffplay"]:
+        warnings.append("ffplay is unavailable; diagnostic/video fallback commands are disabled.")
+    if not executables["fpcalc"]:
+        warnings.append(
+            "Chromaprint fpcalc 1.6.0 is unavailable; run tools/install_chromaprint.ps1 to enable identification."
+        )
+    if executables["ffmpeg"] and not inspect_ffmpeg(executables["ffmpeg"]):
+        errors.append("The configured FFmpeg executable could not be started.")
     if not any(shutil.which(executable) for executable in ("deno", "node", "qjs")):
-        warnings.append(
-            "No supported JavaScript runtime was found; install Deno or Node 22+ and add it to PATH "
-            "for reliable YouTube extraction."
-        )
-
+        warnings.append("No JavaScript runtime was found; install Node 22+ for reliable YouTube extraction.")
     if not has_audio_output():
-        warnings.append(
-            "No usable audio output device was detected; connect or enable speakers before starting playback."
-        )
-
-    vlc_directory = find_vlc_directory(configured_vlc_path)
-    if vlc_directory is None:
-        warnings.append(
-            "VLC 3.x was not found. Install 64-bit VLC or set 'vlc path' in settings/settings.yml."
-        )
-    else:
-        vlc_architecture, vlc_version = inspect_vlc_installation(vlc_directory)
-        if vlc_architecture != 64:
-            warnings.append(
-                "The detected VLC installation is not confirmed as 64-bit; install 64-bit VLC 3.x "
-                "to match 64-bit Python."
-            )
-        if vlc_version is None or vlc_version[0] != 3:
-            detected = "unknown" if vlc_version is None else ".".join(map(str, vlc_version))
-            warnings.append(
-                f"The detected VLC version is {detected}; Mariana Player requires VLC 3.x for online playback."
-            )
-
-    return RuntimeReport(tuple(errors), tuple(warnings), vlc_directory)
+        warnings.append("No usable output device was detected; playback will remain unavailable until one appears.")
+    return RuntimeReport(tuple(errors), tuple(warnings), executables)
 
 
 def format_runtime_report(report: RuntimeReport) -> list[str]:
