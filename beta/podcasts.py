@@ -1,5 +1,6 @@
 import os
 import json
+from pathlib import Path
 import requests
 import feedparser
 from calendar import timegm
@@ -85,6 +86,7 @@ def refresh_podcast_data(rss_link, output_file):
             }
         )
 
+    Path(output_file).parent.mkdir(parents=True, exist_ok=True)
     with open(output_file, 'w', encoding='utf-8') as fp:
         json.dump({"podcasts_raw": podcasts_raw,
                    "last_write_date": dt.today().date().strftime('%d-%m-%Y')}, fp, indent=3)

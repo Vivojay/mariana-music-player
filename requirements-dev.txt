@@ -54,6 +54,8 @@ comtypes==1.4.16
     # via
     #   -r requirements.in
     #   pycaw
+coverage[toml]==7.15.0
+    # via pytest-cov
 cyclonedx-python-lib==11.11.0
     # via pip-audit
 dataclass-factory==2.16
@@ -68,6 +70,8 @@ frozenlist==1.8.0
     # via
     #   aiohttp
     #   aiosignal
+hypothesis==6.156.6
+    # via -r requirements-dev.in
 idna==3.18
     # via
     #   anyio
@@ -113,7 +117,9 @@ pip-tools==7.5.3
 platformdirs==4.10.0
     # via pip-audit
 pluggy==1.6.0
-    # via pytest
+    # via
+    #   pytest
+    #   pytest-cov
 propcache==0.5.2
     # via
     #   aiohttp
@@ -147,6 +153,10 @@ pyproject-hooks==1.2.0
     #   build
     #   pip-tools
 pytest==9.1.1
+    # via
+    #   -r requirements-dev.in
+    #   pytest-cov
+pytest-cov==7.1.0
     # via -r requirements-dev.in
 python-vlc==3.0.21203
     # via -r requirements.in
@@ -173,7 +183,9 @@ shazamio==0.8.1
 shazamio-core==1.1.2
     # via shazamio
 sortedcontainers==2.4.0
-    # via cyclonedx-python-lib
+    # via
+    #   cyclonedx-python-lib
+    #   hypothesis
 sounddevice==0.5.5
     # via -r requirements.in
 tabulate==0.10.0

@@ -178,9 +178,13 @@ def show_window(max_wait_lim,
                     else:
                         SAY(visible=visible,
                             display_message = 'You entered wallpaper number {0}. Try again with a number between 1 and {1}.\n'\
-                                              'Reverting to default'.format(lyrics_bg_image_index, 1, len(PROVIDED_WALLPAPER_NAMES)),
+                                              'Reverting to default'.format(
+                                                  lyrics_bg_image_index + 1,
+                                                  len(PROVIDED_WALLPAPER_NAMES),
+                                              ),
                             log_message = 'Wallpaper index out of bounds, reverting to default',
                             log_priority = 2)
+                        lyrics_bg_image_file = None
 
                 if lyrics_bg_image_file:
                     if not lyrics_bg_image_file.endswith('.jpg'):

@@ -2,5 +2,7 @@
 
 pip-audit
 pip-tools
+hypothesis
 pytest
+pytest-cov
 ruff

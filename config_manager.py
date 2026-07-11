@@ -40,13 +40,18 @@ def load_user_settings(
 ) -> dict[str, Any]:
     with defaults_path.open(encoding="utf-8") as stream:
         defaults = yaml.load(stream) or {}
+    if not isinstance(defaults, dict):
+        raise ValueError(f"Default settings must contain a mapping: {defaults_path}")
     if settings_path.exists():
         with settings_path.open(encoding="utf-8") as stream:
             current = yaml.load(stream) or {}
     else:
         current = {}
+    if not isinstance(current, dict):
+        raise ValueError(f"User settings must contain a mapping: {settings_path}")
     merged, changed = deep_merge_defaults(current, defaults)
     if changed and persist_migration:
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
         writer = YAML()
         with settings_path.open("w", encoding="utf-8") as stream:
             writer.dump(merged, stream)

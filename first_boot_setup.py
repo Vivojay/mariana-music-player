@@ -1,4 +1,5 @@
 import os
+import stat
 import toml
 from pathlib import Path
 
@@ -54,6 +55,11 @@ def download_cloud_mariana_samples(about):
     samples_dir = Path(dl_dir_setup_code) / 'mariana_music_samples'
     samples_dir.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(output_zip_path, 'r') as zip_ref:
+        samples_root = samples_dir.resolve()
+        for member in zip_ref.infolist():
+            member_path = (samples_root / member.filename).resolve()
+            if not member_path.is_relative_to(samples_root) or stat.S_ISLNK(member.external_attr >> 16):
+                raise zipfile.BadZipFile(f"Unsafe path in sample archive: {member.filename}")
         zip_ref.extractall(samples_dir)
 
     try:

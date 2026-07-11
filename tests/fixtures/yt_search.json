@@ -1,0 +1,16 @@
+{
+  "entries": [
+    {
+      "id": "abc12345678",
+      "title": "First Result",
+      "duration": 42,
+      "thumbnail": "https://images.example/first.jpg"
+    },
+    {
+      "id": "def12345678",
+      "title": null,
+      "webpage_url": "https://youtube.com/watch?v=def12345678"
+    },
+    "unsupported"
+  ]
+}

@@ -13,3 +13,10 @@ venv/
 /data/snd_files.json
 /data/related_songs.yml
 /res/style.css
+
+# Test and coverage artifacts
+/.coverage
+/coverage.xml
+/htmlcov/
+/.hypothesis/
+/.pytest_cache/

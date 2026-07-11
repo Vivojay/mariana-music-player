@@ -1,0 +1,480 @@
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from hypothesis import given, strategies as st
+
+import main
+
+
+def test_ordered_set_flatten_and_search_helpers(monkeypatch):
+    assert main.OrderedSet([1, 2, 1, 3, 2]) == [1, 2, 3]
+    assert list(main.flatten([1, [2, (3, 4)], "text"])) == [1, 2, 3, 4, "text"]
+
+    monkeypatch.setattr(main, "_sound_files_names_enumerated", [(1, "Blue Moon"), (2, "Blue Sky"), (3, "Red Moon")])
+    assert main.searchsongs(["blue", "moon", "blue"]) == [(1, "Blue Moon")]
+
+
+def test_audio_file_generator_is_recursive_and_extension_exact(tmp_path):
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    (tmp_path / "one.mp3").touch()
+    (nested / "two.mp3").touch()
+    (nested / "three.MP3").touch()
+    assert {Path(path).name for path in main.audio_file_gen(tmp_path, ".mp3")} == {"one.mp3", "two.mp3"}
+
+
+def test_remove_adjacent_mutates_in_place():
+    values = [1, 1, 2, 2, 2, 3, 1, 1]
+    assert main.remove_adjacent(values) is None
+    assert values == [1, 2, 3, 1]
+
+
+@given(seconds=st.integers(min_value=0, max_value=86_399))
+def test_convert_round_trips_seconds_within_a_day(seconds):
+    rendered = main.convert(seconds)
+    hours, minutes, remaining = map(int, rendered.split(":"))
+    assert hours * 3600 + minutes * 60 + remaining == seconds
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("1", True), ("-1.25", True), ("nan", True), ("text", False)],
+)
+def test_isdecimal(value, expected):
+    assert main.isdecimal(value) is expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("1:02", 0), ("10", 0), ("1.5", 1), ("bad", 2), ("-1", 3)],
+)
+def test_validate_time_codes(value, expected):
+    assert main.validate_time(value) == expected
+
+
+def test_time_parser_handles_colon_numeric_zero_and_out_of_range(monkeypatch):
+    monkeypatch.setattr(main, "currentsong_length", 120)
+    assert main.timeinput_to_timeobj("1:02") == ("1m 2s", 62)
+    assert main.timeinput_to_timeobj("30")[1] == "30"
+    assert main.timeinput_to_timeobj("-0") == ("0", 0)
+    assert main.timeinput_to_timeobj("2:01") is ValueError
+    assert main.timeinput_to_timeobj("invalid") is None
+
+
+@pytest.mark.parametrize(
+    ("text", "threshold", "end", "as_tuple", "expected"),
+    [
+        ("short", 100, 8, False, "short"),
+        ("abcdefghijklmnopqrstuvwxyz", 20, 4, False, "abcdefghijklm...wxyz"),
+        ("abcdefghijklmnopqrstuvwxyz", 20, 4, True, ("abcdefghijklm", "wxyz")),
+        ("text", 13, 4, False, None),
+    ],
+)
+def test_text_overflow_prettify(text, threshold, end, as_tuple, expected):
+    assert main.text_overflow_prettify(text, threshold, end, as_tuple) == expected
+
+
+def test_recents_queue_enforces_capacity_and_encodes_media(monkeypatch):
+    monkeypatch.setattr(main, "RECENTS_QUEUE", [[None, -1, "old"]])
+    monkeypatch.setattr(main, "MAX_RECENTS_SIZE", 1)
+    monkeypatch.setattr(main, "current_media_type", 0)
+    monkeypatch.setattr(main, "YOUTUBE_PLAY_TYPE", 1)
+    main.recents_queue_save(("Title", "URL"))
+    assert main.RECENTS_QUEUE == [[1, 0, ("Title", "URL")]]
+
+    monkeypatch.setattr(main, "MAX_RECENTS_SIZE", 2)
+    monkeypatch.setattr(main, "current_media_type", None)
+    main.recents_queue_save((1, "track.mp3"))
+    assert main.RECENTS_QUEUE[-1] == [None, -1, (1, "track.mp3")]
+
+
+def test_prettified_recents_support_every_media_type(monkeypatch):
+    monkeypatch.setattr(
+        main,
+        "RECENTS_QUEUE",
+        [
+            [None, -1, (1, "C:/music/local.mp3")],
+            [0, 0, ("Video", "https://youtube")],
+            [None, 1, "https://media"],
+            [None, 2, "coffee"],
+            [None, 3, ("Session", "https://reddit")],
+        ],
+    )
+    results = main.get_prettified_recents(range(5))
+    joined = "\n".join(results)
+    assert "Session" in joined
+    assert "@webradio" in joined
+    assert "@media-link" in joined
+    assert "Video" in joined
+    assert "local" in joined
+
+
+def test_enqueue_skips_invalid_and_deduplicates(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(main, "_sound_files", ["one.mp3", "two.mp3"])
+    monkeypatch.setattr(main, "IPrint", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        main,
+        "play_local_default_player",
+        lambda paths, _songindex, is_queue: captured.update(paths=paths, queue=is_queue),
+    )
+    main.enqueue(["2", "3", "2"])
+    assert captured == {"paths": ["two.mp3"], "queue": True}
+
+
+def test_local_play_commands_support_index_queue_and_path(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main, "_sound_files", ["one.mp3", "two.mp3"])
+    monkeypatch.setattr(main, "purge_old_lyrics_if_exist", lambda: None)
+    monkeypatch.setattr(main, "play_local_default_player", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(main, "enqueue", lambda values: calls.append({"queue": values}))
+
+    main.local_play_commands(["play", "2"])
+    main.local_play_commands(["play", "1", "2", "bad"])
+    main.local_play_commands([], _command=".C:/music/song.mp3")
+
+    assert calls[0]["songpath"] == "two.mp3"
+    assert calls[1] == {"queue": ["1", "2"]}
+    assert calls[2]["songpath"] == "C:/music/song.mp3"
+
+
+def test_choose_media_url_handles_single_multiple_skip_and_invalid(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main, "play_vas_media", lambda **kwargs: calls.append(kwargs))
+    main.choose_media_url([("Title", "url")])
+    assert calls[-1]["single_video"] is True
+
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "2")
+    main.choose_media_url([(1, "One", "u1"), (2, "Two", "u2")])
+    assert calls[-1]["media_url"] == "u2"
+
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "")
+    main.choose_media_url([(1, "One", "u1"), (2, "Two", "u2")])
+    count = len(calls)
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "invalid")
+    main.choose_media_url([(1, "One", "u1"), (2, "Two", "u2")])
+    assert len(calls) == count
+
+
+def test_display_and_choose_podcast_plays_selected_url(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main, "IPrint", lambda *_a, **_k: None)
+    monkeypatch.setattr(main, "play_vas_media", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "1")
+    episodes = [{"title": "Episode", "caption": "Caption", "pub_date": "Today", "is_explicit": False, "url": "stream"}]
+    main.display_and_choose_podbean(episodes, ["pods"], 1)
+    assert calls[0]["media_url"] == "stream"
+
+
+def test_safe_command_families_dispatch(monkeypatch):
+    printed = []
+    stopped = []
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(value))
+    monkeypatch.setattr(main, "_sound_files_names_only", ["Blue Moon", "Red Sky"])
+    monkeypatch.setattr(main, "_sound_files_names_enumerated", [(1, "Blue Moon"), (2, "Red Sky")])
+    monkeypatch.setattr(main, "_sound_files", ["blue.mp3", "red.mp3"])
+    monkeypatch.setattr(main, "stopsong", lambda: stopped.append(True))
+    monkeypatch.setattr(main, "rand_song_index_generate", lambda: 0)
+
+    main.process("count")
+    main.process("find blue")
+    main.process("/rs")
+    main.process("stop")
+    main.process("rand")
+
+    rendered = "\n".join(map(str, printed))
+    assert "2" in rendered
+    assert "Blue Moon" in rendered
+    assert "retired" in rendered.lower()
+    assert stopped == [True]
+
+
+def test_volume_and_pause_command_dispatch(monkeypatch):
+    player = SimpleNamespace(audio_set_volume=lambda value: setattr(player, "volume", value))
+    monkeypatch.setattr(main.vas, "vlc_media_player", SimpleNamespace(get_media_player=lambda: player))
+    toggles = []
+    monkeypatch.setattr(main, "playpausetoggle", lambda **kwargs: toggles.append(kwargs))
+    monkeypatch.setattr(main, "cached_volume", 0.5)
+    main.process("volume 25")
+    main.process("p")
+    main.process("ph")
+    assert player.volume == 25
+    assert main.cached_volume == 0.25
+    assert toggles == [{}, {"softtoggle": False}]
+
+
+class PlaybackPlayer:
+    def __init__(self, length=60_000):
+        self.length = length
+        self.volume = None
+        self.time = None
+
+    def audio_set_volume(self, value):
+        self.volume = value
+
+    def get_length(self):
+        return self.length
+
+    def get_time(self):
+        return 5_000
+
+    def set_time(self, value):
+        self.time = value
+
+
+def playback_user_data():
+    return {
+        "default_user_data": {
+            "stats": {
+                "play_count": {
+                    "local": 0,
+                    "radio": 0,
+                    "general": 0,
+                    "youtube": 0,
+                    "redditsession": 0,
+                    "total": 0,
+                },
+                "times_spent": [],
+                "log_ins": 0,
+            }
+        }
+    }
+
+
+@pytest.mark.parametrize(
+    ("media_type", "media_url", "media_name", "expected_type", "counter", "expected_length"),
+    [
+        ("video", "youtube", "Video", 0, "youtube", 60),
+        ("general", "stream", None, 1, "general", 60),
+        ("radio", None, "coffee", 2, "radio", -1),
+        ("redditsession", "reddit", "Session", 3, "redditsession", 60),
+    ],
+)
+def test_play_vas_media_state_machine(
+    monkeypatch, media_type, media_url, media_name, expected_type, counter, expected_length
+):
+    player = PlaybackPlayer()
+    set_calls = []
+    play_calls = []
+    recents = []
+    monkeypatch.setattr(main, "stopsong", lambda: None)
+    monkeypatch.setattr(main.vas, "set_media", lambda **kwargs: set_calls.append(kwargs) or "direct-audio")
+    monkeypatch.setattr(main.vas, "media_player", lambda **kwargs: play_calls.append(kwargs))
+    monkeypatch.setattr(main.vas, "vlc_media_player", SimpleNamespace(get_media_player=lambda: player))
+    monkeypatch.setattr(main.vas, "wait_until_playing", lambda _timeout: True)
+    monkeypatch.setattr(main, "recents_queue_save", lambda value: recents.append(value))
+    monkeypatch.setattr(main, "save_user_data", lambda: None)
+    monkeypatch.setattr(main, "SAY", lambda **_kwargs: None)
+    monkeypatch.setattr(main, "IPrint", lambda *_a, **_k: None)
+    monkeypatch.setattr(main, "USER_DATA", playback_user_data())
+
+    main.play_vas_media(media_url, media_name=media_name, media_type=media_type)
+
+    assert main.current_media_type == expected_type
+    assert main.USER_DATA["default_user_data"]["stats"]["play_count"][counter] == 1
+    assert play_calls == [{"action": "play"}]
+    assert player.volume == int(main.cached_volume * 100)
+    assert main.currentsong_length == expected_length
+    assert recents
+    assert set_calls
+
+
+def test_play_vas_media_handles_unresolved_title_and_invalid_type(monkeypatch):
+    player = PlaybackPlayer()
+    logs = []
+    monkeypatch.setattr(main, "stopsong", lambda: None)
+    monkeypatch.setattr(main.vas, "set_media", lambda **_kwargs: "direct")
+    monkeypatch.setattr(main.vas, "media_player", lambda **_kwargs: None)
+    monkeypatch.setattr(main.vas, "vlc_media_player", SimpleNamespace(get_media_player=lambda: player))
+    monkeypatch.setattr(main.vas, "wait_until_playing", lambda _timeout: True)
+    monkeypatch.setattr(main.YT_query, "vid_info", lambda _url: (_ for _ in ()).throw(OSError("offline")))
+    monkeypatch.setattr(main, "recents_queue_save", lambda _value: None)
+    monkeypatch.setattr(main, "save_user_data", lambda: None)
+    monkeypatch.setattr(main, "SAY", lambda **kwargs: logs.append(kwargs))
+    monkeypatch.setattr(main, "IPrint", lambda *_a, **_k: None)
+    monkeypatch.setattr(main, "USER_DATA", playback_user_data())
+
+    main.play_vas_media("youtube", media_type="video")
+    assert main.currentsong[0] == "[VIDEO NAME COULD NOT BE RESOLVED]"
+    assert "youtube" in logs[0]["log_message"]
+
+    before = playback_user_data()
+    monkeypatch.setattr(main, "USER_DATA", before)
+    assert main.play_vas_media("url", media_type="unsupported") is False
+    assert before["default_user_data"]["stats"]["play_count"]["total"] == 0
+
+
+def test_progress_length_seek_and_volume_transition(monkeypatch):
+    player = PlaybackPlayer(length=90_000)
+    volumes = []
+    player.audio_set_volume = lambda value: volumes.append(value)
+    monkeypatch.setattr(main.vas, "vlc_media_player", SimpleNamespace(get_media_player=lambda: player))
+    monkeypatch.setattr(main, "currentsong", "track.mp3")
+    monkeypatch.setattr(main, "currentsong_length", None)
+    assert main.get_currentsong_length() == 90
+    assert main.get_current_progress() == 5
+    assert main.song_seek(12) is True
+    assert player.time == 12_000
+
+    monkeypatch.setattr(main, "ismuted", False)
+    monkeypatch.setattr(main.time, "sleep", lambda _seconds: None)
+    main.voltransition(initial=0, final=1, transition_time=0)
+    assert volumes[0] == 0
+    assert volumes[-1] == 100
+
+
+def test_volume_transition_process_uses_keyword_arguments(monkeypatch):
+    captured = {}
+
+    class FakeProcess:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def start(self):
+            captured["started"] = True
+
+        def join(self):
+            captured["joined"] = True
+
+    monkeypatch.setattr(main, "Process", FakeProcess)
+    monkeypatch.setattr(main, "cached_volume", 0.75)
+    main.vol_trans_process_spawn()
+    assert captured["kwargs"] == {"initial": 0.75, "final": 0, "disablecaching": True}
+    assert captured["started"] and captured["joined"]
+
+
+def test_play_pause_stop_and_fade_transitions(monkeypatch):
+    actions = []
+    transitions = []
+    player = PlaybackPlayer()
+    monkeypatch.setattr(main.vas, "media_player", lambda **kwargs: actions.append(kwargs["action"]))
+    monkeypatch.setattr(main.vas, "vlc_media_player", SimpleNamespace(get_media_player=lambda: player))
+    monkeypatch.setattr(main, "voltransition", lambda **kwargs: transitions.append(kwargs))
+    monkeypatch.setattr(main, "purge_old_lyrics_if_exist", lambda: actions.append("purge"))
+    monkeypatch.setattr(main, "IPrint", lambda *_a, **_k: None)
+    monkeypatch.setattr(main, "currentsong", "track.mp3")
+    monkeypatch.setattr(main, "isplaying", True)
+    monkeypatch.setattr(main, "ismuted", False)
+
+    main.playpausetoggle(transition_time=0)
+    assert main.isplaying is False
+    main.playpausetoggle(transition_time=0)
+    assert main.isplaying is True
+    main.fade_in_out(finalvol=0, fade_duration=0)
+    assert main.isplaying is False
+    main.stopsong()
+    assert main.currentsong is None
+    assert actions[-2:] == ["stop", "purge"]
+    assert transitions
+
+
+def test_random_commands_handle_first_item(monkeypatch):
+    printed = []
+    played = []
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(value))
+    monkeypatch.setattr(main, "rand_song_index_generate", lambda: 0)
+    monkeypatch.setattr(main, "_sound_files_names_only", ["First"])
+    monkeypatch.setattr(main, "_sound_files", ["first.mp3"])
+    monkeypatch.setattr(main, "local_play_commands", lambda commandslist: played.append(commandslist))
+
+    for command in ("rand", "rand*", "=rand", "/rand", ".rand"):
+        main.process(command)
+
+    assert "First" in printed
+    assert "first.mp3" in printed
+    assert 1 in printed
+    assert "1: First" in printed
+    assert played == [[None, "1"]]
+
+
+def test_online_command_families_dispatch_without_network(monkeypatch):
+    chosen = []
+    played = []
+    messages = []
+    monkeypatch.setattr(main, "url_is_valid", lambda _url: True)
+    monkeypatch.setattr(
+        main.YT_query,
+        "search_youtube",
+        lambda search, rescount=1: ("One", "u1") if rescount == 1 else [(1, "One", "u1"), (2, "Two", "u2")],
+    )
+    monkeypatch.setattr(main, "choose_media_url", lambda media_url_choices: chosen.append(media_url_choices))
+    monkeypatch.setattr(main, "play_vas_media", lambda **kwargs: played.append(kwargs))
+    monkeypatch.setattr(main, "SAY", lambda **kwargs: messages.append(kwargs))
+    monkeypatch.setattr(main, "IPrint", lambda *_a, **_k: None)
+
+    main.process('/ys "query" 2')
+    main.process("/yl https://youtu.be/abc12345678")
+    main.process("/ml https://example.test/audio")
+    main.process("/wra 2")
+    main.process("/wra missing")
+
+    assert len(chosen[0]) == 2
+    assert played[0]["single_video"] is True
+    assert played[1]["media_type"] == "general"
+    assert played[2] == {"media_url": None, "media_type": "radio", "media_name": "chillout"}
+    assert any("Unknown webradio" in item["log_message"] for item in messages)
+
+
+def test_seek_progress_and_status_command_families(monkeypatch):
+    printed = []
+    seeks = []
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(value))
+    monkeypatch.setattr(main, "SAY", lambda **_kwargs: None)
+    monkeypatch.setattr(main, "currentsong", "track.mp3")
+    monkeypatch.setattr(main, "currentsong_length", 100)
+    monkeypatch.setattr(main, "isplaying", True)
+    monkeypatch.setattr(main, "ismuted", False)
+    monkeypatch.setattr(main, "get_current_progress", lambda: 20)
+    monkeypatch.setattr(main, "song_seek", lambda timeval=None, **_kwargs: seeks.append(timeval) or True)
+
+    main.process("seek +10")
+    main.process("progress*")
+    main.process("ism?")
+    main.process("isplaying?")
+
+    assert seeks == ["30"]
+    rendered = "\n".join(map(str, printed))
+    assert "Seeking to" in rendered
+    assert "progress" in rendered
+
+
+def test_create_files_save_user_data_and_run_lifecycle(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    main.create_required_files_if_not_exist("nested/one.txt")
+    assert (tmp_path / "nested" / "one.txt").is_file()
+
+    user = playback_user_data()
+    user["default_user_data"]["stats"]["play_count"].update(local=2, radio=1, general=3, youtube=4, redditsession=5)
+    monkeypatch.setattr(main, "USER_DATA", user)
+    (tmp_path / "user").mkdir()
+    main.save_user_data()
+    assert user["default_user_data"]["stats"]["play_count"]["total"] == 15
+
+    events = []
+    monkeypatch.setattr(main, "FIRST_BOOT", False)
+    monkeypatch.setattr(main, "visible", False)
+    monkeypatch.setattr(main, "initialize_audio_output", lambda: events.append("audio"))
+    monkeypatch.setattr(main, "save_user_data", lambda: events.append("save"))
+    monkeypatch.setattr(main, "mainprompt", lambda: events.append("prompt"))
+    main.run()
+    assert events == ["audio", "save", "prompt"]
+    assert user["default_user_data"]["stats"]["log_ins"] == 1
+
+
+def test_startup_enforces_platform_and_fatal_state(monkeypatch):
+    monkeypatch.setattr(main, "first_startup_greet", lambda _first: None)
+    monkeypatch.setattr(main, "FIRST_BOOT", False)
+    monkeypatch.setattr(main, "_sound_files", [])
+    monkeypatch.setattr(main, "SOFT_FATAL_ERROR_INFO", None)
+    monkeypatch.setattr(main, "enforce_os_requirement", True)
+    monkeypatch.setattr(main.sys, "platform", "linux")
+    with pytest.raises(SystemExit, match="Windows only"):
+        main.startup()
+
+    monkeypatch.setattr(main, "enforce_os_requirement", False)
+    monkeypatch.setattr(main, "FATAL_ERROR_INFO", "broken")
+    monkeypatch.setattr(main, "IPrint", lambda *_a, **_k: None)
+    with pytest.raises(SystemExit) as error:
+        main.startup()
+    assert error.value.code == 1

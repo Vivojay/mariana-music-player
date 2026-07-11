@@ -11,9 +11,8 @@ def get_master_volume():
 
 def set_master_volume(scalarVolume):
     volume = device_refresh()
-    if scalarVolume > 0:
+    if scalarVolume >= 0:
         volume.SetMasterVolumeLevelScalar(scalarVolume/100, None)
-    else: pass
 
 # TODO - Implement voltransition... (soft vol change...)
 

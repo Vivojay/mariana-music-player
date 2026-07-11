@@ -36,6 +36,7 @@ import restore_default;                             print("Loaded 11/31", end='\
 print("Loaded 12/31", end='\r')
 import json;                                        print("Loaded 13/31", end='\r')
 import webbrowser;                                  print("Loaded 14/31", end='\r')
+from pathlib import Path
 
 # import concurrent.futures;                          print("Loaded 15/31", end='\r')
 
@@ -170,7 +171,9 @@ if not os.path.isdir('logs'): os.mkdir('logs')
 def create_required_files_if_not_exist(*files):
     for file in files:
         if not os.path.isfile(file):
-            with open(file, 'w', encoding="utf-8") as _:
+            path = Path(file)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open('w', encoding="utf-8") as _:
                 pass
 
 create_required_files_if_not_exist(
@@ -615,9 +618,9 @@ def voltransition(
 
 def vol_trans_process_spawn():
     vol_trans_process = Process(target=voltransition,
-                                args=({'initial': cached_volume,
-                                       'final': 0,
-                                       'disablecaching': True}))
+                                kwargs={'initial': cached_volume,
+                                        'final': 0,
+                                        'disablecaching': True})
     vol_trans_process.start()
     vol_trans_process.join()
 
@@ -922,10 +925,11 @@ def timeinput_to_timeobj(rawtime):
         return (None, None)
 
 def get_currentsong_length():
-    global currentsong_length, currentsong_length
+    global currentsong_length
     if currentsong:
         if not currentsong_length and currentsong_length != -1:
-            currentsong_length = currentsong_length/1000
+            length_ms = vas.vlc_media_player.get_media_player().get_length()
+            currentsong_length = length_ms / 1000 if length_ms else -1
 
     return currentsong_length
 
@@ -955,7 +959,7 @@ def setmastervolume(value=None):
             display_message="This functionality is unavailable",
             log_priority=3)
     else:
-        if not value:
+        if value is None:
             value = cached_volume
 
         if value in range(101):
@@ -1030,7 +1034,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
                 media_name = '[VIDEO NAME COULD NOT BE RESOLVED]'
                 SAY(visible=visible,
                     display_message = '',
-                    log_message = f'video name could not be resolved for:: {currentsong[1]}',
+                    log_message = f'video name could not be resolved for:: {media_url}',
                     log_priority = 2)
 
         currentsong = (media_name, media_url, YT_aud_url)
@@ -1068,8 +1072,8 @@ def play_vas_media(media_url, single_video = None, media_name = None,
         recents_queue_save(currentsong)
 
     else:
-        media_type = None
         SAY(visible=visible, display_message = "Invalid media type provided", log_message = "Invalid media type provided", log_priority = 2)
+        return False
 
     if media_type == 'video': media_type = 'youtube'
     if media_type:
@@ -2245,27 +2249,23 @@ def process(command):
 
         elif commandslist == ['.rand']:  # Play random audio
             rand_song_index = rand_song_index_generate()
-            if rand_song_index:
-                local_play_commands(commandslist=[None, str(rand_song_index)])
-
+            if rand_song_index is not None:
+                local_play_commands(commandslist=[None, str(rand_song_index + 1)])
         elif commandslist == ['=rand']:  # Print random audio number
             rand_song_index = rand_song_index_generate()
-            if rand_song_index:
-                IPrint(rand_song_index, visible=visible)
-
+            if rand_song_index is not None:
+                IPrint(rand_song_index + 1, visible=visible)
         elif commandslist == ['rand']:  # Print random audio name
             rand_song_index = rand_song_index_generate()
-            if rand_song_index:
+            if rand_song_index is not None:
                 IPrint(_sound_files_names_only[rand_song_index], visible=visible)
-
         elif commandslist == ['rand*']:  # Print random audio path
             rand_song_index = rand_song_index_generate()
-            if rand_song_index:
+            if rand_song_index is not None:
                 IPrint(_sound_files[rand_song_index], visible=visible)
-
         elif commandslist == ['/rand']:  # Print random audio number+name
             rand_song_index = rand_song_index_generate()
-            if rand_song_index:
+            if rand_song_index is not None:
                 IPrint(f"{rand_song_index+1}: {_sound_files_names_only[rand_song_index]}", visible=visible)
 
         elif commandslist == ['reset']:

@@ -31,7 +31,19 @@ jobs:
       - name: Check modernized modules
         run: python -m ruff check config_manager.py runtime_check.py terminal_colors.py beta/youtube_media.py tests
       - name: Run tests
-        run: python -m pytest -q
+        run: >-
+          python -m pytest -q
+          --cov
+          --cov-report=term-missing
+          --cov-report=xml
+          --cov-fail-under=55
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-python-312-coverage
+          path: coverage.xml
+          if-no-files-found: ignore
       - name: Import smoke test
         run: python -c "import main"
       - name: Audit locked dependencies

@@ -1,0 +1,175 @@
+import json
+from pathlib import Path
+
+import pytest
+from hypothesis import given, strategies as st
+from yt_dlp.utils import DownloadError
+
+import beta.YT_query as yt_query
+import beta.youtube_media as youtube_media
+import url_validate
+
+
+YOUTUBE_ID = st.text(alphabet=st.sampled_from(list("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")), min_size=11, max_size=11)
+
+
+@given(video_id=YOUTUBE_ID)
+@pytest.mark.parametrize(
+    "template",
+    [
+        "https://www.youtube.com/watch?v={}",
+        "https://youtu.be/{}",
+        "https://www.youtube.com/embed/{}",
+        "https://youtube.com/shorts/{}",
+        "https://music.youtube.com/live/{}",
+        "https://youtube.com/redirect?url=https%3A%2F%2Fyoutu.be%2F{}",
+    ],
+)
+def test_youtube_id_parser_handles_supported_shapes(video_id, template):
+    assert url_validate.id_if_url_is_of_yt_format(template.format(video_id)) == video_id
+
+
+@pytest.mark.parametrize(
+    "value",
+    [None, "", "not a url", "https://example.com/watch?v=abc12345678", "https://example.com/file.mp3"],
+)
+def test_youtube_id_parser_rejects_non_youtube_values(value):
+    assert url_validate.id_if_url_is_of_yt_format(value) is None
+
+
+def test_url_validation_uses_head_for_regular_urls(monkeypatch):
+    calls = {}
+
+    class Response:
+        status_code = 204
+
+    def fake_head(url, **kwargs):
+        calls.update(url=url, kwargs=kwargs)
+        return Response()
+
+    monkeypatch.setattr(url_validate.requests, "head", fake_head)
+    assert url_validate.url_is_valid("https://example.test/audio.mp3") is True
+    assert calls["kwargs"] == {"allow_redirects": True, "timeout": url_validate.HTTP_TIMEOUT}
+
+
+def test_url_validation_uses_youtube_adapter_without_head(monkeypatch):
+    monkeypatch.setattr(url_validate.requests, "head", lambda *_a, **_k: pytest.fail("HEAD should not run"))
+    monkeypatch.setattr(youtube_media, "is_resolvable", lambda url: url.endswith("abc12345678"))
+    assert url_validate.url_is_valid("https://youtu.be/abc12345678") is True
+
+
+def test_url_validation_returns_false_on_network_error(monkeypatch):
+    monkeypatch.setattr(url_validate.requests, "head", lambda *_a, **_k: (_ for _ in ()).throw(OSError("offline")))
+    assert url_validate.url_is_valid("https://example.test") is False
+
+
+def test_youtube_options_and_extract_contract(monkeypatch):
+    captured = {}
+
+    class FakeYDL:
+        def __init__(self, options):
+            captured["options"] = options
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def extract_info(self, query, download):
+            captured.update(query=query, download=download)
+            return {"id": "abc12345678"}
+
+    monkeypatch.setattr(youtube_media, "YoutubeDL", FakeYDL)
+    monkeypatch.setattr(youtube_media, "integration_options", lambda: {"socket_timeout": 9})
+
+    assert youtube_media._extract("query", playlistend=2) == {"id": "abc12345678"}
+    assert captured["options"]["playlistend"] == 2
+    assert captured["options"]["socket_timeout"] == 9
+    assert captured["download"] is False
+
+
+def test_youtube_extract_normalizes_failures(monkeypatch):
+    class FailingYDL:
+        def __init__(self, _options):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def extract_info(self, *_args, **_kwargs):
+            raise DownloadError("offline")
+
+    monkeypatch.setattr(youtube_media, "YoutubeDL", FailingYDL)
+    with pytest.raises(youtube_media.YouTubeError, match="offline"):
+        youtube_media._extract("query")
+
+
+def test_youtube_search_normalizes_and_filters_entries(monkeypatch, fixture_dir: Path):
+    response = json.loads((fixture_dir / "yt_search.json").read_text(encoding="utf-8"))
+    monkeypatch.setattr(youtube_media, "_extract", lambda *_a, **_k: response)
+
+    results = youtube_media.search("query", limit=3)
+    assert [item["title"] for item in results] == ["First Result", "[Untitled YouTube result]"]
+    assert results[0]["url"].endswith("abc12345678")
+    assert youtube_media.search(" ") == []
+    assert youtube_media.search("query", limit=0) == []
+
+
+def test_media_info_normalizes_detailed_fields(monkeypatch):
+    monkeypatch.setattr(
+        youtube_media,
+        "_extract",
+        lambda *_a, **_k: {"title": "Media", "duration": 12, "view_count": 5, "formats": ({"id": "1"},)},
+    )
+    monkeypatch.setattr(
+        youtube_media,
+        "stream_url",
+        lambda _url, *, audio_only: "audio" if audio_only else "video",
+    )
+
+    result = youtube_media.media_info("url", detailed=True)
+    assert result["streams"] == {"bestaudurl": "audio", "bestvidurl": "video"}
+    assert result["views"] == 5
+    assert result["formats"] == [{"id": "1"}]
+
+
+def test_stream_url_uses_requested_format_fallback(monkeypatch):
+    monkeypatch.setattr(
+        youtube_media,
+        "_extract",
+        lambda *_a, **_k: {"requested_formats": [{"url": None}, {"url": "https://media.test/audio"}]},
+    )
+    assert youtube_media.stream_url("url") == "https://media.test/audio"
+
+    monkeypatch.setattr(youtube_media, "_extract", lambda *_a, **_k: {})
+    with pytest.raises(youtube_media.YouTubeError, match="playable stream"):
+        youtube_media.stream_url("url")
+
+
+def test_youtube_resolvable_and_compatibility_facade(monkeypatch, capsys):
+    monkeypatch.setattr(youtube_media, "_extract", lambda *_a, **_k: {"id": "ok"})
+    assert youtube_media.is_resolvable("url") is True
+    monkeypatch.setattr(youtube_media, "_extract", lambda *_a, **_k: (_ for _ in ()).throw(youtube_media.YouTubeError("bad")))
+    assert youtube_media.is_resolvable("url") is False
+
+    monkeypatch.setattr(
+        yt_query,
+        "search_media",
+        lambda *_a, **_k: [{"title": "One", "url": "u1"}, {"title": "Two", "url": "u2"}],
+    )
+    assert yt_query.search_youtube("q", rescount=2, display_results=False) == [(1, "One", "u1"), (2, "Two", "u2")]
+    assert yt_query.search_youtube("q", extra_output=True) == ("One", "u1")
+    assert "One" in capsys.readouterr().out
+
+
+def test_youtube_compatibility_facade_translates_errors(monkeypatch):
+    monkeypatch.setattr(yt_query, "media_info", lambda *_a, **_k: (_ for _ in ()).throw(youtube_media.YouTubeError("bad")))
+    with pytest.raises(OSError, match="bad"):
+        yt_query.vid_info("url")
+    monkeypatch.setattr(yt_query, "search_media", lambda *_a, **_k: [])
+    with pytest.raises(OSError, match="No YouTube results"):
+        yt_query.search_youtube("query")

@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from colored import Back, Fore, Style
+from colored.exceptions import InvalidColor
 
 
 def _value(namespace, name: str) -> str:
-    return str(getattr(namespace, name.lower(), ""))
+    try:
+        return str(getattr(namespace, name.lower(), ""))
+    except (AttributeError, InvalidColor):
+        return ""
 
 
 def fg(name: str) -> str:

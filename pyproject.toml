@@ -1,6 +1,26 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = "-ra --strict-config --strict-markers"
+markers = [
+    "live: opt-in tests that contact real services or require multimedia hardware",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["."]
+omit = [
+    ".venv/*",
+    "tests/*",
+]
+
+[tool.coverage.report]
+exclude_also = [
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+precision = 1
+show_missing = true
+skip_covered = true
 
 [tool.ruff]
 target-version = "py312"
