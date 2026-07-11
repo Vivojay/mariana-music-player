@@ -14,6 +14,7 @@ class Response:
         self._payload = payload
         self.headers = headers or {}
         self.status_code = status
+        self.closed = False
 
     def json(self):
         return self._payload
@@ -21,6 +22,14 @@ class Response:
     def raise_for_status(self):
         if self.status_code >= 400:
             raise requests.HTTPError(str(self.status_code))
+
+    def iter_content(self, chunk_size=16_384):
+        data = self.text.encode()
+        for offset in range(0, len(data), chunk_size):
+            yield data[offset : offset + chunk_size]
+
+    def close(self):
+        self.closed = True
 
 
 class Session:

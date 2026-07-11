@@ -84,7 +84,9 @@ def run(duration_seconds: float, ffmpeg_bin: str, live_radio: bool) -> dict:
             check=True,
             timeout=30,
         )
-        handler = lambda *args, **kwargs: QuietHandler(*args, directory=str(directory), **kwargs)
+        def handler(*args, **kwargs):
+            return QuietHandler(*args, directory=str(directory), **kwargs)
+
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         server_thread = threading.Thread(target=server.serve_forever, daemon=True)
         server_thread.start()
