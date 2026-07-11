@@ -3,34 +3,9 @@
 #           Mariana Player v0.6.2 dev
 #     (Read help.md for help on commands)
 #
-#    Running the app:
-#      For very first boot (SETUP):
-#        Make sure you have python version < 3.10 to run this file (unless compatible llvmlite wheel bins exist...)
-#     
-#        QUICK-SETUP (NEW DROP-IN REPLACEMENT FOR MANUAL SETUP!)
-#           Run INITSETUP.py and follow along with it's instructions (Run with "--help" flag for more info)
-#          *NOTE: Don't run manual setup if you have already done a quick setup
-#          *BENEFITS: Enjoy auto created ".bat" and ".ps1" runner files to automate successive runs of Mariana Player
-#                                                                  |
-#  +-----<--(You can skip to here after the QUICK-SETUP)---------<-+
-#  |
-#  |     MANUAL SETUP (Go through a tedious setup procedure)
-#  |         Setup compatible architecture of VLC media player, install FFMPEG and add to path...
-#  |         Install git scm if not already installed
-#  v         Install given git package directly from url using: `pip install git+https://github.com/Vivojay/pafy@develop`
-#  |         run `pip install -r requirements.txt`
-#  |     
-#  v         *OPTIONAL: Download and pip install unofficial binary for llvmlite wheel compatible with your python version
-#  |         *NOTE: Specify py version < 3.10 in virtualenv (if installing optional llvmlite), as other py vers don't support llvmlite wheels :)
-#  |     
-#  +---> Firstly, look at help.md before running any py file
-#         Run this file (main.py) on the very first bootup, nothing else (no flags, just to test bare minimum run)...
-#         You are good to go...
-#        *Note: If you encounter errors, look for online help as the current help file doesn't have fixes for common problems yet
-#      
-#      All successive boots (RUNNING NORMALLY):
-#        just run this file (main.py) with desired flags (discussed in help.md)
-#        and enjoy... (and possibly debug...)
+#    Supported runtime: 64-bit Windows, CPython 3.12, VLC 3.x.
+#    Install the locked dependencies from requirements.txt and run `python main.py`.
+#    FFmpeg and FFprobe should be available on PATH for online media and metadata features.
 
 # This app may take a LOT of time to load at first...
 # Hence the loading prompt...
@@ -241,12 +216,12 @@ try:
             and not FIRST_BOOT
             and not ISDEV
         ):
-            SAY(visible=visible,
+            SAY(visible=False,
                 display_message = '',
                 log_message = 'User data found to be empty, reverting to default',
                 log_priority = 3)
 except IOError:
-    SAY(visible=visible,
+    SAY(visible=True,
         display_message = f'Encountered missing program file @{os.path.join(CURDIR, "user/user_data.yml")}',
         log_message = 'User data file not found',
         log_priority = 1) # Log fatal crash

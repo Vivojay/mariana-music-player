@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  windows-python-312:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      SDL_AUDIODRIVER: dummy
+      PYGAME_HIDE_SUPPORT_PROMPT: hide
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install locked development environment
+        run: python -m pip install -r requirements-dev.txt
+      - name: Verify dependency graph
+        run: python -m pip check
+      - name: Compile Python sources
+        run: python -m compileall -q .
+      - name: Check critical legacy errors
+        run: python -m ruff check --select E9,F63,F7,F82 .
+      - name: Check modernized modules
+        run: python -m ruff check config_manager.py runtime_check.py terminal_colors.py beta/youtube_media.py tests
+      - name: Run tests
+        run: python -m pytest -q
+      - name: Import smoke test
+        run: python -c "import main"
+      - name: Audit locked dependencies
+        run: python -m pip_audit -r requirements.txt
