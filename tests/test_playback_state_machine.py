@@ -59,12 +59,14 @@ class Session:
 
 
 class ImmediateThread:
-    def __init__(self, target, **_kwargs):
+    def __init__(self, target, args=(), name="", **_kwargs):
         self.target = target
+        self.args = args
+        self.name = name
 
     def start(self):
-        if getattr(self.target, "__name__", "") == "stop":
-            self.target()
+        if getattr(self.target, "__name__", "") == "stop" or self.name == "mariana-playback-complete":
+            self.target(*self.args)
 
 
 @pytest.fixture

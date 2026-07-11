@@ -484,7 +484,12 @@ class PlaybackController:
         if completed:
             threading.Thread(target=completed.stop, name="mariana-decoder-cleanup", daemon=True).start()
             if self.on_complete:
-                self.on_complete(completed.media)
+                threading.Thread(
+                    target=self.on_complete,
+                    args=(completed.media,),
+                    name="mariana-playback-complete",
+                    daemon=True,
+                ).start()
 
     def _watch_completion(self) -> None:
         while not self._watch_stop.wait(0.1):

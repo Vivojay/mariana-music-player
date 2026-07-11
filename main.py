@@ -479,28 +479,84 @@ def _media_from_argument(argument):
 def _play_queue_item(item):
     global currentsong, current_media_type, isplaying, currentsong_length
     media = item.media
-    if media.source == MediaSource.LOCAL:
-        play_local_default_player(media.original_uri, _songindex=None)
-    else:
-        vas.controller.play(media)
-        currentsong = media.title or media.original_uri
-        currentsong_length = media.duration or -1
-        current_media_type = {
-            MediaSource.YOUTUBE: 0,
-            MediaSource.URL: 1,
-            MediaSource.PODCAST: 1,
-            MediaSource.RADIO: 2,
-            MediaSource.RECOMMENDATION: 0,
-        }.get(media.source, 1)
-        isplaying = True
+    try:
+        if media.source == MediaSource.LOCAL:
+            play_local_default_player(media.original_uri, _songindex=None)
+        else:
+            vas.controller.play(media)
+            _set_current_media_state(media)
+    except Exception:
+        RECOMMENDER.record_event(media, 'failure')
+        action = QUEUE.mark_failure(item.queue_id)
+        if action == 'retry':
+            return _play_queue_item(item)
+        if action == 'skip':
+            next_item = QUEUE.next()
+            if next_item:
+                return _play_queue_item(next_item)
+        raise
     RECOMMENDER.record_event(media, 'start')
+    _prefetch_after(item)
+
+
+def _set_current_media_state(media):
+    global currentsong, current_media_type, isplaying, currentsong_length
+    currentsong = media.title or media.original_uri
+    currentsong_length = media.duration or -1
+    current_media_type = {
+        MediaSource.YOUTUBE: 0,
+        MediaSource.URL: 1,
+        MediaSource.PODCAST: 1,
+        MediaSource.RADIO: 2,
+        MediaSource.RECOMMENDATION: 0,
+    }.get(media.source, None)
+    isplaying = True
+
+
+def _prefetch_after(item):
     items = QUEUE.items()
     try:
         position = next(index for index, queued in enumerate(items) if queued.queue_id == item.queue_id)
-        if position + 1 < len(items) and items[position + 1].media.capabilities.finite:
-            vas.controller.prefetch(items[position + 1].media)
+        repeat_mode = QUEUE.state().get('repeat_mode')
+        candidate = None
+        if repeat_mode == 'one':
+            candidate = item
+        elif position + 1 < len(items):
+            candidate = items[position + 1]
+        elif repeat_mode == 'all' and items:
+            candidate = items[0]
+        if candidate and candidate.media.capabilities.finite:
+            vas.controller.prefetch(candidate.media)
     except Exception:
         pass
+
+
+def _on_queue_item_complete(media):
+    RECOMMENDER.record_event(media, 'completion')
+    current = QUEUE.current()
+    if current is None or current.media.stable_id != media.stable_id:
+        return
+    next_item = QUEUE.next()
+    if next_item is None and QUEUE.state().get('autofill'):
+        recommendations = RECOMMENDER.recommend(
+            limit=1,
+            exclude_ids={item.media.stable_id for item in QUEUE.items()},
+        )
+        if recommendations:
+            next_item = QUEUE.add(recommendations[0].media)
+            QUEUE.jump(len(QUEUE.items()) - 1)
+    if next_item is None:
+        return
+    snapshot = vas.controller.snapshot()
+    if snapshot.media and snapshot.media.stable_id == next_item.media.stable_id:
+        _set_current_media_state(next_item.media)
+        RECOMMENDER.record_event(next_item.media, 'start')
+        _prefetch_after(next_item)
+    else:
+        _play_queue_item(next_item)
+
+
+vas.controller.on_complete = _on_queue_item_complete
 
 
 def queue_command(arguments):
@@ -532,6 +588,13 @@ def queue_command(arguments):
     elif operation == 'jump':
         _play_queue_item(QUEUE.jump(int(arguments[1]) - 1))
     elif operation in {'next', 'previous'}:
+        snapshot = vas.controller.snapshot()
+        if operation == 'next' and snapshot.media:
+            RECOMMENDER.record_event(
+                snapshot.media,
+                'early_skip',
+                context={'position': snapshot.position, 'duration': snapshot.duration},
+            )
         item = QUEUE.next() if operation == 'next' else QUEUE.previous()
         if item:
             _play_queue_item(item)
@@ -865,6 +928,14 @@ def playpausetoggle(softtoggle=True, use_multi=False, transition_time=0.2, show_
 def stopsong():
     global isplaying, currentsong
     try:
+        snapshot = vas.controller.snapshot()
+        if snapshot.media:
+            RECOMMENDER.record_event(
+                snapshot.media,
+                'played_duration',
+                reward=0,
+                context={'position': snapshot.position, 'duration': snapshot.duration},
+            )
         vas.media_player(action='stop')
 
         currentsong = None
@@ -1098,6 +1169,9 @@ def song_seek(timeval=None, rel_val=None):
     if timeval is not None:
         try:
             vas.player.set_time(int(timeval)*1000)
+            media = vas.controller.snapshot().media
+            if media:
+                RECOMMENDER.record_event(media, 'seek', context={'target': int(timeval)})
             return True
         except Exception:
             return None

@@ -187,3 +187,27 @@ def test_exit_confirmation_paths(cli, monkeypatch):
     monkeypatch.setattr("builtins.input", lambda *_args: "y")
     assert main.process("exit") is False
     assert main.process("quit y") is False
+
+
+def test_completion_callback_advances_persistent_queue_without_restarting_prefetched_media(monkeypatch):
+    first = SimpleNamespace(queue_id=1, media=MediaRef(MediaSource.LOCAL, "C:/first.mp3"))
+    second = SimpleNamespace(queue_id=2, media=MediaRef(MediaSource.LOCAL, "C:/second.mp3", title="Second"))
+    queue = SimpleNamespace(
+        current=lambda: first,
+        next=lambda: second,
+        state=lambda: {"autofill": 0, "repeat_mode": "off"},
+        items=lambda: [first, second],
+    )
+    events = []
+    monkeypatch.setattr(main, "QUEUE", queue)
+    monkeypatch.setattr(main.RECOMMENDER, "record_event", lambda media, event, **_kwargs: events.append((media, event)))
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=second.media),
+    )
+    monkeypatch.setattr(main, "_prefetch_after", lambda item: events.append((item.media, "prefetch")))
+    monkeypatch.setattr(main, "_play_queue_item", lambda _item: pytest.fail("prefetched media must not restart"))
+    main._on_queue_item_complete(first.media)
+    assert [event for _media, event in events] == ["completion", "start", "prefetch"]
+    assert main.currentsong == "Second"
