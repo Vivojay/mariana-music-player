@@ -39,6 +39,7 @@ class Session:
         self.fingerprint_pcm = b"fingerprint"
         self.eof = False
         self.started = self.stopped = self.reset = False
+        self.on_metadata = None
         self.created.append(self)
 
     def start(self):
@@ -290,3 +291,32 @@ def test_decoder_start_http_command_errors_and_forced_kill(monkeypatch):
     monkeypatch.setattr(playback.subprocess, "Popen", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("bad")))
     with pytest.raises(playback.PlaybackError, match="could not start"):
         playback.DecoderSession(media).start()
+
+
+def test_decoder_parses_unique_icy_title_updates(monkeypatch):
+    class Lines:
+        def __init__(self):
+            self.values = iter([b"StreamTitle: Artist - Song\n", b"icy-title='Artist - Song'\n", b""])
+
+        def readline(self):
+            return next(self.values)
+
+    session = object.__new__(playback.DecoderSession)
+    session.process = SimpleNamespace(stderr=Lines())
+    session._stderr = []
+    session._last_stream_title = None
+    titles = []
+    session.on_metadata = titles.append
+    session._stderr_loop()
+    assert titles == ["Artist - Song"]
+
+
+def test_stale_prefetch_metadata_cannot_reset_active_fingerprint(controller):
+    active = Session(live())
+    stale = Session(live())
+    controller._active = active
+    controller._handle_stream_metadata(stale, "Wrong")
+    assert not active.reset
+    controller._handle_stream_metadata(active, "Artist - Current")
+    assert active.reset
+    assert active.media.title == "Artist - Current"

@@ -7,6 +7,7 @@ from collections import deque
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import threading
@@ -178,6 +179,8 @@ class DecoderSession:
         self._stderr: deque[str] = deque(maxlen=30)
         self.eof = False
         self.frames_emitted = 0
+        self.on_metadata: Callable[[str], None] | None = None
+        self._last_stream_title: str | None = None
 
     @property
     def position(self) -> float:
@@ -205,7 +208,8 @@ class DecoderSession:
         if self.process is not None:
             return
         source = str(self.media.resolver_data.get("resolved_uri") or resolve_input(self.media))
-        command = [self.ffmpeg, "-hide_banner", "-loglevel", "warning", "-nostdin"]
+        log_level = "info" if self.media.capabilities.live else "warning"
+        command = [self.ffmpeg, "-hide_banner", "-loglevel", log_level, "-nostdin"]
         if self.start_at and self.media.capabilities.seekable:
             command += ["-ss", f"{self.start_at:.3f}"]
         if source.startswith(("http://", "https://")):
@@ -276,7 +280,15 @@ class DecoderSession:
     def _stderr_loop(self) -> None:
         assert self.process and self.process.stderr
         for raw in iter(self.process.stderr.readline, b""):
-            self._stderr.append(raw.decode("utf-8", errors="replace").strip())
+            line = raw.decode("utf-8", errors="replace").strip()
+            self._stderr.append(line)
+            match = re.search(r"(?:StreamTitle|icy-title)\s*[:=]\s*['\"]?(.+?)['\"]?$", line, re.IGNORECASE)
+            if match:
+                title = match.group(1).strip()
+                if title and title != self._last_stream_title:
+                    self._last_stream_title = title
+                    if self.on_metadata:
+                        self.on_metadata(title)
 
     def wait_for_buffer(self, minimum_seconds: float = 0.15, timeout: float = 10) -> bool:
         deadline = time.monotonic() + timeout
@@ -393,6 +405,7 @@ class PlaybackController:
         with self._lock:
             self._state = PlaybackState.BUFFERING
             session = DecoderSession(media, ffmpeg_bin=self.ffmpeg_bin, start_at=start_at)
+            session.on_metadata = lambda title, source=session: self._handle_stream_metadata(source, title)
             self._active = session
             session.start()
         if not session.wait_for_buffer():
@@ -412,6 +425,7 @@ class PlaybackController:
     def prefetch(self, media: MediaRef, *, probe: bool = True) -> MediaRef:
         media = probe_media(media, ffprobe_bin=self.ffprobe_bin) if probe else media
         session = DecoderSession(media, ffmpeg_bin=self.ffmpeg_bin)
+        session.on_metadata = lambda title, source=session: self._handle_stream_metadata(source, title)
         session.start()
         if not session.wait_for_buffer(timeout=10):
             error = session.error or "FFmpeg could not prefetch this media"
@@ -534,6 +548,7 @@ class PlaybackController:
             media = active.media
             active.stop()
             replacement = DecoderSession(media, ffmpeg_bin=self.ffmpeg_bin, start_at=target)
+            replacement.on_metadata = lambda title, source=replacement: self._handle_stream_metadata(source, title)
             self._active = replacement
             replacement.start()
         if not replacement.wait_for_buffer():
@@ -576,6 +591,12 @@ class PlaybackController:
             self._active.reset_fingerprint()
             self._identity_generation += 1
             return self._identity_generation
+
+    def _handle_stream_metadata(self, session: DecoderSession, title: str) -> None:
+        with self._lock:
+            if self._active is not session:
+                return
+        self.notify_metadata_boundary(title)
 
     def stop(self) -> None:
         with self._lock:
