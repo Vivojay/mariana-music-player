@@ -10,7 +10,8 @@ format_style:
 """
 
 import os
-import colored
+import terminal_colors as colored
+from pathlib import Path
 
 from datetime import datetime as dt
 
@@ -43,12 +44,14 @@ def SAY(
               colored.attr('reset'))
 
     llt = logleveltypes[log_priority]
+    Path(out_file).parent.mkdir(parents=True, exist_ok=True)
     writemodes = ['w', 'a']
     writemode = writemodes[os.path.exists(out_file)]
 
     if log_priority == 1: # Fatal crash logs must be saved in logs/appcrashes.log also...
-        with open("logs/appcrashes.log", ['w', 'a'][os.path.isfile("logs/appcrashes.log")], encoding="utf-8") as crash_log_file:
-            crash_log_file.write()
+        crash_path = Path(out_file).with_name('appcrashes.log')
+        with crash_path.open(['w', 'a'][crash_path.is_file()], encoding="utf-8") as crash_log_file:
+            crash_log_file.write(f"({NOW()}) => {log_message}\n")
 
     if log_priority:
         with open(out_file, writemode, encoding="utf-8") as logfile:

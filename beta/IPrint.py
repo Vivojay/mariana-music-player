@@ -23,7 +23,7 @@ cols = [
 ]
 
 from multiprocessing import Process
-from colored import fg as _fg, bg as _bg, attr, back
+from terminal_colors import fg as _fg, bg as _bg, attr, back
 
 def IPrint(text="", visible=True):
     if visible:

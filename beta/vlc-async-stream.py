@@ -112,7 +112,7 @@ def vlc_import():
             print()
 
     if VLC_ARCH and VLC_ARCH != PY_ARCH:
-        sys.exit("ERROR: Detected incompatible architecture of VLC Media Player. Please uninstall your current installation of VLC Media Player app and download the {0} bit version instead.\Visit https://www.videolan.org/ to download: ".format(PY_ARCH))
+            sys.exit("ERROR: Detected incompatible architecture of VLC Media Player. Please uninstall your current installation of VLC Media Player app and download the {0} bit version instead. Visit https://www.videolan.org/ to download: ".format(PY_ARCH))
 
 
 def media_player(action=None, playing_time=None):

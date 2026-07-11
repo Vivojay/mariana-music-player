@@ -1,6 +1,7 @@
 import sys
 import json
 import tkinter as tk
+from pathlib import Path
 
 from tkinter import ttk
 
@@ -13,7 +14,8 @@ def spawn_lyrics_window(text_to_be_displayed, head_text, foot_text):
     root.config(bg="#1a1a1a")
 
     # Icon for lyrics window
-    p1 = tk.PhotoImage(file = '../res/lyrics_icon.png')
+    icon_path = Path(__file__).resolve().parents[1] / 'res' / 'lyrics_icon.png'
+    p1 = tk.PhotoImage(file=str(icon_path))
     root.iconphoto(False, p1)
 
     # Apply the grid layout

@@ -1,10 +1,9 @@
-import os
 import tkinter as tk
+from pathlib import Path
 
 from PIL import Image, ImageTk
 
-CURDIR = os.path.dirname(os.path.realpath(__file__))
-os.chdir(CURDIR)
+APP_DIR = Path(__file__).resolve().parent
 
 def notify(txt = "", Time=10000):
 
@@ -13,7 +12,7 @@ def notify(txt = "", Time=10000):
     root = tk.Tk()
     root.after(Time, root.destroy)
 
-    img = Image.open("res/welcome_banner.png")
+    img = Image.open(APP_DIR / "res" / "welcome_banner.png")
 
     img = img.resize(dimensions)
     tkimage = ImageTk.PhotoImage(img)

@@ -1,36 +1,23 @@
 
 import os
 import re
-import toml
 import json
 import subprocess
+import sys
+from pathlib import Path
 
-curdir = os.path.dirname(__file__)
-os.chdir(curdir)
+APP_DIR = Path(__file__).resolve().parents[1]
+TEMP_DIR = APP_DIR / 'temp'
+RES_DIR = APP_DIR / 'res'
+WALLPAPER_DIR = RES_DIR / 'lyrics-wallpapers'
 
 import lyrics_provider.detect_song
-
-from ruamel.yaml import YAML
-
-os.chdir(curdir)
-os.chdir('..')
+from config_manager import load_system_settings, load_user_settings
 from logger import SAY
-
-yaml = YAML(typ='safe')
-
 def get_settings():
-    try:
-        with open("settings/system.toml", encoding="utf-8") as file:
-            SYSTEM_SETTINGS = toml.load(file)
-    except IOError:
-        SYSTEM_SETTINGS = None
+    SYSTEM_SETTINGS = load_system_settings()
+    SETTINGS = load_user_settings()
 
-    try:
-        with open("settings/settings.yml", encoding="utf-8") as file:
-            SETTINGS = yaml.load(file)
-    except IOError:
-        SETTINGS = None
-    
     SUPPORTED_FILE_TYPES = SYSTEM_SETTINGS["system_settings"]["supported_file_types"]
     LYRICS_SETTINGS = SETTINGS['lyrics']
 
@@ -38,7 +25,6 @@ def get_settings():
 
 SUPPORTED_FILE_TYPES, LYRICS_SETTINGS = get_settings()
 FOOT_TEXT = "Lyrics Powered by ShazamIO"
-os.chdir(curdir)
 
 def atoi(text):
     return int(text) if text.isdigit() else text
@@ -89,7 +75,7 @@ def get_lyrics(max_wait_lim,
 
 def create_lyrics_html():
     try:
-        with open('temp/lyrics.txt', 'r', encoding='utf-8') as fp:
+        with (TEMP_DIR / 'lyrics.txt').open('r', encoding='utf-8') as fp:
             cached_lyrics = fp.read()
 
         cached_lyrics_lines = cached_lyrics.split('-'*80)
@@ -117,7 +103,7 @@ def create_lyrics_html():
         lyrics_lines = prefix + ['\n', head_text, '\n<hr>\n\n<div>'] + lyrics_lines + ['</html>']
         lyrics = '\n'.join(lyrics_lines)
 
-        with open('temp/lyrics.html', 'w', encoding='utf-8') as fp:
+        with (TEMP_DIR / 'lyrics.html').open('w', encoding='utf-8') as fp:
             fp.write(lyrics)
 
         return 0
@@ -134,10 +120,8 @@ def show_window(max_wait_lim,
                 weblink=None,
                 isYT=False):
 
-    os.chdir(curdir)
-    os.chdir('..')
-
-    PROVIDED_WALLPAPER_NAMES = os.listdir('res/lyrics-wallpapers')
+    TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    PROVIDED_WALLPAPER_NAMES = os.listdir(WALLPAPER_DIR)
     PROVIDED_WALLPAPER_NAMES.sort(key=natural_keys)
 
     if refresh_lyrics:
@@ -149,7 +133,7 @@ def show_window(max_wait_lim,
 
         # Create CSS file from default.css and the provided lyrics wallpaper image name (from settings file)
 
-        with open("res/default.css", 'r', encoding='utf-8') as default_css_file:
+        with (RES_DIR / 'default.css').open('r', encoding='utf-8') as default_css_file:
             default_css = default_css_file.read()
 
         body_css = 'body {\n'
@@ -167,15 +151,15 @@ def show_window(max_wait_lim,
             lyrics_bg_image_dir = LYRICS_SETTINGS['webview wallpaper']['wallpaper folder']
 
             # Wallpaper directory is explicitly provided
-            if lyrics_bg_image_dir and os.path.isdir(lyrics_bg_image_dir):
+            if lyrics_bg_image_dir and Path(lyrics_bg_image_dir).is_dir():
                 lyrics_bg_image_file = LYRICS_SETTINGS['webview wallpaper']['wallpaper name or number']
                 if not lyrics_bg_image_file.endswith('.jpg'):
                     lyrics_bg_image_file += '.jpg'
 
                 if lyrics_bg_image_file:
-                    lyrics_bg_image_file = os.path.join(lyrics_bg_image_dir, lyrics_bg_image_file)
-                    if os.path.isfile(lyrics_bg_image_file):
-                        lyrics_bg_image_abs_path = os.path.join(lyrics_bg_image_dir, lyrics_bg_image_file)
+                    lyrics_bg_image_file = Path(lyrics_bg_image_dir) / lyrics_bg_image_file
+                    if lyrics_bg_image_file.is_file():
+                        lyrics_bg_image_abs_path = str(lyrics_bg_image_file.resolve())
                     else:
                         SAY(visible=visible,
                             display_message = 'You entered invalid wallpaper file name. Reverting to default',
@@ -202,11 +186,8 @@ def show_window(max_wait_lim,
                     if not lyrics_bg_image_file.endswith('.jpg'):
                         lyrics_bg_image_file += '.jpg'
 
-                    os.chdir(curdir)
-                    os.chdir('../res')
-                    if os.path.isfile(os.path.join(lyrics_bg_image_dir, lyrics_bg_image_file)):
+                    if (RES_DIR / lyrics_bg_image_dir / lyrics_bg_image_file).is_file():
                         lyrics_bg_image_abs_path = os.path.join(lyrics_bg_image_dir, lyrics_bg_image_file)
-                    os.chdir('..')
 
 
             body_css += \
@@ -222,12 +203,12 @@ def show_window(max_wait_lim,
 
         default_css += body_css
 
-        with open("res/style.css", 'w', encoding='utf-8') as css_file:
+        with (RES_DIR / 'style.css').open('w', encoding='utf-8') as css_file:
             css_file.write(default_css)
 
         # try:
         # os.path.isdir('../temp/')
-        with open('temp/lyrics.txt', 'w', encoding='utf-8') as fp:
+        with (TEMP_DIR / 'lyrics.txt').open('w', encoding='utf-8') as fp:
             fp.write('-'*80+'\n')
             fp.write(head_text+'\n')
             fp.write('-'*80+'\n\n')
@@ -239,7 +220,7 @@ def show_window(max_wait_lim,
 
     else:
         try:
-            with open('temp/lyrics.txt', 'r', encoding='utf-8') as fp:
+            with (TEMP_DIR / 'lyrics.txt').open('r', encoding='utf-8') as fp:
                 cached_lyrics = fp.read()
             cached_lyrics_lines = cached_lyrics.split('-'*80)
             head_text = cached_lyrics_lines[1].strip()
@@ -265,6 +246,9 @@ def show_window(max_wait_lim,
 
     lyrics_spawn_params_str = json.dumps(lyrics_spawn_params_dict)
 
-    os.chdir(curdir)
-    subprocess.Popen(['py', 'lyrics_window_spawn.py', lyrics_spawn_params_str])
+    subprocess.Popen(
+        [sys.executable, str(Path(__file__).with_name('lyrics_window_spawn.py')), lyrics_spawn_params_str],
+        shell=False,
+        cwd=APP_DIR,
+    )
 

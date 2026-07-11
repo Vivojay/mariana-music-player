@@ -4,15 +4,13 @@ from __future__ import unicode_literals
 import os
 import sys
 import json
+from pathlib import Path
 from yt_dlp import YoutubeDL
 
 
 # Relative imports
-curdir = os.path.dirname(os.path.realpath(__file__))
-os.chdir(curdir)
-os.chdir('..')
-
-sys.path.insert(0, os.getcwd())
+APP_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(APP_DIR))
 from logger import SAY
 
 

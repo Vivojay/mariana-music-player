@@ -39,4 +39,4 @@ brave_paths = [
     "C:\\Program Files (x86)\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
 ]
 max_recents_size=10_000_000 # 10 mil
-supported_python_versions = [[3, 10], [3, 9], [3, 8], [3, 7], ]
+supported_python_versions = [[3, 12], ]

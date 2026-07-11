@@ -3,6 +3,7 @@ import sys
 import asyncio
 import requests
 import subprocess as sp
+from pathlib import Path
 
 from ruamel.yaml import YAML
 from shazamio import Shazam
@@ -14,14 +15,15 @@ from beta.youtube_media import stream_url
 
 HTTP_TIMEOUT = (5, 30)
 
-CURDIR = os.path.dirname(os.path.realpath(__file__))
-os.chdir(CURDIR)
-os.chdir('..')
+APP_DIR = Path(__file__).resolve().parents[1]
+TEMP_DIR = APP_DIR / 'temp'
+RELATED_SONGS_PATH = APP_DIR / 'data' / 'related_songs.yml'
 
 yaml = YAML(typ='safe')
 
-if not os.path.isfile('data/related_songs.yml'):
-    with open('data/related_songs.yml', 'w') as f: pass
+RELATED_SONGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+if not RELATED_SONGS_PATH.is_file():
+    RELATED_SONGS_PATH.touch()
 
 def get_weblink_audio_info(max_wait_lim, weblink, isYT=False):
 
@@ -51,34 +53,33 @@ def get_weblink_audio_info(max_wait_lim, weblink, isYT=False):
     bytecontent = r.content
 
     try:
-        if not os.path.isdir("temp"): os.mkdir("temp")
-        with open("temp/song_detect.mka", 'wb') as soundfile:
+        TEMP_DIR.mkdir(parents=True, exist_ok=True)
+        src_path = TEMP_DIR / "song_detect.mka"
+        dest_path = TEMP_DIR / "song_detect.mp3"
+        with src_path.open('wb') as soundfile:
             soundfile.write(bytecontent)
-
-        src_path = "temp/song_detect.mka"
-        dest_path = "temp/song_detect.mp3"
 
         try:
             sp.run(["ffmpeg",
                     "-loglevel", "quiet",
                     "-hide_banner", "-y",
                     "-i",
-                    src_path,
-                    dest_path],
+                    str(src_path),
+                    str(dest_path)],
                     stderr = sp.DEVNULL,
                     stdout = sp.DEVNULL,
                     stdin = sp.PIPE)
         except FileNotFoundError:
             return {} # TODO - write to log: "ffmpeg not recognised globally"
 
-        if os.path.isfile("temp/song_detect.mka"):
-            try: os.remove("temp/song_detect.mka")
+        if src_path.is_file():
+            try: src_path.unlink()
             except OSError:
                 pass # TODO - write to log: couldn't clean temp dir
 
-        if os.path.isfile("temp/song_detect.mp3"):
-            out = get_song_info("temp/song_detect.mp3")
-            try: os.remove("temp/song_detect.mp3")
+        if dest_path.is_file():
+            out = get_song_info(str(dest_path))
+            try: dest_path.unlink()
             except OSError:
                 pass # TODO - write to log: couldn't clean temp dir
         else:
@@ -135,8 +136,9 @@ def get_song_info(songfile, display_shazam_id=False, get_related=False, get_titl
         if get_related:
             if song_info != {}:
                 sp.Popen(
-                    [sys.executable, 'lyrics_provider/get_related_music.py', str(song_info['shazam_id'])],
+                    [sys.executable, str(APP_DIR / 'lyrics_provider' / 'get_related_music.py'), str(song_info['shazam_id'])],
                     shell=False,
+                    cwd=APP_DIR,
                 )
             return song_info
         elif get_title_only:

@@ -1,15 +1,9 @@
-from ctypes import cast, POINTER
-from comtypes import CLSCTX_ALL
-from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, ISimpleAudioVolume
+from pycaw.pycaw import AudioUtilities
 
 systemIsMuted = 0
 
 def device_refresh():
-    devices = AudioUtilities.GetSpeakers()
-    interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-    volume = cast(interface, POINTER(IAudioEndpointVolume))
-
-    return volume
+    return AudioUtilities.GetSpeakers().EndpointVolume
 
 def get_master_volume():
     volume = device_refresh()

@@ -52,13 +52,13 @@ os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import re;                                          print("Loaded 3/31",  end='\r')
 import sys;                                         print("Loaded 4/31",  end='\r')
 import pygame;                                      print("Loaded 5/31",  end='\r')
-import numpy as np;                                 print("Loaded 6/31",  end='\r')
+print("Loaded 6/31",  end='\r')
 import random as rand;                              print("Loaded 7/31",  end='\r')
 import importlib;                                   print("Loaded 8/31",  end='\r')
-import colored;                                     print("Loaded 9/31", end='\r')
+import terminal_colors as colored;                  print("Loaded 9/31", end='\r')
 import subprocess as sp;                            print("Loaded 10/31", end='\r')
 import restore_default;                             print("Loaded 11/31", end='\r')
-import toml;                                        print("Loaded 12/31", end='\r')
+print("Loaded 12/31", end='\r')
 import json;                                        print("Loaded 13/31", end='\r')
 import webbrowser;                                  print("Loaded 14/31", end='\r')
 
@@ -74,6 +74,8 @@ from collections.abc import Iterable;               print("Loaded 20/31", end='\
 from logger import SAY;                             print("Loaded 21/31", end='\r')
 from multiprocessing import Process;                print("Loaded 22/31", end='\r')
 from first_boot_welcome_screen import notify;       print("Loaded 23/31", end='\r')
+from config_manager import load_system_settings, load_user_settings
+from runtime_check import check_runtime, format_runtime_report
 
 online_streaming_ext_load_error = 0
 comtypes_load_error = False # Made available after fix from comtypes issue #244, #180
@@ -117,7 +119,6 @@ except ImportError:
     print("[INFO] ...Skipped 26/31")
 
 try:
-    os.chdir(CURDIR)
     from lyrics_provider import get_lyrics
     print("Loaded 27/31", end='\r')
 except ImportError:
@@ -172,8 +173,6 @@ except Exception:
             print("[INFO] ...Could not load online streaming extension...")
         print("[INFO] ...Skipped 31/31")
 
-os.chdir(CURDIR)
-
 # IMPORTS END #
 
 
@@ -203,12 +202,8 @@ FIRST_BOOT = False # Assume user is using app for considerable time
                    # so you don't want to annoy him with an
                    # annoying FIRST-TIME-WELCOME
 
-try:
-    with open('settings/system.toml', encoding='utf-8') as file:
-        SYSTEM_SETTINGS = toml.load(file)
-        FIRST_BOOT = SYSTEM_SETTINGS['first_boot']
-except IOError:
-    SYSTEM_SETTINGS = None
+SYSTEM_SETTINGS = load_system_settings()
+FIRST_BOOT = SYSTEM_SETTINGS['first_boot']
 
 ISDEV = SYSTEM_SETTINGS['isdev'] # Useful as a test flag for new features
 
@@ -258,16 +253,7 @@ except IOError:
     sys.exit(1) # Fatal crash
 
 
-try:
-    with open('settings/settings.yml', encoding='utf-8') as u_data_file:
-        SETTINGS = yaml.load(u_data_file)
-
-except IOError:
-    SAY(visible=visible,
-        display_message = f'Encountered missing program file @{os.path.join(CURDIR, "settings/settings.yml")}',
-        log_message = 'Aborting player because settings file was not found',
-        log_priority = 1) # Log fatal crash
-    sys.exit(1) # Fatal crash
+SETTINGS = load_user_settings()
 
 
 # Variables
@@ -288,6 +274,12 @@ songindex = -1
 
 lyrics_window_note = "[Please close the lyrics window to continue issuing more commands...]"
 current_media_type = None
+
+RUNTIME_REPORT = check_runtime(SETTINGS.get('vlc path'))
+for runtime_message in format_runtime_report(RUNTIME_REPORT):
+    print(f"[{runtime_message}]")
+if RUNTIME_REPORT.errors:
+    FATAL_ERROR_INFO = "; ".join(RUNTIME_REPORT.errors)
 
 """
 NO SUCH THING AS current_media_player now
@@ -310,7 +302,7 @@ log data about each audio path
 # logleveltypes = {0: "none", 1: "fatal", 2: "warn", 3: "info", 4: "debug"}
 
 # From settings
-disable_OS_requirement = SYSTEM_SETTINGS['system_settings']['enforce_os_requirement']
+enforce_os_requirement = SYSTEM_SETTINGS['system_settings']['enforce_os_requirement']
 
 # Supported file extensions
 # (For *.wav get_pos() in pygame provides played duration and not actual play position)
@@ -424,12 +416,6 @@ if _sound_files_names_only == []:
     if loglevel in [3, 4]:
         IPrint("[INFO] All source directories are empty, you may and add more source directories to your library", visible=visible)
         IPrint("[INFO] To edit this library file (of source directories), refer to the `help.md` markdown file.", visible=visible)
-
-try: _ = sp.run('ffmpeg', stdout=sp.DEVNULL, stdin=sp.PIPE, stderr=sp.DEVNULL)
-except FileNotFoundError: FATAL_ERROR_INFO = "ffmpeg not recognised globally, download it and add to path (system environment)"
-
-try: _ = sp.run('ffprobe', stdout=sp.DEVNULL, stdin=sp.PIPE, stderr=sp.DEVNULL)
-except FileNotFoundError: FATAL_ERROR_INFO = "ffprobe not recognised globally, download it and add to path (system environment)"
 
 if reddit_creds_are_valid: r_seshs = redditsessions.get_redditsessions()
 else: r_seshs = None
@@ -1181,25 +1167,13 @@ def choose_media_url(media_url_choices: list, yt: bool = True):
                 if visible: IPrint('\n', visible=visible)
 
 def refresh_settings():
-    global SYSTEM_SETTINGS, visible, supported_file_types, disable_OS_requirement, max_yt_search_results_threshold
-    global max_wait_limit_to_get_song_length, FALLBACK_RESULT_COUNT, DEFAULT_EDITOR, MAX_RECENTS_SIZE
+    global SYSTEM_SETTINGS, SETTINGS, visible, supported_file_types, enforce_os_requirement
+    global max_yt_search_results_threshold, max_wait_limit_to_get_song_length
+    global FALLBACK_RESULT_COUNT, DEFAULT_EDITOR, MAX_RECENTS_SIZE, MAX_RESULT_COUNT, loglevel
 
-    try:
-        with open('settings/system.toml', encoding='utf-8') as file:
-            SYSTEM_SETTINGS = toml.load(file)
-    except IOError:
-        SYSTEM_SETTINGS = None
-
-    try:
-        with open('settings/settings.yml', encoding='utf-8') as u_data_file:
-            SETTINGS = yaml.load(u_data_file)
-
-    except IOError:
-        SAY(visible=visible,
-            display_message = f'Encountered missing program file @{os.path.join(CURDIR, "settings/settings.yml")}',
-            log_message = 'Aborting player because settings file was not found',
-            log_priority = 1) # Log fatal crash
-        sys.exit(1) # Fatal crash
+    SYSTEM_SETTINGS = load_system_settings()
+    SETTINGS = load_user_settings()
+    enforce_os_requirement = SYSTEM_SETTINGS['system_settings']['enforce_os_requirement']
 
     # Supported file extensions
     # (wav get_pos() in pygame provides played duration and not actual play position)
@@ -1348,8 +1322,6 @@ def lyrics_ops(show_window):
                                        visible=visible,
                                        songfile = currentsong)
                 lyrics_saved_for_song = currentsong
-
-    os.chdir(CURDIR)
 
 def display_and_choose_podbean(latest_podbeans, commandslist, result_count, is_rss=False):
 
@@ -1779,7 +1751,7 @@ def process(command):
                     IPrint(f"  > Loaded {len(_sound_files)} sounds", visible=visible)
 
                     IPrint("Spawned meta getter background process (4/4)", visible=visible)
-                    sp.Popen([sys.executable, 'meta_getter.py', str(supported_file_types)], shell=True)
+                    sp.Popen([sys.executable, 'meta_getter.py', str(supported_file_types)], shell=False)
 
                     IPrint("Done", visible=visible)
 
@@ -1932,8 +1904,6 @@ def process(command):
                     device_kind = commandslist[0]+'put'
 
                 if device_kind:
-                    if sounddevice._initialized: sounddevice._terminate()
-                    if not sounddevice._initialized: sounddevice._initialize()
                     if device_name := sounddevice.query_devices(kind = device_kind).get('name'):
                         IPrint(f"{colored.fg('navajo_white_1')}{device_kind} device: {colored.attr('reset')}{device_name}", visible=visible)
 
@@ -2217,7 +2187,7 @@ def process(command):
                         log_message='Download confirmed and initiated',
                         display_message='Your download has started',
                         log_priority = 3)
-                    sp.Popen([sys.executable, 'beta/mediadl.py', json.dumps(download_parmeters)], shell=True)
+                    sp.Popen([sys.executable, 'beta/mediadl.py', json.dumps(download_parmeters)], shell=False)
 
         elif commandslist[0].lower() == 'download-ya':
             # TODO - Add way for user to customize download settings...
@@ -2279,7 +2249,7 @@ def process(command):
                         log_message='Download confirmed and initiated',
                         display_message='Your download has started',
                         log_priority = 3)
-                    sp.Popen([sys.executable, 'beta/mediadl.py', json.dumps(download_parmeters)], shell=True)
+                    sp.Popen([sys.executable, 'beta/mediadl.py', json.dumps(download_parmeters)], shell=False)
 
         elif commandslist[0].lower() == 'download-ml':
             pass
@@ -2441,7 +2411,7 @@ def process(command):
                     restore_default.restore('editor path', SETTINGS)
                     DEFAULT_EDITOR = SETTINGS.get('editor path')
 
-                sp.Popen([fr"{DEFAULT_EDITOR}", 'lib.lib'], shell = True)
+                sp.Popen([fr"{DEFAULT_EDITOR}", 'lib.lib'], shell=False)
 
             elif len(commandslist) > 1 and commandslist[1] in ['lyr', 'lyrics']:
                 IPrint(fr'Opening lyrics file in editor', visible=visible)
@@ -2451,7 +2421,7 @@ def process(command):
                     DEFAULT_EDITOR = SETTINGS.get('editor path')
 
                 if os.path.isfile('temp/lyrics.txt'):
-                    sp.Popen([fr"{DEFAULT_EDITOR}", 'temp/lyrics.txt'], shell = True)
+                    sp.Popen([fr"{DEFAULT_EDITOR}", 'temp/lyrics.txt'], shell=False)
                 else:
                     SAY(visible=visible,
                         log_message = 'No lyrics available to view',
@@ -2619,7 +2589,7 @@ def process(command):
 
         elif commandslist in [['lib'], ['library']]:
             IPrint("Opening location of library file", visible=visible)
-            sp.Popen(f'explorer /select, lib.lib')
+            sp.Popen(['explorer', '/select,', 'lib.lib'], shell=False)
 
         elif commandslist[0] == 'view':
             if len(commandslist) == 2:
@@ -2898,10 +2868,7 @@ def showbanner():
     if visible: showversion()
 
 def run():
-    global disable_OS_requirement, visible, USER_DATA
-
-    if disable_OS_requirement and sys.platform != 'win32':
-        IPrint("WARNING: OS requirement is disabled, performance may be affected on your Non Windows OS", visible=visible)
+    global enforce_os_requirement, visible, USER_DATA
 
     USER_DATA['default_user_data']['stats']['log_ins'] += 1
     save_user_data()
@@ -2920,19 +2887,17 @@ def run():
 
 
 def startup():
-    global disable_OS_requirement, SOFT_FATAL_ERROR_INFO
+    global enforce_os_requirement, SOFT_FATAL_ERROR_INFO
 
     try: first_startup_greet(FIRST_BOOT)
     except Exception: raise
 
     # Spawn get_media process in the bg
     if _sound_files != [] and FIRST_BOOT:
-        sp.Popen([sys.executable, 'meta_getter.py', str(supported_file_types)], shell=True)
+        sp.Popen([sys.executable, 'meta_getter.py', str(supported_file_types)], shell=False)
 
-    if not disable_OS_requirement:
-        if sys.platform != 'win32':
-            sys.exit('ABORTING: This program may not work on'
-            'Non-Windows Operating Systems (hasn\'t been tested)')
+    if enforce_os_requirement and sys.platform != 'win32':
+        sys.exit('ABORTING: Mariana Player currently supports Windows only')
     if not SOFT_FATAL_ERROR_INFO: # End program silently if SOFT_FATAL_ERROR_INFO is set
         if FATAL_ERROR_INFO:
             IPrint(f"FATAL ERROR ENCOUNTERED: {FATAL_ERROR_INFO}", visible=visible)

@@ -1,8 +1,10 @@
 import os
 import toml
+from pathlib import Path
 
-curdir=os.path.dirname(__file__)
-os.chdir(curdir)
+APP_DIR = Path(__file__).resolve().parent
+curdir = str(APP_DIR)
+HTTP_TIMEOUT = (10, 60)
 
 def download_cloud_mariana_samples(about):
     import sys
@@ -29,8 +31,9 @@ def download_cloud_mariana_samples(about):
     # Mariana Cloud Music Collection (zip file) is located at: https://www.dropbox.com/s/s2cgmuwadkrsjl7/Mariana%20Cloud%20Music%20Collection.zip?dl=1
     mariana_samples_url = 'https://www.dropbox.com/s/s2cgmuwadkrsjl7/Mariana%20Cloud%20Music%20Collection.zip?dl=1'
 
-    resp = requests.get(mariana_samples_url, stream=True)
-    total = 178238582 # Got this from one of the many download methods I tried ...
+    resp = requests.get(mariana_samples_url, stream=True, timeout=HTTP_TIMEOUT)
+    resp.raise_for_status()
+    total = int(resp.headers.get('content-length') or 178238582)
 
     print('', end='', flush=True)
     with open(output_zip_path, 'wb') as file, tqdm(
@@ -46,8 +49,12 @@ def download_cloud_mariana_samples(about):
             size = file.write(data)
             bar.update(size)
 
+    if not zipfile.is_zipfile(output_zip_path):
+        raise zipfile.BadZipFile("The sample download was not a valid zip archive")
+    samples_dir = Path(dl_dir_setup_code) / 'mariana_music_samples'
+    samples_dir.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(output_zip_path, 'r') as zip_ref:
-        zip_ref.extractall(os.path.join('mariana_music_samples', dl_dir_setup_code))
+        zip_ref.extractall(samples_dir)
 
     try:
         os.remove(output_zip_path)

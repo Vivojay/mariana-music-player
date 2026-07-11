@@ -7,13 +7,14 @@ import os
 import sys
 import json
 import subprocess as sp
+from ast import literal_eval
+from pathlib import Path
 
 from url_validate import url_is_valid
 
 ARGS = sys.argv[1:]
 
-cur_dir = os.path.dirname(os.path.realpath(__file__))
-os.chdir(cur_dir)
+APP_DIR = Path(__file__).resolve().parent
 
 '''
 <       (less than)
@@ -36,18 +37,18 @@ def get_meta(supported_file_types):
     supported_file_types: a list of supported file types (usually taken from "main.py")
     """
 
-    os.chdir(cur_dir)
     valid_medias_list = []
 
-    with open('data/snd_files.json', 'r', encoding='utf-8') as fp:
+    with (APP_DIR / 'data' / 'snd_files.json').open('r', encoding='utf-8') as fp:
         media_list = json.load(fp)
 
-    if type(media_list) == str:
+    if isinstance(media_list, str):
         try:
-            if type(eval(media_list)) == list:
-                media_list = eval(media_list)
-        except Exception:
-            pass
+            media_list = literal_eval(media_list)
+        except (SyntaxError, ValueError):
+            media_list = []
+    if isinstance(supported_file_types, str):
+        supported_file_types = literal_eval(supported_file_types)
 
     for media in media_list:
         if os.path.isfile(media):
@@ -72,7 +73,7 @@ def get_meta(supported_file_types):
         meta_info['format'].update({'bpm': 120})
 
         media = ''.join(['~' if chr in illegal_path_chars else chr for chr in media])
-        with open(f'data/mediameta_{media}.json', 'w', encoding='utf-8') as fp:
+        with (APP_DIR / 'data' / f'mediameta_{media}.json').open('w', encoding='utf-8') as fp:
             json.dump(meta_info, fp, indent=2)
 
     return valid_medias_list
