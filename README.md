@@ -121,6 +121,13 @@ Normal tests mock public services and audio hardware. Real-process tests create
 WAV, MP3, FLAC, OGG, AAC, and WebM fixtures and exercise installed FFmpeg,
 FFprobe, and `fpcalc`. Opt-in network probes use `MARIANA_LIVE_TESTS=1`.
 
+Run the release-duration lifecycle soak with:
+
+```powershell
+python -m tools.soak_test --seconds 28800 --live-radio `
+  --ffmpeg-bin "C:\path\to\ffmpeg\bin"
+```
+
 ## Reliability boundary
 
 Mariana guarantees typed failures, transactional state, bounded buffers and
