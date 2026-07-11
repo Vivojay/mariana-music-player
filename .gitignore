@@ -12,6 +12,9 @@ venv/
 /logs/
 /data/snd_files.json
 /data/related_songs.yml
+/data/mariana.db*
+/data/models/
+/user/*.pre-mariana-0.7.bak
 /res/style.css
 
 # Test and coverage artifacts
@@ -20,3 +23,8 @@ venv/
 /htmlcov/
 /.hypothesis/
 /.pytest_cache/
+/pytest-cache-files-*/
+
+# Locally installed external media tools
+/.tools/
+/.chromaprint-download.zip

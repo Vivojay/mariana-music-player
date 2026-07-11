@@ -11,9 +11,18 @@ TEMP_DIR = APP_DIR / 'temp'
 RES_DIR = APP_DIR / 'res'
 WALLPAPER_DIR = RES_DIR / 'lyrics-wallpapers'
 
-import lyrics_provider.detect_song
 from config_manager import load_system_settings, load_user_settings
 from logger import SAY
+from mariana.models import IdentityStatus, MediaRef, MediaSource, TrackIdentity
+
+IDENTIFICATION_SERVICE = None
+PLAYBACK_CONTROLLER = None
+
+
+def configure(identification_service, playback_controller):
+    global IDENTIFICATION_SERVICE, PLAYBACK_CONTROLLER
+    IDENTIFICATION_SERVICE = identification_service
+    PLAYBACK_CONTROLLER = playback_controller
 def get_settings():
     SYSTEM_SETTINGS = load_system_settings()
     SETTINGS = load_user_settings()
@@ -24,7 +33,7 @@ def get_settings():
     return SUPPORTED_FILE_TYPES, LYRICS_SETTINGS
 
 SUPPORTED_FILE_TYPES, LYRICS_SETTINGS = get_settings()
-FOOT_TEXT = "Lyrics Powered by ShazamIO"
+FOOT_TEXT = "Lyrics provided by LRCLIB; identification by Chromaprint/AcoustID/MusicBrainz"
 
 def atoi(text):
     return int(text) if text.isdigit() else text
@@ -54,22 +63,41 @@ def get_lyrics(max_wait_lim,
     head_text = "Lyrics N/A"
     text_to_be_displayed = "(Lyrics not available)"
 
-    if weblink:
-        SONG_INF=lyrics_provider.detect_song.get_weblink_audio_info(max_wait_lim=max_wait_lim, weblink=weblink, isYT=isYT)
-    elif songfile:
+    del max_wait_lim, get_related
+    if IDENTIFICATION_SERVICE is None:
+        return (text_to_be_displayed, head_text)
+    if songfile:
         if not songfile.endswith(tuple(SUPPORTED_FILE_TYPES)):
             return (text_to_be_displayed, head_text)
-        SONG_INF=lyrics_provider.detect_song.get_song_info(songfile, get_related=get_related)
+        media = MediaRef(MediaSource.LOCAL, str(Path(songfile).resolve()))
+        pcm = None
+    elif weblink:
+        source = MediaSource.YOUTUBE if isYT else MediaSource.URL
+        media = MediaRef(source, weblink, resolver_data={"youtube": isYT})
+        pcm = None
+        if PLAYBACK_CONTROLLER is not None:
+            snapshot = PLAYBACK_CONTROLLER.snapshot()
+            if snapshot.media is not None:
+                media = snapshot.media
+                pcm = PLAYBACK_CONTROLLER.fingerprint_pcm()
     else:
-        SONG_INF = {}
+        return (text_to_be_displayed, head_text)
 
-    if SONG_INF is None: SONG_INF = {}
-
-    if SONG_INF != {}:
-        head_text = SONG_INF['display_name']
-        if lyr := SONG_INF.get('lyrics'):
-            lyr = '\n'.join(lyr)
-            text_to_be_displayed = lyr
+    identity = IDENTIFICATION_SERVICE.identify(media, pcm=pcm)
+    if identity.status != IdentityStatus.IDENTIFIED:
+        identity = TrackIdentity(
+            identity.status,
+            title=media.title,
+            artist=media.artist,
+            album=media.album,
+            duration=media.duration,
+            confidence=identity.confidence,
+            provenance=identity.provenance,
+        )
+    result = IDENTIFICATION_SERVICE.lyrics(media, identity)
+    if result.status == IdentityStatus.IDENTIFIED and (result.plain or result.synced):
+        head_text = " — ".join(value for value in (identity.artist, identity.title) if value) or media.title or "Lyrics"
+        text_to_be_displayed = result.plain or result.synced
 
     return (text_to_be_displayed, head_text)
 

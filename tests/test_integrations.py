@@ -5,8 +5,6 @@ import beta.podcasts as podcasts
 import beta.redditsessions as reddit
 import beta.youtube_media as youtube_media
 from beta.mediadl import media_DL
-from lyrics_provider.detect_song import normalize_song_info
-import lyrics_provider.detect_song as detect_song
 
 
 class FakeResponse:
@@ -58,35 +56,6 @@ def test_podcast_feed_is_normalized(monkeypatch, tmp_path: Path):
     assert result[0]["title"] == "Episode"
     assert result[0]["enclosure_url"] == "https://example.test/episode.mp3"
     assert result[0]["published_timestamp"] > 0
-
-
-def test_shazam_response_is_normalized():
-    response = {
-        "matches": [{"id": "match"}],
-        "track": {
-            "key": "123",
-            "title": "Track",
-            "share": {"subject": "Artist - Track"},
-            "hub": {"explicit": False},
-            "genres": {"primary": "Pop"},
-            "sections": [
-                {"type": "SONG", "metadata": [{"title": "Album", "text": "Album"}]},
-                {"type": "LYRICS", "text": ["line one", "line two"]},
-            ],
-        },
-    }
-    normalized = normalize_song_info(response)
-    assert normalized["display_name"] == "Artist - Track"
-    assert normalized["lyrics"] == ["line one", "line two"]
-
-
-def test_online_lyrics_sampling_fails_cleanly_on_ffmpeg_timeout(monkeypatch):
-    monkeypatch.setattr(
-        detect_song.sp,
-        "run",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(detect_song.sp.TimeoutExpired("ffmpeg", 1)),
-    )
-    assert detect_song.get_weblink_audio_info(5, "https://example.test/audio.mp3") == {}
 
 
 def test_downloader_dry_run_preserves_quality_settings(tmp_path: Path):

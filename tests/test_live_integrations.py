@@ -5,17 +5,15 @@ These probes are intentionally excluded from normal CI because public services c
 rate-limit, change responses, or be unavailable independently of Mariana Player.
 """
 
-import asyncio
 import os
 import shutil
-from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
 
 from beta.podcasts import refresh_podcast_data
 from beta.youtube_media import search, stream_url
-from lyrics_provider.detect_song import shazam_detect_song
+from mariana.identity import fingerprint_file
 
 
 pytestmark = [
@@ -27,6 +25,7 @@ pytestmark = [
 def test_live_multimedia_tools_are_discoverable():
     assert shutil.which("ffmpeg")
     assert shutil.which("ffprobe")
+    assert shutil.which("ffplay")
     assert any(shutil.which(runtime) for runtime in ("deno", "node", "qjs"))
 
 
@@ -44,7 +43,8 @@ def test_live_podcast_feed_refresh(tmp_path):
     assert output.is_file()
 
 
-def test_live_shazam_api_returns_a_supported_response():
+def test_live_chromaprint_returns_a_fingerprint():
     sample = Path(__file__).resolve().parents[1] / "res" / "first_boot_startup_sound.mp3"
-    response = asyncio.run(shazam_detect_song(str(sample)))
-    assert isinstance(response, Mapping)
+    duration, fingerprint = fingerprint_file(sample)
+    assert duration > 0
+    assert fingerprint
