@@ -1,0 +1,3 @@
+# Isolated offline benchmark harness. RecBole's Ray constraint requires Python 3.10/3.11.
+recbole==1.2.1
+implicit==0.7.2
