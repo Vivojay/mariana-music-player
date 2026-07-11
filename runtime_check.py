@@ -47,6 +47,27 @@ def find_vlc_directory(configured_path: str | None = None) -> Path | None:
     return None
 
 
+def inspect_vlc_installation(vlc_directory: Path) -> tuple[int | None, tuple[int, int, int, int] | None]:
+    """Return the VLC executable architecture and file version when available."""
+    try:
+        import win32api
+        import win32file
+
+        executable = str(vlc_directory / "vlc.exe")
+        binary_type = win32file.GetBinaryType(executable)
+        architecture = 32 if binary_type == win32file.SCS_32BIT_BINARY else 64
+        info = win32api.GetFileVersionInfo(executable, "\\")
+        version = (
+            info["FileVersionMS"] >> 16,
+            info["FileVersionMS"] & 0xFFFF,
+            info["FileVersionLS"] >> 16,
+            info["FileVersionLS"] & 0xFFFF,
+        )
+        return architecture, version
+    except (ImportError, OSError, TypeError, KeyError):
+        return None, None
+
+
 def check_runtime(configured_vlc_path: str | None = None) -> RuntimeReport:
     errors: list[str] = []
     warnings: list[str] = []
@@ -72,6 +93,18 @@ def check_runtime(configured_vlc_path: str | None = None) -> RuntimeReport:
         warnings.append(
             "VLC 3.x was not found. Install 64-bit VLC or set 'vlc path' in settings/settings.yml."
         )
+    else:
+        vlc_architecture, vlc_version = inspect_vlc_installation(vlc_directory)
+        if vlc_architecture != 64:
+            warnings.append(
+                "The detected VLC installation is not confirmed as 64-bit; install 64-bit VLC 3.x "
+                "to match 64-bit Python."
+            )
+        if vlc_version is None or vlc_version[0] != 3:
+            detected = "unknown" if vlc_version is None else ".".join(map(str, vlc_version))
+            warnings.append(
+                f"The detected VLC version is {detected}; Mariana Player requires VLC 3.x for online playback."
+            )
 
     return RuntimeReport(tuple(errors), tuple(warnings), vlc_directory)
 

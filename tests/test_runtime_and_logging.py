@@ -1,4 +1,7 @@
+import importlib
 from pathlib import Path
+
+import pytest
 
 from logger import SAY
 from runtime_check import check_runtime, format_runtime_report
@@ -26,6 +29,23 @@ def test_runtime_report_is_actionable(monkeypatch):
     messages = format_runtime_report(report)
     assert any("ffmpeg" in message for message in messages)
     assert any("VLC" in message for message in messages)
+
+
+def test_runtime_report_rejects_incompatible_vlc(monkeypatch):
+    monkeypatch.setattr("runtime_check.shutil.which", lambda _name: "available")
+    monkeypatch.setattr("runtime_check.find_vlc_directory", lambda _path=None: Path("C:/fake-vlc"))
+    monkeypatch.setattr("runtime_check.inspect_vlc_installation", lambda _path: (32, (4, 0, 0, 0)))
+    messages = format_runtime_report(check_runtime())
+    assert any("64-bit" in message for message in messages)
+    assert any("requires VLC 3.x" in message for message in messages)
+
+
+def test_vlc_capability_failure_is_nonfatal(monkeypatch):
+    vlc_stream = importlib.import_module("beta.vlc-async-stream")
+    monkeypatch.setattr(vlc_stream, "VLC_AVAILABLE", False)
+    monkeypatch.setattr(vlc_stream, "VLC_ERROR", "install VLC 3.x")
+    with pytest.raises(RuntimeError, match="install VLC 3.x"):
+        vlc_stream.require_vlc()
 
 
 def test_terminal_color_compatibility_api():

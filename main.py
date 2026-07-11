@@ -70,7 +70,12 @@ os.chdir(CURDIR)
 
 try:
     vas = importlib.import_module("beta.vlc-async-stream")
-    print("Loaded 24/31", end='\r')
+    if vas.VLC_AVAILABLE:
+        print("Loaded 24/31", end='\r')
+    else:
+        online_streaming_ext_load_error = 1
+        print(f"[WARN] Online/VLC playback is unavailable: {vas.VLC_ERROR}")
+        print("[WARN] ...Skipped 24/31")
 except ImportError:
     online_streaming_ext_load_error = 1
     print("[INFO] Could not load online streaming extension...")
