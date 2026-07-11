@@ -16,7 +16,7 @@ ARGS = sys.argv[1:]
 
 APP_DIR = Path(__file__).resolve().parent
 
-'''
+r'''
 <       (less than)
 >       (greater than)
 :       (colon - sometimes works, but is actually NTFS Alternate Data Streams)
