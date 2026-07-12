@@ -79,6 +79,27 @@ def test_failed_schema_migration_restores_verified_backup(monkeypatch, tmp_path:
         restored.close()
 
 
+def test_fresh_database_migration_failure_has_no_backup_to_restore(monkeypatch, tmp_path: Path):
+    path = tmp_path / "fresh.db"
+    monkeypatch.setattr(MarianaDatabase, "migrate", lambda _self: (_ for _ in ()).throw(RuntimeError("fail")))
+    with pytest.raises(RuntimeError, match="fail"):
+        MarianaDatabase(path)
+    assert path.is_file()
+    assert not path.with_suffix(".db.pre-schema-4.bak").exists()
+
+
+def test_legacy_library_roots_schema_adds_origin_column(tmp_path: Path):
+    path = tmp_path / "legacy-roots.db"
+    connection = sqlite3.connect(path)
+    connection.execute("CREATE TABLE library_roots(id TEXT PRIMARY KEY)")
+    connection.commit()
+    connection.close()
+
+    with MarianaDatabase(path) as database:
+        columns = {row["name"] for row in database.fetchall("PRAGMA table_info(library_roots)")}
+        assert "origin" in columns
+
+
 def test_legacy_play_counts_are_backed_up_and_imported_once(tmp_path: Path):
     user = tmp_path / "user.yml"
     user.write_text("default_user_data:\n  stats:\n    play_count:\n      local: 4\n      radio: 2\n      total: 6\n")

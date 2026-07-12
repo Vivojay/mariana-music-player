@@ -161,3 +161,80 @@ def test_setup_atomic_replace_failure_retains_previous_state(monkeypatch, tmp_pa
 
     assert store.path.read_bytes() == previous
     assert not list(tmp_path.glob(".setup-state.json.*.tmp"))
+
+
+@pytest.mark.parametrize(
+    "payload, message",
+    [
+        ({"schema_version": 2}, "invalid setup state"),
+        ({"status": "unknown"}, "invalid setup state"),
+        ({"completed_steps": "library"}, "completed setup steps"),
+        ({"completed_steps": ["library", 2]}, "completed setup steps"),
+    ],
+)
+def test_setup_state_schema_validation(payload, message):
+    with pytest.raises(SetupStateError, match=message):
+        SetupState.from_dict(payload)
+
+
+def test_setup_store_state_transitions_cover_idempotence_and_corrupt_failure(tmp_path: Path):
+    store = setup_store(tmp_path)
+    begun = store.begin("library")
+    first_attempt, started = begun.attempt_id, begun.started_at
+    resumed = store.begin("library")
+    assert resumed.attempt_id == first_attempt
+    assert resumed.started_at == started
+    once = store.complete_step("library")
+    twice = store.complete_step("library")
+    assert once.completed_steps == twice.completed_steps == ["library"]
+    completed = store.complete()
+    assert store.begin("ignored") == completed
+
+    store.path.write_text("[]", encoding="utf-8")
+    with pytest.raises(SetupStateError, match="contain an object"):
+        store.load()
+    failed = store.fail("library", RuntimeError("x" * 600))
+    assert failed.status == "failed"
+    assert len(failed.error["message"]) == 500
+
+
+def test_setup_repair_without_existing_state_and_process_matching(monkeypatch, tmp_path: Path):
+    store = setup_store(tmp_path)
+    store.path.unlink()
+    assert store.repair() is None
+    assert store.load().status == "pending"
+
+    process = SimpleNamespace(is_running=lambda: True, create_time=lambda: 20.0)
+    monkeypatch.setattr("mariana.setup.psutil.Process", lambda _pid: process)
+    assert SetupStateStore._process_matches({"pid": 1, "created_at": 20.0}) is True
+    assert SetupStateStore._process_matches({"pid": 1, "created_at": 25.0}) is False
+    process.is_running = lambda: False
+    assert SetupStateStore._process_matches({"pid": 1, "created_at": 20.0}) is False
+    assert SetupStateStore._process_matches({}) is False
+
+
+def test_setup_lock_recovers_corrupt_file_and_preserves_replaced_owner(tmp_path: Path):
+    store = setup_store(tmp_path)
+    store.lock_path.write_text("corrupt", encoding="utf-8")
+    with store.lock():
+        store.lock_path.write_text('{"nonce":"replacement"}', encoding="utf-8")
+    assert json.loads(store.lock_path.read_text(encoding="utf-8"))["nonce"] == "replacement"
+
+
+def test_setup_lock_retries_stale_lock_rename_race(monkeypatch, tmp_path: Path):
+    store = setup_store(tmp_path)
+    store.lock_path.write_text('{"pid":-1,"created_at":0}', encoding="utf-8")
+    original_replace = __import__("os").replace
+    raced = False
+
+    def replace(source, destination):
+        nonlocal raced
+        if Path(source) == store.lock_path and not raced:
+            raced = True
+            store.lock_path.unlink()
+            raise FileNotFoundError
+        return original_replace(source, destination)
+
+    monkeypatch.setattr("mariana.setup.os.replace", replace)
+    with store.lock():
+        assert raced

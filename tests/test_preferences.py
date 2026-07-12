@@ -77,3 +77,58 @@ def test_invalid_legacy_preferences_are_non_destructive(tmp_path: Path):
         assert result["complete"] is False
         assert result["error"] == "invalid legacy YAML"
         assert not legacy.with_suffix(".yml.pre-mariana-0.7.bak").exists()
+
+
+def test_preference_listing_limit_and_uri_label_fallbacks(tmp_path: Path):
+    with MarianaDatabase(tmp_path / "state.db") as database:
+        preferences = MediaPreferences(database)
+        first = MediaRef(MediaSource.URL, "https://example.test/first.mp3", stable_id="first")
+        second = MediaRef(MediaSource.URL, "https://example.test/second.mp3", stable_id="second")
+        PersistentQueue(database).add(first)
+        PersistentQueue(database).add(second)
+        preferences.set(first, PreferenceState.FAVORITE)
+        preferences.set(second, PreferenceState.FAVORITE)
+        listed = preferences.list(PreferenceState.FAVORITE, limit=1)
+        assert len(listed) == 1
+        assert listed[0].label in {"first", "second"}
+        assert preferences.list(PreferenceState.FAVORITE, limit=-1) == []
+
+
+def test_legacy_preferences_ignore_malformed_rows_and_reuse_backup(tmp_path: Path):
+    legacy = tmp_path / "track-infos.yml"
+    neutral = tmp_path / "neutral.mp3"
+    legacy.write_text(
+        "- not-a-mapping\n",
+        encoding="utf-8",
+    )
+
+    class Catalog:
+        def info(self, _value):
+            return None
+
+    with MarianaDatabase(tmp_path / "one.db") as database:
+        result = MediaPreferences(database).migrate_legacy(legacy, Catalog())
+        assert result == {"imported": 0, "unresolved": 0, "complete": True}
+
+    legacy.write_text(
+        f"'{neutral}':\n  isFav: false\nignored: value\nmissing-key:\n  other: true\n",
+        encoding="utf-8",
+    )
+    backup = legacy.with_suffix(".yml.pre-mariana-0.7.bak")
+    backup.write_text("retained backup", encoding="utf-8")
+
+    class ResolvedCatalog:
+        def info(self, value):
+            return {"library_id": "neutral-id"} if value == str(neutral) else None
+
+    with MarianaDatabase(tmp_path / "two.db") as database:
+        preferences = MediaPreferences(database)
+        result = preferences.migrate_legacy(legacy, ResolvedCatalog())
+        assert result == {"imported": 0, "unresolved": 0, "complete": True}
+        assert preferences.get("neutral-id") == PreferenceState.NEUTRAL
+        assert backup.read_text(encoding="utf-8") == "retained backup"
+        assert preferences.migrate_legacy(tmp_path / "missing.yml", ResolvedCatalog()) == {
+            "imported": 0,
+            "unresolved": 0,
+            "complete": False,
+        }

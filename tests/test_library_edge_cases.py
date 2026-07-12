@@ -65,6 +65,9 @@ def test_helpers_cover_missing_large_and_platform_variants(monkeypatch, tmp_path
         lambda _anchor: (_ for _ in ()).throw(OSError("unavailable")),
     )
     assert root_kind(tmp_path) == "local"
+    monkeypatch.setattr(library_module.sys, "platform", "linux")
+    monkeypatch.setattr(psutil, "disk_partitions", lambda all=True: [])
+    assert root_kind(TestPosixPath("/mnt/music")) == "local"
     available, error = directory_status(SimpleNamespace(is_dir=lambda: (_ for _ in ()).throw(PermissionError("denied"))))
     assert not available
     assert "denied" in error
@@ -92,6 +95,17 @@ def test_sync_empty_roots_and_walk_entry_errors(monkeypatch, tmp_path):
         monkeypatch.setattr(os, "scandir", lambda _path: (_ for _ in ()).throw(OSError("denied")))
         with pytest.raises(LibraryError):
             list(library._walk(tmp_path))
+    finally:
+        database.close()
+
+
+def test_scan_skips_root_removed_from_library_file(monkeypatch, tmp_path):
+    database, catalog = make_catalog(tmp_path)
+    try:
+        monkeypatch.setattr(catalog, "sync_roots", lambda: [{"error": "removed from lib.lib"}])
+        result = catalog.scan("changed")
+        assert result.discovered == 0
+        assert result.changed == 0
     finally:
         database.close()
 

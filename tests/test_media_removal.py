@@ -131,3 +131,56 @@ def test_recovery_clears_planned_journal_when_file_still_exists(tmp_path: Path):
     assert database.get_state("media_removal:planned") is None
     assert catalog.info(str(song))["state"] == "available"
     database.close()
+
+
+def test_resolve_rejects_unindexed_missing_and_unsupported_media(monkeypatch, tmp_path: Path):
+    database, catalog, queue, song, _media = removal_fixture(tmp_path)
+    service = MediaRemovalService(database, catalog, queue, Controller(), trash=lambda _path: None)
+    with pytest.raises(MediaRemovalError, match="available indexed"):
+        service.resolve("999")
+    monkeypatch.setattr(
+        catalog,
+        "info",
+        lambda _value: {"library_id": "wrong", "canonical_path": str(song), "state": "missing"},
+    )
+    with pytest.raises(MediaRemovalError, match="available indexed"):
+        service.resolve(str(song))
+    monkeypatch.setattr(
+        catalog,
+        "info",
+        lambda _value: {"library_id": "wrong", "canonical_path": str(song), "state": "available"},
+    )
+    monkeypatch.setattr(catalog, "supported_extensions", {".flac"})
+    with pytest.raises(MediaRemovalError, match="not supported"):
+        service.resolve(str(song))
+    database.close()
+
+
+def test_non_active_or_nonlocal_media_is_not_stopped(tmp_path: Path):
+    database, catalog, queue, song, _media = removal_fixture(tmp_path)
+    for active in (None, MediaRef(MediaSource.URL, "https://example.test/a"), MediaRef(MediaSource.LOCAL, str(song) + ".other")):
+        controller = Controller(active)
+        service = MediaRemovalService(database, catalog, queue, controller, trash=lambda _path: None)
+        service.trash = lambda _path: None
+        target = service.resolve(str(song))
+        monkey = catalog.mark_missing
+        catalog.mark_missing = lambda _library_id: None
+        service.remove(target)
+        catalog.mark_missing = monkey
+        assert controller.stopped is False
+    database.close()
+
+
+def test_recovery_discards_invalid_journal_and_retains_unknown_tombstone(tmp_path: Path):
+    database, catalog, queue, song, _media = removal_fixture(tmp_path)
+    service = MediaRemovalService(database, catalog, queue, Controller(), trash=lambda _path: None)
+    database.set_state("media_removal:invalid", {})
+    unknown_path = song.with_name("unknown.mp3")
+    database.set_state(
+        "media_removal:unknown",
+        {"library_id": "does-not-exist", "path": str(unknown_path), "status": "trashed"},
+    )
+    assert service.recover() == 0
+    assert database.get_state("media_removal:invalid") is None
+    assert database.get_state("media_removal:unknown")["library_id"] == "does-not-exist"
+    database.close()

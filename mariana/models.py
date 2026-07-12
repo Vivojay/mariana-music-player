@@ -87,7 +87,7 @@ class MediaRef:
     artist: str | None = None
     album: str | None = None
     duration: float | None = None
-    stable_id: str | None = None
+    stable_id: str = ""
     resolver_data: dict[str, Any] = field(default_factory=dict)
     provenance: str = "user"
     capabilities: MediaCapabilities = field(default_factory=MediaCapabilities)
