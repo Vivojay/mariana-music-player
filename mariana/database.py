@@ -15,7 +15,7 @@ from typing import Any
 
 from .paths import runtime_paths
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 SCHEMA = """
@@ -116,6 +116,11 @@ CREATE TABLE IF NOT EXISTS radio_stations (
     failure_count INTEGER NOT NULL DEFAULT 0,
     enabled INTEGER NOT NULL DEFAULT 1
 );
+CREATE TABLE IF NOT EXISTS media_preferences (
+    stable_id TEXT PRIMARY KEY,
+    state TEXT NOT NULL CHECK(state IN ('favorite', 'neutral', 'blocked')),
+    updated_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS interaction_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     stable_id TEXT,
@@ -148,6 +153,7 @@ CREATE TABLE IF NOT EXISTS library_roots (
     path TEXT NOT NULL,
     path_key TEXT UNIQUE NOT NULL,
     kind TEXT NOT NULL,
+    origin TEXT NOT NULL DEFAULT 'library-file',
     available INTEGER NOT NULL DEFAULT 1,
     last_seen REAL,
     last_scan REAL,
@@ -222,9 +228,18 @@ class MarianaDatabase:
         self._connection.execute("PRAGMA journal_mode = WAL")
         self._connection.execute("PRAGMA synchronous = FULL")
         previous_version = self._schema_version()
+        backup = None
         if previous_version and previous_version < SCHEMA_VERSION:
-            self.backup(self.path.with_suffix(self.path.suffix + f".pre-schema-{SCHEMA_VERSION}.bak"))
-        self.migrate()
+            backup = self.backup(self.path.with_suffix(self.path.suffix + f".pre-schema-{SCHEMA_VERSION}.bak"))
+        try:
+            self.migrate()
+        except Exception:
+            if backup:
+                self._connection.close()
+                for suffix in ("-wal", "-shm"):
+                    self.path.with_name(self.path.name + suffix).unlink(missing_ok=True)
+                shutil.copy2(backup, self.path)
+            raise
 
     def _schema_version(self) -> int:
         try:
@@ -236,8 +251,15 @@ class MarianaDatabase:
             return 0
 
     def migrate(self) -> None:
+        self._connection.executescript(SCHEMA)
         with self.transaction() as connection:
-            connection.executescript(SCHEMA)
+            root_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(library_roots)").fetchall()
+            }
+            if "origin" not in root_columns:
+                connection.execute(
+                    "ALTER TABLE library_roots ADD COLUMN origin TEXT NOT NULL DEFAULT 'library-file'"
+                )
             connection.execute(
                 "INSERT INTO schema_meta(key, value) VALUES('schema_version', ?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",

@@ -62,6 +62,7 @@ from mariana.library_service import LibraryProfilerService
 from mariana.models import MediaCapabilities, MediaRef, MediaSource, PlaybackState
 from mariana.paths import initialize_runtime_paths
 from mariana.platform import open_path, reveal_path
+from mariana.preferences import MediaPreferences, PreferenceState
 from mariana.queueing import PersistentQueue, QueueError
 from mariana.radio import RadioCatalog, RadioError
 from mariana.sleep_timer import SleepAction, SleepTimer, parse_duration
@@ -251,6 +252,7 @@ if os.environ.get('MARIANA_DESKTOP') == '1' and not MEDIA_TOOLS.get('ffmpeg bin'
         print(f'[WARNING: Managed media tools are unavailable: {error}]')
 DATABASE = MarianaDatabase(RUNTIME_PATHS.database)
 DATABASE.migrate_legacy_play_counts(RUNTIME_PATHS.user_data)
+PREFERENCES = MediaPreferences(DATABASE)
 REPLAYGAIN_SETTINGS = {
     **SETTINGS.get('replaygain', {}),
     **DATABASE.get_state('replaygain', {}),
@@ -272,6 +274,7 @@ RECOMMENDER = RecommendationEngine(
     DATABASE,
     exploration=SETTINGS.get('recommendations', {}).get('exploration', 0.10),
     mmr_lambda=SETTINGS.get('recommendations', {}).get('mmr diversity', 0.75),
+    blocked=lambda stable_id: PREFERENCES.get(stable_id) == PreferenceState.BLOCKED,
 )
 vas.configure(
     ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'),
@@ -463,6 +466,7 @@ def reload_sounds(quick_load = True, full = False):
 
 reload_sounds(quick_load = not FIRST_BOOT) # First boot requires quick_load to be disabled,
                                            # other boots can do away with quick_loads :)
+PREFERENCES.migrate_legacy(RUNTIME_PATHS.state('data', 'track-infos.yml'), LIBRARY)
 
 if _sound_files_names_only == []:
     if loglevel in [3, 4]:
@@ -529,6 +533,22 @@ def _media_from_argument(argument):
         source = MediaSource.YOUTUBE if any(host in argument for host in ('youtube.com', 'youtu.be')) else MediaSource.URL
         return MediaRef(source, argument, resolver_data={'youtube': source == MediaSource.YOUTUBE})
     raise QueueError(f'Not a library index, local path, or media URL: {argument}')
+
+
+def _preference_media(media):
+    if media and media.source == MediaSource.LOCAL:
+        info = LIBRARY.info(media.original_uri)
+        if info:
+            return MediaRef(
+                MediaSource.LOCAL,
+                info['canonical_path'],
+                stable_id=info['library_id'],
+                title=(info.get('metadata') or {}).get('title'),
+                artist=(info.get('metadata') or {}).get('artist'),
+                album=(info.get('metadata') or {}).get('album'),
+                provenance='library',
+            )
+    return media
 
 
 def _play_queue_item(item):
@@ -3493,10 +3513,17 @@ def process(command):
                 SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
 
         elif commandslist[0].lower() in {'like', 'dislike'}:
-            media = vas.controller.snapshot().media
+            media = _preference_media(vas.controller.snapshot().media)
             if media:
-                RECOMMENDER.record_event(media, commandslist[0].lower(), candidate=Candidate(media))
-                IPrint(f'{commandslist[0].title()} recorded', visible=visible)
+                state = (
+                    PreferenceState.FAVORITE
+                    if commandslist[0].lower() == 'like'
+                    else PreferenceState.BLOCKED
+                )
+                changed = PREFERENCES.set(media, state)
+                if changed:
+                    RECOMMENDER.record_event(media, commandslist[0].lower(), candidate=Candidate(media))
+                IPrint(f'{commandslist[0].title()} {"recorded" if changed else "already set"}', visible=visible)
             else:
                 IPrint('No active media', visible=visible)
 

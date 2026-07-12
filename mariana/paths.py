@@ -138,6 +138,7 @@ def initialize_runtime_paths(paths: RuntimePaths | None = None) -> RuntimePaths:
         (paths.resource("lib.lib"), paths.library_file),
         (paths.resource("user", "user_data.yml"), paths.user_data),
         (paths.resource("data", "mariana.db"), paths.database),
+        (paths.resource("data", "track-infos.yml"), paths.state("data", "track-infos.yml")),
     )
     copied: list[str] = []
     for source, destination in migrations:

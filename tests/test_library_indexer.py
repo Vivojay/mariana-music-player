@@ -158,6 +158,9 @@ def test_schema_v1_is_backed_up_and_migrated_atomically(tmp_path: Path):
         version = database.fetchone("SELECT value FROM schema_meta WHERE key='schema_version'")[0]
         assert int(version) == SCHEMA_VERSION
         assert database.fetchone("SELECT name FROM sqlite_master WHERE name='library_files'")
+        root_columns = {row["name"] for row in database.fetchall("PRAGMA table_info(library_roots)")}
+        assert "origin" in root_columns
+        assert database.fetchone("SELECT name FROM sqlite_master WHERE name='media_preferences'")
     backup = path.with_suffix(path.suffix + f".pre-schema-{SCHEMA_VERSION}.bak")
     assert backup.is_file()
     check = sqlite3.connect(backup)

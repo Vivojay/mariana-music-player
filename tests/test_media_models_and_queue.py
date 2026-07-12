@@ -1,3 +1,4 @@
+import sqlite3
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -55,6 +56,27 @@ def test_database_migration_state_backup_and_rollback(tmp_path: Path):
         assert database.get_state("bad") is None
         backup = database.backup(tmp_path / "backup.db")
     assert backup.is_file()
+
+
+def test_failed_schema_migration_restores_verified_backup(monkeypatch, tmp_path: Path):
+    path = tmp_path / "legacy.db"
+    connection = sqlite3.connect(path)
+    connection.executescript(
+        "CREATE TABLE schema_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);"
+        "INSERT INTO schema_meta VALUES('schema_version', '3');"
+        "CREATE TABLE retained(value TEXT);"
+        "INSERT INTO retained VALUES('safe');"
+    )
+    connection.close()
+    monkeypatch.setattr(MarianaDatabase, "migrate", lambda _self: (_ for _ in ()).throw(RuntimeError("fail")))
+    with pytest.raises(RuntimeError, match="fail"):
+        MarianaDatabase(path)
+    restored = sqlite3.connect(path)
+    try:
+        assert restored.execute("SELECT value FROM retained").fetchone()[0] == "safe"
+        assert restored.execute("SELECT value FROM schema_meta").fetchone()[0] == "3"
+    finally:
+        restored.close()
 
 
 def test_legacy_play_counts_are_backed_up_and_imported_once(tmp_path: Path):

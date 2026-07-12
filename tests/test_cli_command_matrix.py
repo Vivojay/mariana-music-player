@@ -50,6 +50,7 @@ def cli(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "replaygain_command", lambda args: actions.append(("replaygain", args)))
     monkeypatch.setattr(main, "broadcast_command", lambda args: actions.append(("broadcast", args)))
     monkeypatch.setattr(main.RECOMMENDER, "record_event", lambda *args, **kwargs: actions.append(("event", args, kwargs)))
+    monkeypatch.setattr(main.PREFERENCES, "set", lambda *args, **kwargs: True)
     monkeypatch.setattr(main.YT_query, "search_youtube", lambda **_kwargs: ("Video", "https://youtube.test/watch?v=1"))
     monkeypatch.setattr(main, "play_vas_media", lambda *args, **kwargs: actions.append(("play-vas", args, kwargs)))
     monkeypatch.setattr(

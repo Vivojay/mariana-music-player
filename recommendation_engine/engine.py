@@ -8,7 +8,7 @@ import math
 import random
 import time
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -131,12 +131,14 @@ class RecommendationEngine:
         exploration: float = 0.10,
         mmr_lambda: float = 0.75,
         seed: int | None = None,
+        blocked: Callable[[str], bool] | None = None,
     ):
         self.database = database
         self.model_directory = Path(model_directory or database.path.parent / "models")
         self.exploration = min(1.0, max(0.0, exploration))
         self.mmr_lambda = min(1.0, max(0.0, mmr_lambda))
         self.rng = random.Random(seed)
+        self.blocked = blocked or (lambda _stable_id: False)
         self.ranker = self._load_champion() or OnlineBayesianRanker()
 
     def _load_champion(self) -> OnlineBayesianRanker | None:
@@ -245,7 +247,11 @@ class RecommendationEngine:
         selected: list[Candidate] = []
         recommendations = []
         artist_counts: dict[str, int] = {}
-        remaining = [candidate for candidate in pool if candidate.media.stable_id not in excluded]
+        remaining = [
+            candidate
+            for candidate in pool
+            if candidate.media.stable_id not in excluded and not self.blocked(candidate.media.stable_id)
+        ]
         while remaining and len(selected) < max(0, limit):
             ranked = []
             for candidate in remaining:
