@@ -3229,7 +3229,10 @@ def process(command):
             IPrint(len(_sound_files_names_only), visible=visible)
 
         elif commandslist[0] == 'weblinks':
-            print(f'Weblinks feature is still in progress... The developer {colored.fg("magenta_3a")}@{SYSTEM_SETTINGS["about"]["author"]}{colored.attr("reset")} will add this feature shortly...')
+            IPrint(
+                'The legacy Google Drive weblinks collection is retired; use radio search/list or the persistent queue.',
+                visible=visible,
+            )
 
         if commandslist[0] == 'open':
             if commandslist == ['open']:
@@ -3804,21 +3807,10 @@ def process(command):
             IPrint(REDDIT_RETIRED_MESSAGE, visible=visible)
 
         elif commandslist in [['vivojay', 'favourite'], ['vivojay', 'fav']]:
-            dev_fav_song = 'https://www.youtube.com/watch?v=izWf40-3n1Y'
-            YOUTUBE_PLAY_TYPE = 0
-            if url_is_valid(dev_fav_song):
-                try:
-                    play_vas_media(media_url=dev_fav_song, single_video=True)
-                except OSError:
-                    SAY(visible=visible,
-                        display_message = 'Video Load Error: Could not load video... (Maybe check your VPN?)',
-                        log_message = 'Video load error: Could not load video',
-                        log_priority = 2)
-            else:
-                SAY(visible=visible,
-                    display_message='vivojay\'s fav song\'s youtube link isn\'t alive anymore !',
-                    log_message='vivojay\'s fav song\'s youtube link isn\'t alive anymore !',
-                    log_priority = 2)
+            IPrint(
+                'The legacy hard-coded favorite shortcut is retired; use fav, favs, or recommend related.',
+                visible=visible,
+            )
 
 
 

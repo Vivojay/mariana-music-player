@@ -7,34 +7,50 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 
-EXACT_ALIASES = {
-    ".": "now",
-    ".*": "now*",
-    "+": "next",
-    "-": "prev",
-    ".+": ".next",
-    ".-": ".prev",
-    ".arand": ".rand",
-    "=arand": "=rand",
-    "arand": "rand",
-    "arand*": "rand*",
-    "/arand": "/rand",
-}
 
+@dataclass(frozen=True, slots=True)
+class AliasCompatibility:
+    aliases: tuple[str, ...]
+    canonical: str
+    scope: str
+    status: str
+
+
+ALIAS_COMPATIBILITY = (
+    AliasCompatibility((".",), "now", "exact", "compatibility-only"),
+    AliasCompatibility((".*",), "now*", "exact", "compatibility-only"),
+    AliasCompatibility(("+",), "next", "both", "compatibility-only"),
+    AliasCompatibility(("-",), "prev", "both", "compatibility-only"),
+    AliasCompatibility((".+",), ".next", "both", "compatibility-only"),
+    AliasCompatibility((".-",), ".prev", "both", "compatibility-only"),
+    AliasCompatibility((".arand",), ".rand", "exact", "compatibility-only"),
+    AliasCompatibility(("=arand",), "=rand", "exact", "compatibility-only"),
+    AliasCompatibility(("arand",), "rand", "exact", "compatibility-only"),
+    AliasCompatibility(("arand*",), "rand*", "exact", "compatibility-only"),
+    AliasCompatibility(("/arand",), "/rand", "exact", "compatibility-only"),
+    AliasCompatibility(("mute",), "m", "token", "native"),
+    AliasCompatibility(("vh", "volh", "volumeh"), "volume", "token", "compatibility-only"),
+    AliasCompatibility(("dl-yv",), "download-yv", "token", "compatibility-only"),
+    AliasCompatibility(("dl-ya",), "download-ya", "token", "compatibility-only"),
+    AliasCompatibility(
+        ("/reddit-session", "/reddit-sessions", "/rpan"),
+        "/rs",
+        "token",
+        "retired",
+    ),
+)
+
+EXACT_ALIASES = {
+    alias: entry.canonical
+    for entry in ALIAS_COMPATIBILITY
+    if entry.scope in {"exact", "both"}
+    for alias in entry.aliases
+}
 TOKEN_ALIASES = {
-    "+": "next",
-    "-": "prev",
-    ".+": ".next",
-    ".-": ".prev",
-    "mute": "m",
-    "vh": "volume",
-    "volh": "volume",
-    "volumeh": "volume",
-    "dl-yv": "download-yv",
-    "dl-ya": "download-ya",
-    "/reddit-session": "/rs",
-    "/reddit-sessions": "/rs",
-    "/rpan": "/rs",
+    alias: entry.canonical
+    for entry in ALIAS_COMPATIBILITY
+    if entry.scope in {"token", "both"}
+    for alias in entry.aliases
 }
 
 DOWNLOAD_TYPOS = {"donwload", "downlaod", "donwlaod", "donload", "donlaod"}

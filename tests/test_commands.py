@@ -1,4 +1,7 @@
 from mariana.commands import (
+    ALIAS_COMPATIBILITY,
+    EXACT_ALIASES,
+    TOKEN_ALIASES,
     SearchAction,
     SearchMode,
     normalize_command,
@@ -16,6 +19,17 @@ def test_legacy_aliases_normalize_without_changing_arguments():
     assert normalize_command("DL-YV https://example.test/a") == "download-yv https://example.test/a"
     assert normalize_command("/rpan 2") == "/rs 2"
     assert normalize_command(". C:/Music/a song.mp3") == ". C:/Music/a song.mp3"
+
+
+def test_alias_registry_is_the_dispatch_source_of_truth():
+    assert ALIAS_COMPATIBILITY
+    for entry in ALIAS_COMPATIBILITY:
+        for alias in entry.aliases:
+            if entry.scope in {"exact", "both"}:
+                assert EXACT_ALIASES[alias] == entry.canonical
+            if entry.scope in {"token", "both"}:
+                assert TOKEN_ALIASES[alias] == entry.canonical
+            assert entry.status in {"native", "compatibility-only", "retired"}
 
 
 def test_search_parser_preserves_raw_numbers_and_prefix_actions():

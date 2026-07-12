@@ -573,7 +573,7 @@ def test_online_resolution_failures_do_not_escape_process(cli, monkeypatch):
     main.process('/ys "query" 1')
     main.process("/yl https://youtube.test/watch?v=1")
     main.process("vivojay fav")
-    assert sum("Video Load Error" in message.get("display_message", "") for message in cli.messages) == 4
+    assert sum("Video Load Error" in message.get("display_message", "") for message in cli.messages) == 3
 
 
 def test_like_without_active_media_and_update_failure_are_reported(cli, monkeypatch):
@@ -596,6 +596,13 @@ def test_legacy_aliases_route_to_modern_handlers(cli):
     assert ("downloads-root", False) in cli.actions
     assert ("lyrics-edit",) in cli.actions
     assert main.REDDIT_RETIRED_MESSAGE in cli.printed
+
+
+def test_stale_snapshot_shortcuts_are_explicitly_retired(cli):
+    main.process("weblinks")
+    main.process("vivojay fav")
+    assert any("weblinks collection is retired" in line for line in cli.printed)
+    assert any("hard-coded favorite shortcut is retired" in line for line in cli.printed)
 
 
 def test_durable_lyrics_edit_creates_sidecar_only_after_confirmation(cli, monkeypatch):
