@@ -52,6 +52,8 @@ from runtime_check import check_runtime, format_runtime_report
 from mariana.database import MarianaDatabase
 from mariana.download import DownloadError, download_media
 from mariana.identity import AcoustIDClient, IdentificationService, LRCLIBClient, MusicBrainzClient
+from mariana.library import LibraryCatalog, LibraryError
+from mariana.library_service import LibraryProfilerService
 from mariana.models import MediaCapabilities, MediaRef, MediaSource, PlaybackState
 from mariana.queueing import PersistentQueue, QueueError
 from mariana.radio import RadioCatalog, RadioError
@@ -313,6 +315,26 @@ FALLBACK_RESULT_COUNT = SETTINGS['display items count']['general']['fallback']
 MAX_RESULT_COUNT = SETTINGS['display items count']['general']['maximum']
 max_yt_search_results_threshold = SETTINGS['display items count']['youtube-search results']['maximum']
 
+LIBRARY_SETTINGS = SETTINGS.get('library', {})
+LIBRARY = LibraryCatalog(
+    DATABASE,
+    library_file=Path(CURDIR) / 'lib.lib',
+    supported_extensions=supported_file_types,
+    ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'),
+    fpcalc_bin=MEDIA_TOOLS.get('fpcalc bin'),
+    identity_service=IDENTITY,
+    online_enrichment=LIBRARY_SETTINGS.get('online enrichment', False),
+)
+LIBRARY_SERVICE = LibraryProfilerService(
+    LIBRARY,
+    playback_state=lambda: vas.controller.snapshot().state,
+    watch=LIBRARY_SETTINGS.get('watch', True),
+    reconcile_seconds=LIBRARY_SETTINGS.get('reconcile hours', 6) * 60 * 60,
+    network_poll_seconds=LIBRARY_SETTINGS.get('network poll seconds', 600),
+    probe_workers=LIBRARY_SETTINGS.get('probe workers', 2),
+    deep_workers=LIBRARY_SETTINGS.get('deep workers', 1),
+)
+
 if not loglevel:
     restore_default.restore('loglevel', SETTINGS)
     loglevel = SETTINGS.get('loglevel')
@@ -343,7 +365,7 @@ def audio_file_gen(Dir, ext):
                 yield os.path.join(root, filename)
 
 
-def reload_sounds(quick_load = True):
+def reload_sounds(quick_load = True, full = False):
     global _sound_files, _sound_files_names_only, _sound_files_names_enumerated, paths
 
     # NOTE: 'data/snd_files.json' is the relpath to the quick-loads file
@@ -352,7 +374,10 @@ def reload_sounds(quick_load = True):
 
     # Definition for quick-load
     if quick_load:
-        if os.path.isfile('data/snd_files.json'):
+        indexed_paths = LIBRARY.paths()
+        if indexed_paths:
+            _sound_files = indexed_paths
+        elif os.path.isfile('data/snd_files.json'):
             with open('data/snd_files.json', encoding="utf-8") as fp:
                 _sound_files = json.load(fp)
 
@@ -362,30 +387,10 @@ def reload_sounds(quick_load = True):
     # Definition for full-load (non quick-load)
     if not quick_load: # (This may be used either as the first-time load or as a fallback for a failed quick-load)
         if os.path.isfile('lib.lib'):
-            with open('lib.lib', encoding='utf-8') as logfile:
-                paths = logfile.read().splitlines()
-                paths = [path for path in paths if not path.startswith('#')]
+            LIBRARY.scan('full' if full else 'changed')
+            paths = [root['path'] for root in LIBRARY.roots() if root['available']]
+            _sound_files = LIBRARY.paths()
 
-
-                from beta import mediadl
-                dl_dir_setup_code = mediadl.setup_dl_dir(SETTINGS, SYSTEM_SETTINGS)
-                if dl_dir_setup_code not in range(4):
-                    dl_dir = dl_dir_setup_code
-                    if sys.platform == 'win32': dl_dir=dl_dir.replace('/', '\\')
-                    else: dl_dir=dl_dir.replace('\\', '/')
-                    paths.append(dl_dir)
-                else:
-                    # ERRORS have already been handled and logged by `mediadl.setup_dl_dir()`
-                    pass
-
-                paths = list(OrderedSet(paths))
-
-                # Use the recursive extractor function and format and store them into usable lists
-                _sound_files = [[list(audio_file_gen(paths[j], supported_file_types[i]))
-                                for i in range(len(supported_file_types))] for j in range(len(paths))]
-                # Flattening irregularly nested sound files
-                _sound_files = list(flatten(_sound_files))
- 
             with open('data/snd_files.json', 'w', encoding='utf-8') as fp:
                 json.dump(_sound_files, fp)
 
@@ -625,6 +630,70 @@ def queue_command(arguments):
         raise QueueError(f'Unknown queue operation: {operation}')
 
 
+def library_command(arguments):
+    operation = arguments[0].lower() if arguments else 'status'
+    if operation == 'roots':
+        rows = [
+            (root['path'], root['kind'], 'online' if root['available'] else 'offline', root['error'] or '')
+            for root in LIBRARY.sync_roots()
+        ]
+        IPrint(tbl(rows, headers=('Path', 'Kind', 'State', 'Error'), tablefmt='plain') if rows else '(no roots)', visible=visible)
+    elif operation == 'scan':
+        mode = arguments[1].lower() if len(arguments) > 1 else 'changed'
+        result = LIBRARY.scan(mode)
+        reload_sounds(quick_load=True)
+        IPrint(
+            f'Library scan complete: {result.discovered} discovered, {result.changed} changed, '
+            f'{result.unavailable_roots} unavailable roots, {result.errors} errors',
+            visible=visible,
+        )
+    elif operation == 'status':
+        status = LIBRARY_SERVICE.status()
+        files = status['files']
+        service = status['service']
+        IPrint(
+            f"Library: {files.get('available') or 0} available, {files.get('missing') or 0} missing; "
+            f"profiler={'paused' if service['paused'] else 'running' if service['running'] else 'stopped'}",
+            visible=visible,
+        )
+        if status['jobs']:
+            IPrint(tbl(
+                [(job['stage'], job['status'], job['count']) for job in status['jobs']],
+                headers=('Stage', 'State', 'Count'),
+                tablefmt='plain',
+            ), visible=visible)
+    elif operation in {'pause', 'resume'}:
+        LIBRARY_SERVICE.pause() if operation == 'pause' else LIBRARY_SERVICE.resume()
+        IPrint(f'Library profiler {operation}d', visible=visible)
+    elif operation == 'errors':
+        errors = LIBRARY.errors()
+        IPrint(tbl(
+            [(error['library_id'], error['stage'], error['attempts'], error['canonical_path'], error['error_text']) for error in errors],
+            headers=('ID', 'Stage', 'Attempts', 'Path', 'Error'),
+            tablefmt='plain',
+        ) if errors else '(no profiling errors)', visible=visible)
+    elif operation == 'retry':
+        target = None
+        if len(arguments) > 1 and arguments[1].lower() != 'all':
+            info = LIBRARY.info(' '.join(arguments[1:]))
+            if not info:
+                raise LibraryError('Unknown library item')
+            target = info['library_id']
+        IPrint(f'Reset {LIBRARY.retry(target)} failed profiling jobs', visible=visible)
+    elif operation == 'verify':
+        result = LIBRARY.verify()
+        IPrint(f"Database: {result['database']}; unavailable indexed paths: {len(result['unavailable_paths'])}", visible=visible)
+    elif operation == 'clean' and arguments[1:] == ['--missing']:
+        IPrint(f'Removed {LIBRARY.clean_missing()} missing library records; media files were not deleted', visible=visible)
+    elif operation == 'info' and len(arguments) > 1:
+        result = LIBRARY.info(' '.join(arguments[1:]))
+        if not result:
+            raise LibraryError('Unknown library item')
+        IPrint(json.dumps(result, indent=2, ensure_ascii=False, default=str), visible=visible)
+    else:
+        raise LibraryError(f'Unknown library operation: {operation}')
+
+
 def radio_command(arguments):
     operation = arguments[0].lower() if arguments else 'list'
     if operation == 'list':
@@ -709,6 +778,7 @@ def exitplayer(sys_exit=False):
     global EXIT_INFO, APP_BOOT_START_TIME, USER_DATA
 
     stopsong()
+    LIBRARY_SERVICE.close()
     APP_CLOSE_TIME = time.time()
 
     time_spent_on_app = APP_CLOSE_TIME - APP_BOOT_END_TIME
@@ -1974,11 +2044,10 @@ def process(command):
                     lyrics_ops(show_window=False)
 
                     IPrint("Reloading sounds   (3/4)", visible=visible)
-                    reload_sounds(quick_load = False)
+                    reload_sounds(quick_load = False, full = True)
                     IPrint(f"  > Loaded {len(_sound_files)} sounds", visible=visible)
 
-                    IPrint("Spawned meta getter background process (4/4)", visible=visible)
-                    sp.Popen([sys.executable, 'meta_getter.py', str(supported_file_types)], shell=False)
+                    IPrint("Library profiling jobs queued (4/4)", visible=visible)
 
                     IPrint("Done", visible=visible)
 
@@ -3005,6 +3074,12 @@ def process(command):
                     log_message = "Invalid media-link command (too long)",
                     log_priority = 2)
 
+        elif commandslist[0].lower() == 'library' and len(commandslist) > 1:
+            try:
+                library_command(commandslist[1:])
+            except (LibraryError, ValueError, IndexError) as error:
+                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+
         elif commandslist[0].lower() == 'queue':
             try:
                 queue_command(commandslist[1:])
@@ -3156,6 +3231,7 @@ def run():
     global enforce_os_requirement, visible, USER_DATA
 
     initialize_audio_output()
+    LIBRARY_SERVICE.start(initial_scan=True)
     USER_DATA['default_user_data']['stats']['log_ins'] += 1
     save_user_data()
 
@@ -3175,10 +3251,6 @@ def startup():
 
     try: first_startup_greet(FIRST_BOOT)
     except Exception: raise
-
-    # Spawn get_media process in the bg
-    if _sound_files != [] and FIRST_BOOT:
-        sp.Popen([sys.executable, 'meta_getter.py', str(supported_file_types)], shell=False)
 
     if enforce_os_requirement and sys.platform != 'win32':
         sys.exit('ABORTING: Mariana Player currently supports Windows only')

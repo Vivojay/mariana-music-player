@@ -66,6 +66,8 @@ urllib3==2.7.0
     # via
     #   requests
     #   yt-dlp
+watchdog==6.0.0
+    # via -r requirements.in
 websockets==16.1
     # via yt-dlp
 yt-dlp[default]==2026.7.4

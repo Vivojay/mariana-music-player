@@ -16,6 +16,7 @@ from mutagen import File as MutagenFile, MutagenError
 
 from .database import MarianaDatabase
 from .identity import IdentificationError, fingerprint_file
+from .identity import IdentificationService
 from .models import MediaCapabilities, MediaRef, MediaSource
 from .playback import CREATE_NO_WINDOW, find_executable
 
@@ -124,6 +125,8 @@ class LibraryCatalog:
         supported_extensions: Iterable[str] = (),
         ffmpeg_bin: str | None = None,
         fpcalc_bin: str | None = None,
+        identity_service: IdentificationService | None = None,
+        online_enrichment: bool = False,
     ) -> None:
         self.database = database
         self.library_file = Path(library_file)
@@ -133,6 +136,8 @@ class LibraryCatalog:
         }
         self.ffmpeg_bin = ffmpeg_bin
         self.fpcalc_bin = fpcalc_bin
+        self.identity_service = identity_service
+        self.online_enrichment = online_enrichment
 
     def roots(self) -> list[dict[str, Any]]:
         return [dict(row) for row in self.database.fetchall("SELECT * FROM library_roots ORDER BY path_key")]
@@ -477,6 +482,33 @@ class LibraryCatalog:
                 ),
             )
             self._schedule(connection, job.library_id, "fingerprint", priority=50)
+            capabilities = MediaCapabilities(downloadable=False, metadata_available=True)
+            connection.execute(
+                "INSERT INTO media_items(stable_id, source, original_uri, title, artist, album, duration, "
+                "capabilities_json, resolver_json, provenance, updated_at) VALUES(?, 'local', ?, ?, ?, ?, ?, ?, ?, "
+                "'library', ?) ON CONFLICT(stable_id) DO UPDATE SET original_uri=excluded.original_uri, "
+                "title=excluded.title, artist=excluded.artist, album=excluded.album, duration=excluded.duration, "
+                "capabilities_json=excluded.capabilities_json, resolver_json=excluded.resolver_json, "
+                "provenance='library', updated_at=excluded.updated_at",
+                (
+                    job.library_id,
+                    str(job.path),
+                    metadata.get("title"),
+                    metadata.get("artist"),
+                    metadata.get("album"),
+                    duration,
+                    capabilities.to_json(),
+                    json.dumps(
+                        {
+                            "library_id": job.library_id,
+                            "tags": {key: value for key, value in metadata.items() if key in {"genre", "date"} and value},
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    time.time(),
+                ),
+            )
 
     def _fingerprint(self, job: LibraryJob) -> None:
         duration, fingerprint = fingerprint_file(job.path, self.fpcalc_bin)
@@ -485,15 +517,46 @@ class LibraryCatalog:
                 "UPDATE library_files SET fingerprint=?, fingerprint_duration=?, updated_at=? WHERE library_id=?",
                 (fingerprint, duration, time.time(), job.library_id),
             )
+            if self.online_enrichment and self.identity_service:
+                self._schedule(connection, job.library_id, "enrich", priority=10)
+
+    def _enrich(self, job: LibraryJob) -> None:
+        if not self.online_enrichment or not self.identity_service:
+            return
+        row = self.database.fetchone("SELECT * FROM library_files WHERE library_id=?", (job.library_id,))
+        if not row or not row["fingerprint"]:
+            raise LibraryError("Fingerprint is unavailable for online enrichment")
+        metadata = json.loads(row["metadata_json"] or "{}")
+        media = MediaRef(
+            MediaSource.LOCAL,
+            row["canonical_path"],
+            stable_id=row["library_id"],
+            title=metadata.get("title"),
+            artist=metadata.get("artist"),
+            album=metadata.get("album"),
+            duration=metadata.get("duration"),
+            provenance="library",
+        )
+        identity = self.identity_service.identify_fingerprint(
+            media,
+            float(row["fingerprint_duration"]),
+            row["fingerprint"],
+        )
+        self.identity_service.lyrics(media, identity)
 
     def process_jobs(self, stage: str, *, limit: int = 1, owner: str | None = None) -> int:
-        if stage not in {"probe", "fingerprint"}:
+        if stage not in {"probe", "fingerprint", "enrich"}:
             raise LibraryError(f"Unknown profiling stage: {stage}")
         owner = owner or f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
         jobs = self.lease_jobs(stage, limit, owner)
         for job in jobs:
             try:
-                self._probe(job) if stage == "probe" else self._fingerprint(job)
+                if stage == "probe":
+                    self._probe(job)
+                elif stage == "fingerprint":
+                    self._fingerprint(job)
+                else:
+                    self._enrich(job)
             except (LibraryError, IdentificationError, OSError) as error:
                 self._fail(job, stage, error)
             else:

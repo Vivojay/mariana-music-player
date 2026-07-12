@@ -43,6 +43,7 @@ def cli(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "get_latest_podbean_data", lambda **kwargs: [{"title": "Episode"}])
     monkeypatch.setattr(main, "display_and_choose_podbean", lambda **kwargs: actions.append(("podcast", kwargs)))
     monkeypatch.setattr(main, "queue_command", lambda args: actions.append(("queue", args)))
+    monkeypatch.setattr(main, "library_command", lambda args: actions.append(("library", args)))
     monkeypatch.setattr(main, "radio_command", lambda args: actions.append(("radio", args)))
     monkeypatch.setattr(main, "recommendation_command", lambda args: actions.append(("recommend", args)))
     monkeypatch.setattr(main, "url_is_valid", lambda value: value.startswith("https://"))
@@ -151,6 +152,7 @@ def cli(monkeypatch, tmp_path):
         "mvolume 25",
         "length",
         "library",
+        "library status",
         "view library",
         "view lyrics",
         "music-downloads",

@@ -350,6 +350,10 @@ class IdentificationService:
         except IdentificationError as error:
             status = IdentityStatus.INSUFFICIENT_AUDIO if "seconds" in str(error) else IdentityStatus.UNAVAILABLE
             return TrackIdentity(status, metadata={"reason": str(error)})
+        return self.identify_fingerprint(media, duration, fingerprint)
+
+    def identify_fingerprint(self, media: MediaRef, duration: float, fingerprint: str) -> TrackIdentity:
+        """Enrich a fingerprint already calculated by the library profiler."""
         identity = self.acoustid.identify(duration, fingerprint, media.duration)
         identity = self.musicbrainz.enrich(identity)
         with self.database.transaction() as connection:

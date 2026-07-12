@@ -33,6 +33,16 @@ playback:
   crossfade seconds: 0
   buffer seconds: 8
 
+library:
+  scan mode: staged
+  watch: true
+  reconcile hours: 6
+  network poll seconds: 600
+  tombstones: retain
+  probe workers: 2
+  deep workers: 1
+  online enrichment: false
+
 sources:
   allowed protocols:
     - file
