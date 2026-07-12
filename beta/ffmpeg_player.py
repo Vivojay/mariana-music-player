@@ -30,6 +30,8 @@ def configure(
     crossfade_seconds=0,
     catalog=None,
     browser_profile=None,
+    replaygain=None,
+    live_leveling=None,
 ):
     global controller, supervisor, radio_catalog
     supervisor.close()
@@ -45,11 +47,22 @@ def configure(
         return endpoints or [media.original_uri]
 
     resolvers = ResolverRegistry(browser_profile=browser_profile, radio_endpoints=radio_endpoints)
+    replaygain = replaygain or {}
+    live_leveling = live_leveling or {}
     controller = PlaybackController(
         ffmpeg_bin=ffmpeg_bin,
         ffprobe_bin=ffprobe_bin or ffmpeg_bin,
         crossfade_seconds=crossfade_seconds,
         resolvers=resolvers,
+        replaygain_enabled=replaygain.get("enabled", False),
+        replaygain_mode=replaygain.get("mode", "track"),
+        replaygain_preamp_db=replaygain.get("preamp db", 0),
+        replaygain_prevent_clipping=replaygain.get("prevent clipping", True),
+        replaygain_headroom_dbtp=replaygain.get("headroom dbtp", -1),
+        live_leveling=live_leveling.get("enabled", False),
+        live_target_lufs=live_leveling.get("target lufs", -18),
+        live_true_peak_dbtp=live_leveling.get("true peak dbtp", -1),
+        live_lra=live_leveling.get("lra", 11),
     )
     supervisor = PlaybackSupervisor(controller, resolvers=resolvers)
 

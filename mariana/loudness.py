@@ -223,6 +223,11 @@ class LoudnessRepository:
         )
         return self._profile(row) if row else None
 
+    def delete(self, stable_id: str) -> bool:
+        with self.database.transaction() as connection:
+            cursor = connection.execute("DELETE FROM loudness_profiles WHERE stable_id=?", (stable_id,))
+        return bool(cursor.rowcount)
+
     @staticmethod
     def _profile(row: Any) -> LoudnessProfile:
         values = dict(row)
@@ -239,19 +244,53 @@ def parse_rsgain_output(output: str, paths: Iterable[Path]) -> dict[str, dict[st
         headers = [re.sub(r"[^a-z0-9]+", "_", cell.casefold()).strip("_") for cell in rows[0]]
         if "filename" in headers or "file" in headers:
             file_key = "filename" if "filename" in headers else "file"
+            file_index = headers.index(file_key)
+            gain_index = next(
+                (headers.index(name) for name in ("track_gain", "track_gain_db", "gain_db") if name in headers),
+                None,
+            )
+            peak_index = next(
+                (headers.index(name) for name in ("track_peak", "true_peak", "peak") if name in headers),
+                None,
+            )
+            album_gain_index = next(
+                (headers.index(name) for name in ("album_gain", "album_gain_db") if name in headers),
+                None,
+            )
+            album_peak_index = headers.index("album_peak") if "album_peak" in headers else None
+            known = {str(path.resolve()): path for path in path_list}
+            by_name: dict[str, list[Path]] = {}
+            for path in path_list:
+                by_name.setdefault(path.name.casefold(), []).append(path)
+            album_values: dict[str, float | None] | None = None
             for row in rows[1:]:
                 if len(row) != len(headers):
                     continue
-                values = dict(zip(headers, row, strict=True))
-                name = values.get(file_key)
+                name = row[file_index].strip()
                 if not name:
                     continue
-                results[str(Path(name).resolve())] = {
-                    "track_gain_db": parse_gain_db(values.get("track_gain") or values.get("track_gain_db")),
-                    "track_peak": parse_peak(values.get("track_peak") or values.get("true_peak")),
-                    "album_gain_db": parse_gain_db(values.get("album_gain") or values.get("album_gain_db")),
-                    "album_peak": parse_peak(values.get("album_peak")),
+                values = {
+                    "track_gain_db": parse_gain_db(row[gain_index]) if gain_index is not None else None,
+                    "track_peak": parse_peak(row[peak_index]) if peak_index is not None else None,
+                    "album_gain_db": (
+                        parse_gain_db(row[album_gain_index]) if album_gain_index is not None else None
+                    ),
+                    "album_peak": parse_peak(row[album_peak_index]) if album_peak_index is not None else None,
                 }
+                if name.casefold() == "album":
+                    album_values = {
+                        "album_gain_db": values["track_gain_db"],
+                        "album_peak": values["track_peak"],
+                    }
+                    continue
+                candidate = str(Path(name).resolve())
+                if candidate not in known:
+                    matches = by_name.get(Path(name).name.casefold(), [])
+                    candidate = str(matches[0].resolve()) if len(matches) == 1 else candidate
+                results[candidate] = values
+            if album_values:
+                for values in results.values():
+                    values.update(album_values)
     if results:
         return results
     labels = {

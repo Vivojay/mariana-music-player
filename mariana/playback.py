@@ -187,12 +187,17 @@ class DecoderSession:
         ffmpeg_bin: str | None = None,
         start_at: float = 0,
         max_buffer_seconds: float = DEFAULT_BUFFER_SECONDS,
+        audio_filter: str | None = None,
+        program_gain_db: float = 0.0,
     ):
         self.media = media
         self.resolved = resolved
         self.ffmpeg = find_executable("ffmpeg", ffmpeg_bin)
         self.start_at = max(0.0, start_at)
         self.max_buffer_bytes = int(max_buffer_seconds * SAMPLE_RATE * BYTES_PER_FRAME)
+        self.audio_filter = audio_filter
+        self.program_gain_db = float(program_gain_db)
+        self.program_gain = 10.0 ** (self.program_gain_db / 20.0)
         self.process: subprocess.Popen | None = None
         self.job: WindowsJob | None = None
         self._buffer = bytearray()
@@ -275,6 +280,10 @@ class DecoderSession:
             "-vn",
             "-sn",
             "-dn",
+        ]
+        if self.audio_filter:
+            command += ["-af", self.audio_filter]
+        command += [
             "-ac",
             str(CHANNELS),
             "-ar",
@@ -418,12 +427,32 @@ class PlaybackController:
         crossfade_seconds: float = 0.0,
         output_factory: Callable[..., OutputStream] | None = None,
         resolvers: ResolverRegistry | None = None,
+        loudness_repository=None,
+        replaygain_enabled: bool = False,
+        replaygain_mode: str = "track",
+        replaygain_preamp_db: float = 0.0,
+        replaygain_prevent_clipping: bool = True,
+        replaygain_headroom_dbtp: float = -1.0,
+        live_leveling: bool = False,
+        live_target_lufs: float = -18.0,
+        live_true_peak_dbtp: float = -1.0,
+        live_lra: float = 11.0,
     ):
         self.ffmpeg_bin = ffmpeg_bin
         self.ffprobe_bin = ffprobe_bin
         self.crossfade_seconds = max(0.0, crossfade_seconds)
         self.output_factory = output_factory or sounddevice.OutputStream
         self.resolvers = resolvers or ResolverRegistry()
+        self.loudness_repository = loudness_repository
+        self.replaygain_enabled = bool(replaygain_enabled)
+        self.replaygain_mode = replaygain_mode
+        self.replaygain_preamp_db = float(replaygain_preamp_db)
+        self.replaygain_prevent_clipping = bool(replaygain_prevent_clipping)
+        self.replaygain_headroom_dbtp = float(replaygain_headroom_dbtp)
+        self.live_leveling = bool(live_leveling)
+        self.live_target_lufs = float(live_target_lufs)
+        self.live_true_peak_dbtp = float(live_true_peak_dbtp)
+        self.live_lra = float(live_lra)
         self._lock = threading.RLock()
         self._active: DecoderSession | None = None
         self._next: DecoderSession | None = None
@@ -439,6 +468,40 @@ class PlaybackController:
         self.on_failure: Callable[[MediaRef, MediaFailure], None] | None = None
         self._watch_stop = threading.Event()
         self._identity_generation = 0
+        self._program_sinks: list[Callable[[object, int], None]] = []
+
+    def _program_gain_db(self, media: MediaRef) -> float:
+        if not self.replaygain_enabled or media.capabilities.live or self.loudness_repository is None:
+            return 0.0
+        from .loudness import ReplayGainMode, effective_gain_db
+
+        profile = self.loudness_repository.get(media.stable_id)
+        return effective_gain_db(
+            profile,
+            ReplayGainMode(self.replaygain_mode),
+            preamp_db=self.replaygain_preamp_db,
+            prevent_clipping=self.replaygain_prevent_clipping,
+            headroom_dbtp=self.replaygain_headroom_dbtp,
+            album_context=bool(media.resolver_data.get("album_context")),
+        )
+
+    def _live_filter(self, media: MediaRef) -> str | None:
+        if not self.live_leveling or not media.capabilities.live:
+            return None
+        return (
+            f"loudnorm=I={self.live_target_lufs:g}:TP={self.live_true_peak_dbtp:g}:"
+            f"LRA={self.live_lra:g}"
+        )
+
+    def _new_session(self, media: MediaRef, *, start_at: float = 0) -> DecoderSession:
+        return DecoderSession(
+            media,
+            resolved=self._resolved,
+            ffmpeg_bin=self.ffmpeg_bin,
+            start_at=start_at,
+            audio_filter=self._live_filter(media),
+            program_gain_db=self._program_gain_db(media),
+        )
 
     def prepare(self, media: MediaRef, *, probe: bool = True) -> MediaRef:
         with self._lock:
@@ -478,7 +541,7 @@ class PlaybackController:
         media = prepared
         with self._lock:
             self._state = PlaybackState.BUFFERING
-            session = DecoderSession(media, resolved=self._resolved, ffmpeg_bin=self.ffmpeg_bin, start_at=start_at)
+            session = self._new_session(media, start_at=start_at)
             session.on_metadata = lambda title, source=session: self._handle_stream_metadata(source, title)
             self._active = session
             session.start()
@@ -509,7 +572,13 @@ class PlaybackController:
             if probe
             else media
         )
-        session = DecoderSession(media, resolved=resolved, ffmpeg_bin=self.ffmpeg_bin)
+        session = DecoderSession(
+            media,
+            resolved=resolved,
+            ffmpeg_bin=self.ffmpeg_bin,
+            audio_filter=self._live_filter(media),
+            program_gain_db=self._program_gain_db(media),
+        )
         session.on_metadata = lambda title, source=session: self._handle_stream_metadata(source, title)
         session.start()
         if not session.wait_for_buffer(timeout=10):
@@ -539,7 +608,7 @@ class PlaybackController:
             active = self._active
             next_session = self._next
             state = self._state
-            gain = 0.0 if self._muted else self._volume * self._automation_gain
+            local_gain = 0.0 if self._muted else self._volume * self._automation_gain
         if _status:
             with self._lock:
                 self._error = f"Audio output reported: {_status}"
@@ -549,6 +618,7 @@ class PlaybackController:
                 outdata.fill(0)
             else:
                 outdata[:] = b"\0" * size
+            self._publish_program(outdata, frames)
             return
         crossfade = False
         fraction = 0.0
@@ -566,25 +636,42 @@ class PlaybackController:
             first_samples = np.frombuffer(first, dtype=np.float32).reshape(-1, CHANNELS)
             count = min(frames, first_samples.shape[0])
             if count:
-                np.multiply(first_samples[:count], gain * (1 - fraction if crossfade else 1), out=outdata[:count])
+                np.multiply(
+                    first_samples[:count],
+                    getattr(active, "program_gain", 1.0) * (1 - fraction if crossfade else 1),
+                    out=outdata[:count],
+                )
             if crossfade and next_session:
                 second = next_session.read(frames)
                 second_samples = np.frombuffer(second, dtype=np.float32).reshape(-1, CHANNELS)
                 second_count = min(frames, second_samples.shape[0])
                 if second_count:
-                    outdata[:second_count] += second_samples[:second_count] * gain * fraction
+                    outdata[:second_count] += (
+                        second_samples[:second_count] * getattr(next_session, "program_gain", 1.0) * fraction
+                    )
                 np.clip(outdata, -1.0, 1.0, out=outdata)
         elif crossfade and next_session:
             second = next_session.read(frames)
-            payload = _mix_pcm(first, second, gain * (1 - fraction), gain * fraction, size)
+            payload = _mix_pcm(
+                first,
+                second,
+                getattr(active, "program_gain", 1.0) * (1 - fraction),
+                getattr(next_session, "program_gain", 1.0) * fraction,
+                size,
+            )
             with self._lock:
                 self._state = PlaybackState.CROSSFADING
         else:
-            payload = _scale_pcm(first, gain).ljust(size, b"\0")
+            payload = _scale_pcm(first, getattr(active, "program_gain", 1.0)).ljust(size, b"\0")
         if crossfade:
             with self._lock:
                 self._state = PlaybackState.CROSSFADING
-        if not numpy_output:
+        self._publish_program(outdata if numpy_output else payload, frames)
+        if numpy_output:
+            np.multiply(outdata, local_gain, out=outdata)
+            np.clip(outdata, -1.0, 1.0, out=outdata)
+        else:
+            payload = _scale_pcm(payload, local_gain)
             outdata[:] = payload[:size]
         if active.eof and active.buffered_seconds == 0:
             self._finish_active(active)
@@ -678,7 +765,7 @@ class PlaybackController:
             self._state = PlaybackState.SEEKING
             media = active.media
             active.stop()
-            replacement = DecoderSession(media, resolved=self._resolved, ffmpeg_bin=self.ffmpeg_bin, start_at=target)
+            replacement = self._new_session(media, start_at=target)
             replacement.on_metadata = lambda title, source=replacement: self._handle_stream_metadata(source, title)
             self._active = replacement
             replacement.start()
@@ -716,6 +803,61 @@ class PlaybackController:
             raise ValueError("Automation gain must be between 0 and 1")
         with self._lock:
             self._automation_gain = value
+
+    def configure_replaygain(
+        self,
+        *,
+        enabled: bool | None = None,
+        mode: str | None = None,
+        preamp_db: float | None = None,
+        prevent_clipping: bool | None = None,
+    ) -> None:
+        from .loudness import ReplayGainMode
+
+        with self._lock:
+            if enabled is not None:
+                self.replaygain_enabled = bool(enabled)
+            if mode is not None:
+                self.replaygain_mode = ReplayGainMode(mode).value
+            if preamp_db is not None:
+                if not -15 <= float(preamp_db) <= 15:
+                    raise ValueError("ReplayGain preamp must be between -15 and 15 dB")
+                self.replaygain_preamp_db = float(preamp_db)
+            if prevent_clipping is not None:
+                self.replaygain_prevent_clipping = bool(prevent_clipping)
+            for session in (self._active, self._next):
+                if session:
+                    session.program_gain_db = self._program_gain_db(session.media)
+                    session.program_gain = 10.0 ** (session.program_gain_db / 20.0)
+
+    def set_live_leveling(self, enabled: bool) -> None:
+        with self._lock:
+            changed = self.live_leveling != bool(enabled)
+            self.live_leveling = bool(enabled)
+            restart = changed and self._active is not None and self._active.media.capabilities.live
+        if restart:
+            self.restart_live()
+
+    def add_program_sink(self, callback: Callable[[object, int], None]) -> Callable[[], None]:
+        with self._lock:
+            self._program_sinks.append(callback)
+
+        def remove() -> None:
+            with self._lock:
+                if callback in self._program_sinks:
+                    self._program_sinks.remove(callback)
+
+        return remove
+
+    def _publish_program(self, samples: object, frames: int) -> None:
+        with self._lock:
+            sinks = tuple(self._program_sinks)
+        for sink in sinks:
+            try:
+                sink(samples, frames)
+            except Exception:
+                # A broadcast/telemetry consumer must never break playback.
+                continue
 
     @property
     def automation_gain(self) -> float:
@@ -794,6 +936,8 @@ class PlaybackController:
                 muted=self._muted,
                 error=self._error,
                 media=active.media if active else self._prepared,
+                replaygain_db=getattr(active, "program_gain_db", 0.0) if active else 0.0,
+                live_leveling=bool(active and active.media.capabilities.live and self.live_leveling),
             )
 
 

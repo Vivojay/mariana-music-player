@@ -246,6 +246,14 @@ if os.environ.get('MARIANA_DESKTOP') == '1' and not MEDIA_TOOLS.get('ffmpeg bin'
         print(f'[WARNING: Managed media tools are unavailable: {error}]')
 DATABASE = MarianaDatabase(RUNTIME_PATHS.database)
 DATABASE.migrate_legacy_play_counts(RUNTIME_PATHS.user_data)
+REPLAYGAIN_SETTINGS = {
+    **SETTINGS.get('replaygain', {}),
+    **DATABASE.get_state('replaygain', {}),
+}
+LIVE_LEVELING_SETTINGS = {
+    **SETTINGS.get('radio', {}).get('live leveling', {}),
+    **DATABASE.get_state('radio_live_leveling', {}),
+}
 QUEUE = PersistentQueue(DATABASE)
 RADIO = RadioCatalog(DATABASE)
 IDENTITY = IdentificationService(
@@ -265,6 +273,8 @@ vas.configure(
     crossfade_seconds=SETTINGS.get('playback', {}).get('crossfade seconds', 0),
     catalog=RADIO,
     browser_profile=SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile'),
+    replaygain=REPLAYGAIN_SETTINGS,
+    live_leveling=LIVE_LEVELING_SETTINGS,
 )
 get_lyrics.configure(IDENTITY, vas.controller)
 DESKTOP_CONTROL = DesktopControl()
@@ -345,7 +355,10 @@ LIBRARY = LibraryCatalog(
     fpcalc_bin=MEDIA_TOOLS.get('fpcalc bin'),
     identity_service=IDENTITY,
     online_enrichment=LIBRARY_SETTINGS.get('online enrichment', False),
+    rsgain_bin=MEDIA_TOOLS.get('rsgain bin') or TOOLCHAIN.resolve('rsgain'),
+    analyze_loudness=bool(REPLAYGAIN_SETTINGS.get('enabled') and REPLAYGAIN_SETTINGS.get('analyze missing', True)),
 )
+vas.controller.loudness_repository = LIBRARY.loudness
 LIBRARY_SERVICE = LibraryProfilerService(
     LIBRARY,
     playback_state=lambda: vas.controller.snapshot().state,
@@ -507,6 +520,20 @@ def _media_from_argument(argument):
 def _play_queue_item(item):
     global currentsong, current_media_type, isplaying, currentsong_length
     media = item.media
+    items = QUEUE.items()
+    position = next((index for index, queued in enumerate(items) if queued.queue_id == item.queue_id), -1)
+    neighbors = [
+        items[index].media
+        for index in (position - 1, position + 1)
+        if index in range(len(items))
+    ]
+    profile = LIBRARY.loudness.get(media.stable_id)
+    media.resolver_data['album_context'] = bool(
+        profile
+        and profile.complete_album
+        and media.album
+        and any(neighbor.album == media.album and neighbor.artist == media.artist for neighbor in neighbors)
+    )
     try:
         if media.source == MediaSource.LOCAL:
             play_local_default_player(media.original_uri, _songindex=None)
@@ -757,6 +784,65 @@ def sleep_command(arguments):
         visible=visible,
     )
     return status
+
+
+def replaygain_command(arguments):
+    operation = arguments[0].lower() if arguments else 'status'
+    if operation == 'status':
+        snapshot = vas.controller.snapshot()
+        media = snapshot.media
+        profile = LIBRARY.loudness.get(media.stable_id) if media else None
+        state = 'on' if vas.controller.replaygain_enabled else 'off'
+        IPrint(
+            f'ReplayGain: {state}; mode={vas.controller.replaygain_mode}; '
+            f'preamp={vas.controller.replaygain_preamp_db:g} dB; applied={snapshot.replaygain_db:g} dB; '
+            f'profile={profile.source if profile else "unavailable"}',
+            visible=visible,
+        )
+        return snapshot
+    if operation == 'on':
+        mode = arguments[1].lower() if len(arguments) > 1 else vas.controller.replaygain_mode
+        vas.controller.configure_replaygain(enabled=True, mode=mode)
+        REPLAYGAIN_SETTINGS.update({'enabled': True, 'mode': mode})
+        DATABASE.set_state('replaygain', REPLAYGAIN_SETTINGS)
+        LIBRARY_SERVICE.enable_loudness()
+        scheduled = LIBRARY.schedule_loudness('changed')
+        IPrint(f'ReplayGain enabled in {mode} mode; {scheduled} track(s) scheduled for analysis', visible=visible)
+    elif operation == 'off':
+        vas.controller.configure_replaygain(enabled=False)
+        REPLAYGAIN_SETTINGS['enabled'] = False
+        DATABASE.set_state('replaygain', REPLAYGAIN_SETTINGS)
+        IPrint('ReplayGain disabled', visible=visible)
+    elif operation == 'mode' and len(arguments) == 2:
+        mode = arguments[1].lower()
+        vas.controller.configure_replaygain(mode=mode)
+        REPLAYGAIN_SETTINGS['mode'] = mode
+        DATABASE.set_state('replaygain', REPLAYGAIN_SETTINGS)
+        IPrint(f'ReplayGain mode: {mode}', visible=visible)
+    elif operation == 'preamp' and len(arguments) == 2:
+        value = float(arguments[1])
+        vas.controller.configure_replaygain(preamp_db=value)
+        REPLAYGAIN_SETTINGS['preamp db'] = value
+        DATABASE.set_state('replaygain', REPLAYGAIN_SETTINGS)
+        IPrint(f'ReplayGain preamp: {value:g} dB', visible=visible)
+    elif operation == 'scan':
+        mode = arguments[1].lower() if len(arguments) > 1 else 'changed'
+        LIBRARY_SERVICE.enable_loudness()
+        count = LIBRARY.schedule_loudness(mode)
+        IPrint(f'Scheduled loudness analysis for {count} track(s)', visible=visible)
+    elif operation == 'rescan' and len(arguments) > 1:
+        info = LIBRARY.info(' '.join(arguments[1:]))
+        if not info:
+            raise LibraryError('Unknown library item')
+        LIBRARY.loudness.delete(info['library_id'])
+        LIBRARY_SERVICE.enable_loudness()
+        LIBRARY.schedule_loudness('full', info['library_id'])
+        IPrint(f"Scheduled loudness rescan for {info['canonical_path']}", visible=visible)
+    else:
+        raise ValueError(
+            'Usage: replaygain [on [track|album|auto]|off|status|mode <mode>|preamp <dB>|'
+            'scan [changed|full]|rescan <library-id|path>]'
+        )
 
 
 def prepare_update():
@@ -2938,6 +3024,17 @@ def process(command):
                     visible=visible,
                     display_message=f'Invalid sleep timer: {error}',
                     log_message=f'Invalid sleep timer command: {error}',
+                    log_priority=2,
+                )
+
+        elif commandslist[0].lower() == 'replaygain':
+            try:
+                replaygain_command(commandslist[1:])
+            except (LibraryError, ValueError) as error:
+                SAY(
+                    visible=visible,
+                    display_message=f'ReplayGain command failed: {error}',
+                    log_message=f'ReplayGain command failed: {error}',
                     log_priority=2,
                 )
 

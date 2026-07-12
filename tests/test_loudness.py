@@ -96,6 +96,25 @@ def test_rsgain_tsv_and_text_output_parsers(tmp_path):
     assert parse_rsgain_output("nothing useful", [song]) == {}
 
 
+def test_rsgain_37_real_output_shape_uses_basename_and_album_summary(tmp_path):
+    first = (tmp_path / "first.wav").resolve()
+    second = (tmp_path / "second.wav").resolve()
+    output = (
+        "Filename\tLoudness (LUFS)\tGain (dB)\tPeak\t Peak (dB)\tPeak Type\tClipping Adjustment?\n"
+        "first.wav\t-21.75\t3.75\t0.125093\t-18.06\tTrue\tN\n"
+        "second.wav\t-27.62\t9.62\t0.062543\t-24.08\tTrue\tN\n"
+        "Album\t-23.82\t5.82\t0.125093\t-18.06\tTrue\tN\n"
+    )
+    parsed = parse_rsgain_output(output, [first, second])
+    assert parsed[str(first)] == {
+        "track_gain_db": 3.75,
+        "track_peak": 0.125093,
+        "album_gain_db": 5.82,
+        "album_peak": 0.125093,
+    }
+    assert parsed[str(second)]["track_peak"] == 0.062543
+
+
 def test_rsgain_analysis_is_scan_only_and_preserves_media(tmp_path, monkeypatch):
     song = tmp_path / "song.flac"
     song.write_bytes(b"unchanged")

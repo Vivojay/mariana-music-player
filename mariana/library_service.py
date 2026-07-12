@@ -90,6 +90,23 @@ class LibraryProfilerService:
         self._paused.clear()
         self._wake.set()
 
+    def enable_loudness(self) -> None:
+        self.catalog.analyze_loudness = True
+        if not self._running:
+            return
+        if any(thread.is_alive() and thread.name == "mariana-library-loudness" for thread in self._threads):
+            self._wake.set()
+            return
+        worker = threading.Thread(
+            target=self._job_worker,
+            args=("loudness", 0),
+            name="mariana-library-loudness",
+            daemon=True,
+        )
+        self._threads.append(worker)
+        worker.start()
+        self._wake.set()
+
     def _start_observer(self) -> None:
         if not self.watch:
             return

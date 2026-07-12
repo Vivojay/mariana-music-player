@@ -153,6 +153,33 @@ def _safe_text(value: Any) -> str | None:
     return text or None
 
 
+def _complete_album_group(rows: list[Any]) -> bool:
+    """Require explicit track totals before applying album gain to a group."""
+    if len(rows) < 2:
+        return False
+    seen: set[tuple[int, int]] = set()
+    totals: dict[int, int] = {}
+    for row in rows:
+        metadata = json.loads(row["metadata_json"] or "{}")
+        track_text = str(metadata.get("track") or "")
+        disc_text = str(metadata.get("disc") or "1")
+        track_parts = track_text.split("/", 1)
+        disc_parts = disc_text.split("/", 1)
+        try:
+            track = int(track_parts[0])
+            total = int(track_parts[1])
+            disc = int(disc_parts[0])
+        except (IndexError, TypeError, ValueError):
+            return False
+        if track < 1 or total < 1 or track > total or (disc, track) in seen:
+            return False
+        seen.add((disc, track))
+        if disc in totals and totals[disc] != total:
+            return False
+        totals[disc] = total
+    return all(sum(item_disc == disc for item_disc, _ in seen) == total for disc, total in totals.items())
+
+
 class LibraryCatalog:
     def __init__(
         self,
@@ -634,8 +661,9 @@ class LibraryCatalog:
                 for candidate in candidates
                 if album_identity(json.loads(candidate["metadata_json"] or "{}")) == key
             )
+        complete_album = _complete_album_group(group)
         paths = [Path(item["canonical_path"]) for item in group]
-        results = self.rsgain.analyze(paths, album=len(group) > 1)
+        results = self.rsgain.analyze(paths, album=complete_album)
         saved = 0
         for item, path in zip(group, paths, strict=True):
             values = results.get(str(path.resolve()))
@@ -647,10 +675,10 @@ class LibraryCatalog:
                 album_key=key,
                 track_gain_db=values.get("track_gain_db"),
                 track_peak=values.get("track_peak"),
-                album_gain_db=values.get("album_gain_db") if len(group) > 1 else None,
-                album_peak=values.get("album_peak") if len(group) > 1 else None,
+                album_gain_db=values.get("album_gain_db") if complete_album else None,
+                album_peak=values.get("album_peak") if complete_album else None,
                 source="rsgain-3.7",
-                complete_album=len(group) > 1 and values.get("album_gain_db") is not None,
+                complete_album=complete_album and values.get("album_gain_db") is not None,
                 scanned_at=time.time(),
             ))
             saved += 1
@@ -677,6 +705,32 @@ class LibraryCatalog:
             else:
                 self._complete(job)
         return len(jobs)
+
+    def schedule_loudness(self, mode: str = "changed", library_id: str | None = None) -> int:
+        if mode not in {"changed", "full"}:
+            raise LibraryError("loudness scan mode must be changed or full")
+        parameters: list[Any] = []
+        where = "f.state='available'"
+        if library_id:
+            where += " AND f.library_id=?"
+            parameters.append(library_id)
+        if mode == "changed":
+            where += " AND (l.stable_id IS NULL OR l.content_signature IS NOT f.content_signature OR l.error_text IS NOT NULL)"
+        rows = self.database.fetchall(
+            "SELECT f.library_id FROM library_files f LEFT JOIN loudness_profiles l ON l.stable_id=f.library_id "
+            f"WHERE {where}",
+            tuple(parameters),
+        )
+        with self.database.transaction() as connection:
+            for row in rows:
+                self._schedule(connection, row["library_id"], "loudness", priority=25)
+                connection.execute(
+                    "UPDATE library_jobs SET status='pending', attempts=0, next_retry=0, lease_owner=NULL, "
+                    "lease_until=NULL, error_code=NULL, error_text=NULL, updated_at=? "
+                    "WHERE library_id=? AND stage='loudness'",
+                    (time.time(), row["library_id"]),
+                )
+        return len(rows)
 
     def status(self) -> dict[str, Any]:
         files = self.database.fetchone(

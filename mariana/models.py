@@ -122,6 +122,8 @@ class PlaybackSnapshot:
     muted: bool = False
     error: str | None = None
     media: MediaRef | None = None
+    replaygain_db: float = 0.0
+    live_leveling: bool = False
 
 
 @dataclass(slots=True)
