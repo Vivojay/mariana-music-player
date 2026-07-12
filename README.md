@@ -231,7 +231,7 @@ FFprobe, and `fpcalc`. Opt-in network probes use `MARIANA_LIVE_TESTS=1`.
 Run the release-duration lifecycle soak with:
 
 ```powershell
-python -m tools.soak_test --seconds 28800 --live-radio `
+python -m tools.soak_test --seconds 28800 --live-radio --broadcast `
   --library-files 10000 `
   --ffmpeg-bin "C:\path\to\ffmpeg\bin"
 ```

@@ -10,6 +10,7 @@ import argparse
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import subprocess
+import socket
 import tempfile
 import threading
 import time
@@ -20,6 +21,67 @@ from mariana.models import MediaCapabilities, MediaRef, MediaSource, PlaybackSta
 from mariana.database import MarianaDatabase
 from mariana.library import LibraryCatalog
 from mariana.playback import BYTES_PER_FRAME, PlaybackController, SAMPLE_RATE
+from mariana.broadcast import BroadcastProfile, BroadcastState, IcecastBroadcaster
+
+
+class SoakCredentials:
+    def get(self, _reference):
+        return "soak-only-secret"
+
+
+class BroadcastSink:
+    """Discard a real authenticated Icecast source stream without retaining secrets or audio."""
+
+    def __init__(self):
+        self.server = socket.socket()
+        self.server.bind(("127.0.0.1", 0))
+        self.server.listen(2)
+        self.server.settimeout(0.5)
+        self.port = self.server.getsockname()[1]
+        self.stop_event = threading.Event()
+        self.bytes_received = 0
+        self.connections = 0
+        self.thread = threading.Thread(target=self._run, name="mariana-soak-broadcast-sink", daemon=True)
+
+    def start(self):
+        self.thread.start()
+
+    def _run(self):
+        while not self.stop_event.is_set():
+            try:
+                connection, _address = self.server.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                return
+            self.connections += 1
+            try:
+                payload = bytearray()
+                while b"\r\n\r\n" not in payload:
+                    chunk = connection.recv(65_536)
+                    if not chunk:
+                        break
+                    payload.extend(chunk)
+                if b"\r\n\r\n" not in payload:
+                    continue
+                head, body = bytes(payload).split(b"\r\n\r\n", 1)
+                if b"authorization: basic" not in head.lower():
+                    connection.sendall(b"HTTP/1.1 401 Unauthorized\r\n\r\n")
+                    continue
+                connection.sendall(b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n")
+                self.bytes_received += len(body)
+                while not self.stop_event.is_set():
+                    chunk = connection.recv(65_536)
+                    if not chunk:
+                        break
+                    self.bytes_received += len(chunk)
+            finally:
+                connection.close()
+
+    def close(self):
+        self.stop_event.set()
+        self.server.close()
+        self.thread.join(timeout=5)
 
 
 class NullOutputStream:
@@ -61,7 +123,13 @@ def wait_for_idle(controller: PlaybackController, timeout: float = 10) -> None:
     raise TimeoutError(f"Playback did not finish: {controller.snapshot()}")
 
 
-def run(duration_seconds: float, ffmpeg_bin: str, live_radio: bool, library_files: int = 0) -> dict:
+def run(
+    duration_seconds: float,
+    ffmpeg_bin: str,
+    live_radio: bool,
+    library_files: int = 0,
+    broadcast: bool = False,
+) -> dict:
     process = psutil.Process()
     baseline = process.memory_info().rss
     peak = baseline
@@ -98,6 +166,28 @@ def run(duration_seconds: float, ffmpeg_bin: str, live_radio: bool, library_file
             crossfade_seconds=0.1,
             output_factory=NullOutputStream,
         )
+        broadcast_sink = None
+        broadcaster = None
+        if broadcast:
+            broadcast_sink = BroadcastSink()
+            broadcast_sink.start()
+            profile = BroadcastProfile(
+                "soak",
+                f"http://127.0.0.1:{broadcast_sink.port}",
+                "/soak.opus",
+            )
+            broadcaster = IcecastBroadcaster(
+                {"soak": profile},
+                ffmpeg_bin=ffmpeg_bin,
+                credentials=SoakCredentials(),
+            )
+            controller.add_program_sink(broadcaster.offer)
+            broadcaster.start("soak")
+            broadcast_deadline = time.monotonic() + 15
+            while broadcaster.snapshot().state != BroadcastState.LIVE and time.monotonic() < broadcast_deadline:
+                time.sleep(0.02)
+            if broadcaster.snapshot().state != BroadcastState.LIVE:
+                raise RuntimeError(f"Broadcast soak could not connect: {broadcaster.snapshot()}")
         scan_stop = threading.Event()
         scan_errors = []
         scan_thread = None
@@ -154,6 +244,10 @@ def run(duration_seconds: float, ffmpeg_bin: str, live_radio: bool, library_file
                 controller.stop()
         finally:
             controller.close()
+            if broadcaster:
+                broadcaster.close()
+            if broadcast_sink:
+                broadcast_sink.close()
             scan_stop.set()
             library_failure = None
             if scan_thread:
@@ -173,6 +267,8 @@ def run(duration_seconds: float, ffmpeg_bin: str, live_radio: bool, library_file
             server_thread.join(timeout=2)
             if library_failure:
                 raise RuntimeError(f"Library soak failed: {library_failure}")
+            if broadcast_sink and (not broadcast_sink.connections or broadcast_sink.bytes_received < 1024):
+                raise RuntimeError("Broadcast soak produced no encoded program stream")
     children = [child for child in process.children(recursive=True) if child.is_running()]
     growth = peak - baseline
     if children:
@@ -185,6 +281,8 @@ def run(duration_seconds: float, ffmpeg_bin: str, live_radio: bool, library_file
         "baseline_rss": baseline,
         "peak_rss": peak,
         "growth": growth,
+        "broadcast_bytes": broadcast_sink.bytes_received if broadcast_sink else 0,
+        "broadcast_connections": broadcast_sink.connections if broadcast_sink else 0,
     }
 
 
@@ -194,8 +292,15 @@ def main() -> None:
     parser.add_argument("--ffmpeg-bin", required=True)
     parser.add_argument("--live-radio", action="store_true")
     parser.add_argument("--library-files", type=int, default=10_000)
+    parser.add_argument("--broadcast", action="store_true")
     arguments = parser.parse_args()
-    print(run(arguments.seconds, arguments.ffmpeg_bin, arguments.live_radio, arguments.library_files))
+    print(run(
+        arguments.seconds,
+        arguments.ffmpeg_bin,
+        arguments.live_radio,
+        arguments.library_files,
+        arguments.broadcast,
+    ))
 
 
 if __name__ == "__main__":
