@@ -39,6 +39,26 @@ test('preserves PTY controls, history, resize, themes, and session restart', asy
     await page.setViewportSize({ width: 1180, height: 760 })
     await page.evaluate(() => window.mariana.terminal.write('sleep status\r'))
     await expect(page.getByLabel('Terminal output')).toContainText('Sleep timer is inactive', { timeout: 10_000 })
+    const terminalGeometry = await page.locator('.terminal-surface').evaluate((surface) => {
+      const frame = surface.closest('.terminal-frame')
+      const screen = surface.querySelector('.xterm-screen')
+      if (!frame || !screen) throw new Error('Terminal geometry is incomplete')
+      const frameRect = frame.getBoundingClientRect()
+      const surfaceRect = surface.getBoundingClientRect()
+      const screenRect = screen.getBoundingClientRect()
+      const style = getComputedStyle(surface)
+      return {
+        topInset: surfaceRect.top - frameRect.top,
+        bottomInset: frameRect.bottom - surfaceRect.bottom,
+        paddingBottom: style.paddingBottom,
+        screenBottom: screenRect.bottom,
+        surfaceBottom: surfaceRect.bottom,
+      }
+    })
+    expect(terminalGeometry.topInset).toBeGreaterThanOrEqual(29)
+    expect(terminalGeometry.bottomInset).toBeGreaterThanOrEqual(8)
+    expect(terminalGeometry.paddingBottom).toBe('0px')
+    expect(terminalGeometry.screenBottom).toBeLessThanOrEqual(terminalGeometry.surfaceBottom + 1)
     await page.locator('.xterm-helper-textarea').press('ArrowUp')
     await page.locator('.xterm-helper-textarea').press('Enter')
     await expect(page.getByLabel('Terminal output')).toContainText('Sleep timer is inactive')
