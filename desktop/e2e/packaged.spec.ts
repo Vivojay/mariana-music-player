@@ -1,7 +1,45 @@
 import { _electron as electron, expect, test } from '@playwright/test'
+import type { Page } from '@playwright/test'
+import { mkdtemp, writeFile } from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 
 const executable = process.env.MARIANA_PACKAGED_EXE
+
+async function isolatedState(name: string) {
+  return mkdtemp(path.join(os.tmpdir(), `mariana-${name}-`))
+}
+
+async function launchWithSetup(userData: string) {
+  const inheritedPath = process.env.PATH ?? process.env.Path ?? ''
+  const mediaToolPath = process.env.MARIANA_TEST_FFMPEG_BIN
+  return electron.launch({
+    executablePath: executable,
+    args: [`--user-data-dir=${userData}`],
+    env: {
+      ...process.env,
+      PATH: mediaToolPath ? `${mediaToolPath}${path.delimiter}${inheritedPath}` : inheritedPath,
+      MARIANA_E2E: '1',
+      MARIANA_E2E_FIRST_BOOT: '1',
+    },
+  })
+}
+
+async function writeCommand(page: Page, value: string) {
+  await page.evaluate((text) => window.mariana.terminal.write(`${text}\r`), value)
+}
+
+async function completeSetup(page: Page) {
+  const terminal = page.getByLabel('Terminal output')
+  await expect(terminal).toContainText('Do you have any locally stored/downloaded music files?', { timeout: 45_000 })
+  await writeCommand(page, 'n')
+  await expect(terminal).toContainText('signature collection of 25 sample songs', { timeout: 10_000 })
+  await writeCommand(page, 'n')
+  await expect(terminal).toContainText('Would you like to run Mariana Player now?', { timeout: 10_000 })
+  await writeCommand(page, 'y')
+  await expect(terminal).toContainText('Mariana Player', { timeout: 30_000 })
+  await expect(page.locator('.backend-dot.ready')).toBeVisible({ timeout: 45_000 })
+}
 
 test('packaged Electron app launches its bundled CLI backend', async () => {
   test.skip(!executable, 'set MARIANA_PACKAGED_EXE after npm run pack')
@@ -21,5 +59,79 @@ test('packaged Electron app launches its bundled CLI backend', async () => {
     await expect(page.getByLabel('Terminal output')).toContainText('Sleep timer is inactive', { timeout: 10_000 })
   } finally {
     await application.close()
+  }
+})
+
+test('first boot completes once and does not return on relaunch', async () => {
+  test.skip(!executable, 'set MARIANA_PACKAGED_EXE after npm run pack')
+  const userData = await isolatedState('setup-once')
+  const first = await launchWithSetup(userData)
+  try {
+    await completeSetup(await first.firstWindow())
+  } finally {
+    await first.close()
+  }
+
+  const second = await launchWithSetup(userData)
+  try {
+    const page = await second.firstWindow()
+    await expect(page.locator('.backend-dot.ready')).toBeVisible({ timeout: 45_000 })
+    await writeCommand(page, 'setup status')
+    const terminal = page.getByLabel('Terminal output')
+    await expect(terminal).toContainText('Setup: complete', { timeout: 10_000 })
+    await expect(terminal).not.toContainText('Do you have any locally stored/downloaded music files?')
+  } finally {
+    await second.close()
+  }
+})
+
+test('interrupted first boot resumes instead of silently restarting', async () => {
+  test.skip(!executable, 'set MARIANA_PACKAGED_EXE after npm run pack')
+  const userData = await isolatedState('setup-interrupted')
+  const first = await launchWithSetup(userData)
+  try {
+    await expect((await first.firstWindow()).getByLabel('Terminal output')).toContainText(
+      'Do you have any locally stored/downloaded music files?',
+      { timeout: 45_000 },
+    )
+  } finally {
+    await first.close()
+  }
+
+  const second = await launchWithSetup(userData)
+  try {
+    const page = await second.firstWindow()
+    const terminal = page.getByLabel('Terminal output')
+    await expect(terminal).toContainText('Previous setup did not complete', { timeout: 45_000 })
+    await writeCommand(page, 'r')
+    await completeSetup(page)
+  } finally {
+    await second.close()
+  }
+})
+
+test('corrupt first-boot state offers repair and completes safely', async () => {
+  test.skip(!executable, 'set MARIANA_PACKAGED_EXE after npm run pack')
+  const userData = await isolatedState('setup-corrupt')
+  const first = await launchWithSetup(userData)
+  try {
+    await expect((await first.firstWindow()).getByLabel('Terminal output')).toContainText(
+      'Do you have any locally stored/downloaded music files?',
+      { timeout: 45_000 },
+    )
+  } finally {
+    await first.close()
+  }
+  await writeFile(path.join(userData, 'runtime', 'setup-state.json'), '{corrupt', 'utf8')
+
+  const second = await launchWithSetup(userData)
+  try {
+    const page = await second.firstWindow()
+    const terminal = page.getByLabel('Terminal output')
+    await expect(terminal).toContainText('Setup state is corrupt', { timeout: 45_000 })
+    await writeCommand(page, 'y')
+    await completeSetup(page)
+  } finally {
+    await second.close()
   }
 })
