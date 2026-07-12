@@ -1,4 +1,5 @@
 import io
+from types import SimpleNamespace
 import zipfile
 
 import pytest
@@ -63,6 +64,11 @@ def test_first_boot_validates_answers_saves_library_and_runs_download(monkeypatc
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(responses))
     monkeypatch.setattr(first_boot_setup, "download_cloud_mariana_samples", lambda about: downloads.append(about))
+    monkeypatch.setattr(
+        first_boot_setup,
+        "runtime_paths",
+        lambda: SimpleNamespace(library_file=tmp_path / "lib.lib"),
+    )
     about = {"first_boot": True, "ver": {"maj": 0, "min": 6, "rel": 2}}
 
     assert first_boot_setup.fbs(about) is True

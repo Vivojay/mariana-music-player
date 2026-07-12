@@ -474,8 +474,8 @@ def test_startup_enforces_platform_and_fatal_state(monkeypatch):
     monkeypatch.setattr(main, "_sound_files", [])
     monkeypatch.setattr(main, "SOFT_FATAL_ERROR_INFO", None)
     monkeypatch.setattr(main, "enforce_os_requirement", True)
-    monkeypatch.setattr(main.sys, "platform", "linux")
-    with pytest.raises(SystemExit, match="Windows only"):
+    monkeypatch.setattr(main.sys, "platform", "plan9")
+    with pytest.raises(SystemExit, match="does not support plan9"):
         main.startup()
 
     monkeypatch.setattr(main, "enforce_os_requirement", False)

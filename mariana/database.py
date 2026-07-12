@@ -13,8 +13,7 @@ import time
 from typing import Any, Iterator
 
 
-APP_DIR = Path(__file__).resolve().parents[1]
-DEFAULT_DATABASE = APP_DIR / "data" / "mariana.db"
+from .paths import runtime_paths
 SCHEMA_VERSION = 2
 
 
@@ -195,8 +194,8 @@ ON library_jobs(stage, status, next_retry, priority);
 
 
 class MarianaDatabase:
-    def __init__(self, path: Path | str = DEFAULT_DATABASE):
-        self.path = Path(path)
+    def __init__(self, path: Path | str | None = None):
+        self.path = Path(path or runtime_paths().database)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._connection = sqlite3.connect(self.path, check_same_thread=False)

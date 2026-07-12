@@ -4,6 +4,8 @@
 #
 #    pip-compile --output-file=requirements-dev.txt requirements-dev.in
 #
+altgraph==0.17.5
+    # via pyinstaller
 boolean-py==5.0
     # via license-expression
 brotli==1.2.0
@@ -32,7 +34,7 @@ colorama==0.4.6
     #   tqdm
 colored==2.3.2
     # via -r requirements.in
-comtypes==1.4.16
+comtypes==1.4.16 ; sys_platform == "win32"
     # via
     #   -r requirements.in
     #   pycaw
@@ -64,6 +66,8 @@ mutagen==1.48.1
     # via
     #   -r requirements.in
     #   yt-dlp
+numpy==2.5.1
+    # via -r requirements.in
 packageurl-python==0.17.6
     # via cyclonedx-python-lib
 packaging==26.2
@@ -71,8 +75,12 @@ packaging==26.2
     #   build
     #   pip-audit
     #   pip-requirements-parser
+    #   pyinstaller
+    #   pyinstaller-hooks-contrib
     #   pytest
     #   wheel
+pefile==2024.8.26
+    # via pyinstaller
 pillow==12.3.0
     # via -r requirements.in
 pip-api==0.0.34
@@ -84,7 +92,9 @@ pip-requirements-parser==32.0.1
 pip-tools==7.5.3
     # via -r requirements-dev.in
 platformdirs==4.10.0
-    # via pip-audit
+    # via
+    #   -r requirements.in
+    #   pip-audit
 pluggy==1.6.0
     # via
     #   pytest
@@ -93,7 +103,7 @@ psutil==7.2.2
     # via pycaw
 py-serializable==2.1.0
     # via cyclonedx-python-lib
-pycaw==20251023
+pycaw==20251023 ; sys_platform == "win32"
     # via -r requirements.in
 pycparser==3.0
     # via cffi
@@ -103,6 +113,10 @@ pygments==2.20.0
     # via
     #   pytest
     #   rich
+pyinstaller==6.21.0
+    # via -r requirements-dev.in
+pyinstaller-hooks-contrib==2026.6
+    # via pyinstaller
 pyparsing==3.3.2
     # via pip-requirements-parser
 pyproject-hooks==1.2.0
@@ -115,8 +129,10 @@ pytest==9.1.1
     #   pytest-cov
 pytest-cov==7.1.0
     # via -r requirements-dev.in
-pywin32==312
+pywin32==312 ; sys_platform == "win32"
     # via -r requirements.in
+pywin32-ctypes==0.2.3
+    # via pyinstaller
 pyyaml==6.0.3
     # via -r requirements.in
 requests==2.34.2
@@ -155,6 +171,8 @@ urllib3==2.7.0
     # via
     #   requests
     #   yt-dlp
+watchdog==6.0.0
+    # via -r requirements.in
 websockets==16.1
     # via yt-dlp
 wheel==0.47.0

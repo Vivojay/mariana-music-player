@@ -18,7 +18,7 @@ colorama==0.4.6
     # via tqdm
 colored==2.3.2
     # via -r requirements.in
-comtypes==1.4.16
+comtypes==1.4.16 ; sys_platform == "win32"
     # via
     #   -r requirements.in
     #   pycaw
@@ -34,15 +34,17 @@ numpy==2.5.1
     # via -r requirements.in
 pillow==12.3.0
     # via -r requirements.in
+platformdirs==4.10.0
+    # via -r requirements.in
 psutil==7.2.2
     # via pycaw
-pycaw==20251023
+pycaw==20251023 ; sys_platform == "win32"
     # via -r requirements.in
 pycparser==3.0
     # via cffi
 pycryptodomex==3.23.0
     # via yt-dlp
-pywin32==312
+pywin32==312 ; sys_platform == "win32"
     # via -r requirements.in
 pyyaml==6.0.3
     # via -r requirements.in

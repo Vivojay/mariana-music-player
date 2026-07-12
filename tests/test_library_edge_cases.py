@@ -2,11 +2,14 @@ import ctypes
 import json
 import os
 from pathlib import Path
+from pathlib import PurePosixPath
 import subprocess
 from types import SimpleNamespace
 
 import pytest
+import psutil
 
+import mariana.library as library_module
 from mariana.database import MarianaDatabase
 from mariana.library import (
     LibraryCatalog,
@@ -14,11 +17,19 @@ from mariana.library import (
     LibraryJob,
     _safe_text,
     content_signature,
+    directory_status,
     file_key,
     parse_library_file,
     root_kind,
 )
 from mariana.models import IdentityStatus, TrackIdentity
+
+
+class TestPosixPath(PurePosixPath):
+    __test__ = False
+
+    def resolve(self):
+        return self
 
 
 def make_catalog(tmp_path, root=None, **kwargs):
@@ -54,6 +65,9 @@ def test_helpers_cover_missing_large_and_platform_variants(monkeypatch, tmp_path
         lambda _anchor: (_ for _ in ()).throw(OSError("unavailable")),
     )
     assert root_kind(tmp_path) == "local"
+    available, error = directory_status(SimpleNamespace(is_dir=lambda: (_ for _ in ()).throw(PermissionError("denied"))))
+    assert not available
+    assert "denied" in error
 
 
 def test_sync_empty_roots_and_walk_entry_errors(monkeypatch, tmp_path):
@@ -80,6 +94,50 @@ def test_sync_empty_roots_and_walk_entry_errors(monkeypatch, tmp_path):
             list(library._walk(tmp_path))
     finally:
         database.close()
+
+
+def test_walk_skips_links_and_descends_directories(monkeypatch, tmp_path):
+    database, library = make_catalog(tmp_path)
+
+    class Entry:
+        def __init__(self, name, kind):
+            self.path = str(tmp_path / name)
+            self.kind = kind
+
+        def is_symlink(self): return self.kind == "link"
+        def is_dir(self, **_kwargs): return self.kind == "directory"
+        def is_file(self, **_kwargs): return self.kind == "file"
+        def stat(self, **_kwargs): return SimpleNamespace(st_size=1, st_mtime_ns=1)
+
+    nested = tmp_path / "nested"
+    monkeypatch.setattr(
+        os,
+        "scandir",
+        lambda path: [Entry("song.mp3", "file")] if Path(path) == nested else [
+            Entry("ignored-link", "link"), Entry("nested", "directory"), Entry("ignored.txt", "file"),
+        ],
+    )
+    try:
+        assert [path.name for path, _stat in library._walk(tmp_path)] == ["song.mp3"]
+    finally:
+        database.close()
+
+
+@pytest.mark.parametrize(
+    ("platform", "partition", "expected"),
+    [
+        ("linux", SimpleNamespace(mountpoint="/music", fstype="nfs4", opts="rw"), "network"),
+        ("linux", SimpleNamespace(mountpoint="/media/disk", fstype="ext4", opts="rw"), "removable"),
+        ("darwin", SimpleNamespace(mountpoint="/Volumes/USB", fstype="apfs", opts="rw"), "removable"),
+        ("linux", SimpleNamespace(mountpoint="/", fstype="ext4", opts="rw"), "local"),
+    ],
+)
+def test_posix_mount_classification(monkeypatch, platform, partition, expected):
+    monkeypatch.setattr(library_module.os, "name", "posix")
+    monkeypatch.setattr(library_module.sys, "platform", platform)
+    monkeypatch.setattr(library_module, "Path", TestPosixPath)
+    monkeypatch.setattr(psutil, "disk_partitions", lambda all=True: [partition])
+    assert library_module.root_kind(TestPosixPath(partition.mountpoint) / "music") == expected
 
 
 def test_scan_invalid_removed_root_and_walk_failure(monkeypatch, tmp_path):

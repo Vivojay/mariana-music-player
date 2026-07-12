@@ -2,6 +2,7 @@
 
 pip-audit
 pip-tools
+pyinstaller
 hypothesis
 pytest
 pytest-cov

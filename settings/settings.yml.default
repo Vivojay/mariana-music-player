@@ -22,11 +22,11 @@ loglevel: 3
 show about: true
 show banner: true
 visible: true
-editor path: C:\WINDOWS\system32\notepad.exe
+editor path:
 get related songs: true
 
 media tools:
-  ffmpeg bin: C:\Users\Vivan.Jaiswal\Documents\ffmpeg-2025-12-18-git-78c75d546a-essentials_build\bin
+  ffmpeg bin:
   fpcalc bin:
 
 playback:

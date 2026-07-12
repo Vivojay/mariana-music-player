@@ -9,10 +9,11 @@ from pathlib import Path
 from config_manager import load_system_settings, load_user_settings
 from logger import SAY
 from mariana.models import IdentityStatus, MediaRef, MediaSource, TrackIdentity
+from mariana.paths import runtime_paths
 
 APP_DIR = Path(__file__).resolve().parents[1]
-TEMP_DIR = APP_DIR / 'temp'
-RES_DIR = APP_DIR / 'res'
+TEMP_DIR = runtime_paths().temporary
+RES_DIR = runtime_paths().resource('res')
 WALLPAPER_DIR = RES_DIR / 'lyrics-wallpapers'
 
 IDENTIFICATION_SERVICE = None
@@ -120,7 +121,7 @@ def create_lyrics_html():
                     '<head>',
                     '    <meta charset="UTF-8">',
                     '    <meta name="viewport" content="width=device-width, initial-scale=1.0">',
-                    '    <link rel="stylesheet" href="../res/style.css">',
+                    f'    <link rel="stylesheet" href="{(RES_DIR / "style.css").as_uri()}">',
                     '    <link rel="preload" href="Elsie-Regular.ttf" as="font" type="font/ttf" crossorigin>',
                     '    <link rel="preconnect" href="https://fonts.googleapis.com">',
                     '    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>',

@@ -17,6 +17,7 @@
 # IMPORTS BEGIN #
 
 import time
+import threading
 APP_BOOT_START_TIME = time.time();                  print("Loaded 1/31",  end='\r')
 
 import os;                                          print("Loaded 2/31",  end='\r')
@@ -29,6 +30,7 @@ import random as rand;                              print("Loaded 7/31",  end='\
 import importlib;                                   print("Loaded 8/31",  end='\r')
 import terminal_colors as colored;                  print("Loaded 9/31", end='\r')
 import subprocess as sp;                            print("Loaded 10/31", end='\r')
+import shutil
 import restore_default;                             print("Loaded 11/31", end='\r')
 print("Loaded 12/31", end='\r')
 import json;                                        print("Loaded 13/31", end='\r')
@@ -51,6 +53,7 @@ from config_manager import load_system_settings, load_user_settings
 from runtime_check import check_runtime, format_runtime_report
 from mariana.database import MarianaDatabase
 from mariana.download import DownloadError, download_media
+from mariana.desktop_control import DesktopControl
 from mariana.identity import AcoustIDClient, IdentificationService, LRCLIBClient, MusicBrainzClient
 from mariana.library import LibraryCatalog, LibraryError
 from mariana.library_service import LibraryProfilerService
@@ -58,6 +61,11 @@ from mariana.models import MediaCapabilities, MediaRef, MediaSource, PlaybackSta
 from mariana.queueing import PersistentQueue, QueueError
 from mariana.radio import RadioCatalog, RadioError
 from mariana.sources import MediaFailure
+from mariana.paths import initialize_runtime_paths
+from mariana.platform import open_path, reveal_path
+from mariana.sleep_timer import SleepAction, SleepTimer, parse_duration
+from mariana.toolchain import ToolchainError, ToolchainManager
+from mariana.version import __version__
 from recommendation_engine import Candidate, RecommendationEngine
 
 online_streaming_ext_load_error = 0
@@ -75,14 +83,13 @@ reddit_creds_are_valid = False
 
 CURDIR = os.path.dirname(os.path.realpath(__file__))
 os.chdir(CURDIR)
+RUNTIME_PATHS = initialize_runtime_paths()
+SOUND_CACHE_PATH = RUNTIME_PATHS.state('data', 'snd_files.json')
+LYRICS_TEXT_PATH = RUNTIME_PATHS.temporary / 'lyrics.txt'
+LYRICS_HTML_PATH = RUNTIME_PATHS.temporary / 'lyrics.html'
 
-try:
-    vas = importlib.import_module("beta.ffmpeg_player")
-    print("Loaded 24/31", end='\r')
-except ImportError:
-    online_streaming_ext_load_error = 1
-    print("[INFO] Could not load online streaming extension...")
-    print("[INFO] ...Skipped 24/31")
+from beta import ffmpeg_player as vas
+print("Loaded 24/31", end='\r')
 
 try:
     YT_query = importlib.import_module("beta.YT_query")
@@ -128,7 +135,7 @@ print("Loaded 29/31", end='\r')
 
 
 try:
-    from beta.master_volume_control import get_master_volume, set_master_volume
+    from mariana.platform import get_master_volume, set_master_volume
     print("Loaded 30/31", end='\r')
 except Exception:
     comtypes_load_error = True
@@ -156,7 +163,7 @@ yaml = YAML(typ='safe')  # Allows for safe YAML loading
 
 webbrowser.register_standard_browsers()
 
-if not os.path.isdir('logs'): os.mkdir('logs')
+RUNTIME_PATHS.logs.mkdir(parents=True, exist_ok=True)
 
 def create_required_files_if_not_exist(*files):
     for file in files:
@@ -167,8 +174,8 @@ def create_required_files_if_not_exist(*files):
                 pass
 
 create_required_files_if_not_exist(
-    'logs/history.log',
-    'logs/general.log',
+    RUNTIME_PATHS.logs / 'history.log',
+    RUNTIME_PATHS.logs / 'general.log',
 )
 
 FIRST_BOOT = False # Assume user is using app for considerable time
@@ -177,11 +184,13 @@ FIRST_BOOT = False # Assume user is using app for considerable time
 
 SYSTEM_SETTINGS = load_system_settings()
 FIRST_BOOT = SYSTEM_SETTINGS['first_boot']
+if os.environ.get('MARIANA_E2E') == '1':
+    FIRST_BOOT = False
 
 ISDEV = SYSTEM_SETTINGS['isdev'] # Useful as a test flag for new features
 
 try:
-    with open('lib.lib', encoding='utf-8') as logfile:
+    with RUNTIME_PATHS.library_file.open(encoding='utf-8') as logfile:
         paths = logfile.read().splitlines()
         paths = [path for path in paths if not path.startswith('#')]
         paths = list(set(paths))
@@ -207,7 +216,7 @@ def first_startup_greet(is_first_boot):
             sys.exit('[ERROR] Critical guide setup-file missing, please consider reinstalling this file or the entire program\nAborting Mariana Player. . .')
 
 try:
-    with open('user/user_data.yml', encoding='utf-8') as u_data_file:
+    with RUNTIME_PATHS.user_data.open(encoding='utf-8') as u_data_file:
         USER_DATA = yaml.load(u_data_file)
         if (
             list(USER_DATA.keys()) == ['default_user_data']
@@ -220,7 +229,7 @@ try:
                 log_priority = 3)
 except IOError:
     SAY(visible=True,
-        display_message = f'Encountered missing program file @{os.path.join(CURDIR, "user/user_data.yml")}',
+        display_message = f'Encountered missing program file @{RUNTIME_PATHS.user_data}',
         log_message = 'User data file not found',
         log_priority = 1) # Log fatal crash
     sys.exit(1) # Fatal crash
@@ -229,8 +238,14 @@ except IOError:
 SETTINGS = load_user_settings()
 
 MEDIA_TOOLS = SETTINGS.get('media tools', {})
-DATABASE = MarianaDatabase()
-DATABASE.migrate_legacy_play_counts(Path(CURDIR) / 'user' / 'user_data.yml')
+TOOLCHAIN = ToolchainManager(RUNTIME_PATHS)
+if os.environ.get('MARIANA_DESKTOP') == '1' and not MEDIA_TOOLS.get('ffmpeg bin'):
+    try:
+        TOOLCHAIN.install()
+    except ToolchainError as error:
+        print(f'[WARNING: Managed media tools are unavailable: {error}]')
+DATABASE = MarianaDatabase(RUNTIME_PATHS.database)
+DATABASE.migrate_legacy_play_counts(RUNTIME_PATHS.user_data)
 QUEUE = PersistentQueue(DATABASE)
 RADIO = RadioCatalog(DATABASE)
 IDENTITY = IdentificationService(
@@ -252,6 +267,12 @@ vas.configure(
     browser_profile=SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile'),
 )
 get_lyrics.configure(IDENTITY, vas.controller)
+DESKTOP_CONTROL = DesktopControl()
+SLEEP_TIMER = SleepTimer(
+    vas.controller,
+    on_update=lambda status: DESKTOP_CONTROL.emit('sleep', status.to_dict()),
+)
+COMMAND_BUSY = threading.Event()
 
 
 # Variables
@@ -318,7 +339,7 @@ max_yt_search_results_threshold = SETTINGS['display items count']['youtube-searc
 LIBRARY_SETTINGS = SETTINGS.get('library', {})
 LIBRARY = LibraryCatalog(
     DATABASE,
-    library_file=Path(CURDIR) / 'lib.lib',
+    library_file=RUNTIME_PATHS.library_file,
     supported_extensions=supported_file_types,
     ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'),
     fpcalc_bin=MEDIA_TOOLS.get('fpcalc bin'),
@@ -377,8 +398,8 @@ def reload_sounds(quick_load = True, full = False):
         indexed_paths = LIBRARY.paths()
         if indexed_paths:
             _sound_files = indexed_paths
-        elif os.path.isfile('data/snd_files.json'):
-            with open('data/snd_files.json', encoding="utf-8") as fp:
+        elif SOUND_CACHE_PATH.is_file():
+            with SOUND_CACHE_PATH.open(encoding="utf-8") as fp:
                 _sound_files = json.load(fp)
 
         else: # Revert to full load (i.e. NOT resorting to quick_load becuase data/snd_files.json is unavailable)
@@ -386,12 +407,12 @@ def reload_sounds(quick_load = True, full = False):
 
     # Definition for full-load (non quick-load)
     if not quick_load: # (This may be used either as the first-time load or as a fallback for a failed quick-load)
-        if os.path.isfile('lib.lib'):
+        if RUNTIME_PATHS.library_file.is_file():
             LIBRARY.scan('full' if full else 'changed')
             paths = [root['path'] for root in LIBRARY.roots() if root['available']]
             _sound_files = LIBRARY.paths()
 
-            with open('data/snd_files.json', 'w', encoding='utf-8') as fp:
+            with SOUND_CACHE_PATH.open('w', encoding='utf-8') as fp:
                 json.dump(_sound_files, fp)
 
         else:
@@ -407,7 +428,7 @@ def reload_sounds(quick_load = True, full = False):
         _sound_files_names_enumerated = [(i+1, j) for i, j in enumerate(_sound_files_names_only)]
 
         if FIRST_BOOT:
-            with open('data/snd_files.json', 'w', encoding='utf-8') as fp:
+            with SOUND_CACHE_PATH.open('w', encoding='utf-8') as fp:
                 json.dump(_sound_files, fp)
 
 reload_sounds(quick_load = not FIRST_BOOT) # First boot requires quick_load to be disabled,
@@ -694,6 +715,85 @@ def library_command(arguments):
         raise LibraryError(f'Unknown library operation: {operation}')
 
 
+def _format_sleep_duration(seconds):
+    total = max(0, int(round(seconds)))
+    hours, remainder = divmod(total, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f'{hours:02d}:{minutes:02d}:{seconds:02d}'
+
+
+def sleep_command(arguments):
+    if not arguments or arguments[0].lower() == 'status':
+        status = SLEEP_TIMER.status()
+        if not status.active:
+            IPrint('Sleep timer is inactive', visible=visible)
+        else:
+            IPrint(
+                f'Sleep timer: {_format_sleep_duration(status.remaining_seconds)} remaining; '
+                f'action={status.action.value}; fade={_format_sleep_duration(status.fade_seconds)}',
+                visible=visible,
+            )
+        return status
+    if arguments[0].lower() == 'cancel':
+        cancelled = SLEEP_TIMER.cancel()
+        IPrint('Sleep timer cancelled' if cancelled else 'Sleep timer was not active', visible=visible)
+        return SLEEP_TIMER.status()
+
+    duration = parse_duration(arguments[0])
+    action = SleepAction.PAUSE
+    fade = None
+    index = 1
+    if index < len(arguments) and arguments[index].lower() in {'pause', 'stop'}:
+        action = SleepAction(arguments[index].lower())
+        index += 1
+    if index < len(arguments):
+        if arguments[index].lower() != 'fade' or index + 2 != len(arguments):
+            raise ValueError('Usage: sleep <duration> [pause|stop] [fade <duration>]')
+        fade = parse_duration(arguments[index + 1])
+    status = SLEEP_TIMER.start(duration, action=action, fade_seconds=fade)
+    IPrint(
+        f'Sleep timer set for {_format_sleep_duration(duration)}; action={action.value}; '
+        f'fade={_format_sleep_duration(status.fade_seconds)}',
+        visible=visible,
+    )
+    return status
+
+
+def prepare_update():
+    backup_root = RUNTIME_PATHS.state('backups', f'pre-{__version__}-{int(time.time())}')
+    backup_root.mkdir(parents=True, exist_ok=False)
+    database_backup = DATABASE.backup(backup_root / 'mariana.db')
+    copied = []
+    for source in (RUNTIME_PATHS.settings, RUNTIME_PATHS.library_file, RUNTIME_PATHS.user_data):
+        if source.is_file():
+            destination = backup_root / source.name
+            shutil.copy2(source, destination)
+            copied.append(destination.name)
+    manifest = backup_root / 'manifest.json'
+    manifest.write_text(
+        json.dumps({'version': __version__, 'database': database_backup.name, 'files': copied}, indent=2),
+        encoding='utf-8',
+    )
+    DESKTOP_CONTROL.emit('update-prepared', {'backup': str(backup_root)})
+    IPrint(f'Update backup prepared at {backup_root}', visible=visible)
+    return backup_root
+
+
+def tools_command(arguments):
+    operation = arguments[0].lower() if arguments else 'status'
+    if operation == 'status':
+        rows = []
+        for name in ('ffmpeg', 'ffprobe', 'ffplay', 'fpcalc', 'deno'):
+            rows.append((name, TOOLCHAIN.resolve(name) or 'external/PATH/not found'))
+        IPrint(tbl(rows, headers=('Tool', 'Managed path'), tablefmt='plain'), visible=visible)
+        return rows
+    if operation in {'install', 'repair'}:
+        root = TOOLCHAIN.install()
+        IPrint(f'Managed media tools are ready at {root}', visible=visible)
+        return root
+    raise ValueError('Usage: tools [status|install|repair]')
+
+
 def radio_command(arguments):
     operation = arguments[0].lower() if arguments else 'list'
     if operation == 'list':
@@ -764,7 +864,7 @@ def save_user_data():
     total_plays = sum(total_plays)
     USER_DATA['default_user_data']['stats']['play_count']['total'] = total_plays
 
-    with open('user/user_data.yml', 'w', encoding="utf-8") as u_data_file:
+    with RUNTIME_PATHS.user_data.open('w', encoding="utf-8") as u_data_file:
         yaml.dump(USER_DATA, u_data_file)
 
 def save_song_data():
@@ -777,6 +877,9 @@ def save_song_data():
 def exitplayer(sys_exit=False):
     global EXIT_INFO, APP_BOOT_START_TIME, USER_DATA
 
+    SLEEP_TIMER.close()
+    DESKTOP_CONTROL.emit('shutdown-ack')
+    DESKTOP_CONTROL.close()
     stopsong()
     LIBRARY_SERVICE.close()
     APP_CLOSE_TIME = time.time()
@@ -879,7 +982,7 @@ def play_local_default_player(songpath, _songindex, is_queue=False):
         # Save current audio to log/history.log in human readable form
         SAY(visible=visible,
             display_message = '',
-            out_file='logs/history.log',
+            out_file=RUNTIME_PATHS.logs / 'history.log',
             log_message = currentsong,
             log_priority = 3,
             format_style = 0)
@@ -1134,7 +1237,7 @@ def enqueue(songindices):
 
 
 def purge_old_lyrics_if_exist():
-    lyrics_file_paths = ['temp/lyrics.txt', 'temp/lyrics.html']
+    lyrics_file_paths = [LYRICS_TEXT_PATH, LYRICS_HTML_PATH]
 
     for lyrics_file_path in lyrics_file_paths:
         try:
@@ -1400,7 +1503,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
         # Save current audio to log/history.log in human readable form
         SAY(visible=visible,
             display_message = '',
-            out_file='logs/history.log',
+            out_file=RUNTIME_PATHS.logs / 'history.log',
             log_message = [' \u2014 '.join(currentsong[:-1]) if isinstance(currentsong, tuple) else currentsong][0],
             log_priority = 3,
             format_style = 0)
@@ -2726,8 +2829,10 @@ def process(command):
                 if not DEFAULT_EDITOR:
                     restore_default.restore('editor path', SETTINGS)
                     DEFAULT_EDITOR = SETTINGS.get('editor path')
-
-                sp.Popen([fr"{DEFAULT_EDITOR}", 'lib.lib'], shell=False)
+                if DEFAULT_EDITOR:
+                    sp.Popen([fr"{DEFAULT_EDITOR}", str(RUNTIME_PATHS.library_file)], shell=False)
+                else:
+                    open_path(RUNTIME_PATHS.library_file)
 
             elif len(commandslist) > 1 and commandslist[1] in ['lyr', 'lyrics']:
                 IPrint('Opening lyrics file in editor', visible=visible)
@@ -2736,8 +2841,10 @@ def process(command):
                     restore_default.restore('editor path', SETTINGS)
                     DEFAULT_EDITOR = SETTINGS.get('editor path')
 
-                if os.path.isfile('temp/lyrics.txt'):
-                    sp.Popen([fr"{DEFAULT_EDITOR}", 'temp/lyrics.txt'], shell=False)
+                if LYRICS_TEXT_PATH.is_file() and DEFAULT_EDITOR:
+                    sp.Popen([fr"{DEFAULT_EDITOR}", str(LYRICS_TEXT_PATH)], shell=False)
+                elif LYRICS_TEXT_PATH.is_file():
+                    open_path(LYRICS_TEXT_PATH)
                 else:
                     SAY(visible=visible,
                         log_message = 'No lyrics available to view',
@@ -2752,7 +2859,7 @@ def process(command):
                         if sys.platform == 'win32': path=path.replace('/', '\\')
                         else: path=path.replace('\\', '/')
                         IPrint(f"Opening audio at index {user_entered_song_index+1}: {_sound_files_names_only[user_entered_song_index]}", visible=visible)
-                        os.system(f'explorer /select, {_sound_files[user_entered_song_index]}')
+                        reveal_path(_sound_files[user_entered_song_index])
                 else:
                     path = ' '.join(commandslist[1:])
                     if os.path.isfile(path):
@@ -2760,7 +2867,7 @@ def process(command):
                             if sys.platform == 'win32': path=path.replace('/', '\\')
                             else: path=path.replace('\\', '/')
                             IPrint(f"Opening audio via path at: {path}", visible=visible)
-                            os.system(f'explorer /select, {path}')
+                            reveal_path(path)
                         else:
                             SAY(visible=visible,
                                 display_message = 'File type is unsupported, file existence cannot be guaranteed. (Will always be shown as 0)',
@@ -2822,6 +2929,39 @@ def process(command):
 
         elif commandslist in [['s'], ['stop']]:
             stopsong()
+
+        elif commandslist[0].lower() in ['sleep', 'timer']:
+            try:
+                sleep_command(commandslist[1:])
+            except ValueError as error:
+                SAY(
+                    visible=visible,
+                    display_message=f'Invalid sleep timer: {error}',
+                    log_message=f'Invalid sleep timer command: {error}',
+                    log_priority=2,
+                )
+
+        elif commandslist == ['update', 'prepare']:
+            try:
+                prepare_update()
+            except Exception as error:
+                SAY(
+                    visible=visible,
+                    display_message=f'Update backup failed: {error}',
+                    log_message=f'Update backup failed: {error}',
+                    log_priority=2,
+                )
+
+        elif commandslist[0].lower() == 'tools':
+            try:
+                tools_command(commandslist[1:])
+            except (ValueError, ToolchainError) as error:
+                SAY(
+                    visible=visible,
+                    display_message=f'Media tools error: {error}',
+                    log_message=f'Media tools error: {error}',
+                    log_priority=2,
+                )
 
         elif commandslist == ['m']:
             ismuted = not ismuted
@@ -2905,7 +3045,7 @@ def process(command):
 
         elif commandslist in [['lib'], ['library']]:
             IPrint("Opening location of library file", visible=visible)
-            sp.Popen(['explorer', '/select,', 'lib.lib'], shell=False)
+            reveal_path(RUNTIME_PATHS.library_file)
 
         elif commandslist[0] == 'view':
             if len(commandslist) == 2:
@@ -2918,15 +3058,15 @@ def process(command):
 
                         try:
                             webbrowser.register('brave', None, webbrowser.BackgroundBrowser(brave_path))
-                            webbrowser.get('brave').open_new(os.path.join(CURDIR, 'lib.lib'))
+                            webbrowser.get('brave').open_new(RUNTIME_PATHS.library_file.as_uri())
                         except Exception:
-                            webbrowser.open(os.path.join(CURDIR, 'lib.lib'))
+                            webbrowser.open(RUNTIME_PATHS.library_file.as_uri())
 
                     else:
                         try:
-                            webbrowser.get('brave').open_new(os.path.join(CURDIR, 'lib.lib'))
+                            webbrowser.get('brave').open_new(RUNTIME_PATHS.library_file.as_uri())
                         except Exception:
-                            webbrowser.open(os.path.join(CURDIR, 'lib.lib'))
+                            webbrowser.open(RUNTIME_PATHS.library_file.as_uri())
 
                 elif commandslist[1] in ['lyr', 'lyrics']:
                     IPrint("Attempting to open lyrics file in browser for viewing", visible=visible)
@@ -2937,19 +3077,19 @@ def process(command):
                                 break
 
                         webbrowser.register('brave', None, webbrowser.BackgroundBrowser(brave_path))
-                        if os.path.isfile('temp/lyrics.html'):
-                            webbrowser.get('brave').open_new(os.path.join(CURDIR, 'temp/lyrics.html'))
+                        if LYRICS_HTML_PATH.is_file():
+                            webbrowser.get('brave').open_new(LYRICS_HTML_PATH.as_uri())
                         else:
                             SAY(visible=visible,
                                 log_message = 'No lyrics available to view',
                                 display_message = 'No lyrics available to view',
                                 log_priority = 2)
                     else:
-                        if os.path.isfile('temp/lyrics.html'):
+                        if LYRICS_HTML_PATH.is_file():
                             try:
-                                webbrowser.get('brave').open_new(os.path.join(CURDIR, 'temp/lyrics.html'))
+                                webbrowser.get('brave').open_new(LYRICS_HTML_PATH.as_uri())
                             except Exception:
-                                webbrowser.open(os.path.join(CURDIR, 'temp/lyrics.html'))
+                                webbrowser.open(LYRICS_HTML_PATH.as_uri())
                         else:
                             SAY(visible=visible,
                                 log_message = 'No lyrics available to view',
@@ -2964,7 +3104,7 @@ def process(command):
                 if sys.platform == 'win32': dl_dir=dl_dir.replace('/', '\\')
                 else: dl_dir=dl_dir.replace('\\', '/')
                 IPrint(f"Opening downloads directory: {dl_dir}", visible=visible)
-                os.system(f'explorer {dl_dir}')
+                open_path(dl_dir)
             else:
                 # ERRORS have already been handled and logged by `mediadl.setup_dl_dir()`
                 pass
@@ -3172,7 +3312,11 @@ def mainprompt():
 
             command = input(prompt) if visible else getpass(prompt)
             print(colored.attr('reset'), end='')
-            outcode = process(command)
+            COMMAND_BUSY.set()
+            try:
+                outcode = process(command)
+            finally:
+                COMMAND_BUSY.clear()
 
             if isinstance(outcode, bool) and not outcode:
                 exitplayer()
@@ -3186,7 +3330,7 @@ def showversion():
     if visible and SYSTEM_SETTINGS:
         try:
             print(colored.fg('aquamarine_3')+\
-                  f"v {SYSTEM_SETTINGS['ver']['maj']}.{SYSTEM_SETTINGS['ver']['min']}.{SYSTEM_SETTINGS['ver']['rel']}"+\
+                  f"v {__version__}"+\
                   colored.attr('reset'))
             print()
         except Exception:
@@ -3199,7 +3343,7 @@ def showbanner():
 
     if visible:
         try:
-            with open('res/banner.banner', encoding='utf-8') as file:
+            with RUNTIME_PATHS.resource('res', 'banner.banner').open(encoding='utf-8') as file:
                 banner_lines = file.read().splitlines()
                 maxlen = len(max(banner_lines, key=len))
                 if maxlen % 10 != 0:
@@ -3223,7 +3367,7 @@ def initialize_audio_output():
     except Exception as error:
         raise RuntimeError(
             "Mariana Player could not initialize an audio output device. "
-            "Connect or enable speakers and verify Windows audio settings."
+            "Connect or enable speakers and verify the operating-system audio settings."
         ) from error
 
 
@@ -3231,13 +3375,28 @@ def run():
     global enforce_os_requirement, visible, USER_DATA
 
     initialize_audio_output()
+    DESKTOP_CONTROL.start_playback_monitor(vas.controller.snapshot)
+    def update_safety():
+        reasons = []
+        if COMMAND_BUSY.is_set():
+            reasons.append('command-active')
+        if SLEEP_TIMER.status().active:
+            reasons.append('sleep-timer')
+        if vas.controller.snapshot().state not in {PlaybackState.IDLE, PlaybackState.PAUSED, PlaybackState.FAILED}:
+            reasons.append('playback-active')
+        jobs = LIBRARY_SERVICE.status().get('jobs', [])
+        if any(job.get('status') == 'leased' for job in jobs):
+            reasons.append('profiler-transaction')
+        return not reasons, reasons
+    DESKTOP_CONTROL.start_safety_monitor(update_safety)
+    DESKTOP_CONTROL.emit('ready', {'version': __version__})
     LIBRARY_SERVICE.start(initial_scan=True)
     USER_DATA['default_user_data']['stats']['log_ins'] += 1
     save_user_data()
 
     if FIRST_BOOT:
-        startup_sound_path = "res/first_boot_startup_sound.mp3"
-        if os.path.isfile(startup_sound_path):
+        startup_sound_path = RUNTIME_PATHS.resource('res', 'first_boot_startup_sound.mp3')
+        if startup_sound_path.is_file():
             vas.set_media(_type='local', localpath=startup_sound_path)
             vas.media_player(action='play')
         notify(Time = 6000) # For 6 seconds
@@ -3252,8 +3411,8 @@ def startup():
     try: first_startup_greet(FIRST_BOOT)
     except Exception: raise
 
-    if enforce_os_requirement and sys.platform != 'win32':
-        sys.exit('ABORTING: Mariana Player currently supports Windows only')
+    if enforce_os_requirement and sys.platform not in {'win32', 'darwin', 'linux'}:
+        sys.exit(f'ABORTING: Mariana Player does not support {sys.platform}')
     if not SOFT_FATAL_ERROR_INFO: # End program silently if SOFT_FATAL_ERROR_INFO is set
         if FATAL_ERROR_INFO:
             IPrint(f"FATAL ERROR ENCOUNTERED: {FATAL_ERROR_INFO}", visible=visible)

@@ -10,10 +10,7 @@ import toml
 from ruamel.yaml import YAML
 
 
-APP_DIR = Path(__file__).resolve().parent
-SETTINGS_PATH = APP_DIR / "settings" / "settings.yml"
-DEFAULT_SETTINGS_PATH = APP_DIR / "settings" / "settings.yml.default"
-SYSTEM_SETTINGS_PATH = APP_DIR / "settings" / "system.toml"
+from mariana.paths import runtime_paths
 
 yaml = YAML(typ="safe")
 
@@ -33,11 +30,13 @@ def deep_merge_defaults(current: dict[str, Any], defaults: dict[str, Any]) -> tu
 
 
 def load_user_settings(
-    settings_path: Path = SETTINGS_PATH,
-    defaults_path: Path = DEFAULT_SETTINGS_PATH,
+    settings_path: Path | None = None,
+    defaults_path: Path | None = None,
     *,
     persist_migration: bool = True,
 ) -> dict[str, Any]:
+    settings_path = settings_path or runtime_paths().settings
+    defaults_path = defaults_path or runtime_paths().settings_defaults
     with defaults_path.open(encoding="utf-8") as stream:
         defaults = yaml.load(stream) or {}
     if not isinstance(defaults, dict):
@@ -58,6 +57,7 @@ def load_user_settings(
     return merged
 
 
-def load_system_settings(path: Path = SYSTEM_SETTINGS_PATH) -> dict[str, Any]:
+def load_system_settings(path: Path | None = None) -> dict[str, Any]:
+    path = path or runtime_paths().system_settings
     with path.open(encoding="utf-8") as stream:
         return toml.load(stream)

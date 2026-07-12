@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 
 SUPPORTED_PYTHON = (3, 12)
+SUPPORTED_PLATFORMS = {"win32": "Windows", "darwin": "macOS", "linux": "Linux"}
 
 
 @dataclass(frozen=True)
@@ -65,8 +66,8 @@ def check_runtime(
             "Mariana Player currently supports Python 3.12.x; "
             f"detected {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}."
         )
-    if sys.platform != "win32":
-        errors.append("Mariana Player currently supports Windows only.")
+    if sys.platform not in SUPPORTED_PLATFORMS:
+        errors.append(f"Mariana Player does not support this operating system ({sys.platform}).")
     if ctypes.sizeof(ctypes.c_void_p) * 8 != 64:
         errors.append("Mariana Player requires 64-bit Python.")
 
@@ -74,8 +75,11 @@ def check_runtime(
         name: _configured_executable(name, configured_ffmpeg_path)
         for name in ("ffmpeg", "ffprobe", "ffplay")
     }
-    local_fpcalc = Path(__file__).resolve().parent / ".tools" / "chromaprint-1.6.0"
-    local_matches = list(local_fpcalc.rglob("fpcalc.exe")) if local_fpcalc.exists() else []
+    from mariana.paths import runtime_paths
+
+    local_fpcalc = runtime_paths().tools
+    fpcalc_name = "fpcalc.exe" if os.name == "nt" else "fpcalc"
+    local_matches = list(local_fpcalc.rglob(fpcalc_name)) if local_fpcalc.exists() else []
     executables["fpcalc"] = _configured_executable("fpcalc", configured_fpcalc_path) or (
         str(local_matches[0]) if local_matches else None
     )
@@ -85,9 +89,7 @@ def check_runtime(
     if not executables["ffplay"]:
         warnings.append("ffplay is unavailable; diagnostic/video fallback commands are disabled.")
     if not executables["fpcalc"]:
-        warnings.append(
-            "Chromaprint fpcalc 1.6.0 is unavailable; run tools/install_chromaprint.ps1 to enable identification."
-        )
+        warnings.append("Chromaprint fpcalc 1.6.0 is unavailable; install or repair the managed media tools.")
     if executables["ffmpeg"] and not inspect_ffmpeg(executables["ffmpeg"]):
         errors.append("The configured FFmpeg executable could not be started.")
     if not any(shutil.which(executable) for executable in ("deno", "node", "qjs")):

@@ -21,10 +21,11 @@ from mutagen import File as MutagenFile, MutagenError
 from .database import MarianaDatabase
 from .models import IdentityStatus, LyricsResult, MediaRef, MediaSource, TrackIdentity
 from .playback import CHANNELS, SAMPLE_RATE, SAMPLE_WIDTH, CREATE_NO_WINDOW, find_executable
+from .version import __version__
 
 
 APP_NAME = "Mariana"
-APP_VERSION = "0.7.0-dev"
+APP_VERSION = __version__
 USER_AGENT = f"{APP_NAME}/{APP_VERSION} (https://github.com/Vivojay/mariana-music-player)"
 ACOUSTID_URL = "https://api.acoustid.org/v2/lookup"
 MUSICBRAINZ_URL = "https://musicbrainz.org/ws/2"
@@ -40,13 +41,7 @@ class IdentificationError(RuntimeError):
 
 
 def find_fpcalc(configured: str | None = None) -> str:
-    if configured:
-        return find_executable("fpcalc", configured)
-    local = Path(__file__).resolve().parents[1] / ".tools" / "chromaprint-1.6.0"
-    matches = list(local.rglob("fpcalc.exe")) if local.exists() else []
-    if matches:
-        return str(matches[0].resolve())
-    return find_executable("fpcalc")
+    return find_executable("fpcalc", configured)
 
 
 def _run_fpcalc(path: Path | str, fpcalc_bin: str | None = None) -> tuple[float, str]:

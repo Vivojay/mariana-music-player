@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import shutil
 import subprocess
 import threading
@@ -51,6 +52,16 @@ def find_executable(name: str, configured_bin: str | None = None) -> str:
             candidate /= f"{name}.exe" if os.name == "nt" else name
         if candidate.is_file():
             return str(candidate.resolve())
+    from .toolchain import find_managed_executable
+    from .paths import runtime_paths
+
+    if managed := find_managed_executable(name):
+        return managed
+    legacy_name = f"{name}.exe" if os.name == "nt" else name
+    legacy_root = runtime_paths().resource('.tools')
+    if legacy_root.is_dir():
+        if legacy := next((candidate for candidate in legacy_root.rglob(legacy_name) if candidate.is_file()), None):
+            return str(legacy.resolve())
     executable = shutil.which(name)
     if executable:
         return executable
@@ -280,6 +291,7 @@ class DecoderSession:
                 stderr=subprocess.PIPE,
                 bufsize=0,
                 creationflags=CREATE_NO_WINDOW,
+                start_new_session=os.name != "nt",
             )
         except OSError as error:
             raise PlaybackError(f"FFmpeg could not start: {error}") from error
@@ -350,11 +362,23 @@ class DecoderSession:
             self._condition.notify_all()
         process = self.process
         if process and process.poll() is None:
-            process.terminate()
+            if os.name != "nt":
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except (OSError, ProcessLookupError):
+                    process.terminate()
+            else:
+                process.terminate()
             try:
                 process.wait(timeout=2)
             except subprocess.TimeoutExpired:
-                process.kill()
+                if os.name != "nt":
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except (OSError, ProcessLookupError):
+                        process.kill()
+                else:
+                    process.kill()
                 process.wait(timeout=2)
         if self._reader and self._reader.is_alive():
             self._reader.join(timeout=2)
@@ -406,6 +430,7 @@ class PlaybackController:
         self._stream: OutputStream | None = None
         self._state = PlaybackState.IDLE
         self._volume = 1.0
+        self._automation_gain = 1.0
         self._muted = False
         self._error: str | None = None
         self._prepared: MediaRef | None = None
@@ -514,7 +539,7 @@ class PlaybackController:
             active = self._active
             next_session = self._next
             state = self._state
-            gain = 0.0 if self._muted else self._volume
+            gain = 0.0 if self._muted else self._volume * self._automation_gain
         if _status:
             with self._lock:
                 self._error = f"Audio output reported: {_status}"
@@ -684,6 +709,19 @@ class PlaybackController:
         with self._lock:
             self._volume = value
 
+    def set_automation_gain(self, value: float) -> None:
+        """Apply transient automation without changing the user's base volume."""
+        value = float(value)
+        if not 0 <= value <= 1:
+            raise ValueError("Automation gain must be between 0 and 1")
+        with self._lock:
+            self._automation_gain = value
+
+    @property
+    def automation_gain(self) -> float:
+        with self._lock:
+            return self._automation_gain
+
     def set_muted(self, muted: bool) -> None:
         with self._lock:
             self._muted = bool(muted)
@@ -768,6 +806,7 @@ def launch_ffplay(media: MediaRef, *, ffplay_bin: str | None = None) -> subproce
             [executable, "-hide_banner", "-autoexit", source],
             stdin=subprocess.DEVNULL,
             creationflags=CREATE_NO_WINDOW,
+            start_new_session=os.name != "nt",
         )
     except OSError as error:
         raise PlaybackError(f"FFplay could not start: {error}") from error

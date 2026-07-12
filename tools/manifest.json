@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "toolchain": "0.7.0-tools.1",
+  "artifacts": {},
+  "note": "Release CI replaces artifacts with platform URLs and SHA-256 values generated from pinned upstream source builds."
+}

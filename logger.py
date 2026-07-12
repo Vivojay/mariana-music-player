@@ -12,6 +12,7 @@ format_style:
 import os
 import terminal_colors as colored
 from pathlib import Path
+from mariana.paths import runtime_paths
 
 from datetime import datetime as dt
 
@@ -33,7 +34,7 @@ def SAY(
     log_priority, # Default value is defined in main.py
     display_message = None, # Displayed on app
     log_message: str = '', # Saved to log file
-    out_file = 'logs/general.log', # Log file path
+    out_file = None, # Log file path
     format_style: int = 2,
 ):
     global loglevel, logleveltypes
@@ -43,6 +44,7 @@ def SAY(
               display_message+\
               colored.attr('reset'))
 
+    out_file = Path(out_file) if out_file else runtime_paths().logs / 'general.log'
     llt = logleveltypes[log_priority]
     Path(out_file).parent.mkdir(parents=True, exist_ok=True)
     writemodes = ['w', 'a']

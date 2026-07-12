@@ -10,6 +10,7 @@ from typing import Any
 
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
+from mariana.toolchain import find_managed_executable
 
 
 class YouTubeError(RuntimeError):
@@ -33,7 +34,7 @@ def integration_options(browser_profile: str | None = None) -> dict[str, Any]:
         "file_access_retries": 3,
     }
     for runtime, executable in (("deno", "deno"), ("node", "node"), ("quickjs", "qjs")):
-        runtime_path = shutil.which(executable)
+        runtime_path = find_managed_executable(executable) or shutil.which(executable)
         if not runtime_path and runtime == "node":
             candidates = [
                 Path("C:/Program Files/nodejs/node.exe"),

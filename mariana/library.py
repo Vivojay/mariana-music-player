@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import time
 from typing import Any, Iterable
 import uuid
@@ -85,6 +86,26 @@ def root_kind(path: Path) -> str:
                 return "network"
         except (AttributeError, OSError):
             pass
+    else:
+        try:
+            import psutil
+
+            resolved = path.resolve()
+            partitions = sorted(psutil.disk_partitions(all=True), key=lambda item: len(item.mountpoint), reverse=True)
+            partition = next(
+                (item for item in partitions if resolved == Path(item.mountpoint) or Path(item.mountpoint) in resolved.parents),
+                None,
+            )
+            if partition:
+                network_types = {"nfs", "nfs4", "cifs", "smbfs", "sshfs", "afpfs", "davfs", "fuse.sshfs"}
+                if partition.fstype.casefold() in network_types or "remote" in partition.opts.casefold():
+                    return "network"
+                if sys.platform == "darwin" and partition.mountpoint.startswith("/Volumes/"):
+                    return "removable"
+                if sys.platform.startswith("linux") and partition.mountpoint.startswith(("/media/", "/run/media/")):
+                    return "removable"
+        except (ImportError, OSError):
+            pass
     return "local"
 
 
@@ -92,6 +113,14 @@ def file_key(stat: os.stat_result) -> str | None:
     device = getattr(stat, "st_dev", 0)
     inode = getattr(stat, "st_ino", 0)
     return f"{device}:{inode}" if inode else None
+
+
+def directory_status(path: Path) -> tuple[bool, str | None]:
+    """Return directory availability without letting an inaccessible root abort startup."""
+    try:
+        return path.is_dir(), None
+    except OSError as error:
+        return False, f"root unavailable: {error}"
 
 
 def content_signature(path: Path, size: int, chunk_size: int = 65_536) -> str:
@@ -150,11 +179,13 @@ class LibraryCatalog:
             for root in configured:
                 key = path_key(root)
                 root_id = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
+                available, error = directory_status(root)
                 connection.execute(
-                    "INSERT INTO library_roots(root_id, path, path_key, kind, available, last_seen) "
-                    "VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(path_key) DO UPDATE SET "
-                    "path=excluded.path, kind=excluded.kind, error=NULL",
-                    (root_id, str(root), key, root_kind(root), int(root.is_dir()), now if root.is_dir() else None),
+                    "INSERT INTO library_roots(root_id, path, path_key, kind, available, last_seen, error) "
+                    "VALUES(?, ?, ?, ?, ?, ?, ?) ON CONFLICT(path_key) DO UPDATE SET "
+                    "path=excluded.path, kind=excluded.kind, available=excluded.available, "
+                    "last_seen=COALESCE(excluded.last_seen, library_roots.last_seen), error=excluded.error",
+                    (root_id, str(root), key, root_kind(root), int(available), now if available else None, error),
                 )
             if configured_keys:
                 placeholders = ",".join("?" for _ in configured_keys)
@@ -282,12 +313,13 @@ class LibraryCatalog:
             if root["error"] == "removed from lib.lib":
                 continue
             root_path = Path(root["path"])
-            if not root_path.is_dir():
+            available, availability_error = directory_status(root_path)
+            if not available:
                 unavailable += 1
                 with self.database.transaction() as connection:
                     connection.execute(
                         "UPDATE library_roots SET available=0, error=?, backoff_until=? WHERE root_id=?",
-                        ("root unavailable", now + 60, root["root_id"]),
+                        (availability_error or "root unavailable", now + 60, root["root_id"]),
                     )
                 continue
             try:

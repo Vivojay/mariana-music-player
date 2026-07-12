@@ -2,6 +2,7 @@ import os
 import stat
 import toml
 from pathlib import Path
+from mariana.paths import runtime_paths
 
 APP_DIR = Path(__file__).resolve().parent
 curdir = str(APP_DIR)
@@ -19,7 +20,7 @@ def download_cloud_mariana_samples(about):
     yaml = YAML(typ='safe')
 
     SYSTEM_SETTINGS = about
-    with open('settings/settings.yml', encoding='utf-8') as u_data_file:
+    with runtime_paths().settings.open(encoding='utf-8') as u_data_file:
         SETTINGS = yaml.load(u_data_file)
 
     dl_dir_setup_code = setup_dl_dir(SETTINGS, SYSTEM_SETTINGS)
@@ -105,12 +106,12 @@ def fbs(about): # First boot setup
                     print("This directory does not exist, please retry...")
             else:
                 print()
-                print(f"Saving directory paths in your library\n  @location: {os.path.join(curdir, 'lib.lib')}!")
+                print(f"Saving directory paths in your library\n  @location: {runtime_paths().library_file}!")
                 break
             
             local_file_dirs = list(set(local_file_dirs))
 
-            with open("lib.lib", 'a') as libfile:
+            with runtime_paths().library_file.open('a', encoding='utf-8') as libfile:
                 for _dir in local_file_dirs:
                     libfile.write(_dir+'\n')
 

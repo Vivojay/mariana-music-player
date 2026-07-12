@@ -1,10 +1,10 @@
-from pathlib import Path
 from ruamel.yaml import YAML
+from mariana.paths import runtime_paths
 yaml = YAML(typ='safe')  # Allows for safe YAML loading
 
-APP_DIR = Path(__file__).resolve().parent
+APP_DIR = runtime_paths().data
 
-with (APP_DIR / 'settings' / 'settings.yml.default').open('r', encoding='utf-8') as f:
+with runtime_paths().settings_defaults.open('r', encoding='utf-8') as f:
     DEFAULT_SETTINGS = yaml.load(f)
 
 def restore(changed_setting_location, SETTINGS):

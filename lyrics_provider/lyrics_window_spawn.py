@@ -1,7 +1,7 @@
 import sys
 import json
 import tkinter as tk
-from pathlib import Path
+from mariana.paths import runtime_paths
 
 from tkinter import ttk
 
@@ -14,7 +14,7 @@ def spawn_lyrics_window(text_to_be_displayed, head_text, foot_text):
     root.config(bg="#1a1a1a")
 
     # Icon for lyrics window
-    icon_path = Path(__file__).resolve().parents[1] / 'res' / 'lyrics_icon.png'
+    icon_path = runtime_paths().resource('res', 'lyrics_icon.png')
     p1 = tk.PhotoImage(file=str(icon_path))
     root.iconphoto(False, p1)
 
