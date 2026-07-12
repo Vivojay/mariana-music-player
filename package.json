@@ -1,0 +1,113 @@
+{
+  "name": "mariana-music-player",
+  "version": "0.7.0-dev.1",
+  "description": "Cross-platform riced terminal shell for Mariana",
+  "author": "Vivojay",
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
+    "dev:web": "vite",
+    "typecheck": "tsc --noEmit -p desktop/tsconfig.json && tsc -p desktop/tsconfig.electron.json",
+    "build": "npm run typecheck && vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "npm run build && npm run test:e2e:dev && npm run test:e2e:packaged",
+    "test:e2e:dev": "playwright test desktop/e2e/terminal.spec.ts",
+    "test:e2e:packaged": "playwright test desktop/e2e/packaged.spec.ts",
+    "lint": "eslint desktop --max-warnings=0",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "rebuild:native": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "@fontsource-variable/cascadia-code": "latest",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-search": "0.16.0",
+    "@xterm/addon-web-links": "0.12.0",
+    "@xterm/addon-webgl": "0.19.0",
+    "@xterm/xterm": "6.0.0",
+    "electron-updater": "6.8.9",
+    "node-pty": "1.1.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "latest",
+    "@playwright/test": "latest",
+    "@testing-library/jest-dom": "latest",
+    "@testing-library/react": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "6.0.3",
+    "concurrently": "latest",
+    "electron": "43.1.0",
+    "electron-builder": "26.15.3",
+    "eslint": "latest",
+    "eslint-plugin-react-hooks": "latest",
+    "eslint-plugin-react-refresh": "latest",
+    "globals": "latest",
+    "jsdom": "latest",
+    "typescript": "6.0.3",
+    "typescript-eslint": "latest",
+    "vite": "8.1.4",
+    "vitest": "4.1.10",
+    "wait-on": "latest"
+  },
+  "build": {
+    "appId": "io.github.vivojay.mariana",
+    "productName": "Mariana",
+    "icon": "res/welcome_banner.png",
+    "asar": true,
+    "npmRebuild": false,
+    "asarUnpack": [
+      "node_modules/node-pty/**"
+    ],
+    "directories": {
+      "output": "release",
+      "buildResources": "desktop/assets"
+    },
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "dist-backend/${os}-${arch}",
+        "to": "backend",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "tools/manifest.json",
+        "to": "tools/manifest.json"
+      }
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "Vivojay",
+      "repo": "mariana-music-player",
+      "releaseType": "release"
+    },
+    "win": {
+      "target": [{"target": "nsis", "arch": ["x64"]}],
+      "artifactName": "Mariana-${version}-windows-${arch}.${ext}"
+    },
+    "mac": {
+      "target": [
+        {"target": "dmg", "arch": ["x64", "arm64"]},
+        {"target": "zip", "arch": ["x64", "arm64"]}
+      ],
+      "hardenedRuntime": true,
+      "notarize": true,
+      "artifactName": "Mariana-${version}-macos-${arch}.${ext}"
+    },
+    "linux": {
+      "target": [{"target": "AppImage", "arch": ["x64"]}],
+      "category": "AudioVideo;Audio;Player",
+      "artifactName": "Mariana-${version}-linux-${arch}.${ext}"
+    }
+  }
+}

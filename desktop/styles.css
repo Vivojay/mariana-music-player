@@ -1,0 +1,130 @@
+:root {
+  font-family: 'Cascadia Code Variable', 'Cascadia Code', ui-monospace, monospace;
+  color-scheme: dark;
+  background: #060811;
+  font-synthesis: none;
+  text-rendering: geometricPrecision;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+button, input, select { font: inherit; }
+button, select, input { color: var(--text); }
+button { cursor: pointer; }
+
+.app {
+  height: 100%;
+  display: grid;
+  grid-template-rows: 44px minmax(0, 1fr) 30px;
+  background:
+    radial-gradient(circle at 18% -20%, color-mix(in srgb, var(--glow) 25%, transparent), transparent 40%),
+    radial-gradient(circle at 105% 105%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 35%),
+    var(--app-bg);
+  color: var(--text);
+}
+
+.titlebar {
+  -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 0 148px 0 14px;
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(24px) saturate(130%);
+  user-select: none;
+}
+
+.brand { display: flex; align-items: center; gap: 9px; font-weight: 650; letter-spacing: .02em; }
+.brand-mark {
+  width: 25px; height: 25px; display: grid; place-items: center; border-radius: 7px;
+  background: linear-gradient(145deg, var(--accent), var(--glow)); color: #07100f;
+  box-shadow: 0 0 22px color-mix(in srgb, var(--glow) 48%, transparent);
+}
+.backend-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.backend-dot.ready { background: #62e6a7; box-shadow: 0 0 8px #62e6a7; }
+.backend-dot.error, .backend-dot.stopped { background: #ff6f91; }
+
+.title-actions { -webkit-app-region: no-drag; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.title-actions button, .title-actions select, .statusbar button {
+  height: 28px; border: 1px solid transparent; border-radius: 7px; background: transparent; padding: 0 9px;
+}
+.title-actions button:hover, .title-actions select:hover, .statusbar button:hover {
+  background: color-mix(in srgb, var(--text) 8%, transparent); border-color: var(--border);
+}
+.title-actions button.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.title-actions select { max-width: 190px; background: var(--panel); }
+.search-box {
+  display: flex; align-items: center; gap: 6px; height: 28px; width: 150px; padding: 0 9px;
+  border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--panel) 80%, transparent);
+}
+.search-box input { width: 100%; border: 0; outline: 0; background: transparent; font-size: 12px; }
+
+.terminal-frame {
+  position: relative; min-height: 0; margin: 12px; overflow: hidden; border: 1px solid var(--border); border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
+  box-shadow: 0 24px 80px #0008, 0 0 48px color-mix(in srgb, var(--glow) 10%, transparent);
+  backdrop-filter: blur(18px) saturate(120%);
+}
+.terminal-frame::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 2; opacity: .035;
+  background: repeating-linear-gradient(0deg, #fff 0, #fff 1px, transparent 1px, transparent 3px);
+}
+.terminal-lights { position: absolute; top: 10px; left: 12px; z-index: 3; display: flex; gap: 7px; pointer-events: none; }
+.terminal-lights i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); opacity: .7; }
+.terminal-lights i:first-child { background: #ff6b7a; }
+.terminal-lights i:nth-child(2) { background: #ffd35c; }
+.terminal-lights i:last-child { background: #5fe39b; }
+.terminal-surface { position: absolute; inset: 0; padding: 30px 13px 9px; }
+.terminal-surface .xterm { height: 100%; }
+.terminal-surface .xterm-viewport { scrollbar-color: color-mix(in srgb, var(--accent) 35%, transparent) transparent; }
+.sr-output {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: pre-wrap; border: 0;
+}
+
+.statusbar {
+  display: flex; align-items: center; gap: 14px; padding: 0 12px; border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 86%, transparent); color: var(--muted); font-size: 11px; user-select: none;
+}
+.statusbar b { color: var(--accent); }
+.statusbar button { height: 23px; color: var(--muted); }
+.statusbar .update-ready { color: var(--accent); }
+.status-grow { flex: 1; }
+
+.timer-popover {
+  position: absolute; top: 52px; right: 154px; z-index: 10; width: min(390px, calc(100vw - 30px)); padding: 16px;
+  border: 1px solid var(--border); border-radius: 13px; background: color-mix(in srgb, var(--panel) 96%, #000 4%);
+  box-shadow: 0 24px 80px #000a, 0 0 40px color-mix(in srgb, var(--glow) 16%, transparent); backdrop-filter: blur(30px);
+}
+.popover-heading { display: flex; align-items: center; justify-content: space-between; }
+.popover-heading button { border: 0; background: transparent; font-size: 22px; }
+.timer-popover p { color: var(--muted); font-size: 12px; line-height: 1.55; }
+.preset-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.timer-popover button, .timer-popover input, .timer-popover select {
+  min-height: 34px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+.timer-popover button:hover { border-color: var(--accent); }
+.timer-custom { display: grid; grid-template-columns: 1fr 92px 72px; gap: 6px; margin-top: 10px; }
+.timer-custom input, .timer-custom select { width: 100%; padding: 0 9px; outline: 0; }
+.timer-custom .primary { color: #07100f; font-weight: 700; background: var(--accent); }
+.cancel-timer { width: 100%; margin-top: 8px; color: #ff8da6; }
+
+@media (max-width: 980px) {
+  .search-box { display: none; }
+  .title-actions select { width: 120px; }
+}
+@media (max-width: 760px) {
+  .titlebar { padding-right: 136px; }
+  .title-actions button:nth-of-type(1), .title-actions button:nth-of-type(2) { display: none; }
+  .terminal-frame { margin: 7px; }
+  .timer-popover { right: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}
+@media (prefers-contrast: more) {
+  .terminal-frame, .titlebar, .statusbar, .timer-popover { border-color: var(--text); }
+  .terminal-frame::before { display: none; }
+}
