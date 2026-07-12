@@ -1,4 +1,7 @@
 from pathlib import Path
+import json
+
+import requests
 
 import beta.YT_query as yt_query
 import beta.podcasts as podcasts
@@ -49,6 +52,13 @@ def test_youtube_options_discover_node(monkeypatch):
     assert options["retries"] == 5
 
 
+def test_youtube_browser_profile_is_referenced_not_copied(monkeypatch):
+    monkeypatch.setattr(youtube_media.shutil, "which", lambda _executable: None)
+    options = youtube_media.integration_options("edge:Default")
+    assert options["cookiesfrombrowser"] == ("edge", "Default")
+    assert not any("cookie" in str(value).lower() for value in options.values() if isinstance(value, str))
+
+
 def test_podcast_feed_is_normalized(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(podcasts.requests, "get", lambda *_args, **_kwargs: FakeResponse())
     output = tmp_path / "feed.json"
@@ -56,6 +66,31 @@ def test_podcast_feed_is_normalized(monkeypatch, tmp_path: Path):
     assert result[0]["title"] == "Episode"
     assert result[0]["enclosure_url"] == "https://example.test/episode.mp3"
     assert result[0]["published_timestamp"] > 0
+
+
+def test_podcast_uses_stale_cache_when_conditional_refresh_fails(monkeypatch, tmp_path: Path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data").mkdir()
+    monkeypatch.setitem(podcasts.vendors, "cached", "https://example.test/feed.xml")
+    cached = {
+        "last_write_date": "01-01-2000",
+        "etag": "previous",
+        "podcasts_raw": [
+            {
+                "title": "Cached episode",
+                "enclosure_url": "https://example.test/cached.mp3",
+                "published_timestamp": 1,
+            }
+        ],
+    }
+    (tmp_path / "data" / "podbean_cached.json").write_text(json.dumps(cached), encoding="utf-8")
+    monkeypatch.setattr(
+        podcasts.requests,
+        "get",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(requests.Timeout("offline")),
+    )
+    result = podcasts.get_latest_podbean_data(vendor="cached")
+    assert result[0]["title"] == "Cached episode"
 
 
 def test_downloader_dry_run_preserves_quality_settings(tmp_path: Path):

@@ -55,6 +55,7 @@ from mariana.identity import AcoustIDClient, IdentificationService, LRCLIBClient
 from mariana.models import MediaCapabilities, MediaRef, MediaSource, PlaybackState
 from mariana.queueing import PersistentQueue, QueueError
 from mariana.radio import RadioCatalog, RadioError
+from mariana.sources import MediaFailure
 from recommendation_engine import Candidate, RecommendationEngine
 
 online_streaming_ext_load_error = 0
@@ -246,6 +247,7 @@ vas.configure(
     ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'),
     crossfade_seconds=SETTINGS.get('playback', {}).get('crossfade seconds', 0),
     catalog=RADIO,
+    browser_profile=SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile'),
 )
 get_lyrics.configure(IDENTITY, vas.controller)
 
@@ -483,7 +485,7 @@ def _play_queue_item(item):
         if media.source == MediaSource.LOCAL:
             play_local_default_player(media.original_uri, _songindex=None)
         else:
-            vas.controller.play(media)
+            vas.supervisor.play(media)
             _set_current_media_state(media)
     except Exception:
         RECOMMENDER.record_event(media, 'failure')
@@ -639,6 +641,11 @@ def radio_command(arguments):
                 MediaSource.RADIO,
                 endpoint,
                 title=station.name,
+                resolver_data={
+                    'station_id': station.station_id,
+                    'station_slug': station.slug,
+                    'endpoints': RADIO.endpoints(station),
+                },
                 capabilities=MediaCapabilities(
                     finite=False,
                     live=True,
@@ -3001,13 +3008,13 @@ def process(command):
         elif commandslist[0].lower() == 'queue':
             try:
                 queue_command(commandslist[1:])
-            except (QueueError, ValueError, IndexError) as error:
+            except (QueueError, MediaFailure, ValueError, IndexError) as error:
                 SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
 
         elif commandslist[0].lower() == 'radio':
             try:
                 radio_command(commandslist[1:])
-            except (RadioError, QueueError, ValueError, IndexError) as error:
+            except (RadioError, QueueError, MediaFailure, ValueError, IndexError) as error:
                 SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
 
         elif commandslist[0].lower() in {'recommend', 'recommendations'}:

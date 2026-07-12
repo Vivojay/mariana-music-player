@@ -22,13 +22,28 @@ RADIO_STREAMS: dict[str, str] = {
 }
 
 
-def configure(*, ffmpeg_bin=None, ffprobe_bin=None, crossfade_seconds=0, catalog=None):
+def configure(
+    *,
+    ffmpeg_bin=None,
+    ffprobe_bin=None,
+    crossfade_seconds=0,
+    catalog=None,
+    browser_profile=None,
+):
     global controller, supervisor, radio_catalog
     supervisor.close()
     radio_catalog = catalog
-    resolvers = ResolverRegistry(
-        radio_endpoints=lambda media: list(media.resolver_data.get("endpoints") or [media.original_uri])
-    )
+    def radio_endpoints(media):
+        endpoints = list(media.resolver_data.get("endpoints") or [])
+        station_id = media.resolver_data.get("station_id")
+        if not endpoints and radio_catalog is not None and station_id:
+            try:
+                endpoints = radio_catalog.endpoints(radio_catalog.get(station_id))
+            except Exception:
+                endpoints = []
+        return endpoints or [media.original_uri]
+
+    resolvers = ResolverRegistry(browser_profile=browser_profile, radio_endpoints=radio_endpoints)
     controller = PlaybackController(
         ffmpeg_bin=ffmpeg_bin,
         ffprobe_bin=ffprobe_bin or ffmpeg_bin,

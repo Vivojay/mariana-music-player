@@ -57,8 +57,16 @@ vendors = {
   "the_innerfrench_podcast": "http://podcast.innerfrench.com/feed.xml"
 }
 
-def refresh_podcast_data(rss_link, output_file):
-    response = requests.get(rss_link, timeout=HTTP_TIMEOUT)
+def refresh_podcast_data(rss_link, output_file, cached=None):
+    headers = {"User-Agent": "Mariana/0.7 (+https://github.com/Vivojay/mariana-music-player)"}
+    if cached:
+        if cached.get("etag"):
+            headers["If-None-Match"] = cached["etag"]
+        if cached.get("last_modified"):
+            headers["If-Modified-Since"] = cached["last_modified"]
+    response = requests.get(rss_link, timeout=HTTP_TIMEOUT, headers=headers)
+    if getattr(response, "status_code", 200) == 304 and cached:
+        return cached.get("podcasts_raw", [])
     response.raise_for_status()
     parsed = feedparser.parse(response.content)
     if parsed.bozo and not parsed.entries:
@@ -89,7 +97,9 @@ def refresh_podcast_data(rss_link, output_file):
     Path(output_file).parent.mkdir(parents=True, exist_ok=True)
     with open(output_file, 'w', encoding='utf-8') as fp:
         json.dump({"podcasts_raw": podcasts_raw,
-                   "last_write_date": dt.today().date().strftime('%d-%m-%Y')}, fp, indent=3)
+                   "last_write_date": dt.today().date().strftime('%d-%m-%Y'),
+                   "etag": getattr(response, "headers", {}).get("ETag"),
+                   "last_modified": getattr(response, "headers", {}).get("Last-Modified")}, fp, indent=3)
 
     return podcasts_raw
 
@@ -124,7 +134,14 @@ def get_latest_podbean_data(vendor = '', rss_link = None):
                             last_podcast_data_write_date
                         ):
                         # If a write date exists and it's older than today, or if it doesn't exist, refresh the data
-                        podcasts_raw = refresh_podcast_data(rss_link=rss_link, output_file=output_file)
+                        try:
+                            podcasts_raw = refresh_podcast_data(
+                                rss_link=rss_link,
+                                output_file=output_file,
+                                cached=saved_podcast_data,
+                            )
+                        except (requests.RequestException, ValueError):
+                            podcasts_raw = saved_podcast_data['podcasts_raw']
                     else:
                         # Load existing data, because it is already up to date
                         podcasts_raw = saved_podcast_data['podcasts_raw']

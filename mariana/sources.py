@@ -173,6 +173,7 @@ class LocalResolver(BaseResolver):
 class HttpResolver(BaseResolver):
     def __init__(self, session: requests.Session | None = None, timeout: tuple[float, float] = (5, 20)) -> None:
         self.session = session or requests.Session()
+        self.session.max_redirects = 5
         self.timeout = timeout
 
     @staticmethod

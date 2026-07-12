@@ -33,6 +33,14 @@ playback:
   crossfade seconds: 0
   buffer seconds: 8
 
+sources:
+  allowed protocols:
+    - file
+    - http
+    - https
+  youtube:
+    browser profile:
+
 identification:
   acoustid api key:
 
