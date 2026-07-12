@@ -14,7 +14,7 @@ from typing import Any, Iterator
 
 
 from .paths import runtime_paths
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 SCHEMA = """
@@ -82,6 +82,23 @@ CREATE TABLE IF NOT EXISTS lyrics_cache (
     identity_confidence REAL NOT NULL DEFAULT 0,
     retrieved_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS loudness_profiles (
+    stable_id TEXT PRIMARY KEY,
+    content_signature TEXT,
+    album_key TEXT,
+    track_gain_db REAL,
+    track_peak REAL,
+    album_gain_db REAL,
+    album_peak REAL,
+    target_lufs REAL NOT NULL DEFAULT -18.0,
+    algorithm TEXT NOT NULL,
+    source TEXT NOT NULL,
+    complete_album INTEGER NOT NULL DEFAULT 0,
+    scanned_at REAL NOT NULL,
+    error_text TEXT
+);
+CREATE INDEX IF NOT EXISTS loudness_content_idx ON loudness_profiles(content_signature);
+CREATE INDEX IF NOT EXISTS loudness_album_idx ON loudness_profiles(album_key);
 CREATE TABLE IF NOT EXISTS radio_stations (
     station_id TEXT PRIMARY KEY,
     slug TEXT UNIQUE NOT NULL,

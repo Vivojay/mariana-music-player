@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 import hashlib
 import json
 import os
@@ -18,6 +18,14 @@ from mutagen import File as MutagenFile, MutagenError
 from .database import MarianaDatabase
 from .identity import IdentificationError, fingerprint_file
 from .identity import IdentificationService
+from .loudness import (
+    LoudnessError,
+    LoudnessProfile,
+    LoudnessRepository,
+    RSGainAnalyzer,
+    album_identity,
+    profile_from_tags,
+)
 from .models import MediaCapabilities, MediaRef, MediaSource
 from .playback import CREATE_NO_WINDOW, find_executable
 
@@ -156,6 +164,8 @@ class LibraryCatalog:
         fpcalc_bin: str | None = None,
         identity_service: IdentificationService | None = None,
         online_enrichment: bool = False,
+        rsgain_bin: str | None = None,
+        analyze_loudness: bool = False,
     ) -> None:
         self.database = database
         self.library_file = Path(library_file)
@@ -167,6 +177,9 @@ class LibraryCatalog:
         self.fpcalc_bin = fpcalc_bin
         self.identity_service = identity_service
         self.online_enrichment = online_enrichment
+        self.loudness = LoudnessRepository(database)
+        self.rsgain = RSGainAnalyzer(rsgain_bin)
+        self.analyze_loudness = analyze_loudness
 
     def roots(self) -> list[dict[str, Any]]:
         return [dict(row) for row in self.database.fetchall("SELECT * FROM library_roots ORDER BY path_key")]
@@ -463,12 +476,14 @@ class LibraryCatalog:
         audio = next((stream for stream in streams if stream.get("codec_type") == "audio"), {})
         tags = {str(key).casefold(): _safe_text(value) for key, value in (format_info.get("tags") or {}).items()}
         tags.update({str(key).casefold(): _safe_text(value) for key, value in (audio.get("tags") or {}).items()})
+        loudness_tags: dict[str, Any] = dict(tags)
         embedded_lyrics = None
         artwork = False
         try:
             mutagen = MutagenFile(job.path, easy=False)
             for key, value in (getattr(mutagen, "tags", {}) or {}).items():
                 lowered = str(key).casefold()
+                loudness_tags[str(key)] = value
                 if any(marker in lowered for marker in ("uslt", "sylt", "lyrics")):
                     embedded_lyrics = embedded_lyrics or _safe_text(value)
                 if lowered.startswith(("apic", "covr", "metadata_block_picture")):
@@ -484,6 +499,9 @@ class LibraryCatalog:
             "title": tags.get("title"),
             "artist": tags.get("artist"),
             "album": tags.get("album"),
+            "album_artist": tags.get("album_artist") or tags.get("albumartist"),
+            "disc": tags.get("disc") or tags.get("discnumber"),
+            "release_mbid": tags.get("musicbrainz_albumid") or tags.get("musicbrainz_releaseid"),
             "genre": tags.get("genre"),
             "date": tags.get("date") or tags.get("year"),
             "track": tags.get("track") or tags.get("tracknumber"),
@@ -495,6 +513,15 @@ class LibraryCatalog:
             "channels": audio.get("channels"),
             "artwork_embedded": artwork,
         }
+        library_row = self.database.fetchone(
+            "SELECT content_signature FROM library_files WHERE library_id=?", (job.library_id,)
+        )
+        loudness_profile = profile_from_tags(
+            job.library_id,
+            loudness_tags,
+            metadata=metadata,
+            content_signature=library_row["content_signature"] if library_row else None,
+        )
         features = {
             key: metadata[key]
             for key in ("artist", "album", "genre", "date", "duration", "codec")
@@ -514,6 +541,8 @@ class LibraryCatalog:
                 ),
             )
             self._schedule(connection, job.library_id, "fingerprint", priority=50)
+            if self.analyze_loudness and loudness_profile is None:
+                self._schedule(connection, job.library_id, "loudness", priority=25)
             capabilities = MediaCapabilities(downloadable=False, metadata_available=True)
             connection.execute(
                 "INSERT INTO media_items(stable_id, source, original_uri, title, artist, album, duration, "
@@ -541,6 +570,8 @@ class LibraryCatalog:
                     time.time(),
                 ),
             )
+        if loudness_profile is not None:
+            self.loudness.save(loudness_profile)
 
     def _fingerprint(self, job: LibraryJob) -> None:
         duration, fingerprint = fingerprint_file(job.path, self.fpcalc_bin)
@@ -576,8 +607,58 @@ class LibraryCatalog:
         )
         self.identity_service.lyrics(media, identity)
 
+    def _loudness(self, job: LibraryJob) -> None:
+        row = self.database.fetchone("SELECT * FROM library_files WHERE library_id=?", (job.library_id,))
+        if not row:
+            raise LibraryError("Library item disappeared before loudness analysis")
+        if reused := self.loudness.by_content(row["content_signature"]):
+            self.loudness.save(LoudnessProfile(
+                **{
+                    **asdict(reused),
+                    "stable_id": job.library_id,
+                    "source": "content-cache",
+                    "scanned_at": time.time(),
+                }
+            ))
+            return
+        metadata = json.loads(row["metadata_json"] or "{}")
+        key = album_identity(metadata)
+        group = [row]
+        if key:
+            candidates = self.database.fetchall(
+                "SELECT * FROM library_files WHERE state='available' AND library_id<>? ORDER BY path_key",
+                (job.library_id,),
+            )
+            group.extend(
+                candidate
+                for candidate in candidates
+                if album_identity(json.loads(candidate["metadata_json"] or "{}")) == key
+            )
+        paths = [Path(item["canonical_path"]) for item in group]
+        results = self.rsgain.analyze(paths, album=len(group) > 1)
+        saved = 0
+        for item, path in zip(group, paths, strict=True):
+            values = results.get(str(path.resolve()))
+            if not values:
+                continue
+            self.loudness.save(LoudnessProfile(
+                stable_id=item["library_id"],
+                content_signature=item["content_signature"],
+                album_key=key,
+                track_gain_db=values.get("track_gain_db"),
+                track_peak=values.get("track_peak"),
+                album_gain_db=values.get("album_gain_db") if len(group) > 1 else None,
+                album_peak=values.get("album_peak") if len(group) > 1 else None,
+                source="rsgain-3.7",
+                complete_album=len(group) > 1 and values.get("album_gain_db") is not None,
+                scanned_at=time.time(),
+            ))
+            saved += 1
+        if not saved:
+            raise LibraryError("rsgain returned no matching file results")
+
     def process_jobs(self, stage: str, *, limit: int = 1, owner: str | None = None) -> int:
-        if stage not in {"probe", "fingerprint", "enrich"}:
+        if stage not in {"probe", "fingerprint", "loudness", "enrich"}:
             raise LibraryError(f"Unknown profiling stage: {stage}")
         owner = owner or f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
         jobs = self.lease_jobs(stage, limit, owner)
@@ -587,9 +668,11 @@ class LibraryCatalog:
                     self._probe(job)
                 elif stage == "fingerprint":
                     self._fingerprint(job)
+                elif stage == "loudness":
+                    self._loudness(job)
                 else:
                     self._enrich(job)
-            except (LibraryError, IdentificationError, OSError) as error:
+            except (LibraryError, LoudnessError, IdentificationError, OSError) as error:
                 self._fail(job, stage, error)
             else:
                 self._complete(job)
@@ -653,4 +736,6 @@ class LibraryCatalog:
         result = dict(row)
         result["metadata"] = json.loads(result.pop("metadata_json") or "{}")
         result["features"] = json.loads(result.pop("features_json") or "{}")
+        profile = self.loudness.get(result["library_id"])
+        result["loudness"] = asdict(profile) if profile else None
         return result

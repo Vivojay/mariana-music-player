@@ -136,6 +136,15 @@ class LibraryProfilerService:
             )
             self._threads.append(worker)
             worker.start()
+        if getattr(self.catalog, "analyze_loudness", False):
+            worker = threading.Thread(
+                target=self._job_worker,
+                args=("loudness", 0),
+                name="mariana-library-loudness",
+                daemon=True,
+            )
+            self._threads.append(worker)
+            worker.start()
         if self.catalog.online_enrichment and self.catalog.identity_service:
             worker = threading.Thread(
                 target=self._job_worker,
@@ -180,7 +189,7 @@ class LibraryProfilerService:
             state = self.playback_state()
             busy = state in BUSY_PLAYBACK_STATES
             allowed = not self._paused.is_set()
-            if stage in {"fingerprint", "enrich"} and busy:
+            if stage in {"fingerprint", "loudness", "enrich"} and busy:
                 allowed = False
             if stage == "probe" and busy and index > 0:
                 allowed = False
