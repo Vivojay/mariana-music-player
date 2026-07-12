@@ -470,6 +470,18 @@ def test_create_files_save_user_data_and_run_lifecycle(monkeypatch, tmp_path):
     assert user["default_user_data"]["stats"]["log_ins"] == 1
 
 
+def test_clear_terminal_erases_screen_scrollback_and_homes_cursor(monkeypatch, capsys):
+    main.clear_terminal()
+    assert capsys.readouterr().out == "\033[2J\033[3J\033[H"
+
+    calls = []
+    monkeypatch.setattr(main, "clear_terminal", lambda: calls.append("clear"))
+    monkeypatch.setattr(main, "showbanner", lambda: calls.append("banner"))
+    monkeypatch.setattr(main, "visible", True)
+    main.process("cls")
+    assert calls == ["clear", "banner"]
+
+
 def test_startup_enforces_platform_and_fatal_state(monkeypatch):
     monkeypatch.setattr(main, "first_startup_greet", lambda _first: None)
     monkeypatch.setattr(main, "FIRST_BOOT", False)

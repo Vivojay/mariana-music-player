@@ -42,10 +42,14 @@ test('preserves PTY controls, history, resize, themes, and session restart', asy
     const terminalGeometry = await page.locator('.terminal-surface').evaluate((surface) => {
       const frame = surface.closest('.terminal-frame')
       const screen = surface.querySelector('.xterm-screen')
-      if (!frame || !screen) throw new Error('Terminal geometry is incomplete')
+      const lights = frame?.querySelector('.terminal-lights')
+      const dots = lights ? [...lights.querySelectorAll('i')] : []
+      if (!frame || !screen || !lights || dots.length !== 3) throw new Error('Terminal geometry is incomplete')
       const frameRect = frame.getBoundingClientRect()
       const surfaceRect = surface.getBoundingClientRect()
       const screenRect = screen.getBoundingClientRect()
+      const lightsRect = lights.getBoundingClientRect()
+      const dotRects = dots.map((dot) => dot.getBoundingClientRect())
       const style = getComputedStyle(surface)
       return {
         topInset: surfaceRect.top - frameRect.top,
@@ -53,12 +57,27 @@ test('preserves PTY controls, history, resize, themes, and session restart', asy
         paddingBottom: style.paddingBottom,
         screenBottom: screenRect.bottom,
         surfaceBottom: surfaceRect.bottom,
+        lightsTop: lightsRect.top,
+        lightsBottom: lightsRect.bottom,
+        frameTop: frameRect.top,
+        dotsInsideHeader: dotRects.every((dot) => dot.top >= lightsRect.top && dot.bottom <= lightsRect.bottom),
       }
     })
     expect(terminalGeometry.topInset).toBeGreaterThanOrEqual(29)
     expect(terminalGeometry.bottomInset).toBeGreaterThanOrEqual(8)
     expect(terminalGeometry.paddingBottom).toBe('0px')
     expect(terminalGeometry.screenBottom).toBeLessThanOrEqual(terminalGeometry.surfaceBottom + 1)
+    expect(terminalGeometry.lightsTop).toBeGreaterThanOrEqual(terminalGeometry.frameTop)
+    expect(terminalGeometry.lightsBottom).toBeLessThanOrEqual(terminalGeometry.surfaceBottom)
+    expect(terminalGeometry.dotsInsideHeader).toBe(true)
+    await page.evaluate(() => window.mariana.terminal.write('weblinks\r'))
+    const terminalInput = page.locator('.xterm-helper-textarea')
+    await terminalInput.focus()
+    await terminalInput.pressSequentially('clear')
+    await terminalInput.press('Enter')
+    await expect(page.getByLabel('Terminal output')).not.toContainText('Weblinks feature', { timeout: 10_000 })
+    await page.evaluate(() => window.mariana.terminal.write('sleep status\r'))
+    await expect(page.getByLabel('Terminal output')).toContainText('Sleep timer is inactive', { timeout: 10_000 })
     await page.locator('.xterm-helper-textarea').press('ArrowUp')
     await page.locator('.xterm-helper-textarea').press('Enter')
     await expect(page.getByLabel('Terminal output')).toContainText('Sleep timer is inactive')

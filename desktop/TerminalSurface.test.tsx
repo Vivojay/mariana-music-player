@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   output: undefined as ((value: string) => void) | undefined,
   search: vi.fn(),
   write: vi.fn(),
+  clear: vi.fn(),
   dispose: vi.fn(),
   resize: vi.fn(),
   terminalWrite: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock('@xterm/xterm', () => ({
     loadAddon() {}
     open() {}
     focus() {}
+    clear = state.clear
     write = state.terminalWrite
     dispose = state.dispose
     onData(callback: (value: string) => void) {
@@ -37,6 +39,7 @@ beforeEach(() => {
   Object.assign(state, { input: undefined, output: undefined })
   state.search.mockClear()
   state.write.mockClear()
+  state.clear.mockClear()
   state.dispose.mockClear()
   state.resize.mockClear()
   state.terminalWrite.mockClear()
@@ -69,6 +72,16 @@ it('bridges PTY input/output, strips ANSI for accessibility, searches, and dispo
   act(() => state.output?.('\u001b[31mError\u001b[0m\r\n'))
   expect(screen.getByLabelText('Terminal output')).toHaveTextContent('Error')
   expect(screen.getByLabelText('Terminal output').textContent).not.toContain('\u001b')
+  act(() => state.output?.('\u001b[2'))
+  act(() => state.output?.('J\u001b[3'))
+  act(() => state.output?.('J\u001b[HClean\r\n'))
+  expect(screen.getByLabelText('Terminal output')).toHaveTextContent('Clean')
+  expect(screen.getByLabelText('Terminal output')).not.toHaveTextContent('Error')
+  act(() => state.output?.('Old output\r\n'))
+  act(() => state.input?.('clear\r'))
+  expect(state.clear).toHaveBeenCalledOnce()
+  expect(screen.getByLabelText('Terminal output')).not.toHaveTextContent('Old output')
+  expect(state.write).toHaveBeenCalledWith('clear\r')
   act(() => window.dispatchEvent(new CustomEvent('mariana-search', { detail: 'Error' })))
   expect(state.search).toHaveBeenCalledWith('Error', { incremental: true })
   expect(state.resize).toHaveBeenCalledWith(100, 30)

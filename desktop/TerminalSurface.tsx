@@ -50,11 +50,37 @@ export function TerminalSurface({ theme, fontSize, reducedMotion }: Props) {
     }
     const resize = new ResizeObserver(fitTerminal)
     resize.observe(container.current)
-    const input = terminal.onData((data) => window.mariana.terminal.write(data))
+    let pendingInput = ''
+    const input = terminal.onData((data) => {
+      if (data.startsWith('\u001b')) {
+        pendingInput = ''
+      } else {
+        for (const character of data) {
+          if (character === '\r' || character === '\n') {
+            if (['clear', 'cls'].includes(pendingInput.trim().toLowerCase())) {
+              terminal.clear()
+              setAccessibleOutput('')
+            }
+            pendingInput = ''
+          } else if (character === '\u007f') {
+            pendingInput = pendingInput.slice(0, -1)
+          } else if (character === '\u0003') {
+            pendingInput = ''
+          } else if (character >= ' ') {
+            pendingInput += character
+          }
+        }
+      }
+      window.mariana.terminal.write(data)
+    })
+    let controlSequenceTail = ''
     const output = window.mariana.terminal.onData((data) => {
       terminal.write(data)
       const text = data.replace(ANSI_ESCAPE, '').replace(/\r/g, '')
-      setAccessibleOutput((current) => (current + text).slice(-8_000))
+      const controlWindow = controlSequenceTail + data
+      const clearsTerminal = controlWindow.includes('\u001b[2J') || controlWindow.includes('\u001b[3J')
+      controlSequenceTail = clearsTerminal ? '' : controlWindow.slice(-4)
+      setAccessibleOutput((current) => ((clearsTerminal ? '' : current) + text).slice(-8_000))
     })
     const onSearch = (event: Event) => search.findNext((event as CustomEvent<string>).detail, { incremental: true })
     window.addEventListener('mariana-search', onSearch)

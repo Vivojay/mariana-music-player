@@ -170,6 +170,11 @@ def create_required_files_if_not_exist(*files):
             with path.open('w', encoding="utf-8") as _:
                 pass
 
+
+def clear_terminal():
+    """Clear the visible terminal, scrollback, and cursor position consistently."""
+    print('\033[2J\033[3J\033[H', end='', flush=True)
+
 create_required_files_if_not_exist(
     RUNTIME_PATHS.logs / 'history.log',
     RUNTIME_PATHS.logs / 'general.log',
@@ -2924,7 +2929,7 @@ def process(command):
                 raise
 
         elif commandslist in [['clear'], ['cls']]:
-            os.system('cls' if os.name == 'nt' else 'clear')
+            clear_terminal()
             if visible: showbanner()
 
         elif commandslist == ['p']:

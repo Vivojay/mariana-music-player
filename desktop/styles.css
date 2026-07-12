@@ -71,8 +71,14 @@ button { cursor: pointer; }
   content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 2; opacity: .035;
   background: repeating-linear-gradient(0deg, #fff 0, #fff 1px, transparent 1px, transparent 3px);
 }
-.terminal-lights { position: absolute; top: 10px; left: 12px; z-index: 3; display: flex; gap: 7px; pointer-events: none; }
-.terminal-lights i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); opacity: .7; }
+.terminal-lights {
+  position: absolute; inset: 0 0 auto; z-index: 3; display: flex; align-items: center; gap: 7px; height: 30px;
+  padding: 0 12px; pointer-events: none; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  background: color-mix(in srgb, var(--panel) 45%, transparent);
+}
+.terminal-lights i {
+  display: block; flex: 0 0 9px; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); opacity: .8;
+}
 .terminal-lights i:first-child { background: #ff6b7a; }
 .terminal-lights i:nth-child(2) { background: #ffd35c; }
 .terminal-lights i:last-child { background: #5fe39b; }
