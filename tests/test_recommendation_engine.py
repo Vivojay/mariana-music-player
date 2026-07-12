@@ -94,6 +94,16 @@ def test_exploration_recent_collaboration_exclusion_and_empty(tmp_path: Path):
         assert engine.record_event(None, "unknown") == 0
 
 
+def test_recent_context_boosts_related_candidates(tmp_path: Path):
+    with MarianaDatabase(tmp_path / "related.db") as database:
+        engine = RecommendationEngine(database, seed=3, exploration=0)
+        recent = candidate(1, artist="Context", tags=["ambient", "calm"])
+        related = candidate(2, artist="Other", tags=["ambient", "calm"])
+        unrelated = candidate(3, artist="Other", tags=["metal", "loud"])
+        results = engine.recommend([unrelated, related], recent=[recent])
+        assert results[0].media.stable_id == related.media.stable_id
+
+
 def test_listenbrainz_is_opt_in_and_normalizes_payload():
     assert ListenBrainzClient().recommendations("user") == []
 

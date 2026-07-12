@@ -169,3 +169,27 @@ def test_schema_v1_is_backed_up_and_migrated_atomically(tmp_path: Path):
         assert check.execute("SELECT value FROM schema_meta").fetchone()[0] == "1"
     finally:
         check.close()
+
+
+def test_managed_download_root_is_separate_from_library_file(tmp_path: Path):
+    library_file = tmp_path / "lib.lib"
+    user_root = tmp_path / "user"
+    downloads = tmp_path / "downloads"
+    user_root.mkdir()
+    downloads.mkdir()
+    library_file.write_text(str(user_root), encoding="utf-8")
+    enabled = [True]
+    with MarianaDatabase(tmp_path / "managed.db") as database:
+        library = LibraryCatalog(
+            database,
+            library_file=library_file,
+            supported_extensions=[".mp3"],
+            managed_roots=lambda: [(downloads, "downloads")] if enabled[0] else [],
+        )
+        roots = library.sync_roots()
+        assert {root["origin"] for root in roots} == {"library-file", "downloads"}
+        enabled[0] = False
+        roots = library.sync_roots()
+        download_row = next(root for root in roots if root["origin"] == "downloads")
+        assert download_row["available"] == 0
+        assert library_file.read_text(encoding="utf-8") == str(user_root)

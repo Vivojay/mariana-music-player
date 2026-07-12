@@ -36,6 +36,7 @@ import restore_default;                             print("Loaded 11/31", end='\
 print("Loaded 12/31", end='\r')
 import json;                                        print("Loaded 13/31", end='\r')
 import webbrowser;                                  print("Loaded 14/31", end='\r')
+import tempfile
 from pathlib import Path
 
 # import concurrent.futures;                          print("Loaded 15/31", end='\r')
@@ -52,6 +53,14 @@ from multiprocessing import Process;                print("Loaded 22/31", end='\
 from first_boot_welcome_screen import notify;       print("Loaded 23/31", end='\r')
 from config_manager import load_system_settings, load_user_settings
 from mariana.broadcast import BroadcastError, BroadcastState, IcecastBroadcaster
+from mariana.commands import (
+    DOWNLOAD_TYPOS,
+    SEARCH_COMMANDS,
+    SearchAction,
+    normalize_command,
+    parse_search,
+    search_rows,
+)
 from mariana.credentials import CredentialError, CredentialStore
 from mariana.database import MarianaDatabase
 from mariana.desktop_control import DesktopControl
@@ -367,6 +376,22 @@ MAX_RESULT_COUNT = SETTINGS['display items count']['general']['maximum']
 max_yt_search_results_threshold = SETTINGS['display items count']['youtube-search results']['maximum']
 
 LIBRARY_SETTINGS = SETTINGS.get('library', {})
+
+
+def _managed_library_roots():
+    enabled = DATABASE.get_state(
+        'library_include_downloads',
+        SETTINGS.get('include music folder in library', True),
+    )
+    configured = SETTINGS.get('download', {}).get('downloads folder')
+    if not enabled or not configured:
+        return []
+    root = Path(configured).expanduser()
+    if SETTINGS.get('download', {}).get('make a separate mariana folder within "downloads folder"'):
+        root /= SYSTEM_SETTINGS['system_settings']['mariana_dl_dir']
+    return [(root, 'downloads')]
+
+
 LIBRARY = LibraryCatalog(
     DATABASE,
     library_file=RUNTIME_PATHS.library_file,
@@ -377,6 +402,7 @@ LIBRARY = LibraryCatalog(
     online_enrichment=LIBRARY_SETTINGS.get('online enrichment', False),
     rsgain_bin=MEDIA_TOOLS.get('rsgain bin') or TOOLCHAIN.resolve('rsgain'),
     analyze_loudness=bool(REPLAYGAIN_SETTINGS.get('enabled') and REPLAYGAIN_SETTINGS.get('analyze missing', True)),
+    managed_roots=_managed_library_roots,
 )
 vas.controller.loudness_repository = LIBRARY.loudness
 LIBRARY_SERVICE = LibraryProfilerService(
@@ -629,6 +655,7 @@ def _on_queue_item_complete(media):
     if next_item is None and QUEUE.state().get('autofill'):
         recommendations = RECOMMENDER.recommend(
             limit=1,
+            recent=[Candidate(media)],
             exclude_ids={item.media.stable_id for item in QUEUE.items()},
         )
         if recommendations:
@@ -716,10 +743,20 @@ def library_command(arguments):
     operation = arguments[0].lower() if arguments else 'status'
     if operation == 'roots':
         rows = [
-            (root['path'], root['kind'], 'online' if root['available'] else 'offline', root['error'] or '')
+            (
+                root['path'],
+                root.get('origin', 'library-file'),
+                root['kind'],
+                'online' if root['available'] else 'offline',
+                root['error'] or '',
+            )
             for root in LIBRARY.sync_roots()
         ]
-        IPrint(tbl(rows, headers=('Path', 'Kind', 'State', 'Error'), tablefmt='plain') if rows else '(no roots)', visible=visible)
+        IPrint(
+            tbl(rows, headers=('Path', 'Origin', 'Kind', 'State', 'Error'), tablefmt='plain')
+            if rows else '(no roots)',
+            visible=visible,
+        )
     elif operation == 'scan':
         mode = arguments[1].lower() if len(arguments) > 1 else 'changed'
         result = LIBRARY.scan(mode)
@@ -1107,18 +1144,132 @@ def radio_command(arguments):
 
 def recommendation_command(arguments):
     operation = arguments[0].lower() if arguments else 'list'
-    if operation in {'list', 'show'}:
-        results = RECOMMENDER.recommend(limit=int(arguments[1]) if len(arguments) > 1 else 10)
+    snapshot_media = _preference_media(vas.controller.snapshot().media)
+    recent = [Candidate(snapshot_media)] if snapshot_media else []
+    if operation in {'list', 'show', 'related'}:
+        count = int(arguments[1]) if len(arguments) > 1 else 10
+        excluded = {snapshot_media.stable_id} if operation == 'related' and snapshot_media else set()
+        if operation == 'related' and not snapshot_media:
+            raise QueueError('No active media is available for related recommendations')
+        results = RECOMMENDER.recommend(limit=count, recent=recent, exclude_ids=excluded)
         IPrint(tbl([(index + 1, result.media.title or result.media.original_uri, '; '.join(result.reasons)) for index, result in enumerate(results)], headers=('#', 'Track', 'Why'), tablefmt='plain'), visible=visible)
     elif operation == 'autofill':
         count = int(arguments[1]) if len(arguments) > 1 else 10
-        for result in RECOMMENDER.recommend(limit=count, exclude_ids={item.media.stable_id for item in QUEUE.items()}):
+        for result in RECOMMENDER.recommend(
+            limit=count,
+            recent=recent,
+            exclude_ids={item.media.stable_id for item in QUEUE.items()},
+        ):
             QUEUE.add(result.media)
     elif operation == 'train':
         model = RECOMMENDER.retrain_if_due(force=True)
         IPrint(f'Active model: {model}', visible=visible)
     else:
         raise QueueError(f'Unknown recommendation operation: {operation}')
+
+
+def preference_command(arguments, state):
+    media = _preference_media(vas.controller.snapshot().media)
+    if not media:
+        raise ValueError('No active media')
+    state = PreferenceState(state)
+    operation = arguments[0] if arguments else None
+    if operation is None:
+        current = PREFERENCES.get(media)
+    elif operation == '!':
+        current = PREFERENCES.toggle(media, state)
+    elif operation in {'+', '-'}:
+        current = state if operation == '+' else PreferenceState.NEUTRAL
+        PREFERENCES.set(media, current)
+    else:
+        raise ValueError('Usage: fav|bl [!|+|-]')
+    IPrint(f'Preference: {current.value}', visible=visible)
+    return current
+
+
+def list_preferences(state, arguments):
+    if len(arguments) > 1 or (arguments and not arguments[0].isdigit()):
+        raise ValueError('Preference list accepts an optional numeric limit')
+    limit = int(arguments[0]) if arguments else MAX_RESULT_COUNT
+    entries = PREFERENCES.list(state, limit)
+    IPrint(
+        tbl(
+            [(index + 1, entry.label, entry.uri or '') for index, entry in enumerate(entries)],
+            headers=('#', 'Track', 'Location'),
+            tablefmt='plain',
+        ) if entries else '(none)',
+        visible=visible,
+    )
+    return entries
+
+
+def set_download_library_inclusion(enabled):
+    DATABASE.set_state('library_include_downloads', bool(enabled))
+    LIBRARY.sync_roots()
+    result = LIBRARY.scan('changed')
+    reload_sounds(quick_load=True)
+    IPrint(
+        f'Download directory {"included in" if enabled else "excluded from"} the library; '
+        f'{result.changed} files changed',
+        visible=visible,
+    )
+    return result
+
+
+def advanced_search_command(tokens):
+    request = parse_search(tokens)
+    results = search_rows(_sound_files_names_enumerated, request)
+    if not results:
+        IPrint(colored.fg('hot_pink_1a') + '-- No results found --' + colored.attr('reset'), visible=visible)
+        return []
+    if request.action == SearchAction.FIRST:
+        local_play_commands([None, str(results[0][0])])
+    elif request.action == SearchAction.RANDOM:
+        local_play_commands([None, str(rand.choice(results)[0])])
+    else:
+        IPrint(
+            f'Found {len(results)} match{("es" if len(results) != 1 else "")}: '
+            f'{" ".join(request.query)}',
+            visible=visible,
+        )
+        IPrint(tbl(results, tablefmt='mysql', headers=('#', 'Song')), visible=visible)
+    return results
+
+
+def edit_current_lyrics():
+    global DEFAULT_EDITOR
+    media = _preference_media(vas.controller.snapshot().media)
+    if not media or media.source != MediaSource.LOCAL:
+        raise ValueError('Lyrics can be edited only for a currently loaded local file')
+    source = Path(media.original_uri)
+    if not source.is_file():
+        raise ValueError('The current local media file is unavailable')
+    sidecar = source.with_suffix('.lrc')
+    if not sidecar.exists():
+        identity = IDENTITY.identify(media, pcm=vas.controller.fingerprint_pcm())
+        result = IDENTITY.lyrics(media, identity)
+        content = result.synced or result.plain
+        if not content:
+            raise ValueError('No lyrics are available to create an LRC sidecar')
+        permission = input(f'Create adjacent lyrics file "{sidecar}"? (y/n): ').casefold().strip()
+        if permission not in {'y', 'yes'}:
+            IPrint('Lyrics edit cancelled', visible=visible)
+            return None
+        descriptor, temporary_name = tempfile.mkstemp(prefix=f'.{sidecar.name}.', dir=sidecar.parent)
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, 'w', encoding='utf-8') as stream:
+                stream.write(content.rstrip() + '\n')
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, sidecar)
+        finally:
+            temporary.unlink(missing_ok=True)
+    if DEFAULT_EDITOR:
+        sp.Popen([DEFAULT_EDITOR, str(sidecar)], shell=False)
+    else:
+        open_path(sidecar)
+    return sidecar
 
 def get_current_progress():
     return vas.player.get_time() / 1000
@@ -2076,6 +2227,7 @@ def process(command):
     global _sound_files_names_only, visible, currentsong, isplaying, ismuted, cached_volume
     global current_media_type, DEFAULT_EDITOR, YOUTUBE_PLAY_TYPE, lyrics_saved_for_song
 
+    command = normalize_command(command)
     commandslist = command.strip().split()
 
     try:
@@ -2098,9 +2250,11 @@ def process(command):
         elif commandslist in [['exit', 'y'], ['quit', 'y']]:
             return False
 
-        if commandslist == ['all']:
+        if commandslist in (['all'], ['all*']):
             rescount = MAX_RESULT_COUNT
-            results_enum = enumerate(_sound_files_names_only[:rescount])
+            results_enum = enumerate(
+                _sound_files_names_only if commandslist == ['all*'] else _sound_files_names_only[:rescount]
+            )
             IPrint(tbl([(i+1, j) for i, j in results_enum], tablefmt='plain'), visible=visible)
 
         # TODO: Need to display files in n columns (Mostly 3 cols) depending upon terminal size (dynamically...)
@@ -2416,7 +2570,35 @@ def process(command):
                     log_message='No recents to display',
                     log_priority=2)
 
-        elif commandslist == ['reload']:
+        elif commandslist[0] in {'hist', 'history'}:
+            if commandslist[1:] == ['count']:
+                try:
+                    count = sum(bool(line.strip()) for line in (RUNTIME_PATHS.logs / 'history.log').read_text(
+                        encoding='utf-8'
+                    ).splitlines())
+                    IPrint(f'History count: {count}', visible=visible)
+                except OSError as error:
+                    SAY(visible=visible, display_message=f'Error reading history: {error}', log_message=str(error), log_priority=2)
+            elif len(commandslist) == 1:
+                reveal_path(RUNTIME_PATHS.logs / 'history.log')
+            else:
+                SAY(visible=visible, display_message='Usage: history [count]', log_message='Invalid history command', log_priority=2)
+
+        elif commandslist[0] in {'include', 'exclude'}:
+            if len(commandslist) == 2 and commandslist[1] in {'download', 'downloads', 'dl', 'dls'}:
+                set_download_library_inclusion(commandslist[0] == 'include')
+            else:
+                SAY(visible=visible, display_message='Usage: include|exclude downloads', log_message='Invalid download library command', log_priority=2)
+
+        elif commandslist[0] == 'reload':
+            option = ''.join(commandslist[1:]).replace('-', '')
+            include_options = {'includedl', 'includedls', 'includedownload', 'includedownloads'}
+            exclude_options = {'excludedl', 'excludedls', 'excludedownload', 'excludedownloads'}
+            if option in include_options | exclude_options:
+                set_download_library_inclusion(option in include_options)
+            elif option:
+                SAY(visible=visible, display_message='Invalid reload option', log_message='Invalid reload option', log_priority=2)
+                return None
             IPrint("Reloading sounds", visible=visible)
             reload_sounds(quick_load = False)
 
@@ -2756,6 +2938,9 @@ def process(command):
                         log_message = 'Progress undefined for audio of unknown length',
                         log_priority = 2) # Log fatal crash
 
+        elif commandslist[0].lower().split('-', 1)[0] in DOWNLOAD_TYPOS:
+            IPrint('Unknown command. Did you mean "download"?', visible=visible)
+
         elif commandslist[0].lower() in ['download',  'download-yt',  'download-au',  'download-a',
                                          '/download', '/download-yt', '/download-au', '/download-a']:
             SAY(visible=visible,
@@ -2953,6 +3138,12 @@ def process(command):
                 SAY(visible=visible, display_message="Error: No audio to seek",
                     log_message="Seeked audio w/o playing any", log_priority=2)
 
+        elif commandslist[0].casefold() in SEARCH_COMMANDS:
+            try:
+                advanced_search_command(commandslist)
+            except ValueError as error:
+                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+
         elif command[0] == '.':
             try:
                 # Play by index
@@ -3087,6 +3278,13 @@ def process(command):
                         display_message = 'No lyrics available to view',
                         log_priority = 2)
 
+            elif commandslist[1:] in (['hist'], ['history']):
+                history_path = RUNTIME_PATHS.logs / 'history.log'
+                if DEFAULT_EDITOR:
+                    sp.Popen([DEFAULT_EDITOR, str(history_path)], shell=False)
+                else:
+                    open_path(history_path)
+
             else:
                 if len(commandslist) == 2 and commandslist[1].isnumeric():
                     user_entered_song_index = int(commandslist[1])-1
@@ -3152,21 +3350,32 @@ def process(command):
                         log_message = 'Invalid song index provided for listing name',
                         log_priority = 2)
 
-        elif commandslist[0].lower() in ['find', 'f']:
-            if len(commandslist) > 1:
-                if commandslist[-1].isnumeric():
-                    myquery = commandslist[1:-1]
-                    searchresults = (searchsongs(queryitems=myquery))
-                    searchresults = searchresults[:int(commandslist[-1])]
-                else:
-                    myquery = commandslist[1:]
-                    searchresults = (searchsongs(queryitems=myquery))
-                if searchresults != []:
-                    IPrint(
-                    f"{colored.fg('orange_1')}Found {len(searchresults)} match{('es')*(len(searchresults)>1)} for: {' '.join(myquery)}{colored.attr('reset')}", visible=visible)
-                    IPrint(tbl(searchresults, tablefmt='mysql', headers=('#', 'Song')), visible=visible)
-                else:
-                    IPrint(colored.fg('hot_pink_1a')+"-- No results found --"+colored.attr('reset'), visible=visible)
+        elif commandslist[0] in {'fav', 'bl', 'blacklisted'}:
+            try:
+                preference_command(
+                    commandslist[1:],
+                    PreferenceState.FAVORITE if commandslist[0] == 'fav' else PreferenceState.BLOCKED,
+                )
+            except ValueError as error:
+                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+
+        elif commandslist[0] in {'favs', 'blacklist'}:
+            try:
+                list_preferences(
+                    PreferenceState.FAVORITE if commandslist[0] == 'favs' else PreferenceState.BLOCKED,
+                    commandslist[1:],
+                )
+            except ValueError as error:
+                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+
+        elif commandslist[0] == 'beta':
+            if len(commandslist) <= 2 and (len(commandslist) == 1 or commandslist[1] in {'on', 'off'}):
+                IPrint('Former beta features are stable and always available; no toggle is required.', visible=visible)
+            else:
+                SAY(visible=visible, display_message='Usage: beta [on|off]', log_message='Invalid beta command', log_priority=2)
+
+        elif commandslist == ['check_dev']:
+            IPrint(f'Development mode: {"on" if ISDEV else "off"}', visible=visible)
 
         elif commandslist in [['s'], ['stop']]:
             stopsong()
@@ -3246,8 +3455,16 @@ def process(command):
                 vas.player.audio_set_mute(0)
                 vas.player.audio_set_volume(cached_volume*100)
 
-        elif commandslist in [['lyr'], ['lyrics']]:
-            lyrics_ops(show_window = True)
+        elif commandslist[0] in {'lyr', 'lyrics'}:
+            if len(commandslist) == 1:
+                lyrics_ops(show_window = True)
+            elif commandslist[1:] == ['edit']:
+                try:
+                    edit_current_lyrics()
+                except ValueError as error:
+                    SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+            else:
+                SAY(visible=visible, display_message='Usage: lyrics [edit]', log_message='Invalid lyrics command', log_priority=2)
 
         elif commandslist[0].lower() in ['v', 'vol', 'volume']:
             try:

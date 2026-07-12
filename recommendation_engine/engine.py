@@ -244,6 +244,10 @@ class RecommendationEngine:
             base_scores[candidate.media.stable_id] = self.ranker.score(
                 vectors[candidate.media.stable_id], explore=explore, rng=self.rng
             )
+            if recent_items:
+                base_scores[candidate.media.stable_id] += 0.25 * max(
+                    cosine(vectors[candidate.media.stable_id], features(item)) for item in recent_items
+                )
         selected: list[Candidate] = []
         recommendations = []
         artist_counts: dict[str, int] = {}

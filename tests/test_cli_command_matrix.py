@@ -6,6 +6,9 @@ import pytest
 
 import main
 from mariana.models import MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
+from mariana.preferences import PreferenceState
+
+REAL_EDIT_CURRENT_LYRICS = main.edit_current_lyrics
 
 
 @pytest.fixture
@@ -51,6 +54,12 @@ def cli(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "broadcast_command", lambda args: actions.append(("broadcast", args)))
     monkeypatch.setattr(main.RECOMMENDER, "record_event", lambda *args, **kwargs: actions.append(("event", args, kwargs)))
     monkeypatch.setattr(main.PREFERENCES, "set", lambda *args, **kwargs: True)
+    monkeypatch.setattr(main.PREFERENCES, "get", lambda *_args: PreferenceState.NEUTRAL)
+    monkeypatch.setattr(main.PREFERENCES, "toggle", lambda _media, state: state)
+    monkeypatch.setattr(main.PREFERENCES, "list", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(main, "set_download_library_inclusion", lambda enabled: actions.append(("downloads-root", enabled)))
+    monkeypatch.setattr(main, "edit_current_lyrics", lambda: actions.append(("lyrics-edit",)))
+    monkeypatch.setattr(main, "reveal_path", lambda path: actions.append(("reveal", path)))
     monkeypatch.setattr(main.YT_query, "search_youtube", lambda **_kwargs: ("Video", "https://youtube.test/watch?v=1"))
     monkeypatch.setattr(main, "play_vas_media", lambda *args, **kwargs: actions.append(("play-vas", args, kwargs)))
     monkeypatch.setattr(
@@ -82,6 +91,7 @@ def cli(monkeypatch, tmp_path):
     "command",
     [
         "all",
+        "all*",
         "list",
         "list 2 o desc",
         "list 1 3",
@@ -107,6 +117,12 @@ def cli(monkeypatch, tmp_path):
         "recent pattern",
         "last played",
         "reload",
+        "reload include-downloads",
+        "reload exclude downloads",
+        "include downloads",
+        "exclude dl",
+        "history",
+        "hist count",
         "refresh",
         "refresh lyrics",
         "vis",
@@ -131,10 +147,15 @@ def cli(monkeypatch, tmp_path):
         "download-ml",
         "t",
         ".rand",
+        ".arand",
         "=rand",
+        "=arand",
         "rand",
+        "arand",
         "rand*",
+        "arand*",
         "/rand",
+        "/arand",
         "reset",
         ".1",
         ". 1",
@@ -157,8 +178,11 @@ def cli(monkeypatch, tmp_path):
         "find missing",
         "stop",
         "m",
+        "mute",
         "lyrics",
+        "lyrics edit",
         "volume",
+        "volumeh",
         "volume 101",
         "mvolume",
         "mvolume 25",
@@ -173,7 +197,32 @@ def cli(monkeypatch, tmp_path):
         "replaygain status",
         "broadcast status",
         "recommend 3",
+        "recommend related 3",
+        "fav",
+        "fav !",
+        "fav +",
+        "bl -",
+        "favs",
+        "blacklist 2",
+        "beta",
+        "beta off",
+        "check_dev",
         "/rs",
+        "/reddit-session",
+        "/rpan",
+        ".",
+        ".*",
+        "+",
+        "-",
+        ".+",
+        ".-",
+        "rfind Alpha 1",
+        "lfind Alpha missing",
+        ".find Alpha",
+        "/find Alpha",
+        "dl-yv invalid",
+        "dl-ya invalid",
+        "donwload-yv",
         "list bad-range",
         "list 1-2-3",
         "/rss https://example.test/feed extra",
@@ -531,3 +580,42 @@ def test_like_without_active_media_and_update_failure_are_reported(cli, monkeypa
     monkeypatch.setattr(main, "prepare_update", lambda: (_ for _ in ()).throw(OSError("disk full")))
     main.process("update prepare")
     assert any("disk full" in message.get("display_message", "") for message in cli.messages)
+
+
+def test_legacy_aliases_route_to_modern_handlers(cli):
+    main.process("mute")
+    main.process("include downloads")
+    main.process("exclude downloads")
+    main.process("lyrics edit")
+    main.process("/rpan")
+    assert any(action[0] == "mute" for action in cli.actions)
+    assert ("downloads-root", True) in cli.actions
+    assert ("downloads-root", False) in cli.actions
+    assert ("lyrics-edit",) in cli.actions
+    assert main.REDDIT_RETIRED_MESSAGE in cli.printed
+
+
+def test_durable_lyrics_edit_creates_sidecar_only_after_confirmation(cli, monkeypatch):
+    song = cli.tmp_path / "editable.mp3"
+    song.write_bytes(b"audio")
+    media = MediaRef(MediaSource.LOCAL, str(song))
+    monkeypatch.setattr(main.vas.controller, "snapshot", lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=media))
+    monkeypatch.setattr(main.vas.controller, "fingerprint_pcm", lambda: b"pcm")
+    monkeypatch.setattr(main, "_preference_media", lambda value: value)
+    monkeypatch.setattr(
+        main.IDENTITY,
+        "identify",
+        lambda *_args, **_kwargs: SimpleNamespace(),
+    )
+    monkeypatch.setattr(
+        main.IDENTITY,
+        "lyrics",
+        lambda *_args, **_kwargs: SimpleNamespace(synced="[00:01.00]Line", plain="Line"),
+    )
+    monkeypatch.setattr(main, "DEFAULT_EDITOR", None)
+    monkeypatch.setattr("builtins.input", lambda *_args: "n")
+    assert REAL_EDIT_CURRENT_LYRICS() is None
+    assert not song.with_suffix(".lrc").exists()
+    monkeypatch.setattr("builtins.input", lambda *_args: "y")
+    assert REAL_EDIT_CURRENT_LYRICS() == song.with_suffix(".lrc")
+    assert song.with_suffix(".lrc").read_text(encoding="utf-8") == "[00:01.00]Line\n"

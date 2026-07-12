@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -193,6 +193,7 @@ class LibraryCatalog:
         online_enrichment: bool = False,
         rsgain_bin: str | None = None,
         analyze_loudness: bool = False,
+        managed_roots: Callable[[], Iterable[tuple[Path, str]]] | None = None,
     ) -> None:
         self.database = database
         self.library_file = Path(library_file)
@@ -207,35 +208,38 @@ class LibraryCatalog:
         self.loudness = LoudnessRepository(database)
         self.rsgain = RSGainAnalyzer(rsgain_bin)
         self.analyze_loudness = analyze_loudness
+        self.managed_roots = managed_roots or (lambda: ())
 
     def roots(self) -> list[dict[str, Any]]:
         return [dict(row) for row in self.database.fetchall("SELECT * FROM library_roots ORDER BY path_key")]
 
     def sync_roots(self) -> list[dict[str, Any]]:
-        configured = parse_library_file(self.library_file)
-        configured_keys = {path_key(root) for root in configured}
+        configured = [(root, "library-file") for root in parse_library_file(self.library_file)]
+        configured.extend((Path(root), origin) for root, origin in self.managed_roots())
+        configured_keys = {path_key(root) for root, _origin in configured}
         now = time.time()
         with self.database.transaction() as connection:
-            for root in configured:
+            for root, origin in configured:
                 key = path_key(root)
                 root_id = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
                 available, error = directory_status(root)
                 connection.execute(
-                    "INSERT INTO library_roots(root_id, path, path_key, kind, available, last_seen, error) "
-                    "VALUES(?, ?, ?, ?, ?, ?, ?) ON CONFLICT(path_key) DO UPDATE SET "
+                    "INSERT INTO library_roots(root_id, path, path_key, kind, origin, available, last_seen, error) "
+                    "VALUES(?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(path_key) DO UPDATE SET "
                     "path=excluded.path, kind=excluded.kind, available=excluded.available, "
-                    "last_seen=COALESCE(excluded.last_seen, library_roots.last_seen), error=excluded.error",
-                    (root_id, str(root), key, root_kind(root), int(available), now if available else None, error),
+                    "origin=excluded.origin, last_seen=COALESCE(excluded.last_seen, library_roots.last_seen), "
+                    "error=excluded.error",
+                    (root_id, str(root), key, root_kind(root), origin, int(available), now if available else None, error),
                 )
             if configured_keys:
                 placeholders = ",".join("?" for _ in configured_keys)
                 connection.execute(
-                    f"UPDATE library_roots SET available=0, error='removed from lib.lib' "
+                    f"UPDATE library_roots SET available=0, error='removed from configured roots' "
                     f"WHERE path_key NOT IN ({placeholders})",
                     tuple(configured_keys),
                 )
             else:
-                connection.execute("UPDATE library_roots SET available=0, error='removed from lib.lib'")
+                connection.execute("UPDATE library_roots SET available=0, error='removed from configured roots'")
         return self.roots()
 
     def _walk(self, root: Path) -> Iterable[tuple[Path, os.stat_result]]:
