@@ -50,7 +50,7 @@
     "eslint-plugin-react-refresh": "latest",
     "globals": "latest",
     "jsdom": "latest",
-    "typescript": "6.0.3",
+    "typescript": "7.0.2",
     "typescript-eslint": "latest",
     "vite": "8.1.4",
     "vitest": "4.1.10",
