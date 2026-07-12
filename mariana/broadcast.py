@@ -319,6 +319,8 @@ class IcecastBroadcaster:
         self._process: subprocess.Popen | None = None
         self._job: WindowsJob | None = None
         self._tunnel: IcecastAuthTunnel | None = None
+        self._feed_thread: threading.Thread | None = None
+        self._feed_error: str | None = None
         self._reconnects = 0
         self._title: str | None = None
         self._error: str | None = None
@@ -403,6 +405,17 @@ class IcecastBroadcaster:
                     self._tunnel = tunnel
                     self._process = process
                     self._job = WindowsJob(process)
+                silence = np.zeros((1024, CHANNELS), dtype=np.float32).tobytes()
+                if not process.stdin:
+                    raise BroadcastError("FFmpeg broadcast input is unavailable")
+                self._feed_error = None
+                self._feed_thread = threading.Thread(
+                    target=self._feed_encoder,
+                    args=(process, silence),
+                    name="mariana-broadcast-pcm",
+                    daemon=True,
+                )
+                self._feed_thread.start()
                 if tunnel.connected.wait(10):
                     self._set_state(BroadcastState.LIVE)
                     failure_count = 0
@@ -410,13 +423,11 @@ class IcecastBroadcaster:
                     raise BroadcastError(tunnel.error)
                 else:
                     raise BroadcastError("Icecast connection timed out")
-                silence = np.zeros((1024, CHANNELS), dtype=np.float32).tobytes()
-                while not self._stop.is_set() and process.poll() is None:
-                    payload = self.ring.read() or silence
-                    if not process.stdin:
-                        raise BroadcastError("FFmpeg broadcast input is unavailable")
-                    process.stdin.write(payload)
+                while not self._stop.wait(0.1) and process.poll() is None and self._feed_error is None:
+                    pass
                 if not self._stop.is_set():
+                    if self._feed_error:
+                        raise BroadcastError(self._feed_error)
                     stderr = process.stderr.read(4096).decode("utf-8", errors="replace") if process.stderr else ""
                     raise BroadcastError(stderr.strip() or tunnel.error or "The Icecast encoder disconnected")
             except (OSError, ValueError, subprocess.SubprocessError, BroadcastError) as error:
@@ -434,18 +445,38 @@ class IcecastBroadcaster:
                 self._close_attempt()
         self._set_state(BroadcastState.IDLE)
 
+    def _feed_encoder(self, process: subprocess.Popen, silence: bytes) -> None:
+        try:
+            while not self._stop.is_set() and process.poll() is None:
+                payload = self.ring.read(timeout=1024 / SAMPLE_RATE) or silence
+                if not process.stdin:
+                    raise OSError("FFmpeg broadcast input is unavailable")
+                process.stdin.write(payload)
+        except (OSError, ValueError) as error:
+            if not self._stop.is_set():
+                self._feed_error = f"FFmpeg broadcast input failed: {error}"
+
     def _close_attempt(self) -> None:
         with self._lock:
-            process, tunnel, job = self._process, self._tunnel, self._job
-            self._process = self._tunnel = self._job = None
+            process, tunnel, job, feed = self._process, self._tunnel, self._job, self._feed_thread
+            self._process = self._tunnel = self._job = self._feed_thread = None
         if process and process.poll() is None:
             try:
                 if process.stdin:
                     process.stdin.close()
-                process.terminate()
                 process.wait(timeout=2)
-            except (OSError, subprocess.TimeoutExpired):
-                process.kill()
+            except subprocess.TimeoutExpired:
+                process.terminate()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=2)
+            except OSError:
+                if process.poll() is None:
+                    process.kill()
+        if feed and feed is not threading.current_thread():
+            feed.join(timeout=2)
         if tunnel:
             tunnel.close()
         if job:

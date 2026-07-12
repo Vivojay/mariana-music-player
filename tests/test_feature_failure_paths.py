@@ -209,10 +209,15 @@ def test_broadcaster_start_reconnect_cleanup_and_metadata_failures(monkeypatch):
 
     class Process:
         stdin = BytesIO()
+        waits = 0
 
         def poll(self): return None
         def terminate(self): pass
-        def wait(self, timeout): raise subprocess.TimeoutExpired("ffmpeg", timeout)
+        def wait(self, timeout):
+            self.waits += 1
+            if self.waits < 3:
+                raise subprocess.TimeoutExpired("ffmpeg", timeout)
+            return 0
         def kill(self): self.killed = True
 
     process = Process()
