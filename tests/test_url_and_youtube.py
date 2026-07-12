@@ -173,3 +173,78 @@ def test_youtube_compatibility_facade_translates_errors(monkeypatch):
     monkeypatch.setattr(yt_query, "search_media", lambda *_a, **_k: [])
     with pytest.raises(OSError, match="No YouTube results"):
         yt_query.search_youtube("query")
+
+
+@pytest.mark.parametrize("value", [":profile", "chrome\nprofile", "chrome\0profile"])
+def test_browser_profile_rejects_unsafe_references(value):
+    with pytest.raises(youtube_media.YouTubeError, match="Invalid browser profile"):
+        youtube_media._browser_profile(value)
+
+
+def test_browser_profile_and_runtime_options(monkeypatch):
+    assert youtube_media._browser_profile(None) is None
+    assert youtube_media._browser_profile("chrome:Default") == ("chrome", "Default")
+    monkeypatch.setattr(youtube_media, "find_managed_executable", lambda name: f"C:/{name}.exe" if name == "deno" else None)
+    monkeypatch.setattr(youtube_media.shutil, "which", lambda _name: None)
+    options = youtube_media.integration_options("chrome:Default")
+    assert options["js_runtimes"] == {"deno": {"path": "C:/deno.exe"}}
+    assert options["cookiesfrombrowser"] == ("chrome", "Default")
+    assert youtube_media._options(browser_profile="firefox", quiet=False)["quiet"] is False
+
+
+def test_extract_rejects_non_mapping_response(monkeypatch):
+    class FakeYDL:
+        def __init__(self, _options):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def extract_info(self, *_args, **_kwargs):
+            return ["not", "a", "mapping"]
+
+    monkeypatch.setattr(youtube_media, "YoutubeDL", FakeYDL)
+    with pytest.raises(youtube_media.YouTubeError, match="unsupported response"):
+        youtube_media._extract("query")
+
+
+def test_youtube_url_fallbacks_and_compact_media_info(monkeypatch):
+    assert youtube_media._webpage_url({"url": "https://media.test/direct"}) == "https://media.test/direct"
+    assert youtube_media._webpage_url({}) == ""
+    monkeypatch.setattr(youtube_media, "_extract", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(youtube_media, "stream_url", lambda _url, *, audio_only: "a" if audio_only else "v")
+    result = youtube_media.media_info("url")
+    assert result == {
+        "title": "[Untitled YouTube media]",
+        "duration": None,
+        "streams": {"bestaudurl": "a", "bestvidurl": "v"},
+    }
+
+
+def test_resolve_stream_normalizes_headers_expiry_and_live_metadata(monkeypatch):
+    monkeypatch.setattr(
+        youtube_media,
+        "_extract",
+        lambda *_args, **_kwargs: {
+            "requested_formats": [{"url": None}, {"url": "https://media.test/audio"}],
+            "http_headers": {"User-Agent": "test", "Empty": None},
+            "expires": "2000000000",
+            "live_status": "is_live",
+            "title": "Title",
+            "uploader": "Uploader",
+            "duration": 10,
+        },
+    )
+    result = youtube_media.resolve_stream("url", browser_profile="chrome")
+    assert result["url"] == "https://media.test/audio"
+    assert result["http_headers"] == {"User-Agent": "test"}
+    assert result["expires_at"] == 2_000_000_000.0
+    assert result["is_live"] is True
+    assert result["artist"] == "Uploader"
+
+    monkeypatch.setattr(youtube_media, "_extract", lambda *_args, **_kwargs: {})
+    with pytest.raises(youtube_media.YouTubeError, match="playable stream"):
+        youtube_media.resolve_stream("url", audio_only=False)

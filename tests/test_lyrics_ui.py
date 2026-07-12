@@ -96,3 +96,67 @@ def test_show_window_uses_cache_and_open_attribution(monkeypatch, lyrics_paths):
     assert "LRCLIB" in payload["foot_text"]
     assert "Chromaprint" in payload["foot_text"]
     assert captured["kwargs"]["shell"] is False
+
+
+def test_show_window_uses_custom_wallpaper_and_reports_missing_file(monkeypatch, lyrics_paths):
+    _temp, res, _wallpapers = lyrics_paths
+    custom = res.parent / "custom"
+    custom.mkdir()
+    (custom / "wall.jpg").write_bytes(b"image")
+    settings = {
+        "use solid color bg": False,
+        "solid color bg": {"color": "#000"},
+        "webview wallpaper": {"wallpaper folder": str(custom), "wallpaper name or number": "wall"},
+    }
+    messages = []
+    monkeypatch.setattr(get_lyrics, "get_settings", lambda: ([".mp3"], settings))
+    monkeypatch.setattr(get_lyrics, "get_lyrics", lambda **_kwargs: ("line", "Artist"))
+    monkeypatch.setattr(get_lyrics, "SAY", lambda **kwargs: messages.append(kwargs))
+    get_lyrics.show_window(5, False, False)
+    css = (res / "style.css").read_text(encoding="utf-8")
+    assert str((custom / "wall.jpg").resolve()).replace("\\", "/") in css
+
+    settings["webview wallpaper"]["wallpaper name or number"] = "missing"
+    get_lyrics.show_window(5, False, False)
+    assert any("invalid wallpaper" in message["display_message"] for message in messages)
+
+
+@pytest.mark.parametrize(("selection", "expected"), [(2, "2.other.jpg"), ("2.other", "2.other.jpg")])
+def test_show_window_selects_bundled_wallpaper(monkeypatch, lyrics_paths, selection, expected):
+    _temp, res, _wallpapers = lyrics_paths
+    settings = {
+        "use solid color bg": False,
+        "solid color bg": {"color": "#000"},
+        "webview wallpaper": {"wallpaper folder": "", "wallpaper name or number": selection},
+    }
+    monkeypatch.setattr(get_lyrics, "get_settings", lambda: ([".mp3"], settings))
+    monkeypatch.setattr(get_lyrics, "get_lyrics", lambda **_kwargs: ("line", "Artist"))
+    get_lyrics.show_window(5, False, False)
+    assert expected in (res / "style.css").read_text(encoding="utf-8")
+
+
+def test_show_window_handles_invalid_wallpaper_index_and_missing_cache(monkeypatch, lyrics_paths):
+    temp, _res, _wallpapers = lyrics_paths
+    settings = {
+        "use solid color bg": False,
+        "solid color bg": {"color": "#000"},
+        "webview wallpaper": {"wallpaper folder": "", "wallpaper name or number": 99},
+    }
+    messages = []
+    spawned = {}
+    monkeypatch.setattr(get_lyrics, "get_settings", lambda: ([".mp3"], settings))
+    monkeypatch.setattr(get_lyrics, "get_lyrics", lambda **_kwargs: ("line", "Artist"))
+    monkeypatch.setattr(get_lyrics, "SAY", lambda **kwargs: messages.append(kwargs))
+    get_lyrics.show_window(5, False, False)
+    assert any("between 1 and" in message["display_message"] for message in messages)
+    (temp / "lyrics.txt").unlink()
+
+    monkeypatch.setattr(
+        get_lyrics.subprocess,
+        "Popen",
+        lambda args, **kwargs: spawned.update(args=args, kwargs=kwargs),
+    )
+    get_lyrics.show_window(5, True, False, refresh_lyrics=False)
+    payload = json.loads(spawned["args"][2])
+    assert payload["head_text"] == "Lyrics N/A"
+    assert payload["text_to_be_displayed"] == "(Lyrics not available)"
