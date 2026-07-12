@@ -1,31 +1,46 @@
 # Mariana Music Player
 
-Mariana is a local-first command-line media player for 64-bit Windows. The
-0.7 development platform decodes audio with FFmpeg into a bounded PCM pipeline,
+Mariana is a local-first command-line and Electron terminal media player for
+64-bit Windows, macOS, and Linux. The 0.7 development platform decodes audio
+with FFmpeg into a bounded PCM pipeline,
 plays it through `sounddevice`, and uses FFplay only as an external diagnostic
-or video fallback. The currently declared release remains 0.6.2 until every
+or video fallback. The working version is `0.7.0-dev.1`; the stable release remains 0.6.2 until every
 release gate—including manual speaker and soak acceptance—has passed.
 
 Supported sources include local audio, YouTube, podcasts, custom HTTP media,
 HLS/PLS/M3U streams, and internet radio. Queue, identity, lyrics, radio health,
 interaction history, and recommendation models are persisted in SQLite.
 
+The desktop UI is not a command reimplementation. React renders an xterm.js
+terminal connected to the real Mariana process through a native PTY, so ANSI
+output, nested prompts, Ctrl+C, resizing, and every CLI command remain intact.
+
 ## Supported environment
 
 - Windows 10 or 11 x64
+- macOS x64 or Apple Silicon
+- Linux x64 with PortAudio/PipeWire or PulseAudio output
 - CPython 3.12 x64
 - FFmpeg, FFprobe, and FFplay from the same x64 build
-- Node.js 22+ for reliable yt-dlp extraction
+- Deno or Node.js 22+ for reliable yt-dlp extraction
 - Chromaprint `fpcalc` 1.6.0 for acoustic identification
 
-The checked-in settings currently point at:
+Existing external tool paths remain supported. Packaged desktop releases use a
+signed manifest to download the matching checksum-verified FFmpeg 8.1.2,
+Chromaprint 1.6.0, and Deno toolchain into the user-data directory. Source
+launches may instead configure a local directory such as:
 
 ```text
 C:\Users\Vivan.Jaiswal\Documents\ffmpeg-2025-12-18-git-78c75d546a-essentials_build\bin
 ```
 
-Change `media tools.ffmpeg bin` in `settings/settings.yml` on another machine,
-or put the three FFmpeg executables on `PATH`.
+Change `media tools.ffmpeg bin` in the user settings on another machine, run
+`tools install`, or put the executables on `PATH`.
+
+Development builds deliberately ship with an unpublished manifest. The manual
+managed-tool workflow must publish all four native archives and its signed
+manifest, and that generated manifest must be reviewed into the release tag,
+before the production release preflight can pass.
 
 ## Installation
 
@@ -40,6 +55,17 @@ python -m pip check
 .\tools\install_chromaprint.ps1
 python main.py
 ```
+
+To run the React terminal during development:
+
+```powershell
+npm install
+npm run dev
+```
+
+Frontend verification uses `npm run lint`, `npm test`, `npm run build`, and
+`npm run test:e2e`. Production packaging uses `npm run dist` after building the
+platform-native `mariana-cli` backend.
 
 The Chromaprint installer downloads the official Windows x64 1.6.0 archive and
 rejects it unless SHA-256 equals
@@ -66,8 +92,30 @@ recommend autofill [count]
 recommend train
 like
 dislike
+sleep <duration> [pause|stop] [fade <duration>]
+sleep status|cancel
+tools status|install|repair
 download-ml <URL> [mp3|flac|wav|m4a|opus] [output path]
 ```
+
+Sleep timers are session-only. They default to pausing and fade perceptually
+over the final ten minutes (or the whole timer when shorter), without replacing
+the user's base volume.
+
+## Desktop updates and state
+
+Packaged releases keep immutable application resources separate from settings,
+SQLite, logs, `lib.lib`, lyrics, and model state in the operating system's user
+data directory. Legacy source-tree state is copied and verified on first launch
+without deleting the originals.
+
+The signed desktop updater checks the stable GitHub Releases channel shortly
+after startup and every six hours. It downloads in-app but will not install
+while playback, a sleep timer, a command, or a profiler transaction is active.
+A verified SQLite/configuration backup is required before restart-and-install.
+Release publication is manual and fails closed when the platform tool manifest,
+Apple notarization credentials, Windows signing certificate, or Linux signing
+key is absent.
 
 `lib.lib` remains the human-editable list of library roots. Mariana indexes it
 incrementally in SQLite: unchanged files are not re-probed, renames retain their

@@ -1,0 +1,25 @@
+{
+  "ffmpeg": {
+    "version": "8.1.2",
+    "url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
+    "sha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c"
+  },
+  "chromaprint": {
+    "version": "1.6.0",
+    "assets": {
+      "win32-x64": ["chromaprint-fpcalc-1.6.0-windows-x86_64.zip", "30179d3d0dc4cc92f1a0995c1a2e523fb4867724c2ee6a6ceae474f8e4d6937a"],
+      "darwin-x64": ["chromaprint-fpcalc-1.6.0-macos-x86_64.tar.gz", "5898f2442220f4d82920b9eb11c35fc30d379b1ce9cb8b9f869f3365d2236e99"],
+      "darwin-arm64": ["chromaprint-fpcalc-1.6.0-macos-arm64.tar.gz", "2c6c837f57ab5ad330710dc296af4de62a51d3c14aa2309fe1afce2ab699bd35"],
+      "linux-x64": ["chromaprint-fpcalc-1.6.0-linux-x86_64.tar.gz", "946dc3eade645eb835c8d163c6bb354e092239988bff190b9c42589e8d5cf00a"]
+    }
+  },
+  "deno": {
+    "version": "2.9.2",
+    "assets": {
+      "win32-x64": ["deno-x86_64-pc-windows-msvc.zip", "5fe194d26ac5ef77fcc5288c2c438c7a0465f3b6180440ebf04092714bf2dcdf"],
+      "darwin-x64": ["deno-x86_64-apple-darwin.zip", "c953379e5a85a0a30e99aa51b807633e380e809a1181f53e4904d5fa73785bff"],
+      "darwin-arm64": ["deno-aarch64-apple-darwin.zip", "687ae485168ba73a4f1ee3a954eb4f077eca82f2fefd236a6a83a3889287876c"],
+      "linux-x64": ["deno-x86_64-unknown-linux-gnu.zip", "934d1bd5cb09eaed7f2e4a4fc58208d04a3c5c0fcde9f319d93d735265c67a4a"]
+    }
+  }
+}

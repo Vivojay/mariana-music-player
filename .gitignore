@@ -25,6 +25,16 @@ venv/
 /.pytest_cache/
 /pytest-cache-files-*/
 
+# React/Electron build artifacts
+/node_modules/
+/dist/
+/dist-electron/
+/dist-backend/
+/build/
+/release/
+/test-results/
+/playwright-report/
+
 # Locally installed external media tools
 /.tools/
 /.chromaprint-download.zip

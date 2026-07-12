@@ -37,6 +37,9 @@ All searches are fuzzy
 | `library pause/resume/retry` | Control or retry background profiling |
 | `library info <index\|path>` | Show indexed metadata and profiler state |
 | `library clean --missing` | Remove tombstones only; never delete media files |
+| `sleep <duration> [pause\|stop] [fade <duration>]` | Fade near expiry, then pause or stop |
+| `sleep status\|cancel` | Inspect or cancel the session sleep timer |
+| `tools status\|install\|repair` | Inspect or provision checksum-verified media tools |
 | `recommend [count]` | Show explainable local recommendations |
 | `recommend autofill [count]` | Add recommendations to the queue |
 | `like` / `dislike` | Record explicit preference feedback |

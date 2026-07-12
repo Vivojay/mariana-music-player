@@ -5,9 +5,13 @@ on:
   pull_request:
 
 jobs:
-  windows-python-312:
-    runs-on: windows-latest
-    timeout-minutes: 30
+  cross-platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -17,15 +21,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-      - name: Install locked development environment
+          cache: npm
+      - name: Install Linux audio runtime
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2 ffmpeg
+      - name: Install Python environment
         run: python -m pip install -r requirements-dev.txt
-      - name: Verify dependency graph
-        run: python -m pip check
-      - name: Compile Python sources
-        run: python -m compileall -q .
-      - name: Check the complete source tree
-        run: python -m ruff check .
-      - name: Run tests
+      - name: Install desktop environment
+        run: npm ci --ignore-scripts
+      - name: Verify versions and dependencies
+        run: |
+          python tools/check_version.py
+          python -m pip check
+          npm audit --audit-level=high
+      - name: Compile and lint Python
+        run: |
+          python -m compileall -q main.py mariana beta lyrics_provider recommendation_engine tools
+          python -m ruff check .
+      - name: Test Python with branch coverage
         run: >-
           python -m pytest -q
           --cov
@@ -33,7 +46,7 @@ jobs:
           --cov-report=xml
           --cov-branch
           --cov-fail-under=80
-      - name: Enforce resolver, library, and supervisor branch coverage
+      - name: Enforce new-package branch coverage
         run: >-
           python -m pytest -q
           tests/test_source_resolvers.py
@@ -43,18 +56,25 @@ jobs:
           tests/test_playback_supervisor.py
           --cov=mariana.sources
           --cov=mariana.library
-          --cov=mariana.library_service
           --cov=mariana.supervisor
           --cov-branch
           --cov-fail-under=95
-      - name: Upload coverage report
+      - name: Test and build React terminal
+        run: |
+          npm run lint
+          npm test
+          npm run build
+      - name: Test native Electron PTY
+        if: runner.os != 'Linux'
+        run: npm run test:e2e:dev
+      - name: Test native Electron PTY (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:e2e:dev
+      - name: Audit locked Python dependencies
+        run: python -m pip_audit -r requirements.txt
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
-          name: windows-python-312-coverage
+          name: ${{ runner.os }}-coverage
           path: coverage.xml
           if-no-files-found: ignore
-      - name: Import smoke test
-        run: python -c "import main"
-      - name: Audit locked dependencies
-        run: python -m pip_audit -r requirements.txt

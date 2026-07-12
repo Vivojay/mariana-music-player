@@ -1,0 +1,177 @@
+name: Reproducible managed media tools
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type PUBLISH-TOOLS to authorize toolchain release assets
+        required: true
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  unix:
+    if: inputs.confirmation == 'PUBLISH-TOOLS'
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            key: linux-x64
+            chromaprint: chromaprint-fpcalc-1.6.0-linux-x86_64.tar.gz
+            chromaprint_sha: 946dc3eade645eb835c8d163c6bb354e092239988bff190b9c42589e8d5cf00a
+            deno: deno-x86_64-unknown-linux-gnu.zip
+            deno_sha: 934d1bd5cb09eaed7f2e4a4fc58208d04a3c5c0fcde9f319d93d735265c67a4a
+          - runner: macos-14-large
+            key: darwin-x64
+            chromaprint: chromaprint-fpcalc-1.6.0-macos-x86_64.tar.gz
+            chromaprint_sha: 5898f2442220f4d82920b9eb11c35fc30d379b1ce9cb8b9f869f3365d2236e99
+            deno: deno-x86_64-apple-darwin.zip
+            deno_sha: c953379e5a85a0a30e99aa51b807633e380e809a1181f53e4904d5fa73785bff
+          - runner: macos-14-xlarge
+            key: darwin-arm64
+            chromaprint: chromaprint-fpcalc-1.6.0-macos-arm64.tar.gz
+            chromaprint_sha: 2c6c837f57ab5ad330710dc296af4de62a51d3c14aa2309fe1afce2ab699bd35
+            deno: deno-aarch64-apple-darwin.zip
+            deno_sha: 687ae485168ba73a4f1ee3a954eb4f077eca82f2fefd236a6a83a3889287876c
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install native build dependencies
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt-get update
+            sudo apt-get install -y build-essential nasm yasm pkg-config libsdl2-dev libasound2-dev unzip
+          else
+            brew install nasm yasm pkg-config sdl2
+          fi
+      - name: Build pinned LGPL FFmpeg
+        shell: bash
+        run: |
+          curl --fail --location https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz -o ffmpeg.tar.xz
+          echo "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c  ffmpeg.tar.xz" | shasum -a 256 -c -
+          tar -xf ffmpeg.tar.xz
+          cd ffmpeg-8.1.2
+          ./configure --prefix="$GITHUB_WORKSPACE/tool-root" --disable-doc --disable-debug --disable-gpl --disable-nonfree --disable-shared --enable-static --enable-ffplay --enable-sdl2
+          make -j2
+          make install
+      - name: Download official Chromaprint and Deno assets
+        shell: bash
+        run: |
+          curl --fail --location "https://github.com/acoustid/chromaprint/releases/download/v1.6.0/${{ matrix.chromaprint }}" -o chromaprint.tar.gz
+          echo "${{ matrix.chromaprint_sha }}  chromaprint.tar.gz" | shasum -a 256 -c -
+          mkdir chromaprint && tar -xzf chromaprint.tar.gz -C chromaprint
+          curl --fail --location "https://github.com/denoland/deno/releases/download/v2.9.2/${{ matrix.deno }}" -o deno.zip
+          echo "${{ matrix.deno_sha }}  deno.zip" | shasum -a 256 -c -
+          mkdir deno && unzip -q deno.zip -d deno
+      - name: Package and attest managed tools
+        shell: bash
+        run: >-
+          python tools/package_toolchain.py
+          --platform ${{ matrix.key }}
+          --ffmpeg-dir tool-root/bin
+          --fpcalc "$(find chromaprint -type f -name fpcalc | head -1)"
+          --deno deno/deno
+          --output tool-output
+      - uses: anchore/sbom-action@v0
+        with:
+          path: tool-output/staging
+          format: spdx-json
+          output-file: tool-output/mariana-tools-${{ matrix.key }}.spdx.json
+          upload-artifact: false
+      - uses: actions/attest-build-provenance@v2
+        with: { subject-path: "tool-output/*.zip" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tools-${{ matrix.key }}
+          path: tool-output/*
+
+  windows:
+    if: inputs.confirmation == 'PUBLISH-TOOLS'
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            base-devel make diffutils nasm yasm pkg-config
+            mingw-w64-ucrt-x86_64-toolchain mingw-w64-ucrt-x86_64-SDL2
+      - name: Build pinned LGPL FFmpeg
+        shell: msys2 {0}
+        run: |
+          curl --fail --location https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz -o ffmpeg.tar.xz
+          echo "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c  ffmpeg.tar.xz" | sha256sum -c -
+          tar -xf ffmpeg.tar.xz
+          cd ffmpeg-8.1.2
+          ./configure --prefix="$GITHUB_WORKSPACE/tool-root" --disable-doc --disable-debug --disable-gpl --disable-nonfree --disable-shared --enable-static --enable-ffplay --enable-sdl2
+          make -j2
+          make install
+      - name: Download official Chromaprint and Deno assets
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://github.com/acoustid/chromaprint/releases/download/v1.6.0/chromaprint-fpcalc-1.6.0-windows-x86_64.zip -OutFile chromaprint.zip
+          if ((Get-FileHash chromaprint.zip).Hash.ToLower() -ne '30179d3d0dc4cc92f1a0995c1a2e523fb4867724c2ee6a6ceae474f8e4d6937a') { throw 'Chromaprint checksum mismatch' }
+          Expand-Archive chromaprint.zip chromaprint
+          Invoke-WebRequest https://github.com/denoland/deno/releases/download/v2.9.2/deno-x86_64-pc-windows-msvc.zip -OutFile deno.zip
+          if ((Get-FileHash deno.zip).Hash.ToLower() -ne '5fe194d26ac5ef77fcc5288c2c438c7a0465f3b6180440ebf04092714bf2dcdf') { throw 'Deno checksum mismatch' }
+          Expand-Archive deno.zip deno
+      - name: Package managed tools
+        shell: pwsh
+        run: >-
+          python tools/package_toolchain.py
+          --platform win32-x64
+          --ffmpeg-dir tool-root/bin
+          --fpcalc (Get-ChildItem chromaprint -Recurse -Filter fpcalc.exe | Select-Object -First 1).FullName
+          --deno deno/deno.exe
+          --output tool-output
+      - uses: anchore/sbom-action@v0
+        with:
+          path: tool-output/staging
+          format: spdx-json
+          output-file: tool-output/mariana-tools-win32-x64.spdx.json
+          upload-artifact: false
+      - uses: actions/attest-build-provenance@v2
+        with: { subject-path: "tool-output/*.zip" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tools-win32-x64
+          path: tool-output/*
+
+  publish:
+    if: inputs.confirmation == 'PUBLISH-TOOLS'
+    needs: [unix, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: tools-*
+          path: assembled
+      - run: python tools/merge_tool_manifests.py assembled assembled/manifest.json
+      - name: Sign manifest
+        run: |
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          gpg --batch --yes --armor --detach-sign assembled/manifest.json
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: 0.7.0-tools.1
+          name: Mariana managed tools 0.7.0-tools.1
+          files: |
+            assembled/**/*.zip
+            assembled/**/*.spdx.json
+            assembled/manifest.json
+            assembled/manifest.json.asc
+          fail_on_unmatched_files: true
