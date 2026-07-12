@@ -8,6 +8,7 @@ from ruamel.yaml import YAML
 import beta.mediadl as mediadl
 import first_boot_setup
 import restore_default
+from mariana.setup import SetupStateStore
 
 
 class ArchiveResponse:
@@ -56,9 +57,6 @@ def test_sample_download_rejects_archive_path_traversal(monkeypatch, tmp_path, m
 
 
 def test_first_boot_validates_answers_saves_library_and_runs_download(monkeypatch, tmp_path):
-    settings = tmp_path / "settings"
-    settings.mkdir()
-    system = settings / "system.toml"
     responses = iter(["maybe", "yes", str(tmp_path), "xxx", "maybe", "yes", "maybe", "no"])
     downloads = []
     monkeypatch.chdir(tmp_path)
@@ -70,12 +68,15 @@ def test_first_boot_validates_answers_saves_library_and_runs_download(monkeypatc
         lambda: SimpleNamespace(library_file=tmp_path / "lib.lib"),
     )
     about = {"first_boot": True, "ver": {"maj": 0, "min": 6, "rel": 2}}
+    store = SetupStateStore(
+        SimpleNamespace(setup_state=tmp_path / "setup-state.json", setup_lock=tmp_path / ".setup.lock")
+    )
+    store.reset()
 
-    assert first_boot_setup.fbs(about) is True
+    assert first_boot_setup.fbs(about, store) is True
     assert downloads == [about]
-    assert str(tmp_path).lower() in (tmp_path / "lib.lib").read_text(encoding="utf-8")
-    assert about["first_boot"] is False
-    assert system.is_file()
+    assert str(tmp_path).casefold() in (tmp_path / "lib.lib").read_text(encoding="utf-8").casefold()
+    assert store.load().status == "complete"
 
 
 def test_restore_default_updates_nested_setting_and_persists(monkeypatch, tmp_path):

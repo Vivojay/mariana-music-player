@@ -19,6 +19,7 @@ def lyrics_paths(monkeypatch, tmp_path):
     monkeypatch.setattr(get_lyrics, "TEMP_DIR", temp)
     monkeypatch.setattr(get_lyrics, "RES_DIR", res)
     monkeypatch.setattr(get_lyrics, "WALLPAPER_DIR", wallpapers)
+    monkeypatch.setattr(get_lyrics, "STYLE_PATH", temp / "lyrics.css")
     return temp, res, wallpapers
 
 
@@ -65,7 +66,7 @@ def test_create_lyrics_html_returns_failure_when_cache_missing(lyrics_paths):
 
 
 def test_show_window_writes_solid_color_assets(monkeypatch, lyrics_paths):
-    temp, res, _wallpapers = lyrics_paths
+    temp, _res, _wallpapers = lyrics_paths
     settings = {
         "use solid color bg": True,
         "solid color bg": {"color": "#123456"},
@@ -74,7 +75,7 @@ def test_show_window_writes_solid_color_assets(monkeypatch, lyrics_paths):
     monkeypatch.setattr(get_lyrics, "get_settings", lambda: ([".mp3"], settings))
     monkeypatch.setattr(get_lyrics, "get_lyrics", lambda **_kwargs: ("line", "Artist"))
     assert get_lyrics.show_window(5, False, False) is None
-    assert "background-color: #123456" in (res / "style.css").read_text(encoding="utf-8")
+    assert "background-color: #123456" in (temp / "lyrics.css").read_text(encoding="utf-8")
     assert "Artist" in (temp / "lyrics.txt").read_text(encoding="utf-8")
 
 
@@ -113,7 +114,7 @@ def test_show_window_uses_custom_wallpaper_and_reports_missing_file(monkeypatch,
     monkeypatch.setattr(get_lyrics, "get_lyrics", lambda **_kwargs: ("line", "Artist"))
     monkeypatch.setattr(get_lyrics, "SAY", lambda **kwargs: messages.append(kwargs))
     get_lyrics.show_window(5, False, False)
-    css = (res / "style.css").read_text(encoding="utf-8")
+    css = (_temp / "lyrics.css").read_text(encoding="utf-8")
     assert str((custom / "wall.jpg").resolve()).replace("\\", "/") in css
 
     settings["webview wallpaper"]["wallpaper name or number"] = "missing"
@@ -123,7 +124,7 @@ def test_show_window_uses_custom_wallpaper_and_reports_missing_file(monkeypatch,
 
 @pytest.mark.parametrize(("selection", "expected"), [(2, "2.other.jpg"), ("2.other", "2.other.jpg")])
 def test_show_window_selects_bundled_wallpaper(monkeypatch, lyrics_paths, selection, expected):
-    _temp, res, _wallpapers = lyrics_paths
+    temp, _res, _wallpapers = lyrics_paths
     settings = {
         "use solid color bg": False,
         "solid color bg": {"color": "#000"},
@@ -132,7 +133,7 @@ def test_show_window_selects_bundled_wallpaper(monkeypatch, lyrics_paths, select
     monkeypatch.setattr(get_lyrics, "get_settings", lambda: ([".mp3"], settings))
     monkeypatch.setattr(get_lyrics, "get_lyrics", lambda **_kwargs: ("line", "Artist"))
     get_lyrics.show_window(5, False, False)
-    assert expected in (res / "style.css").read_text(encoding="utf-8")
+    assert expected in (temp / "lyrics.css").read_text(encoding="utf-8")
 
 
 def test_show_window_handles_invalid_wallpaper_index_and_missing_cache(monkeypatch, lyrics_paths):

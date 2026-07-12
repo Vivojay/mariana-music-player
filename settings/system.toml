@@ -3,7 +3,6 @@
 # IT ISN'T EXACTLY MEANT TO BE MODIFIED, BUT YOU MAY STILL DO IT...
 #=====================================================================
 
-first_boot = true
 isdev = true
 
 [about]

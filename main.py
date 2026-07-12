@@ -66,6 +66,7 @@ from mariana.queueing import PersistentQueue, QueueError
 from mariana.radio import RadioCatalog, RadioError
 from mariana.sleep_timer import SleepAction, SleepTimer, parse_duration
 from mariana.sources import MediaFailure
+from mariana.setup import SetupStateError, SetupStateStore
 from mariana.toolchain import ToolchainError, ToolchainManager
 from mariana.version import __version__
 from recommendation_engine import Candidate, RecommendationEngine
@@ -180,13 +181,13 @@ create_required_files_if_not_exist(
     RUNTIME_PATHS.logs / 'general.log',
 )
 
-FIRST_BOOT = False # Assume user is using app for considerable time
-                   # so you don't want to annoy him with an
-                   # annoying FIRST-TIME-WELCOME
-
 SYSTEM_SETTINGS = load_system_settings()
-FIRST_BOOT = SYSTEM_SETTINGS['first_boot']
-if os.environ.get('MARIANA_E2E') == '1':
+SETUP_STORE = SetupStateStore(RUNTIME_PATHS)
+try:
+    FIRST_BOOT = SETUP_STORE.load().status != 'complete'
+except SetupStateError:
+    FIRST_BOOT = True
+if os.environ.get('MARIANA_E2E') == '1' and os.environ.get('MARIANA_E2E_FIRST_BOOT') != '1':
     FIRST_BOOT = False
 
 ISDEV = SYSTEM_SETTINGS['isdev'] # Useful as a test flag for new features
@@ -204,15 +205,17 @@ except OSError:
 
 
 def first_startup_greet(is_first_boot):
-    global SOFT_FATAL_ERROR_INFO
+    global FIRST_BOOT, SOFT_FATAL_ERROR_INFO
 
     if is_first_boot:
         try:
             import first_boot_setup
             if SOFT_FATAL_ERROR_INFO := first_boot_setup.fbs(
-                about=SYSTEM_SETTINGS
+                about=SYSTEM_SETTINGS,
+                store=SETUP_STORE,
             ):
                 SOFT_FATAL_ERROR_INFO = "User skipped startup"
+            FIRST_BOOT = SETUP_STORE.load().status != 'complete'
             reload_sounds(quick_load = False)
         except ImportError:
             sys.exit('[ERROR] Critical guide setup-file missing, please consider reinstalling this file or the entire program\nAborting Mariana Player. . .')
@@ -948,6 +951,37 @@ def tools_command(arguments):
         IPrint(f'Managed media tools are ready at {root}', visible=visible)
         return root
     raise ValueError('Usage: tools [status|install|repair]')
+
+
+def setup_command(arguments):
+    operation = arguments[0].lower() if arguments else 'status'
+    if operation == 'status':
+        try:
+            state = SETUP_STORE.load()
+            IPrint(
+                f'Setup: {state.status}; current={state.current_step or "none"}; '
+                f'completed={", ".join(state.completed_steps) or "none"}',
+                visible=visible,
+            )
+            return state
+        except SetupStateError as error:
+            IPrint(f'Setup state is corrupt: {error}', visible=visible)
+            return None
+    if operation == 'repair':
+        backup = SETUP_STORE.repair()
+        IPrint(f'Setup state repaired; backup={backup or "none"}. Run "setup resume".', visible=visible)
+        return SETUP_STORE.load()
+    if operation == 'restart':
+        SETUP_STORE.reset()
+    elif operation != 'resume':
+        raise ValueError('Usage: setup status|resume|restart|repair')
+    import first_boot_setup
+
+    skipped = first_boot_setup.fbs(SYSTEM_SETTINGS, SETUP_STORE)
+    reload_sounds(quick_load=False)
+    if skipped:
+        IPrint('Setup completed; playback was not started', visible=visible)
+    return SETUP_STORE.load()
 
 
 def radio_command(arguments):
@@ -3169,6 +3203,17 @@ def process(command):
                     visible=visible,
                     display_message=f'Media tools error: {error}',
                     log_message=f'Media tools error: {error}',
+                    log_priority=2,
+                )
+
+        elif commandslist[0].lower() == 'setup':
+            try:
+                setup_command(commandslist[1:])
+            except (ValueError, SetupStateError) as error:
+                SAY(
+                    visible=visible,
+                    display_message=f'Setup command failed: {error}',
+                    log_message=f'Setup command failed: {error}',
                     log_priority=2,
                 )
 

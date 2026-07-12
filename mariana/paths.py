@@ -37,6 +37,14 @@ class RuntimePaths:
         return self.resources / "settings" / "system.toml"
 
     @property
+    def setup_state(self) -> Path:
+        return self.data / "setup-state.json"
+
+    @property
+    def setup_lock(self) -> Path:
+        return self.data / ".setup.lock"
+
+    @property
     def library_file(self) -> Path:
         return self.data / "lib.lib"
 
@@ -145,6 +153,7 @@ def initialize_runtime_paths(paths: RuntimePaths | None = None) -> RuntimePaths:
         paths.user_data.write_text("default_user_data: {}\n", encoding="utf-8")
 
     marker = paths.data / ".migration.json"
+    existing_install = marker.exists()
     if not marker.exists():
         payload = {
             "migration_version": MIGRATION_VERSION,
@@ -155,4 +164,21 @@ def initialize_runtime_paths(paths: RuntimePaths | None = None) -> RuntimePaths:
         temporary = marker.with_suffix(".tmp")
         temporary.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
         os.replace(temporary, marker)
+
+    if not paths.setup_state.exists():
+        now = time.time()
+        payload = {
+            "schema_version": 1,
+            "status": "complete" if existing_install else "pending",
+            "attempt_id": None,
+            "current_step": None,
+            "completed_steps": [],
+            "started_at": None,
+            "updated_at": now,
+            "error": None,
+            "migrated_existing_install": existing_install,
+        }
+        temporary = paths.setup_state.with_suffix(".tmp")
+        temporary.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        os.replace(temporary, paths.setup_state)
     return paths

@@ -15,6 +15,7 @@ APP_DIR = Path(__file__).resolve().parents[1]
 TEMP_DIR = runtime_paths().temporary
 RES_DIR = runtime_paths().resource('res')
 WALLPAPER_DIR = RES_DIR / 'lyrics-wallpapers'
+STYLE_PATH = TEMP_DIR / 'lyrics.css'
 
 IDENTIFICATION_SERVICE = None
 PLAYBACK_CONTROLLER = None
@@ -121,7 +122,7 @@ def create_lyrics_html():
                     '<head>',
                     '    <meta charset="UTF-8">',
                     '    <meta name="viewport" content="width=device-width, initial-scale=1.0">',
-                    f'    <link rel="stylesheet" href="{(RES_DIR / "style.css").as_uri()}">',
+                    f'    <link rel="stylesheet" href="{STYLE_PATH.as_uri()}">',
                     '    <link rel="preload" href="Elsie-Regular.ttf" as="font" type="font/ttf" crossorigin>',
                     '    <link rel="preconnect" href="https://fonts.googleapis.com">',
                     '    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>',
@@ -233,7 +234,8 @@ def show_window(max_wait_lim,
 
         default_css += body_css
 
-        with (RES_DIR / 'style.css').open('w', encoding='utf-8') as css_file:
+        STYLE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with STYLE_PATH.open('w', encoding='utf-8') as css_file:
             css_file.write(default_css)
 
         # try:

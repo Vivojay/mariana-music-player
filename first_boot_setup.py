@@ -1,17 +1,56 @@
+"""Interactive, resumable first-run setup."""
+
+from __future__ import annotations
+
 import os
+import shutil
 import stat
+import tempfile
+import uuid
 from pathlib import Path
 
-import toml
-
 from mariana.paths import runtime_paths
+from mariana.setup import SetupStateError, SetupStateStore
 
 APP_DIR = Path(__file__).resolve().parent
-curdir = str(APP_DIR)
 HTTP_TIMEOUT = (10, 60)
 
+
+def _answer(prompt: str) -> bool:
+    response = input(prompt).casefold().strip()
+    while response not in {"y", "n", "yes", "no"}:
+        response = input(f"[INVALID RESPONSE] {prompt}").casefold().strip()
+    return response in {"y", "yes"}
+
+
+def _path_key(value: str | Path) -> str:
+    expanded = os.path.expandvars(os.path.expanduser(str(value)))
+    return os.path.normcase(os.path.realpath(expanded))
+
+
+def _save_library_paths(paths: list[str]) -> None:
+    destination = runtime_paths().library_file
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    existing = destination.read_text(encoding="utf-8").splitlines() if destination.exists() else []
+    known = {_path_key(line) for line in existing if line.strip() and not line.lstrip().startswith("#")}
+    output = list(existing)
+    for value in paths:
+        if (key := _path_key(value)) not in known:
+            output.append(str(Path(value).expanduser().resolve()))
+            known.add(key)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=".lib.", suffix=".tmp", dir=destination.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write("\n".join(output).rstrip() + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def download_cloud_mariana_samples(about):
-    import sys
     import zipfile
 
     import requests
@@ -20,132 +59,130 @@ def download_cloud_mariana_samples(about):
 
     from beta.mediadl import setup_dl_dir
 
-    yaml = YAML(typ='safe')
+    with runtime_paths().settings.open(encoding="utf-8") as stream:
+        settings = YAML(typ="safe").load(stream)
+    download_directory = setup_dl_dir(settings, about)
+    if download_directory in range(4):
+        return download_directory
 
-    SYSTEM_SETTINGS = about
-    with runtime_paths().settings.open(encoding='utf-8') as u_data_file:
-        SETTINGS = yaml.load(u_data_file)
-
-    dl_dir_setup_code = setup_dl_dir(SETTINGS, SYSTEM_SETTINGS)
-    if dl_dir_setup_code in range(4):
-        return dl_dir_setup_code
-    output_zip_path = os.path.join(dl_dir_setup_code, 'mariana_samples.zip')
-
-    if sys.platform == 'win32':
-        output_zip_path = output_zip_path.replace('/', '\\')
-    else:
-        output_zip_path = output_zip_path.replace('\\', '/')
-
-    # Mariana Cloud Music Collection (zip file) is located at: https://www.dropbox.com/s/s2cgmuwadkrsjl7/Mariana%20Cloud%20Music%20Collection.zip?dl=1
-    mariana_samples_url = 'https://www.dropbox.com/s/s2cgmuwadkrsjl7/Mariana%20Cloud%20Music%20Collection.zip?dl=1'
-
-    resp = requests.get(mariana_samples_url, stream=True, timeout=HTTP_TIMEOUT)
-    resp.raise_for_status()
-    total = int(resp.headers.get('content-length') or 178238582)
-
-    print('', end='', flush=True)
-    with open(output_zip_path, 'wb') as file, tqdm(
-        # desc=output_zip_path,
-        desc='',
-        total=total,
-        unit='iB',
-        unit_scale=True,
-        unit_divisor=1024,
-        ncols=60,
-    ) as bar:
-        for data in resp.iter_content(chunk_size=1024):
-            size = file.write(data)
-            bar.update(size)
-
-    if not zipfile.is_zipfile(output_zip_path):
-        raise zipfile.BadZipFile("The sample download was not a valid zip archive")
-    samples_dir = Path(dl_dir_setup_code) / 'mariana_music_samples'
-    samples_dir.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(output_zip_path, 'r') as zip_ref:
-        samples_root = samples_dir.resolve()
-        for member in zip_ref.infolist():
-            member_path = (samples_root / member.filename).resolve()
-            if not member_path.is_relative_to(samples_root) or stat.S_ISLNK(member.external_attr >> 16):
-                raise zipfile.BadZipFile(f"Unsafe path in sample archive: {member.filename}")
-        zip_ref.extractall(samples_dir)
+    root = Path(download_directory).expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    archive_path = root / f".mariana-samples-{os.getpid()}.zip"
+    staging = root / f".mariana-samples-{uuid.uuid4().hex}.staging"
+    destination = root / "mariana_music_samples"
+    sample_url = "https://www.dropbox.com/s/s2cgmuwadkrsjl7/Mariana%20Cloud%20Music%20Collection.zip?dl=1"
 
     try:
-        os.remove(output_zip_path)
-    except Exception:
-        pass
+        response = requests.get(sample_url, stream=True, timeout=HTTP_TIMEOUT)
+        response.raise_for_status()
+        total = int(response.headers.get("content-length") or 178238582)
+        with archive_path.open("wb") as output, tqdm(
+            desc="", total=total, unit="iB", unit_scale=True, unit_divisor=1024, ncols=60
+        ) as progress:
+            for data in response.iter_content(chunk_size=1024):
+                if data:
+                    progress.update(output.write(data))
+        if not zipfile.is_zipfile(archive_path):
+            raise zipfile.BadZipFile("The sample download was not a valid zip archive")
+        staging.mkdir()
+        with zipfile.ZipFile(archive_path) as archive:
+            staging_root = staging.resolve()
+            for member in archive.infolist():
+                member_path = (staging_root / member.filename).resolve()
+                if not member_path.is_relative_to(staging_root) or stat.S_ISLNK(member.external_attr >> 16):
+                    raise zipfile.BadZipFile(f"Unsafe path in sample archive: {member.filename}")
+            archive.extractall(staging)
+        if destination.exists():
+            shutil.rmtree(staging)
+        else:
+            os.replace(staging, destination)
+        return destination
+    finally:
+        archive_path.unlink(missing_ok=True)
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
 
 
-def fbs(about): # First boot setup
-    greet_string = f"Welcome to Mariana Player v{about['ver']['maj']}.{about['ver']['min']}.{about['ver']['rel']}"
-    print("\n\n")
-    print(f"{'='*(len(greet_string)+8)}")
-    print(f"||  {' '*len(greet_string)}  ||")
-    print(f"||  {greet_string}  ||")
-    print(f"||  {' '*len(greet_string)}  ||")
-    print(f"{'='*(len(greet_string)+8)}")
-
-    locally_stored_permission = input("Do you have any locally stored/downloaded music files? (y/n): ").lower().strip()
-    while locally_stored_permission not in ['y', 'n', 'yes', 'no']:
-        locally_stored_permission = input("[INVALID RESPONSE] Do you have any locally stored/downloaded music files? (y/n): ").lower().strip()
-
-    if locally_stored_permission in ['yes', 'y']:
-        locally_stored_permission = True
-    else:
-        locally_stored_permission = False
-
-    local_file_dirs = []
-
-    if locally_stored_permission:
-        print("Please enter absolute path of your music directories one by one:")
-        print("(When done, just write \"xxx\")\n")
-        n=0
-        while True:
-            n+=1
-            local_file_dir = input(f"  Enter directory path {n} ('xxx' to exit): ").lower().strip()
-            if local_file_dir != 'xxx':
-                if os.path.isdir(local_file_dir):
-                    local_file_dirs.append(local_file_dir)
-                else:
-                    print("This directory does not exist, please retry...")
-            else:
-                print()
-                print(f"Saving directory paths in your library\n  @location: {runtime_paths().library_file}!")
-                break
-
-            local_file_dirs = list(set(local_file_dirs))
-
-            with runtime_paths().library_file.open('a', encoding='utf-8') as libfile:
-                for _dir in local_file_dirs:
-                    libfile.write(_dir+'\n')
-
-
-    sample_songs_download_permission = input("Would you like to download a signature collection of 25 sample songs by Mariana\n(SPACE REQUIRED: 170MB)? (y/n): ").lower().strip()
-    while sample_songs_download_permission not in ['y', 'n', 'yes', 'no']:
-        sample_songs_download_permission = input("[INVALID RESPONSE] Would you like to download a signature Mariana music collection? (y/n): ").lower().strip()
-
-    if sample_songs_download_permission in ['yes', 'y']:
-        sample_songs_download_permission = True
-    else:
-        sample_songs_download_permission = False
-
-    if sample_songs_download_permission:
-        download_cloud_mariana_samples(about)
-
-    print("\nOk, done!")
-
-    run_now = input("\n\nWould you like to run Mariana Player now? (y/n) ").lower().strip()
-    while run_now not in ['y', 'n', 'yes', 'no']:
-        run_now = input("[INVALID RESPONSE] Want to run Mariana Player now? (y/n) ").lower().strip()
-
-    about['first_boot'] = False
+def _recover(store: SetupStateStore) -> bool:
     try:
-        with open('settings/system.toml', 'w') as about_file:
-            toml.dump(about, about_file)
-    except Exception:
-        pass
+        state = store.load()
+    except SetupStateError as error:
+        print(f"Setup state is corrupt: {error}")
+        choice = input("Repair setup state and restart setup? (y/n): ").casefold().strip()
+        if choice not in {"y", "yes"}:
+            return False
+        store.repair()
+        return True
+    if state.status not in {"failed", "in_progress"}:
+        return True
+    print(f"Previous setup did not complete (step: {state.current_step or 'unknown'}).")
+    choice = input("[R]esume, re[S]tart, or [Q]uit setup? ").casefold().strip()
+    while choice not in {"r", "resume", "s", "restart", "q", "quit"}:
+        choice = input("Please enter R, S, or Q: ").casefold().strip()
+    if choice in {"q", "quit"}:
+        return False
+    if choice in {"s", "restart"}:
+        store.reset()
+    return True
 
-    if run_now in ['no', 'n']:
-        print("Mariana Player has been installed successfully for you...")
 
-    return (run_now in ['no', 'n']) # True:  DO NOT RUN player
-                                    # False: Continue to run player...
+def fbs(about, store: SetupStateStore | None = None):
+    """Run or resume first boot; return True when the player should not start."""
+    store = store or SetupStateStore()
+    if not _recover(store):
+        return True
+    with store.lock():
+        state = store.load()
+        if state.status == "complete":
+            return False
+        greet = f"Welcome to Mariana Player v{about['ver']['maj']}.{about['ver']['min']}.{about['ver']['rel']}"
+        print(f"\n\n{'=' * (len(greet) + 8)}")
+        print(f"||  {' ' * len(greet)}  ||\n||  {greet}  ||\n||  {' ' * len(greet)}  ||")
+        print("=" * (len(greet) + 8))
+
+        try:
+            state = store.begin("library")
+            if "library" not in state.completed_steps:
+                directories: list[str] = []
+                if _answer("Do you have any locally stored/downloaded music files? (y/n): "):
+                    print('Please enter absolute music-directory paths one by one ("xxx" when done):\n')
+                    index = 0
+                    while True:
+                        index += 1
+                        value = input(f"  Enter directory path {index} ('xxx' to exit): ").strip()
+                        if value.casefold() == "xxx":
+                            break
+                        expanded = Path(os.path.expandvars(value)).expanduser()
+                        if expanded.is_dir():
+                            directories.append(str(expanded.resolve()))
+                        else:
+                            print("This directory does not exist, please retry...")
+                _save_library_paths(directories)
+                state = store.complete_step("library")
+
+            store.begin("samples")
+            if "samples" not in state.completed_steps:
+                if _answer(
+                    "Would you like to download a signature collection of 25 sample songs by Mariana\n"
+                    "(SPACE REQUIRED: 170MB)? (y/n): "
+                ):
+                    download_cloud_mariana_samples(about)
+                state = store.complete_step("samples")
+
+            store.begin("launch")
+            run_now = _answer("\n\nWould you like to run Mariana Player now? (y/n) ")
+            store.complete_step("launch")
+            store.complete()
+            print("\nOk, done!")
+            if not run_now:
+                print("Mariana Player has been installed successfully for you...")
+            return not run_now
+        except (KeyboardInterrupt, EOFError):
+            raise
+        except Exception as error:
+            try:
+                step = store.load().current_step
+            except SetupStateError:
+                step = None
+            store.fail(step, error)
+            raise
