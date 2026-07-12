@@ -124,6 +124,8 @@ class PlaybackSnapshot:
     media: MediaRef | None = None
     replaygain_db: float = 0.0
     live_leveling: bool = False
+    stream_title: str | None = None
+    stream_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

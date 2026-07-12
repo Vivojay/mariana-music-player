@@ -26,6 +26,18 @@ feedparser==6.0.12
     # via -r requirements.in
 idna==3.18
     # via requests
+jaraco-classes==3.4.0
+    # via keyring
+jaraco-context==6.1.2
+    # via keyring
+jaraco-functools==4.5.0
+    # via keyring
+keyring==25.7.0
+    # via -r requirements.in
+more-itertools==11.1.0
+    # via
+    #   jaraco-classes
+    #   jaraco-functools
 mutagen==1.48.1
     # via
     #   -r requirements.in
@@ -37,7 +49,9 @@ pillow==12.3.0
 platformdirs==4.10.0
     # via -r requirements.in
 psutil==7.2.2
-    # via pycaw
+    # via
+    #   -r requirements.in
+    #   pycaw
 pycaw==20251023 ; sys_platform == "win32"
     # via -r requirements.in
 pycparser==3.0
@@ -46,6 +60,8 @@ pycryptodomex==3.23.0
     # via yt-dlp
 pywin32==312 ; sys_platform == "win32"
     # via -r requirements.in
+pywin32-ctypes==0.2.3
+    # via keyring
 pyyaml==6.0.3
     # via -r requirements.in
 requests==2.34.2

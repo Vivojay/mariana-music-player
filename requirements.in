@@ -1,6 +1,7 @@
 colored==2.3.2
 comtypes==1.4.16; sys_platform == "win32"
 feedparser==6.0.12
+keyring==25.7.0
 mutagen==1.48.1
 numpy==2.5.1
 Pillow==12.3.0

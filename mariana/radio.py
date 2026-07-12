@@ -10,6 +10,8 @@ import subprocess
 import time
 from typing import Any
 from urllib.parse import urljoin, urlparse
+import hashlib
+import re
 
 import requests
 
@@ -264,6 +266,36 @@ class RadioCatalog:
                 "UPDATE radio_stations SET favorite=? WHERE station_id=?", (int(enabled), station.station_id)
             )
         return self.get(slug_or_id)
+
+    def add(self, url: str, name: str | None = None) -> RadioStation:
+        parsed = urlparse(url)
+        if parsed.scheme.casefold() not in {"http", "https"} or not parsed.hostname:
+            raise RadioError("Radio URLs must use HTTP or HTTPS")
+        if parsed.username or parsed.password:
+            raise RadioError("Credentials embedded in radio URLs are not accepted")
+        digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+        slug_base = re.sub(r"[^a-z0-9]+", "-", (name or parsed.hostname).casefold()).strip("-") or "station"
+        station = RadioStation(
+            station_id=f"custom-{digest}",
+            slug=f"{slug_base}-{digest[:6]}",
+            name=(name or parsed.hostname).strip(),
+            provider="User",
+            endpoints=[url],
+        )
+        self._save(station)
+        return station
+
+    def credential(self, slug_or_id: str) -> dict[str, str] | None:
+        station = self.get(slug_or_id)
+        return self.database.get_state(f"radio_credential:{station.station_id}")
+
+    def set_credential(self, slug_or_id: str, reference: str, username: str = "source") -> dict[str, str]:
+        station = self.get(slug_or_id)
+        if not reference or not username or any(char in username for char in "\r\n:"):
+            raise RadioError("Radio credential reference or username is invalid")
+        value = {"reference": reference, "username": username}
+        self.database.set_state(f"radio_credential:{station.station_id}", value)
+        return value
 
     def search(self, query: str, *, limit: int = 20, import_results: bool = True) -> list[RadioStation]:
         try:

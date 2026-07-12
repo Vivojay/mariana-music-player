@@ -74,6 +74,9 @@ class DesktopControl:
                         "volume": current.volume,
                         "muted": current.muted,
                         "error": current.error,
+                        "replaygain_db": getattr(current, "replaygain_db", 0.0),
+                        "live_leveling": getattr(current, "live_leveling", False),
+                        "stream_title": getattr(current, "stream_title", None),
                         "media": {
                             "id": media.stable_id,
                             "source": media.source.value,
@@ -83,6 +86,11 @@ class DesktopControl:
                     }
                     if payload != previous:
                         self.emit("playback", payload)
+                        self.emit("loudness", {
+                            "replaygain_db": getattr(current, "replaygain_db", 0.0),
+                            "live_leveling": getattr(current, "live_leveling", False),
+                            "stream_title": getattr(current, "stream_title", None),
+                        })
                         previous = payload
                 except Exception as error:
                     self.emit("fatal-error", {"message": f"Playback monitor failed: {error}"})

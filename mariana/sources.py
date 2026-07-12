@@ -111,6 +111,8 @@ def sanitized_resolver_data(value: dict[str, Any]) -> dict[str, Any]:
         "fingerprint",
         "library_id",
         "content_id",
+        "credential_ref",
+        "credential_username",
     }
     return {key: item for key, item in value.items() if key in allowed}
 
@@ -201,6 +203,12 @@ class HttpResolver(BaseResolver):
             metadata_available=media.capabilities.metadata_available,
         )
         resolved = ResolvedMedia(media, url, canonical_uri(media.source, url), capabilities, endpoints=[url])
+        if reference := media.resolver_data.get("credential_ref"):
+            resolved.metadata["credential_ref"] = str(reference)
+            resolved.metadata["credential_username"] = str(
+                media.resolver_data.get("credential_username") or "source"
+            )
+            return resolved
         try:
             return self.probe(resolved)
         except MediaFailure as error:
@@ -210,19 +218,20 @@ class HttpResolver(BaseResolver):
             return resolved
 
     def probe(self, resolved: ResolvedMedia) -> ResolvedMedia:
+        request_headers = {"User-Agent": "Mariana/0.7", "Icy-MetaData": "1"}
         try:
             response = self.session.head(
                 resolved.playback_uri,
                 allow_redirects=True,
                 timeout=self.timeout,
-                headers={"User-Agent": "Mariana/0.7"},
+                headers=request_headers,
             )
             if response.status_code in {405, 501}:
                 response = self.session.get(
                     resolved.playback_uri,
                     allow_redirects=True,
                     timeout=self.timeout,
-                    headers={"User-Agent": "Mariana/0.7", "Range": "bytes=0-0"},
+                    headers={**request_headers, "Range": "bytes=0-0"},
                     stream=True,
                 )
             response.raise_for_status()
@@ -243,9 +252,27 @@ class HttpResolver(BaseResolver):
             downloadable=not live,
             metadata_available=icy or resolved.media.capabilities.metadata_available,
         )
-        resolved.metadata.update(
-            {"content_type": content_type, "content_length_known": known_length, "accepts_ranges": accepts_ranges}
-        )
+        icy_metadata = {
+            name.removeprefix("icy-"): response.headers.get(f"icy-{name}")
+            for name in ("name", "genre", "url", "br", "metaint")
+            if response.headers.get(f"icy-{name}") is not None
+        }
+        if "br" in icy_metadata:
+            try:
+                icy_metadata["bitrate_kbps"] = int(str(icy_metadata["br"]))
+            except ValueError:
+                pass
+        if "metaint" in icy_metadata:
+            try:
+                icy_metadata["metadata_interval"] = int(str(icy_metadata["metaint"]))
+            except ValueError:
+                pass
+        resolved.metadata.update({
+            "content_type": content_type,
+            "content_length_known": known_length,
+            "accepts_ranges": accepts_ranges,
+            "icy": icy_metadata,
+        })
         return resolved
 
 

@@ -92,6 +92,13 @@ def test_catalog_seed_search_import_favorites_and_filter(tmp_path: Path):
         assert [station.name for station in results] == ["Good"]
         catalog.favorite(results[0].slug)
         assert [station.name for station in catalog.list(favorites=True)] == ["Good"]
+        custom = catalog.add("https://example.test/live", "My Station")
+        assert custom.name == "My Station"
+        assert catalog.get(custom.slug).endpoints == ["https://example.test/live"]
+        with pytest.raises(RadioError, match="HTTP"):
+            catalog.add("rtsp://example.test/live")
+        with pytest.raises(RadioError, match="Credentials"):
+            catalog.add("https://user:secret@example.test/live")
 
 
 def test_health_failover_persists_last_healthy_and_backoff(tmp_path: Path, monkeypatch):

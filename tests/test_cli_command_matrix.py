@@ -47,6 +47,8 @@ def cli(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "library_command", lambda args: actions.append(("library", args)))
     monkeypatch.setattr(main, "radio_command", lambda args: actions.append(("radio", args)))
     monkeypatch.setattr(main, "recommendation_command", lambda args: actions.append(("recommend", args)))
+    monkeypatch.setattr(main, "replaygain_command", lambda args: actions.append(("replaygain", args)))
+    monkeypatch.setattr(main, "broadcast_command", lambda args: actions.append(("broadcast", args)))
     monkeypatch.setattr(main.RECOMMENDER, "record_event", lambda *args, **kwargs: actions.append(("event", args, kwargs)))
     monkeypatch.setattr(main.YT_query, "search_youtube", lambda **_kwargs: ("Video", "https://youtube.test/watch?v=1"))
     monkeypatch.setattr(main, "play_vas_media", lambda *args, **kwargs: actions.append(("play-vas", args, kwargs)))
@@ -167,6 +169,8 @@ def cli(monkeypatch, tmp_path):
         "music-downloads",
         "queue list",
         "radio list",
+        "replaygain status",
+        "broadcast status",
         "recommend 3",
         "/rs",
     ],

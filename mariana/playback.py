@@ -178,6 +178,24 @@ class WindowsJob:
             self.handle = None
 
 
+def parse_icy_title(value: str | bytes) -> str | None:
+    if isinstance(value, bytes):
+        try:
+            value = value.decode("utf-8")
+        except UnicodeDecodeError:
+            value = value.decode("cp1252", errors="replace")
+    value = " ".join(value.replace("\x00", " ").split())
+    match = re.search(
+        r"(?:StreamTitle|icy-title)\s*[:=]\s*(['\"]?)(.*?)(?:\1)?(?:;|$)",
+        value,
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+    title = match.group(2).strip(" '\";\x00")
+    return title[:1000] or None
+
+
 class DecoderSession:
     def __init__(
         self,
@@ -211,6 +229,7 @@ class DecoderSession:
         self.frames_emitted = 0
         self.on_metadata: Callable[[str], None] | None = None
         self._last_stream_title: str | None = None
+        self._auth_tunnel = None
 
     @property
     def position(self) -> float:
@@ -243,6 +262,15 @@ class DecoderSession:
         if self.process is not None:
             return
         source = self.resolved.playback_uri if self.resolved else resolve_input(self.media)
+        if self.resolved and self.resolved.metadata.get("credential_ref"):
+            from .credentials import ListenerAuthTunnel
+
+            self._auth_tunnel = ListenerAuthTunnel(
+                source,
+                str(self.resolved.metadata.get("credential_username") or "source"),
+                str(self.resolved.metadata["credential_ref"]),
+            )
+            source = self._auth_tunnel.start()
         log_level = "info" if self.media.capabilities.live else "warning"
         command = [self.ffmpeg, "-hide_banner", "-loglevel", log_level, "-nostdin"]
         if self.start_at and self.media.capabilities.seekable:
@@ -270,6 +298,8 @@ class DecoderSession:
                 "-respect_retry_after",
                 "1",
             ]
+            if self.media.capabilities.live:
+                command += ["-icy", "1"]
         if self.resolved and self.resolved.headers:
             command += ["-headers", "".join(f"{key}: {value}\r\n" for key, value in self.resolved.headers.items())]
         command += [
@@ -336,14 +366,12 @@ class DecoderSession:
         for raw in iter(self.process.stderr.readline, b""):
             line = raw.decode("utf-8", errors="replace").strip()
             self._stderr.append(line)
-            match = re.search(r"(?:StreamTitle|icy-title)\s*[:=]\s*['\"]?(.+?)['\"]?$", line, re.IGNORECASE)
-            if match:
-                title = match.group(1).strip()
+            title = parse_icy_title(line)
+            if title:
                 if title and title != self._last_stream_title:
                     self._last_stream_title = title
                     if self.on_metadata:
                         self.on_metadata(title)
-
     def wait_for_buffer(self, minimum_seconds: float = 0.15, timeout: float = 10) -> bool:
         deadline = time.monotonic() + timeout
         with self._condition:
@@ -393,6 +421,9 @@ class DecoderSession:
             self._reader.join(timeout=2)
         if self.job:
             self.job.close()
+        if self._auth_tunnel:
+            self._auth_tunnel.close()
+            self._auth_tunnel = None
         self.process = None
 
 
@@ -469,6 +500,8 @@ class PlaybackController:
         self._watch_stop = threading.Event()
         self._identity_generation = 0
         self._program_sinks: list[Callable[[object, int], None]] = []
+        self._metadata_sinks: list[Callable[[str | None], None]] = []
+        self._stream_metadata: dict[str, object] = {}
 
     def _program_gain_db(self, media: MediaRef) -> float:
         if not self.replaygain_enabled or media.capabilities.live or self.loudness_repository is None:
@@ -521,6 +554,7 @@ class PlaybackController:
                 if getattr(media, field) is None and resolved.metadata.get(field) is not None:
                     setattr(media, field, resolved.metadata[field])
             resolved.capabilities = media.capabilities
+            self._stream_metadata = dict(resolved.metadata.get("icy") or {})
             self._prepared = media
             self._resolved = resolved
             return media
@@ -557,6 +591,7 @@ class PlaybackController:
             self._state = PlaybackState.PLAYING
             self._watch_stop.clear()
             threading.Thread(target=self._watch_completion, name="mariana-playback-watch", daemon=True).start()
+        self._publish_metadata(" - ".join(value for value in (media.artist, media.title) if value) or media.title)
         return media
 
     def prefetch(self, media: MediaRef, *, probe: bool = True) -> MediaRef:
@@ -849,6 +884,26 @@ class PlaybackController:
 
         return remove
 
+    def add_metadata_sink(self, callback: Callable[[str | None], None]) -> Callable[[], None]:
+        with self._lock:
+            self._metadata_sinks.append(callback)
+
+        def remove() -> None:
+            with self._lock:
+                if callback in self._metadata_sinks:
+                    self._metadata_sinks.remove(callback)
+
+        return remove
+
+    def _publish_metadata(self, title: str | None) -> None:
+        with self._lock:
+            sinks = tuple(self._metadata_sinks)
+        for sink in sinks:
+            try:
+                sink(title)
+            except Exception:
+                continue
+
     def _publish_program(self, samples: object, frames: int) -> None:
         with self._lock:
             sinks = tuple(self._program_sinks)
@@ -887,7 +942,9 @@ class PlaybackController:
         with self._lock:
             if self._active is not session:
                 return
+            self._stream_metadata["title"] = title
         self.notify_metadata_boundary(title)
+        self._publish_metadata(title)
 
     def stop(self) -> None:
         with self._lock:
@@ -896,6 +953,7 @@ class PlaybackController:
             self._active = None
             self._next = None
             self._resolved = None
+            self._stream_metadata = {}
             if active or next_session:
                 self._state = PlaybackState.STOPPING
         for session in (active, next_session):
@@ -938,6 +996,8 @@ class PlaybackController:
                 media=active.media if active else self._prepared,
                 replaygain_db=getattr(active, "program_gain_db", 0.0) if active else 0.0,
                 live_leveling=bool(active and active.media.capabilities.live and self.live_leveling),
+                stream_title=str(self._stream_metadata.get("title")) if self._stream_metadata.get("title") else None,
+                stream_metadata=dict(self._stream_metadata),
             )
 
 

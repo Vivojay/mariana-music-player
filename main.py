@@ -52,6 +52,8 @@ from first_boot_welcome_screen import notify;       print("Loaded 23/31", end='\
 from config_manager import load_system_settings, load_user_settings
 from runtime_check import check_runtime, format_runtime_report
 from mariana.database import MarianaDatabase
+from mariana.broadcast import BroadcastError, BroadcastState, IcecastBroadcaster
+from mariana.credentials import CredentialError, CredentialStore
 from mariana.download import DownloadError, download_media
 from mariana.desktop_control import DesktopControl
 from mariana.identity import AcoustIDClient, IdentificationService, LRCLIBClient, MusicBrainzClient
@@ -278,6 +280,14 @@ vas.configure(
 )
 get_lyrics.configure(IDENTITY, vas.controller)
 DESKTOP_CONTROL = DesktopControl()
+BROADCASTER = IcecastBroadcaster.from_settings(
+    SETTINGS.get('broadcast', {}),
+    ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'),
+    credentials=CredentialStore(),
+    on_update=lambda status: DESKTOP_CONTROL.emit('broadcast', status.to_dict()),
+)
+vas.controller.add_program_sink(BROADCASTER.offer)
+vas.controller.add_metadata_sink(BROADCASTER.metadata)
 SLEEP_TIMER = SleepTimer(
     vas.controller,
     on_update=lambda status: DESKTOP_CONTROL.emit('sleep', status.to_dict()),
@@ -304,7 +314,11 @@ songindex = -1
 lyrics_window_note = "[Please close the lyrics window to continue issuing more commands...]"
 current_media_type = None
 
-RUNTIME_REPORT = check_runtime(MEDIA_TOOLS.get('ffmpeg bin'), MEDIA_TOOLS.get('fpcalc bin'))
+RUNTIME_REPORT = check_runtime(
+    MEDIA_TOOLS.get('ffmpeg bin'),
+    MEDIA_TOOLS.get('fpcalc bin'),
+    MEDIA_TOOLS.get('rsgain bin'),
+)
 for runtime_message in format_runtime_report(RUNTIME_REPORT):
     print(f"[{runtime_message}]")
 if RUNTIME_REPORT.errors:
@@ -845,6 +859,65 @@ def replaygain_command(arguments):
         )
 
 
+def broadcast_command(arguments):
+    operation = arguments[0].lower() if arguments else 'status'
+    if operation == 'profiles':
+        rows = [
+            (profile.name, profile.codec, f'{profile.bitrate_kbps} kbps', profile.station_name)
+            for profile in BROADCASTER.profiles.values()
+        ]
+        IPrint(tbl(rows, headers=('Profile', 'Codec', 'Bitrate', 'Station'), tablefmt='plain') if rows else '(no broadcast profiles)', visible=visible)
+    elif operation == 'credentials' and len(arguments) >= 3:
+        action, name = arguments[1].lower(), arguments[2]
+        if name not in BROADCASTER.profiles:
+            raise BroadcastError(f'Unknown broadcast profile: {name}')
+        reference = BROADCASTER.profiles[name].reference
+        if action == 'set':
+            BROADCASTER.credentials.set(reference, getpass(f'Icecast password for {name}: '))
+            IPrint(f'Credential stored in the operating-system keychain for {name}', visible=visible)
+        elif action == 'delete':
+            deleted = BROADCASTER.credentials.delete(reference)
+            IPrint('Credential deleted' if deleted else 'No keychain credential was stored', visible=visible)
+        elif action == 'status':
+            status = BROADCASTER.credentials.status(reference)
+            IPrint(
+                f'Credential for {name}: {"available" if status["available"] else "missing"}; '
+                f'source={status["source"]}; headless override={status["environment"]}',
+                visible=visible,
+            )
+        else:
+            raise BroadcastError('Usage: broadcast credentials set|delete|status <profile>')
+    elif operation in {'start', 'test'} and len(arguments) == 2:
+        if operation == 'start':
+            BROADCASTER.start(arguments[1])
+            media = vas.controller.snapshot().media
+            if media:
+                BROADCASTER.metadata(' - '.join(value for value in (media.artist, media.title) if value) or media.title)
+            IPrint(f'Broadcast connecting with profile {arguments[1]}', visible=visible)
+        else:
+            IPrint(
+                'Broadcast connection test passed' if BROADCASTER.test(arguments[1]) else 'Broadcast connection test failed',
+                visible=visible,
+            )
+    elif operation == 'stop':
+        BROADCASTER.stop()
+        IPrint('Broadcast stopped', visible=visible)
+    elif operation == 'status':
+        status = BROADCASTER.snapshot()
+        IPrint(
+            f'Broadcast: {status.state.value}; profile={status.profile or "none"}; codec={status.codec or "none"}; '
+            f'reconnects={status.reconnects}; dropped blocks={status.dropped_blocks}; '
+            f'title={status.title or "none"}; error={status.error or "none"}',
+            visible=visible,
+        )
+        return status
+    else:
+        raise BroadcastError(
+            'Usage: broadcast [profiles|credentials set|delete|status <profile>|test <profile>|'
+            'start <profile>|stop|status]'
+        )
+
+
 def prepare_update():
     backup_root = RUNTIME_PATHS.state('backups', f'pre-{__version__}-{int(time.time())}')
     backup_root.mkdir(parents=True, exist_ok=False)
@@ -869,7 +942,7 @@ def tools_command(arguments):
     operation = arguments[0].lower() if arguments else 'status'
     if operation == 'status':
         rows = []
-        for name in ('ffmpeg', 'ffprobe', 'ffplay', 'fpcalc', 'deno'):
+        for name in ('ffmpeg', 'ffprobe', 'ffplay', 'fpcalc', 'deno', 'rsgain'):
             rows.append((name, TOOLCHAIN.resolve(name) or 'external/PATH/not found'))
         IPrint(tbl(rows, headers=('Tool', 'Managed path'), tablefmt='plain'), visible=visible)
         return rows
@@ -891,6 +964,7 @@ def radio_command(arguments):
     elif operation == 'play':
         station = RADIO.get(arguments[1])
         endpoint = RADIO.endpoints(station)[0]
+        credential = RADIO.credential(station.station_id) or {}
         item = QUEUE.add(
             MediaRef(
                 MediaSource.RADIO,
@@ -900,6 +974,8 @@ def radio_command(arguments):
                     'station_id': station.station_id,
                     'station_slug': station.slug,
                     'endpoints': RADIO.endpoints(station),
+                    'credential_ref': credential.get('reference'),
+                    'credential_username': credential.get('username'),
                 },
                 capabilities=MediaCapabilities(
                     finite=False,
@@ -912,6 +988,61 @@ def radio_command(arguments):
         )
         QUEUE.jump(len(QUEUE.items()) - 1)
         _play_queue_item(item)
+    elif operation == 'add' and len(arguments) > 1:
+        station = RADIO.add(arguments[1], ' '.join(arguments[2:]) or None)
+        IPrint(f'Added radio station: {station.name} ({station.slug})', visible=visible)
+    elif operation == 'info' and len(arguments) == 2:
+        station = RADIO.get(arguments[1])
+        IPrint(json.dumps({
+            'id': station.slug,
+            'name': station.name,
+            'provider': station.provider,
+            'homepage': station.homepage,
+            'country': station.country,
+            'language': station.language,
+            'tags': station.tags,
+            'endpoints': RADIO.endpoints(station),
+            'last healthy endpoint': station.last_healthy_endpoint,
+            'failure count': station.failure_count,
+        }, indent=2, ensure_ascii=False), visible=visible)
+    elif operation == 'metadata':
+        metadata = vas.controller.snapshot().stream_metadata
+        IPrint(json.dumps(metadata, indent=2, ensure_ascii=False) if metadata else '(no ICY metadata)', visible=visible)
+    elif operation == 'resync':
+        vas.controller.restart_live()
+        IPrint('Radio resynchronized at the live edge', visible=visible)
+    elif operation == 'leveling':
+        action = arguments[1].lower() if len(arguments) > 1 else 'status'
+        if action in {'on', 'off'}:
+            enabled = action == 'on'
+            vas.controller.set_live_leveling(enabled)
+            LIVE_LEVELING_SETTINGS['enabled'] = enabled
+            DATABASE.set_state('radio_live_leveling', LIVE_LEVELING_SETTINGS)
+        elif action != 'status':
+            raise RadioError('Usage: radio leveling [on|off|status]')
+        IPrint(
+            f'Radio live leveling: {"on" if vas.controller.live_leveling else "off"}; '
+            f'target={vas.controller.live_target_lufs:g} LUFS; '
+            f'peak={vas.controller.live_true_peak_dbtp:g} dBTP; LRA={vas.controller.live_lra:g}',
+            visible=visible,
+        )
+    elif operation == 'credentials' and len(arguments) >= 3:
+        action, station_name = arguments[1].lower(), arguments[2]
+        station = RADIO.get(station_name)
+        reference = f'radio:{station.station_id}'
+        if action == 'set':
+            username = arguments[3] if len(arguments) > 3 else 'source'
+            CredentialStore().set(reference, getpass(f'Private-stream password for {station.name}: '))
+            RADIO.set_credential(station.station_id, reference, username)
+            IPrint(f'Private-stream credential stored for {station.name}', visible=visible)
+        elif action == 'delete':
+            deleted = CredentialStore().delete(reference)
+            IPrint('Credential deleted' if deleted else 'No keychain credential was stored', visible=visible)
+        elif action == 'status':
+            status = CredentialStore().status(reference)
+            IPrint(f'Private-stream credential: {"available" if status["available"] else "missing"}', visible=visible)
+        else:
+            raise RadioError('Usage: radio credentials set|delete|status <station> [username]')
     elif operation == 'favorite':
         station = RADIO.favorite(arguments[1], not (len(arguments) > 2 and arguments[2].lower() == 'off'))
         IPrint(f'Favorite updated: {station.name}', visible=visible)
@@ -964,6 +1095,7 @@ def exitplayer(sys_exit=False):
     global EXIT_INFO, APP_BOOT_START_TIME, USER_DATA
 
     SLEEP_TIMER.close()
+    BROADCASTER.close()
     DESKTOP_CONTROL.emit('shutdown-ack')
     DESKTOP_CONTROL.close()
     stopsong()
@@ -3038,6 +3170,17 @@ def process(command):
                     log_priority=2,
                 )
 
+        elif commandslist[0].lower() == 'broadcast':
+            try:
+                broadcast_command(commandslist[1:])
+            except (BroadcastError, CredentialError, ValueError) as error:
+                SAY(
+                    visible=visible,
+                    display_message=f'Broadcast command failed: {error}',
+                    log_message=f'Broadcast command failed: {error}',
+                    log_priority=2,
+                )
+
         elif commandslist == ['update', 'prepare']:
             try:
                 prepare_update()
@@ -3481,6 +3624,8 @@ def run():
             reasons.append('sleep-timer')
         if vas.controller.snapshot().state not in {PlaybackState.IDLE, PlaybackState.PAUSED, PlaybackState.FAILED}:
             reasons.append('playback-active')
+        if BROADCASTER.snapshot().state != BroadcastState.IDLE:
+            reasons.append('broadcast-active')
         jobs = LIBRARY_SERVICE.status().get('jobs', [])
         if any(job.get('status') == 'leased' for job in jobs):
             reasons.append('profiler-transaction')

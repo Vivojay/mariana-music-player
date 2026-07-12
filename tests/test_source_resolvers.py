@@ -74,6 +74,45 @@ def test_http_capability_probe(headers, source, seekable, live):
     resolved = HttpResolver(session).resolve(media)
     assert resolved.capabilities.seekable is seekable
     assert resolved.capabilities.live is live
+    assert session.calls[0][2]["headers"]["Icy-MetaData"] == "1"
+
+
+def test_http_probe_preserves_normalized_icy_station_metadata():
+    session = Session(Response(headers={
+        "content-type": "audio/mpeg",
+        "icy-name": "Test Station",
+        "icy-genre": "Ambient",
+        "icy-url": "https://station.test",
+        "icy-br": "128",
+        "icy-metaint": "16000",
+    }))
+    resolved = HttpResolver(session).resolve(MediaRef(MediaSource.RADIO, "https://station.test/live"))
+    assert resolved.metadata["icy"] == {
+        "name": "Test Station",
+        "genre": "Ambient",
+        "url": "https://station.test",
+        "br": "128",
+        "metaint": "16000",
+        "bitrate_kbps": 128,
+        "metadata_interval": 16000,
+    }
+
+
+def test_private_radio_resolution_keeps_only_credential_references():
+    session = Session(Response(401))
+    media = MediaRef(
+        MediaSource.RADIO,
+        "https://station.test/private",
+        resolver_data={"credential_ref": "radio:station", "credential_username": "listener"},
+        capabilities=MediaCapabilities(finite=False, live=True, seekable=False),
+    )
+    resolved = HttpResolver(session).resolve(media)
+    assert session.calls == []
+    assert resolved.metadata["credential_ref"] == "radio:station"
+    assert sanitized_resolver_data(media.resolver_data) == {
+        "credential_ref": "radio:station",
+        "credential_username": "listener",
+    }
 
 
 def test_http_fallback_rejects_protocols_and_classifies_status():

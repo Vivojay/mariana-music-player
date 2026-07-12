@@ -61,9 +61,10 @@ def test_playback_and_safety_monitors_emit_changes_and_close_cleanly(monkeypatch
     control.start_playback_monitor(lambda: snapshot, interval=0.001)
     control.start_playback_monitor(lambda: snapshot, interval=0.001)
     control.start_safety_monitor(lambda: (False, ["playback"]), interval=0.001)
-    wait_for(lambda: {event for event, _ in events} >= {"playback", "update-safe"})
+    wait_for(lambda: {event for event, _ in events} >= {"playback", "loudness", "update-safe"})
     playback = next(payload for event, payload in events if event == "playback")
     assert playback["media"]["id"] == "track-1"
+    assert next(payload for event, payload in events if event == "loudness")["replaygain_db"] == 0
     assert next(payload for event, payload in events if event == "update-safe")["reasons"] == ["playback"]
     control.close()
     assert control._monitor is None

@@ -305,6 +305,11 @@ def test_decoder_start_http_command_errors_and_forced_kill(monkeypatch):
     with pytest.raises(playback.PlaybackError, match="could not start"):
         playback.DecoderSession(media).start()
 
+    process = Process()
+    monkeypatch.setattr(playback.subprocess, "Popen", lambda command, **_kwargs: commands.append(command) or process)
+    playback.DecoderSession(live()).start()
+    assert "-icy" in commands[-1]
+
 
 def test_decoder_parses_unique_icy_title_updates(monkeypatch):
     class Lines:
@@ -322,6 +327,19 @@ def test_decoder_parses_unique_icy_title_updates(monkeypatch):
     session.on_metadata = titles.append
     session._stderr_loop()
     assert titles == ["Artist - Song"]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("StreamTitle='Artist - Song';StreamUrl='';", "Artist - Song"),
+        (b"icy-title: Caf\xe9 del Mar", "Caf\u00e9 del Mar"),
+        ("unrelated metadata", None),
+        ("StreamTitle='';", None),
+    ],
+)
+def test_icy_title_parser_tolerates_encodings_and_malformed_fields(value, expected):
+    assert playback.parse_icy_title(value) == expected
 
 
 def test_stale_prefetch_metadata_cannot_reset_active_fingerprint(controller):
