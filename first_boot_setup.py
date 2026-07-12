@@ -16,6 +16,10 @@ APP_DIR = Path(__file__).resolve().parent
 HTTP_TIMEOUT = (10, 60)
 
 
+class SampleSetupError(RuntimeError):
+    """Raised when the optional sample step was selected but did not complete."""
+
+
 def _answer(prompt: str) -> bool:
     response = input(prompt).casefold().strip()
     while response not in {"y", "n", "yes", "no"}:
@@ -116,13 +120,20 @@ def _recover(store: SetupStateStore) -> bool:
     if state.status not in {"failed", "in_progress"}:
         return True
     print(f"Previous setup did not complete (step: {state.current_step or 'unknown'}).")
-    choice = input("[R]esume, re[S]tart, or [Q]uit setup? ").casefold().strip()
-    while choice not in {"r", "resume", "s", "restart", "q", "quit"}:
-        choice = input("Please enter R, S, or Q: ").casefold().strip()
+    choices = {"r", "resume", "s", "restart", "q", "quit"}
+    prompt = "[R]esume, re[S]tart, or [Q]uit setup? "
+    if state.current_step == "samples":
+        choices.update({"k", "skip"})
+        prompt = "[R]esume, re[S]tart, s[K]ip optional samples, or [Q]uit setup? "
+    choice = input(prompt).casefold().strip()
+    while choice not in choices:
+        choice = input("Please enter a listed setup action: ").casefold().strip()
     if choice in {"q", "quit"}:
         return False
     if choice in {"s", "restart"}:
         store.reset()
+    elif choice in {"k", "skip"}:
+        store.complete_step("samples")
     return True
 
 
@@ -166,7 +177,11 @@ def fbs(about, store: SetupStateStore | None = None):
                     "Would you like to download a signature collection of 25 sample songs by Mariana\n"
                     "(SPACE REQUIRED: 170MB)? (y/n): "
                 ):
-                    download_cloud_mariana_samples(about)
+                    result = download_cloud_mariana_samples(about)
+                    if isinstance(result, int) and result in range(4):
+                        raise SampleSetupError(
+                            "The optional sample collection was not downloaded; resume setup to retry or skip it"
+                        )
                 state = store.complete_step("samples")
 
             store.begin("launch")

@@ -35,7 +35,7 @@ def test_runtime_path_initialization_is_additive(tmp_path):
     data.mkdir()
     (data / "lib.lib").write_text("user choice\n")
     initialize_runtime_paths(RuntimePaths(resources, data))
-    assert SetupStateStore(RuntimePaths(resources, data)).load().status == "pending"
+    assert SetupStateStore(RuntimePaths(resources, data)).load().status == "complete"
     assert (data / "lib.lib").read_text() == "user choice\n"
     assert (data / "settings" / "settings.yml").read_text() == "visible: true\n"
     initialize_runtime_paths(RuntimePaths(resources, data))
@@ -50,6 +50,21 @@ def test_existing_install_is_not_forced_through_setup_again(tmp_path):
     (data / ".migration.json").write_text('{"migration_version": 1}', encoding="utf-8")
     paths = initialize_runtime_paths(RuntimePaths(resources, data))
     assert SetupStateStore(paths).load().status == "complete"
+
+
+def test_pre_migration_install_without_marker_is_not_forced_through_setup(tmp_path):
+    resources = tmp_path / "resources"
+    data = tmp_path / "state"
+    (resources / "settings").mkdir(parents=True)
+    (resources / "settings" / "settings.yml.default").write_text("visible: true\n")
+    (data / "settings").mkdir(parents=True)
+    (data / "settings" / "settings.yml").write_text("visible: false\n")
+
+    paths = initialize_runtime_paths(RuntimePaths(resources, data))
+
+    state = SetupStateStore(paths).load()
+    assert state.status == "complete"
+    assert state.migrated_existing_install is True
 
 
 def test_runtime_path_initialization_creates_empty_library_and_user_state(tmp_path):

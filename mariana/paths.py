@@ -129,6 +129,11 @@ def _copy_atomic(source: Path, destination: Path) -> None:
 def initialize_runtime_paths(paths: RuntimePaths | None = None) -> RuntimePaths:
     """Create writable state and copy legacy state without removing the originals."""
     paths = paths or runtime_paths()
+    marker = paths.data / ".migration.json"
+    existing_install = marker.exists() or any(
+        candidate.exists()
+        for candidate in (paths.settings, paths.library_file, paths.database, paths.user_data)
+    )
     paths.data.mkdir(parents=True, exist_ok=True)
     for directory in (paths.logs, paths.temporary, paths.tools, paths.state("data"), paths.state("user")):
         directory.mkdir(parents=True, exist_ok=True)
@@ -153,8 +158,6 @@ def initialize_runtime_paths(paths: RuntimePaths | None = None) -> RuntimePaths:
     if not paths.user_data.exists():
         paths.user_data.write_text("default_user_data: {}\n", encoding="utf-8")
 
-    marker = paths.data / ".migration.json"
-    existing_install = marker.exists()
     if not marker.exists():
         payload = {
             "migration_version": MIGRATION_VERSION,
