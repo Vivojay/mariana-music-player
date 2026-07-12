@@ -1,11 +1,13 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
-from mariana.database import MarianaDatabase, SCHEMA_VERSION
-from mariana.models import MediaCapabilities, MediaRef, MediaSource, TrackIdentity, IdentityStatus
+from mariana.database import SCHEMA_VERSION, MarianaDatabase
+from mariana.models import IdentityStatus, MediaCapabilities, MediaRef, MediaSource, TrackIdentity
 from mariana.queueing import PersistentQueue, QueueError
 
 
@@ -45,12 +47,11 @@ def test_database_migration_state_backup_and_rollback(tmp_path: Path):
         )
         database.set_state("window", {"x": 4})
         assert database.get_state("window") == {"x": 4}
-        with pytest.raises(RuntimeError):
-            with database.transaction() as connection:
-                connection.execute(
-                    "INSERT INTO app_state(key, value_json, updated_at) VALUES('bad', '{}', 0)"
-                )
-                raise RuntimeError("abort")
+        with pytest.raises(RuntimeError), database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO app_state(key, value_json, updated_at) VALUES('bad', '{}', 0)"
+            )
+            raise RuntimeError("abort")
         assert database.get_state("bad") is None
         backup = database.backup(tmp_path / "backup.db")
     assert backup.is_file()
@@ -64,6 +65,26 @@ def test_legacy_play_counts_are_backed_up_and_imported_once(tmp_path: Path):
         assert user.with_suffix(".yml.pre-mariana-0.7.bak").is_file()
         user.write_text("default_user_data:\n  stats:\n    play_count:\n      local: 99\n")
         assert database.migrate_legacy_play_counts(user) == {"local": 4, "radio": 2}
+
+
+def test_database_backup_validation_and_existing_legacy_backup(tmp_path: Path):
+    class BadBackup:
+        def execute(self, _sql):
+            return SimpleNamespace(fetchone=lambda: ("corrupt",))
+
+    with pytest.raises(Exception, match="integrity"):
+        MarianaDatabase._verify_backup(BadBackup())
+
+    user = tmp_path / "user.yml"
+    user.write_text(
+        "default_user_data:\n  stats:\n    play_count:\n      local: -2\n      invalid: nope\n      total: 99\n"
+    )
+    backup = user.with_suffix(".yml.pre-mariana-0.7.bak")
+    backup.write_text("preserve")
+    with MarianaDatabase(tmp_path / "existing-backup.db") as database:
+        assert database.execute("SELECT 1").fetchone()[0] == 1
+        assert database.migrate_legacy_play_counts(user) == {"local": 0}
+    assert backup.read_text() == "preserve"
 
 
 def test_queue_full_lifecycle_and_restart(tmp_path: Path):
@@ -169,17 +190,51 @@ def test_queue_empty_invalid_consume_and_saved_queue_compatibility(tmp_path: Pat
         assert len(queue.items()) == before * 2
 
 
+def test_queue_extend_handles_duplicates_empty_inputs_and_unexpected_errors(tmp_path: Path, monkeypatch):
+    with MarianaDatabase(tmp_path / "queue-extend.db") as database:
+        queue = PersistentQueue(database)
+        item = media("only")
+        assert len(queue.extend([item, item])) == 1
+        assert queue.extend([]) == []
+
+        monkeypatch.setattr(queue, "add", lambda *_args, **_kwargs: (_ for _ in ()).throw(QueueError("broken")))
+        with pytest.raises(QueueError, match="broken"):
+            queue.extend([media("bad")])
+
+
+def test_queue_consume_and_previous_nonwrapping_branches(tmp_path: Path):
+    with MarianaDatabase(tmp_path / "queue-consume.db") as database:
+        queue = PersistentQueue(database)
+        queue.add(media("first"))
+        queue.add(media("second"))
+        queue.jump(0)
+        queue.set_consume(True)
+        assert queue.next().media.title == "second"
+        assert [item.media.title for item in queue.items()] == ["second"]
+
+        queue.set_consume(False)
+        queue.add(media("third"))
+        queue.jump(1)
+        assert queue.previous().media.title == "second"
+
+        queue.clear()
+        queue.add(media("last"))
+        queue.jump(0)
+        queue.set_repeat("all")
+        queue.set_consume(True)
+        assert queue.next() is None
+
+
 @given(st.permutations((0, 1, 2, 3, 4)))
 @settings(deadline=None)
 def test_queue_move_permutations_preserve_unique_order(permutation):
-    with TemporaryDirectory() as directory:
-        with MarianaDatabase(Path(directory) / "property.db") as database:
-            queue = PersistentQueue(database)
-            for index in range(5):
-                queue.add(media(str(index)))
-            for destination, wanted in enumerate(permutation):
-                current = [int(item.media.title) for item in queue.items()]
-                queue.move(current.index(wanted), destination)
-            items = queue.items()
-            assert [int(item.media.title) for item in items] == list(permutation)
-            assert [item.position for item in items] == list(range(5))
+    with TemporaryDirectory() as directory, MarianaDatabase(Path(directory) / "property.db") as database:
+        queue = PersistentQueue(database)
+        for index in range(5):
+            queue.add(media(str(index)))
+        for destination, wanted in enumerate(permutation):
+            current = [int(item.media.title) for item in queue.items()]
+            queue.move(current.index(wanted), destination)
+        items = queue.items()
+        assert [int(item.media.title) for item in items] == list(permutation)
+        assert [item.position for item in items] == list(range(5))

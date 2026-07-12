@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 import json
 import os
-from pathlib import Path
 import shutil
 import sqlite3
 import threading
 import time
-from typing import Any, Iterator
-
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any
 
 from .paths import runtime_paths
+
 SCHEMA_VERSION = 3
 
 
@@ -290,13 +291,17 @@ class MarianaDatabase:
             output = sqlite3.connect(temporary)
             try:
                 self._connection.backup(output)
-                result = output.execute("PRAGMA integrity_check").fetchone()
-                if not result or result[0] != "ok":
-                    raise sqlite3.DatabaseError("SQLite backup integrity check failed")
+                self._verify_backup(output)
             finally:
                 output.close()
             os.replace(temporary, destination)
         return destination
+
+    @staticmethod
+    def _verify_backup(connection: sqlite3.Connection) -> None:
+        result = connection.execute("PRAGMA integrity_check").fetchone()
+        if not result or result[0] != "ok":
+            raise sqlite3.DatabaseError("SQLite backup integrity check failed")
 
     def migrate_legacy_play_counts(self, path: Path | str) -> dict[str, int]:
         """Import aggregate YAML counters once, preserving the original file and prior state."""
@@ -328,7 +333,7 @@ class MarianaDatabase:
         with self._lock:
             self._connection.close()
 
-    def __enter__(self) -> "MarianaDatabase":
+    def __enter__(self) -> MarianaDatabase:
         return self
 
     def __exit__(self, *_args: Any) -> None:

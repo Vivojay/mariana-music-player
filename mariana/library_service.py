@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Callable
 import uuid
+from collections.abc import Callable
+from typing import Any
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 from .library import LibraryCatalog
 from .models import PlaybackState
-
 
 BUSY_PLAYBACK_STATES = {
     PlaybackState.RESOLVING,
@@ -62,7 +62,7 @@ class LibraryProfilerService:
         self._scan_request: str | None = None
         self._request_lock = threading.Lock()
         self._threads: list[threading.Thread] = []
-        self._observer: Observer | None = None
+        self._observer: Any | None = None
         self._running = False
         self._last_error: str | None = None
 

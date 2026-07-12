@@ -1,6 +1,8 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-config --strict-markers"
+timeout = 60
+timeout_method = "thread"
 markers = [
     "live: opt-in tests that contact real services or require multimedia hardware",
 ]
@@ -27,11 +29,44 @@ target-version = "py312"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F"]
+select = ["ASYNC", "B", "C4", "E4", "E7", "E9", "F", "I", "PIE", "RUF", "SIM", "UP", "W291", "W293"]
 
 [tool.ruff.lint.per-file-ignores]
-"main.py" = ["E402", "E701", "E702", "F401", "F841"]
-"beta/mediadl.py" = ["E402", "E701", "E721"]
-"beta/podcasts.py" = ["E701"]
+# The legacy REPL remains deliberately un-reformatted until command routing is
+# fully extracted. Correctness checks (E/F/B except B905) remain enabled.
+"main.py" = ["B905", "C417", "E402", "E701", "E702", "F401", "F841", "I001", "RUF046", "SIM", "UP030"]
 "lyrics_provider/detect_song.py" = ["E701"]
 "url_validate.py" = ["E701"]
+# These are isolated legacy adapters; exclusions are limited to refactoring
+# suggestions and do not suppress undefined names or syntax/runtime errors.
+"beta/master_volume_control.py" = ["RUF046"]
+"beta/mediadl.py" = ["E402", "E701", "E721", "SIM105"]
+"beta/podcasts.py" = ["E701", "SIM105"]
+"first_boot_setup.py" = ["SIM105", "SIM108"]
+"first_boot_welcome_screen.py" = ["UP031"]
+"lyrics_provider/get_lyrics.py" = ["RUF005", "UP030"]
+# Test doubles intentionally use class-level mutable fixtures in a few files.
+"tests/test_first_boot.py" = ["RUF012"]
+"tests/test_integrations.py" = ["RUF012"]
+"tests/test_playback_state_machine.py" = ["RUF012"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+include = ["mariana", "recommendation_engine", "tools"]
+exclude = ["tools/soak_test.py"]
+
+[tool.mutmut]
+paths_to_mutate = [
+    "mariana/broadcast.py",
+    "mariana/credentials.py",
+    "mariana/database.py",
+    "mariana/library.py",
+    "mariana/loudness.py",
+    "mariana/playback.py",
+    "mariana/queueing.py",
+    "mariana/sleep_timer.py",
+    "mariana/sources.py",
+    "mariana/supervisor.py",
+]
+tests_dir = ["tests"]

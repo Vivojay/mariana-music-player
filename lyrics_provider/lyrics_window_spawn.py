@@ -1,9 +1,10 @@
-import sys
 import json
+import sys
 import tkinter as tk
+from tkinter import ttk
+
 from mariana.paths import runtime_paths
 
-from tkinter import ttk
 
 def spawn_lyrics_window(text_to_be_displayed, head_text, foot_text):
 

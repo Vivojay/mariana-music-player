@@ -1,5 +1,7 @@
 from ruamel.yaml import YAML
+
 from mariana.paths import runtime_paths
+
 yaml = YAML(typ='safe')  # Allows for safe YAML loading
 
 APP_DIR = runtime_paths().data

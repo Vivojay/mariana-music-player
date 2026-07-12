@@ -10,11 +10,11 @@ format_style:
 """
 
 import os
-import terminal_colors as colored
-from pathlib import Path
-from mariana.paths import runtime_paths
-
 from datetime import datetime as dt
+from pathlib import Path
+
+import terminal_colors as colored
+from mariana.paths import runtime_paths
 
 # From res/data
 logleveltypes = {
@@ -66,5 +66,5 @@ def SAY(
             else:
                 raise ValueError("InvalidLogformat_styleError")
 
-            if format_style in range(0, 3):
+            if format_style in range(3):
                 logfile.write(formatted_log_message)

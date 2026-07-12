@@ -4,6 +4,9 @@ pip-audit
 pip-tools
 pyinstaller
 hypothesis
+mutmut
+pyright
 pytest
 pytest-cov
+pytest-timeout
 ruff

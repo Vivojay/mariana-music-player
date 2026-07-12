@@ -1,17 +1,16 @@
 """Real FFmpeg encoder acceptance through Mariana's authenticated loopback tunnel."""
 
-from pathlib import Path
 import shutil
 import socket
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 from mariana.broadcast import BroadcastProfile, BroadcastState, IcecastBroadcaster
-
 
 CONFIGURED_FFMPEG = Path(
     r"C:\Users\Vivan.Jaiswal\Documents\ffmpeg-2025-12-18-git-78c75d546a-essentials_build\bin"

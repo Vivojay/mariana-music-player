@@ -1,13 +1,12 @@
 import ctypes
 import json
 import os
-from pathlib import Path
-from pathlib import PurePosixPath
 import subprocess
+from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 
-import pytest
 import psutil
+import pytest
 
 import mariana.library as library_module
 from mariana.database import MarianaDatabase
@@ -15,6 +14,7 @@ from mariana.library import (
     LibraryCatalog,
     LibraryError,
     LibraryJob,
+    _complete_album_group,
     _safe_text,
     content_signature,
     directory_status,
@@ -290,5 +290,98 @@ def test_enrich_missing_fingerprint_retry_all_verify_and_path_info(tmp_path):
         assert library.verify()["unavailable_paths"] == [str(song.absolute())]
         assert library.info("999") is None
         assert library.info("missing.mp3") is None
+    finally:
+        database.close()
+
+
+@pytest.mark.parametrize(
+    ("metadata", "expected"),
+    [
+        ([{"track": "1/2"}], False),
+        ([{"track": "1/2"}, {"track": "2/2"}], True),
+        ([{"track": "1"}, {"track": "2/2"}], False),
+        ([{"track": "1/2"}, {"track": "1/2"}], False),
+        ([{"track": "1/2"}, {"track": "2/3"}], False),
+        ([{"track": "0/2"}, {"track": "2/2"}], False),
+        ([{"track": "1/3"}, {"track": "2/3"}], False),
+    ],
+)
+def test_complete_album_group_requires_consistent_complete_track_numbers(metadata, expected):
+    rows = [{"metadata_json": json.dumps(value)} for value in metadata]
+    assert _complete_album_group(rows) is expected
+
+
+def test_library_loudness_album_cache_no_results_and_schedule_modes(tmp_path):
+    root = tmp_path / "music"
+    root.mkdir()
+    first, second = root / "one.mp3", root / "two.mp3"
+    first.write_bytes(b"one")
+    second.write_bytes(b"two")
+    database, catalog = make_catalog(tmp_path, root, analyze_loudness=True)
+    try:
+        catalog.scan()
+        rows = database.fetchall("SELECT * FROM library_files ORDER BY path_key")
+        with database.transaction() as connection:
+            for index, row in enumerate(rows, start=1):
+                metadata = {"album": "Album", "album_artist": "Artist", "track": f"{index}/2", "disc": "1/1"}
+                connection.execute(
+                    "UPDATE library_files SET metadata_json=? WHERE library_id=?",
+                    (json.dumps(metadata), row["library_id"]),
+                )
+
+        class Analyzer:
+            def __init__(self):
+                self.empty = False
+
+            def analyze(self, paths, *, album=False):
+                assert album is True and len(paths) == 2
+                if self.empty:
+                    return {}
+                return {
+                    str(path.resolve()): {
+                        "track_gain_db": -1.0,
+                        "track_peak": 0.8,
+                        "album_gain_db": -2.0,
+                        "album_peak": 0.9,
+                    }
+                    for path in paths
+                }
+
+        analyzer = Analyzer()
+        catalog.rsgain = analyzer
+        job = LibraryJob(0, rows[0]["library_id"], "loudness", first, 0)
+        catalog._loudness(job)
+        assert catalog.loudness.get(rows[1]["library_id"]).complete_album
+
+        cached_job = LibraryJob(0, "copy-id", "loudness", first, 0)
+        with database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO library_files(library_id, root_id, canonical_path, path_key, size, mtime_ns, extension, "
+                "content_signature, state, scan_generation, metadata_json, updated_at) "
+                "SELECT ?, root_id, canonical_path || '.copy', path_key || '.copy', size, mtime_ns, extension, "
+                "content_signature, state, scan_generation, metadata_json, updated_at FROM library_files "
+                "WHERE library_id=?",
+                ("copy-id", rows[0]["library_id"]),
+            )
+        catalog._loudness(cached_job)
+        assert catalog.loudness.get("copy-id").source == "content-cache"
+
+        analyzer.empty = True
+        with database.transaction() as connection:
+            connection.execute("DELETE FROM loudness_profiles")
+            connection.execute("DELETE FROM library_files WHERE library_id='copy-id'")
+        with pytest.raises(LibraryError, match="no matching"):
+            catalog._loudness(job)
+
+        with pytest.raises(LibraryError, match="scan mode"):
+            catalog.schedule_loudness("invalid")
+        assert catalog.schedule_loudness("full", rows[0]["library_id"]) == 1
+        assert catalog.schedule_loudness("changed") >= 1
+
+        with pytest.raises(LibraryError, match="disappeared"):
+            catalog._loudness(LibraryJob(0, "missing", "loudness", first, 0))
+
+        catalog._loudness = lambda _job: None
+        assert catalog.process_jobs("loudness", owner="coverage") == 1
     finally:
         database.close()

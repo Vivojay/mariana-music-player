@@ -1,9 +1,8 @@
-from io import BytesIO
 import builtins
-import socket
 import subprocess
 import threading
 import time
+from io import BytesIO
 from types import SimpleNamespace
 
 import numpy as np
@@ -136,7 +135,7 @@ def test_icecast_serve_records_transport_errors_after_timeout():
         def accept(self):
             self.calls += 1
             if self.calls == 1:
-                raise socket.timeout()
+                raise TimeoutError()
             raise OSError("closed")
 
     tunnel = broadcast.IcecastAuthTunnel(
@@ -150,13 +149,13 @@ def test_icecast_serve_records_transport_errors_after_timeout():
 def test_icecast_relay_covers_bidirectional_timeout_and_payload(monkeypatch):
     upstream = ScriptedStream(
         b"HTTP/1.1 200 OK\r\n\r\n",
-        socket.timeout(),
+        TimeoutError(),
         b"server-data",
         b"",
     )
     client = ScriptedStream(
         b"PUT /local HTTP/1.1\r\nHost: local\r\n\r\n",
-        socket.timeout(),
+        TimeoutError(),
         b"client-data",
         b"",
     )
@@ -388,7 +387,7 @@ def test_listener_serve_error_tls_and_missing_secret_branches(monkeypatch):
         def accept(self):
             self.calls += 1
             if self.calls == 1:
-                raise socket.timeout()
+                raise TimeoutError()
             return ReceiveStream(b"POST / HTTP/1.1\r\n\r\n"), None
 
     tunnel._server = Server()
@@ -416,7 +415,7 @@ def test_listener_serve_error_tls_and_missing_secret_branches(monkeypatch):
 
 
 def test_listener_relay_handles_timeout_payload_and_eof(monkeypatch):
-    upstream = ScriptedStream(socket.timeout(), b"audio", b"")
+    upstream = ScriptedStream(TimeoutError(), b"audio", b"")
     client = ScriptedStream(b"GET /stream HTTP/1.1\r\nIcy-MetaData: 1\r\n\r\n")
     monkeypatch.setattr(credentials.socket, "create_connection", lambda *_args, **_kwargs: upstream)
     tunnel = ListenerAuthTunnel("http://example.test/private", "u", "r", MemoryCredentials())
@@ -451,3 +450,80 @@ def test_loudness_remaining_policy_and_analyzer_errors(tmp_path, monkeypatch):
     monkeypatch.setattr(loudness.subprocess, "run", lambda *_args, **_kwargs: SimpleNamespace(stdout="", stderr=""))
     with pytest.raises(loudness.LoudnessError, match="no usable"):
         analyzer.analyze([tmp_path / "x.wav"])
+
+
+def test_listener_and_source_tunnel_empty_accept_and_current_thread_close(monkeypatch):
+    class StopAfterOne:
+        def __init__(self):
+            self.calls = 0
+
+        def is_set(self):
+            self.calls += 1
+            return self.calls > 1
+
+        def set(self):
+            pass
+
+    listener = ListenerAuthTunnel("http://example.test/private", "u", "r", MemoryCredentials())
+    listener._stop = StopAfterOne()
+    listener._server = None
+    listener._serve()
+    listener._thread = threading.current_thread()
+    listener.close()
+
+    source = broadcast.IcecastAuthTunnel(
+        BroadcastProfile("p", "http://example.test", "/stream"),
+        MemoryCredentials(),
+    )
+    source._stop = StopAfterOne()
+    source._server = None
+    source._serve()
+    source._thread = threading.current_thread()
+    source.close()
+
+
+def test_broadcast_feed_and_cleanup_faults_are_isolated(monkeypatch):
+    broadcaster = IcecastBroadcaster(
+        {"p": BroadcastProfile("p", "http://example.test", "/stream")},
+        credentials=MemoryCredentials(),
+    )
+
+    class MissingInput:
+        stdin = None
+
+        def poll(self):
+            return None
+
+    broadcaster._feed_encoder(MissingInput(), b"silence")
+    assert "unavailable" in (broadcaster._feed_error or "")
+
+    class BrokenInput:
+        def close(self):
+            raise OSError("closed")
+
+    class BrokenProcess:
+        stdin = BrokenInput()
+
+        def __init__(self):
+            self.killed = False
+
+        def poll(self):
+            return None
+
+        def kill(self):
+            self.killed = True
+
+    process = BrokenProcess()
+    broadcaster._process = process
+    broadcaster._close_attempt()
+    assert process.killed
+
+    broadcaster._thread = threading.current_thread()
+    broadcaster._state = BroadcastState.LIVE
+    broadcaster.stop()
+    assert broadcaster.snapshot().state == BroadcastState.IDLE
+
+    broadcaster._stop.set()
+    broadcaster._feed_error = None
+    broadcaster._feed_encoder(MissingInput(), b"silence")
+    assert broadcaster._feed_error is None

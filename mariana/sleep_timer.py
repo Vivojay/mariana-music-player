@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from enum import StrEnum
 import math
 import re
 import threading
 import time
-from typing import Callable, Protocol
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
+from enum import StrEnum
+from typing import Protocol
 
-from .models import PlaybackState
+from .models import PlaybackSnapshot, PlaybackState
 
 
 class SleepAction(StrEnum):
@@ -19,7 +20,7 @@ class SleepAction(StrEnum):
 
 
 class SleepController(Protocol):
-    def snapshot(self): ...
+    def snapshot(self) -> PlaybackSnapshot: ...
     def pause(self) -> None: ...
     def stop(self) -> None: ...
     def set_automation_gain(self, value: float) -> None: ...

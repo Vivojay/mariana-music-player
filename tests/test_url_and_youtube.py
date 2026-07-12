@@ -2,13 +2,13 @@ import json
 from pathlib import Path
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 from yt_dlp.utils import DownloadError
 
-import beta.YT_query as yt_query
 import beta.youtube_media as youtube_media
+import beta.YT_query as yt_query
 import url_validate
-
 
 YOUTUBE_ID = st.text(alphabet=st.sampled_from(list("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")), min_size=11, max_size=11)
 

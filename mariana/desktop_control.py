@@ -7,7 +7,9 @@ import os
 import socket
 import threading
 import time
-from typing import Any, BinaryIO, Callable
+from collections.abc import Callable
+from contextlib import suppress
+from typing import Any, BinaryIO
 
 
 class DesktopControl:
@@ -27,8 +29,9 @@ class DesktopControl:
     def _connect(self) -> BinaryIO | socket.socket | None:
         if not self.enabled:
             return None
+        assert self.endpoint is not None
         if os.name == "nt":
-            return open(self.endpoint, "r+b", buffering=0)  # noqa: SIM115 - retained for connection lifetime
+            return open(self.endpoint, "r+b", buffering=0)
         connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         connection.connect(self.endpoint)
         return connection
@@ -57,7 +60,7 @@ class DesktopControl:
         return False
 
     def start_playback_monitor(self, snapshot: Callable[[], Any], interval: float = 1.0) -> None:
-        if not self.enabled or self._monitor and self._monitor.is_alive():
+        if not self.enabled or (self._monitor and self._monitor.is_alive()):
             return
         self._monitor_stop.clear()
 
@@ -100,7 +103,7 @@ class DesktopControl:
         self._monitor.start()
 
     def start_safety_monitor(self, checker: Callable[[], tuple[bool, list[str]]], interval: float = 1.0) -> None:
-        if not self.enabled or self._safety_monitor and self._safety_monitor.is_alive():
+        if not self.enabled or (self._safety_monitor and self._safety_monitor.is_alive()):
             return
         self._monitor_stop.clear()
 
@@ -133,8 +136,6 @@ class DesktopControl:
 
     def _close_stream(self) -> None:
         if self._stream is not None:
-            try:
+            with suppress(OSError):
                 self._stream.close()
-            except OSError:
-                pass
             self._stream = None

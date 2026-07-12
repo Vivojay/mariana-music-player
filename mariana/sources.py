@@ -7,18 +7,19 @@ be written to SQLite or queue snapshots.
 
 from __future__ import annotations
 
+import re
+import time
+from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-import re
-import time
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import requests
 
 from .models import MediaCapabilities, MediaRef, MediaSource, canonical_uri
-
 
 ALLOWED_SCHEMES = frozenset({"http", "https"})
 SENSITIVE_QUERY_KEYS = re.compile(
@@ -118,6 +119,9 @@ def sanitized_resolver_data(value: dict[str, Any]) -> dict[str, Any]:
 
 
 class BaseResolver:
+    def resolve(self, media: MediaRef, *, force: bool = False) -> ResolvedMedia:
+        raise NotImplementedError
+
     def refresh(self, media: MediaRef) -> ResolvedMedia:
         return self.resolve(media, force=True)
 
@@ -252,21 +256,17 @@ class HttpResolver(BaseResolver):
             downloadable=not live,
             metadata_available=icy or resolved.media.capabilities.metadata_available,
         )
-        icy_metadata = {
+        icy_metadata: dict[str, Any] = {
             name.removeprefix("icy-"): response.headers.get(f"icy-{name}")
             for name in ("name", "genre", "url", "br", "metaint")
             if response.headers.get(f"icy-{name}") is not None
         }
         if "br" in icy_metadata:
-            try:
+            with suppress(ValueError):
                 icy_metadata["bitrate_kbps"] = int(str(icy_metadata["br"]))
-            except ValueError:
-                pass
         if "metaint" in icy_metadata:
-            try:
+            with suppress(ValueError):
                 icy_metadata["metadata_interval"] = int(str(icy_metadata["metaint"]))
-            except ValueError:
-                pass
         resolved.metadata.update({
             "content_type": content_type,
             "content_length_known": known_length,
@@ -319,7 +319,7 @@ class YouTubeResolver(BaseResolver):
 
 
 class DelegatingResolver(BaseResolver):
-    def __init__(self, registry: "ResolverRegistry") -> None:
+    def __init__(self, registry: ResolverRegistry) -> None:
         self.registry = registry
 
     def resolve(self, media: MediaRef, *, force: bool = False) -> ResolvedMedia:

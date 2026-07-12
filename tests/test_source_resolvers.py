@@ -1,16 +1,18 @@
-from pathlib import Path
 import time
+from pathlib import Path
+
 import pytest
 import requests
 
 from mariana.models import MediaCapabilities, MediaRef, MediaSource
 from mariana.sources import (
+    BaseResolver,
     FailureCode,
     HttpResolver,
     LocalResolver,
     MediaFailure,
-    ResolverRegistry,
     ResolvedMedia,
+    ResolverRegistry,
     YouTubeResolver,
     redacted_uri,
     sanitized_resolver_data,
@@ -278,3 +280,32 @@ def test_registry_unknown_source_is_typed():
     with pytest.raises(MediaFailure) as captured:
         registry.for_source(MediaSource.URL)
     assert captured.value.code == FailureCode.UNSUPPORTED_PROTOCOL
+
+
+def test_base_and_youtube_resolver_failure_paths(monkeypatch):
+    media = MediaRef(MediaSource.YOUTUBE, "https://youtube.test/watch?v=broken")
+    base = BaseResolver()
+    with pytest.raises(NotImplementedError):
+        base.resolve(media)
+    resolved = ResolvedMedia(media, media.original_uri, media.original_uri, media.capabilities)
+    assert base.probe(resolved) is resolved
+
+    monkeypatch.setattr(
+        "beta.youtube_media.resolve_stream",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("extractor broke")),
+    )
+    with pytest.raises(MediaFailure) as captured:
+        YouTubeResolver().resolve(media)
+    assert captured.value.code == FailureCode.UNAVAILABLE
+
+
+def test_delegating_local_detection_and_empty_radio_failover(tmp_path):
+    local = tmp_path / "track.flac"
+    local.write_bytes(b"audio")
+    registry = ResolverRegistry(radio_endpoints=lambda _media: [])
+    recommendation = MediaRef(MediaSource.RECOMMENDATION, str(local))
+    assert registry.resolve(recommendation).media.source == MediaSource.LOCAL
+
+    radio = MediaRef(MediaSource.RADIO, "https://radio.test/live")
+    resolved = registry.resolve(radio)
+    assert resolved.playback_uri == radio.original_uri and resolved.endpoints == [radio.original_uri]

@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
-from enum import StrEnum
 import hashlib
 import json
+from dataclasses import asdict, dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 
-def canonical_uri(source: "MediaSource", value: str) -> str:
+def canonical_uri(source: MediaSource, value: str) -> str:
     value = value.strip()
     if source == MediaSource.LOCAL:
         return str(Path(value).expanduser().resolve()).casefold()
@@ -75,7 +75,7 @@ class MediaCapabilities:
         return json.dumps(asdict(self), sort_keys=True)
 
     @classmethod
-    def from_json(cls, value: str | None) -> "MediaCapabilities":
+    def from_json(cls, value: str | None) -> MediaCapabilities:
         return cls(**(json.loads(value) if value else {}))
 
 
@@ -103,7 +103,7 @@ class MediaRef:
         return result
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> "MediaRef":
+    def from_dict(cls, value: dict[str, Any]) -> MediaRef:
         data = dict(value)
         data["source"] = MediaSource(data["source"])
         capabilities = data.get("capabilities")
@@ -148,7 +148,7 @@ class TrackIdentity:
         return result
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> "TrackIdentity":
+    def from_dict(cls, value: dict[str, Any]) -> TrackIdentity:
         data = dict(value)
         data["status"] = IdentityStatus(data["status"])
         return cls(**data)

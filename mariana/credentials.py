@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+import base64
 import os
 import re
-import base64
 import socket
 import ssl
 import threading
 from urllib.parse import urlparse
-
 
 SERVICE_NAME = "io.github.vivojay.mariana.icecast"
 
@@ -106,7 +105,7 @@ class ListenerAuthTunnel:
         while not self._stop.is_set():
             try:
                 client, _address = self._server.accept() if self._server else (None, None)
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 return
@@ -162,7 +161,7 @@ class ListenerAuthTunnel:
             while not self._stop.is_set():
                 try:
                     chunk = upstream.recv(65_536)
-                except socket.timeout:
+                except TimeoutError:
                     continue
                 if not chunk:
                     break

@@ -19,11 +19,15 @@ venv/
 
 # Test and coverage artifacts
 /.coverage
+/coverage.json
 /coverage.xml
+/junit.xml
+/live-junit.xml
 /htmlcov/
 /.hypothesis/
 /.pytest_cache/
 /pytest-cache-files-*/
+/.test-tmp-*/
 
 # React/Electron build artifacts
 /node_modules/
@@ -34,6 +38,9 @@ venv/
 /release/
 /test-results/
 /playwright-report/
+/critical-coverage.json
+/playback-coverage.json
+/mutants/
 
 # Locally installed external media tools
 /.tools/

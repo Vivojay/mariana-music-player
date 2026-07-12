@@ -1,6 +1,6 @@
 import io
-from types import SimpleNamespace
 import zipfile
+from types import SimpleNamespace
 
 import pytest
 from ruamel.yaml import YAML

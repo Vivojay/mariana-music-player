@@ -14,8 +14,8 @@ import pytest
 
 from beta.podcasts import refresh_podcast_data
 from beta.youtube_media import integration_options, search, stream_url
-from mariana.identity import fingerprint_file
 from mariana.database import MarianaDatabase
+from mariana.identity import fingerprint_file
 from mariana.models import MediaRef, MediaSource, PlaybackState
 from mariana.playback import PlaybackController
 from mariana.radio import RadioCatalog

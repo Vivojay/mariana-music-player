@@ -7,8 +7,8 @@ their lifecycle.
 
 from .models import (
     IdentityStatus,
-    MediaCapabilities,
     LyricsResult,
+    MediaCapabilities,
     MediaRef,
     MediaSource,
     PlaybackSnapshot,
@@ -18,16 +18,16 @@ from .models import (
 from .sources import FailureCode, MediaFailure, ResolvedMedia, ResolverRegistry
 
 __all__ = [
+    "FailureCode",
     "IdentityStatus",
-    "MediaCapabilities",
     "LyricsResult",
+    "MediaCapabilities",
+    "MediaFailure",
     "MediaRef",
     "MediaSource",
     "PlaybackSnapshot",
     "PlaybackState",
-    "TrackIdentity",
-    "FailureCode",
-    "MediaFailure",
     "ResolvedMedia",
     "ResolverRegistry",
+    "TrackIdentity",
 ]

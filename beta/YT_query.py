@@ -3,7 +3,8 @@
 from tabulate import tabulate as tbl
 
 import beta.IPrint
-from beta.youtube_media import YouTubeError, media_info, search as search_media
+from beta.youtube_media import YouTubeError, media_info
+from beta.youtube_media import search as search_media
 
 
 def vid_info(vid_url: str, detailed: bool = False):

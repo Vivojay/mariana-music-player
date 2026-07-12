@@ -2,22 +2,23 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import hashlib
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import time
-from typing import Any, Iterable
 import uuid
+from collections.abc import Iterable
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
 
-from mutagen import File as MutagenFile, MutagenError
+from mutagen import File as MutagenFile  # pyright: ignore[reportMissingImports]
+from mutagen import MutagenError  # pyright: ignore[reportMissingImports]
 
 from .database import MarianaDatabase
-from .identity import IdentificationError, fingerprint_file
-from .identity import IdentificationService
+from .identity import IdentificationError, IdentificationService, fingerprint_file
 from .loudness import (
     LoudnessError,
     LoudnessProfile,
@@ -28,7 +29,6 @@ from .loudness import (
 )
 from .models import MediaCapabilities, MediaRef, MediaSource
 from .playback import CREATE_NO_WINDOW, find_executable
-
 
 APP_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_LIBRARY_FILE = APP_DIR / "lib.lib"
@@ -305,10 +305,8 @@ class LibraryCatalog:
                 (candidate for candidate in candidates if not Path(candidate["canonical_path"]).is_file()),
                 None,
             )
-        library_id = (existing or moved or {}).get("library_id") if isinstance(existing or moved, dict) else None
-        if library_id is None:
-            row = existing or moved
-            library_id = row["library_id"] if row else uuid.uuid4().hex
+        row = existing or moved
+        library_id = row["library_id"] if row else uuid.uuid4().hex
         with self.database.transaction() as connection:
             if moved and moved["path_key"] != key:
                 connection.execute("DELETE FROM library_files WHERE path_key=? AND library_id<>?", (key, library_id))
@@ -517,9 +515,9 @@ class LibraryCatalog:
                     artwork = True
         except (MutagenError, OSError, ValueError):
             pass
-        duration = format_info.get("duration") or audio.get("duration")
+        raw_duration = format_info.get("duration") or audio.get("duration")
         try:
-            duration = float(duration) if duration not in {None, "N/A"} else None
+            duration = float(raw_duration) if raw_duration is not None and raw_duration != "N/A" else None
         except (TypeError, ValueError):
             duration = None
         metadata = {

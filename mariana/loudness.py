@@ -2,22 +2,22 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from enum import StrEnum
 import csv
 import io
 import math
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import time
-from typing import Any, Iterable
+from collections.abc import Iterable
+from dataclasses import asdict, dataclass
+from enum import StrEnum
+from pathlib import Path
+from typing import Any
 
 from .database import MarianaDatabase
 from .toolchain import find_managed_executable
-
 
 TARGET_LUFS = -18.0
 DEFAULT_HEADROOM_DBTP = -1.0

@@ -4,9 +4,9 @@ from types import SimpleNamespace
 import pytest
 
 import main
+import mariana.platform as platform_adapter
 from mariana.paths import RuntimePaths
 from mariana.sleep_timer import SleepAction, SleepStatus
-import mariana.platform as platform_adapter
 
 
 class Timer:

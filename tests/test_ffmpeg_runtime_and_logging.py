@@ -5,9 +5,9 @@ import pytest
 
 import beta.ffmpeg_player as media_player
 import logger
-from mariana.models import MediaSource, PlaybackSnapshot, PlaybackState
 import runtime_check
 import terminal_colors
+from mariana.models import MediaSource, PlaybackSnapshot, PlaybackState
 
 
 class Controller:

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from mariana.models import PlaybackState
-from mariana.sleep_timer import SleepAction, SleepTimer, parse_duration
+from mariana.sleep_timer import SleepAction, SleepStatus, SleepTimer, parse_duration
 
 
 class Controller:
@@ -37,7 +37,7 @@ def test_parse_duration(value, seconds):
     assert parse_duration(value) == seconds
 
 
-@pytest.mark.parametrize("value", ["", "0s", "1:60", "1m2m", "tomorrow", "1m 2s"])
+@pytest.mark.parametrize("value", ["", "0s", "1:60", "1:x", "1:2:3:4", "1m2m", "tomorrow", "1m 2s"])
 def test_parse_duration_rejects_invalid_values(value):
     with pytest.raises(ValueError):
         parse_duration(value)
@@ -82,3 +82,45 @@ def test_perceptual_gain_curve():
     midpoint = SleepTimer._gain(5, 10)
     assert midpoint == pytest.approx(10 ** (-30 / 20))
     assert SleepTimer._gain(0, 10) == pytest.approx(0.001)
+
+
+def test_sleep_status_and_start_validation():
+    assert SleepStatus(True, action=SleepAction.STOP).to_dict()["action"] == "stop"
+    timer = SleepTimer(Controller())
+    with pytest.raises(ValueError, match="greater than zero"):
+        timer.start(0)
+    with pytest.raises(ValueError, match="negative"):
+        timer.start(1, fade_seconds=-1)
+    with pytest.raises(ValueError):
+        timer.start(1, action="invalid")
+    active = timer.start(1)
+    assert active.active and timer.status().remaining_seconds > 0
+    timer.cancel()
+
+    idle = Controller(PlaybackState.IDLE)
+    idle_timer = SleepTimer(idle)
+    idle_timer._generation = 1
+    idle_timer._expire(1, SleepAction.STOP)
+    assert idle.actions == []
+
+
+def test_stale_timer_work_cannot_change_playback():
+    controller = Controller(PlaybackState.CROSSFADING)
+    timer = SleepTimer(controller)
+    timer._generation = 2
+    timer._run(1, threading.Event(), time.monotonic() + 1, 1, 1, SleepAction.PAUSE)
+    timer._expire(1, SleepAction.PAUSE)
+    assert controller.actions == []
+
+    timer._expire(2, SleepAction.PAUSE)
+    assert controller.actions == ["pause"]
+
+
+def test_generation_change_during_expiry_prevents_stale_completion():
+    controller = Controller()
+    timer = SleepTimer(controller)
+    timer._generation = 1
+    controller.stop = lambda: (controller.actions.append("stop"), setattr(timer, "_generation", 2))
+    timer._expire(1, SleepAction.STOP)
+    assert controller.actions == ["stop"]
+    assert timer._generation == 2

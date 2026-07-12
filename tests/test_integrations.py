@@ -1,12 +1,12 @@
-from pathlib import Path
 import json
+from pathlib import Path
 
 import requests
 
-import beta.YT_query as yt_query
 import beta.podcasts as podcasts
 import beta.redditsessions as reddit
 import beta.youtube_media as youtube_media
+import beta.YT_query as yt_query
 from beta.mediadl import media_DL
 
 

@@ -176,3 +176,42 @@ def test_radio_without_explicit_endpoints_uses_original_uri():
     )
     supervisor.play(media)
     assert controller.calls[0][0].original_uri == media.original_uri
+
+
+def test_cancellation_before_first_attempt_and_failed_async_recovery(monkeypatch):
+    controller = Controller([MediaFailure(FailureCode.DECODE, MediaSource.URL, "bad")])
+    supervisor = PlaybackSupervisor(controller)
+
+    class AlreadyCancelled:
+        def clear(self):
+            pass
+
+        def is_set(self):
+            return True
+
+        def set(self):
+            pass
+
+        def wait(self, _delay):
+            return True
+
+    supervisor._cancel = AlreadyCancelled()
+    with pytest.raises(MediaFailure) as captured:
+        supervisor.play(MediaRef(MediaSource.URL, "https://example.test/audio"))
+    assert captured.value.code == FailureCode.CANCELLED
+
+    class ImmediateThread:
+        def __init__(self, target, **_kwargs):
+            self.target = target
+
+        def start(self):
+            self.target()
+
+    supervisor._cancel = __import__("threading").Event()
+    supervisor._requested = MediaRef(MediaSource.URL, "https://example.test/audio")
+    monkeypatch.setattr("mariana.supervisor.threading.Thread", ImmediateThread)
+    supervisor._on_decoder_failure(
+        supervisor._requested,
+        MediaFailure(FailureCode.DECODE, MediaSource.URL, "bad", retryable=False),
+    )
+    assert not supervisor._recovering

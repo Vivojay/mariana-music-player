@@ -2,18 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import sys
 import tempfile
 import time
+from dataclasses import dataclass
+from pathlib import Path
 
 from platformdirs import user_data_path
-
 
 APP_NAME = "Mariana"
 APP_AUTHOR = "Vivojay"

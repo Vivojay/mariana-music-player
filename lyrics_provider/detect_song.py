@@ -8,7 +8,6 @@ from mariana.database import MarianaDatabase
 from mariana.identity import IdentificationService
 from mariana.models import IdentityStatus, MediaRef, MediaSource
 
-
 _database = None
 _service = None
 

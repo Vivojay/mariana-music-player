@@ -1,6 +1,6 @@
 import json
-from types import SimpleNamespace
 import time
+from types import SimpleNamespace
 
 from mariana.desktop_control import DesktopControl
 

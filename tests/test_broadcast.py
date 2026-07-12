@@ -1,8 +1,8 @@
 import base64
-from io import BytesIO
 import socket
 import threading
 import time
+from io import BytesIO
 from types import SimpleNamespace
 from urllib.parse import urlparse
 

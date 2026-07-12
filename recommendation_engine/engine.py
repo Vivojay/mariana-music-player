@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import hashlib
 import json
 import math
-from pathlib import Path
 import random
 import time
 import uuid
-from typing import Any, Iterable
+from collections.abc import Iterable
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
 from mariana.database import MarianaDatabase
 from mariana.models import MediaRef, MediaSource
-
 
 FEATURE_DIMENSIONS = 256
 DEFAULT_REWARDS = {
@@ -115,7 +115,7 @@ class OnlineBayesianRanker:
         }
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "OnlineBayesianRanker":
+    def from_dict(cls, payload: dict[str, Any]) -> OnlineBayesianRanker:
         model = cls(payload["dimensions"], noise_variance=payload["noise_variance"])
         model.precision = list(payload["precision"])
         model.evidence = list(payload["evidence"])

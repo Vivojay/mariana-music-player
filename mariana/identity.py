@@ -2,27 +2,27 @@
 
 from __future__ import annotations
 
-from array import array
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import tempfile
 import threading
 import time
 import wave
+from array import array
+from pathlib import Path
 from typing import Any
 
 import requests
-from mutagen import File as MutagenFile, MutagenError
+from mutagen import File as MutagenFile  # pyright: ignore[reportMissingImports]
+from mutagen import MutagenError  # pyright: ignore[reportMissingImports]
 
 from .database import MarianaDatabase
 from .models import IdentityStatus, LyricsResult, MediaRef, MediaSource, TrackIdentity
-from .playback import CHANNELS, SAMPLE_RATE, SAMPLE_WIDTH, CREATE_NO_WINDOW, find_executable
+from .playback import CHANNELS, CREATE_NO_WINDOW, SAMPLE_RATE, SAMPLE_WIDTH, find_executable
 from .version import __version__
-
 
 APP_NAME = "Mariana"
 APP_VERSION = __version__
@@ -69,9 +69,8 @@ def fingerprint_pcm(pcm: bytes, fpcalc_bin: str | None = None) -> tuple[float, s
     duration = len(pcm) / (SAMPLE_RATE * CHANNELS * SAMPLE_WIDTH)
     if duration < MIN_FINGERPRINT_SECONDS:
         raise IdentificationError(f"At least {MIN_FINGERPRINT_SECONDS} seconds of audio are required")
-    temporary = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-    path = Path(temporary.name)
-    temporary.close()
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temporary:
+        path = Path(temporary.name)
     try:
         float_samples = array("f")
         float_samples.frombytes(pcm)
@@ -103,7 +102,7 @@ class AcoustIDClient:
                 ACOUSTID_URL,
                 params={
                     "client": self.api_key,
-                    "duration": int(round(duration)),
+                    "duration": round(duration),
                     "fingerprint": fingerprint,
                     "meta": "recordings releasegroups compress",
                     "format": "json",
@@ -246,7 +245,7 @@ def local_lyrics(media: MediaRef) -> LyricsResult | None:
         tags = getattr(audio, "tags", None)
         if tags:
             candidates = []
-            for key in tags.keys():
+            for key in tags:
                 value = tags[key]
                 key_text = str(key).lower()
                 if "lyrics" in key_text or key_text.startswith("uslt"):
@@ -299,7 +298,7 @@ class LRCLIBClient:
             "track_name": identity.title,
             "artist_name": identity.artist,
             "album_name": identity.album or "",
-            "duration": int(round(identity.duration)) if identity.duration is not None else 0,
+            "duration": round(identity.duration) if identity.duration is not None else 0,
         }
         try:
             payload = self._get("get", exact)

@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import time
+from pathlib import Path
 
 from mariana.models import MediaCapabilities, MediaRef, MediaSource, PlaybackState
 from mariana.playback import PlaybackController, PlaybackError, UnsupportedAction
 from mariana.sources import ResolverRegistry
 from mariana.supervisor import PlaybackSupervisor
-
 
 controller = PlaybackController()
 supervisor = PlaybackSupervisor(controller)

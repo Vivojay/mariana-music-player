@@ -2,25 +2,25 @@
 
 from __future__ import annotations
 
-from array import array
-from collections import deque
 import json
 import os
-from pathlib import Path
 import re
-import signal
 import shutil
+import signal
 import subprocess
 import threading
 import time
-from typing import Callable, Protocol
+from array import array
+from collections import deque
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any, Protocol, cast
 
 import numpy as np
 import sounddevice
 
 from .models import MediaCapabilities, MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
 from .sources import FailureCode, MediaFailure, ResolvedMedia, ResolverRegistry, redacted_uri
-
 
 SAMPLE_RATE = 48_000
 CHANNELS = 2
@@ -52,16 +52,17 @@ def find_executable(name: str, configured_bin: str | None = None) -> str:
             candidate /= f"{name}.exe" if os.name == "nt" else name
         if candidate.is_file():
             return str(candidate.resolve())
-    from .toolchain import find_managed_executable
     from .paths import runtime_paths
+    from .toolchain import find_managed_executable
 
     if managed := find_managed_executable(name):
         return managed
     legacy_name = f"{name}.exe" if os.name == "nt" else name
     legacy_root = runtime_paths().resource('.tools')
-    if legacy_root.is_dir():
-        if legacy := next((candidate for candidate in legacy_root.rglob(legacy_name) if candidate.is_file()), None):
-            return str(legacy.resolve())
+    if legacy_root.is_dir() and (
+        legacy := next((candidate for candidate in legacy_root.rglob(legacy_name) if candidate.is_file()), None)
+    ):
+        return str(legacy.resolve())
     executable = shutil.which(name)
     if executable:
         return executable
@@ -157,12 +158,15 @@ class WindowsJob:
             import win32job
 
             handle = win32job.CreateJobObject(None, "")
+            if handle is None:
+                raise OSError("Windows could not create a playback job object")
             information = win32job.QueryInformationJobObject(
                 handle, win32job.JobObjectExtendedLimitInformation
             )
             information["BasicLimitInformation"]["LimitFlags"] |= win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
             win32job.SetInformationJobObject(handle, win32job.JobObjectExtendedLimitInformation, information)
-            win32job.AssignProcessToJobObject(handle, int(process._handle))
+            process_handle = cast(Any, process)._handle
+            win32job.AssignProcessToJobObject(handle, int(process_handle))
             self.handle = handle
         except Exception:
             self.handle = None
@@ -367,11 +371,11 @@ class DecoderSession:
             line = raw.decode("utf-8", errors="replace").strip()
             self._stderr.append(line)
             title = parse_icy_title(line)
-            if title:
-                if title and title != self._last_stream_title:
-                    self._last_stream_title = title
-                    if self.on_metadata:
-                        self.on_metadata(title)
+            if title and title != self._last_stream_title:
+                self._last_stream_title = title
+                if self.on_metadata:
+                    self.on_metadata(title)
+
     def wait_for_buffer(self, minimum_seconds: float = 0.15, timeout: float = 10) -> bool:
         deadline = time.monotonic() + timeout
         with self._condition:

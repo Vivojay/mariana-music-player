@@ -1,10 +1,11 @@
-import os
 import json
-from pathlib import Path
-import requests
-import feedparser
+import os
 from calendar import timegm
 from datetime import datetime as dt
+from pathlib import Path
+
+import feedparser
+import requests
 
 HTTP_TIMEOUT = (5, 30)
 
@@ -116,10 +117,10 @@ def get_latest_podbean_data(vendor = '', rss_link = None):
     else:
         rss_link = vendors.get(vendor)
         if not rss_link: return
-        output_file = 'data/podbean_{}.json'.format(vendor)
+        output_file = f'data/podbean_{vendor}.json'
 
         if os.path.isfile(output_file):
-            with open(output_file, 'r', encoding='utf-8') as fp:
+            with open(output_file, encoding='utf-8') as fp:
                 try: saved_podcast_data = json.load(fp)
                 except json.decoder.JSONDecodeError: pass
 

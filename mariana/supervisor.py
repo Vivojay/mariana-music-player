@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import threading
-from typing import Callable
+from collections.abc import Callable
 
 from .models import MediaRef, MediaSource
 from .playback import PlaybackController, PlaybackError
@@ -99,7 +99,7 @@ class PlaybackSupervisor:
                 delay = last_failure.retry_after or delays[min(attempt, len(delays) - 1)]
                 if self._wait(delay):
                     self.metrics["cancellations"] += 1
-                    raise MediaFailure(FailureCode.CANCELLED, media.source, "Playback was cancelled")
+                    raise MediaFailure(FailureCode.CANCELLED, media.source, "Playback was cancelled") from None
         assert last_failure is not None
         if self.on_terminal_failure:
             self.on_terminal_failure(media, last_failure)

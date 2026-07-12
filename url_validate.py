@@ -1,6 +1,6 @@
-import requests
-
 from urllib.parse import parse_qs, unquote_plus, urlparse
+
+import requests
 
 HTTP_TIMEOUT = (5, 15)
 

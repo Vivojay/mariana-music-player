@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 import random
 import time
-from typing import Iterable
+from collections.abc import Iterable
+from typing import cast
 
 from .database import MarianaDatabase
 from .models import MediaCapabilities, MediaRef, MediaSource, QueueItem
 from .sources import sanitized_resolver_data
-
 
 VALID_REPEAT_MODES = {"off", "one", "all"}
 VALID_FAILURE_POLICIES = {"skip", "retry", "stop"}
@@ -247,7 +247,7 @@ class PersistentQueue:
         with self.database.transaction() as connection:
             self._record_history(connection)
             connection.execute("DELETE FROM queue_items WHERE id=?", (selected.queue_id,))
-            remaining = [item.queue_id for item in items if item.queue_id != selected.queue_id]
+            remaining = [cast(int, item.queue_id) for item in items if item.queue_id != selected.queue_id]
             self._renumber(connection, remaining)
         return selected
 
@@ -255,7 +255,7 @@ class PersistentQueue:
         items = self.items()
         if source not in range(len(items)) or destination not in range(len(items)):
             raise QueueError("Queue position is out of range")
-        ordered = [item.queue_id for item in items]
+        ordered = [cast(int, item.queue_id) for item in items]
         moved = ordered.pop(source)
         ordered.insert(destination, moved)
         with self.database.transaction() as connection:
@@ -266,7 +266,7 @@ class PersistentQueue:
         items = self.items()
         if first not in range(len(items)) or second not in range(len(items)):
             raise QueueError("Queue position is out of range")
-        ordered = [item.queue_id for item in items]
+        ordered = [cast(int, item.queue_id) for item in items]
         ordered[first], ordered[second] = ordered[second], ordered[first]
         with self.database.transaction() as connection:
             self._record_history(connection)
@@ -281,7 +281,7 @@ class PersistentQueue:
     def shuffle(self, seed: int | None = None) -> int:
         items = self.items()
         seed = seed if seed is not None else random.SystemRandom().randrange(2**31)
-        ordered = [item.queue_id for item in items]
+        ordered = [cast(int, item.queue_id) for item in items]
         random.Random(seed).shuffle(ordered)
         with self.database.transaction() as connection:
             self._record_history(connection)

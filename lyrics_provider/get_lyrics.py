@@ -1,7 +1,7 @@
 
+import json
 import os
 import re
-import json
 import subprocess
 import sys
 from pathlib import Path
@@ -206,11 +206,8 @@ def show_window(max_wait_lim,
                         lyrics_bg_image_file = PROVIDED_WALLPAPER_NAMES[lyrics_bg_image_index]
                     else:
                         SAY(visible=visible,
-                            display_message = 'You entered wallpaper number {0}. Try again with a number between 1 and {1}.\n'\
-                                              'Reverting to default'.format(
-                                                  lyrics_bg_image_index + 1,
-                                                  len(PROVIDED_WALLPAPER_NAMES),
-                                              ),
+                            display_message = f'You entered wallpaper number {lyrics_bg_image_index + 1}. Try again with a number between 1 and {len(PROVIDED_WALLPAPER_NAMES)}.\n'\
+                                              'Reverting to default',
                             log_message = 'Wallpaper index out of bounds, reverting to default',
                             log_priority = 2)
                         lyrics_bg_image_file = None
@@ -231,7 +228,7 @@ def show_window(max_wait_lim,
                 '  background-repeat: no-repeat;\n'\
                 '  background-position: center bottom;\n'\
                 '  background-attachment: fixed;'.format(lyrics_bg_image_abs_path.replace('\\', '/'))
-        
+
         body_css += '\n}'
 
         default_css += body_css

@@ -8,7 +8,9 @@
 # coloured program outputs
 # make /yl and /r <radio_index> work
 
-from terminal_colors import fg as _fg, bg as _bg, attr
+from terminal_colors import attr
+from terminal_colors import bg as _bg
+from terminal_colors import fg as _fg
 
 cols = [
     ('NAVY_BLUE', 'white'),

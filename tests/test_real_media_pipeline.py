@@ -1,15 +1,14 @@
 """Real-process acceptance for the installed FFmpeg and Chromaprint toolchain."""
 
-from pathlib import Path
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
 from mariana.identity import find_fpcalc, fingerprint_file
 from mariana.models import MediaRef, MediaSource
 from mariana.playback import DecoderSession, probe_media
-
 
 CONFIGURED_FFMPEG = Path(
     r"C:\Users\Vivan.Jaiswal\Documents\ffmpeg-2025-12-18-git-78c75d546a-essentials_build\bin"

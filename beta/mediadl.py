@@ -1,19 +1,17 @@
 # Media downloader
-from __future__ import unicode_literals
 
+import json
 import os
 import sys
-import json
 from pathlib import Path
-from yt_dlp import YoutubeDL
 
+from yt_dlp import YoutubeDL
 
 # Relative imports
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
-from logger import SAY
 from beta.youtube_media import integration_options
-
+from logger import SAY
 
 """
 explicitly-specified-quality ? use_that : use quality mentioned in SETTINGS
@@ -132,7 +130,7 @@ def media_DL(SETTINGS,
         'age_limit': 20,
         'format': ydl_vid_fmt, # best/worst is used when audio and video come premuxed
         # 'progress_hooks': [my_hook], # TODO - Review: Make a progress bar...???
-                                       # (GUI progress bar prolly cuz it'll be non blocking 
+                                       # (GUI progress bar prolly cuz it'll be non blocking
                                        # + Better looking...)
     }
     ydl_opts.update(integration_options())

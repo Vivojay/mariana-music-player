@@ -24,7 +24,6 @@ a = Analysis(
         "beta.YT_query",
         "beta.IPrint",
         "beta.podcasts",
-        "beta.redditsessions",
         "lyrics_provider.get_lyrics",
     ],
     hookspath=[],

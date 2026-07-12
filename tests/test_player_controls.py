@@ -44,6 +44,6 @@ def test_radio_aliases_use_official_playlists():
 
 
 def test_audio_initialization_failure_is_actionable(monkeypatch):
-    monkeypatch.setattr(main.sounddevice, "query_devices", lambda: [])
+    monkeypatch.setattr(main.sounddevice, "query_devices", list)
     with pytest.raises(RuntimeError, match="audio output device"):
         main.initialize_audio_output()

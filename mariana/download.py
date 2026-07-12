@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import subprocess
+from pathlib import Path
 from urllib.parse import urlparse
 
 from .playback import CREATE_NO_WINDOW, find_executable
-
 
 FORMATS = {
     "mp3": ["-vn", "-c:a", "libmp3lame", "-q:a", "2"],

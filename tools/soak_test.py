@@ -7,21 +7,21 @@ an implementation stress probe but does not satisfy the release gate.
 from __future__ import annotations
 
 import argparse
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
-import subprocess
 import socket
+import subprocess
 import tempfile
 import threading
 import time
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import psutil
 
-from mariana.models import MediaCapabilities, MediaRef, MediaSource, PlaybackState
+from mariana.broadcast import BroadcastProfile, BroadcastState, IcecastBroadcaster
 from mariana.database import MarianaDatabase
 from mariana.library import LibraryCatalog
-from mariana.playback import BYTES_PER_FRAME, PlaybackController, SAMPLE_RATE
-from mariana.broadcast import BroadcastProfile, BroadcastState, IcecastBroadcaster
+from mariana.models import MediaCapabilities, MediaRef, MediaSource, PlaybackState
+from mariana.playback import BYTES_PER_FRAME, SAMPLE_RATE, PlaybackController
 
 
 class SoakCredentials:
@@ -50,7 +50,7 @@ class BroadcastSink:
         while not self.stop_event.is_set():
             try:
                 connection, _address = self.server.accept()
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 return

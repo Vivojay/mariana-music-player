@@ -5,11 +5,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-from pathlib import Path
 import shutil
 import subprocess
 import zipfile
-
+from pathlib import Path
 
 TOOLCHAIN_VERSION = "0.7.0-tools.2"
 TOOLS_DIR = Path(__file__).resolve().parent

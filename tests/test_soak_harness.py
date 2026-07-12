@@ -4,7 +4,6 @@ import pytest
 
 from tools.soak_test import run
 
-
 FFMPEG_BIN = Path(
     r"C:\Users\Vivan.Jaiswal\Documents\ffmpeg-2025-12-18-git-78c75d546a-essentials_build\bin"
 )

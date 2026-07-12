@@ -184,3 +184,31 @@ def test_paused_service_defers_requested_scan_until_resume():
         wait_until(lambda: catalog.scans == ["full"])
     finally:
         service.close()
+
+
+def test_loudness_worker_enablement_is_idempotent(monkeypatch):
+    catalog = Catalog()
+    catalog.analyze_loudness = False
+    service = LibraryProfilerService(catalog, watch=False)
+    service.enable_loudness()
+    assert catalog.analyze_loudness and service._threads == []
+
+    started = []
+
+    class Thread:
+        def __init__(self, *, target, args, name, **_kwargs):
+            self.target, self.args, self.name = target, args, name
+            self.alive = False
+
+        def start(self):
+            self.alive = True
+            started.append(self.name)
+
+        def is_alive(self):
+            return self.alive
+
+    monkeypatch.setattr("mariana.library_service.threading.Thread", Thread)
+    service._running = True
+    service.enable_loudness()
+    service.enable_loudness()
+    assert started == ["mariana-library-loudness"]

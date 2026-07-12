@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from datetime import datetime, timezone
-from pathlib import Path
 import shutil
+from collections.abc import Mapping
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
+
 from mariana.toolchain import find_managed_executable
 
 
@@ -160,12 +161,10 @@ def resolve_stream(
         raise YouTubeError("yt-dlp could not resolve a playable stream URL")
     expires_at = None
     expiry = info.get("url_expiry") or info.get("expires")
-    if isinstance(expiry, (int, float)):
-        expires_at = float(expiry)
-    elif isinstance(expiry, str) and expiry.isdigit():
+    if isinstance(expiry, (int, float)) or (isinstance(expiry, str) and expiry.isdigit()):
         expires_at = float(expiry)
     if expires_at and expires_at < 10_000_000_000:
-        expires_at = datetime.fromtimestamp(expires_at, tz=timezone.utc).timestamp()
+        expires_at = datetime.fromtimestamp(expires_at, tz=UTC).timestamp()
     return {
         "url": str(direct_url),
         "http_headers": {

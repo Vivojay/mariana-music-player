@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import ctypes
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
-
+from pathlib import Path
 
 SUPPORTED_PYTHON = (3, 12)
 SUPPORTED_PLATFORMS = {"win32": "Windows", "darwin": "macOS", "linux": "Linux"}

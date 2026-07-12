@@ -1,8 +1,9 @@
 import hashlib
 import io
 import json
-from pathlib import Path
+import os
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -79,3 +80,44 @@ def test_unpublished_platform_is_reported(tmp_path):
     tools = ToolchainManager(RuntimePaths(resources, tmp_path / "data"), manifest_path=manifest)
     with pytest.raises(ToolchainError, match="not been published"):
         tools.artifact("linux-x64")
+
+
+def test_toolchain_activation_retries_transient_windows_lock(tmp_path, monkeypatch):
+    archive = package_bytes({"bin/ffmpeg.exe": b"ffmpeg", "bin/fpcalc.exe": b"fpcalc"})
+    tools = manager(tmp_path, archive)
+    real_replace = os.replace
+    attempts = 0
+
+    def locked_twice(source, destination):
+        nonlocal attempts
+        attempts += 1
+        if attempts <= 2:
+            raise PermissionError("scanner temporarily locked the directory")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr("mariana.toolchain.os.replace", locked_twice)
+    root = tools.install("win32-x64")
+    assert attempts >= 3
+    assert (root / "bin" / "ffmpeg.exe").is_file()
+
+
+def test_toolchain_activation_rolls_back_previous_install(tmp_path, monkeypatch):
+    target = tmp_path / "tool"
+    replacement = tmp_path / ".tool.new"
+    target.mkdir()
+    replacement.mkdir()
+    (target / "version").write_text("old")
+    (replacement / "version").write_text("new")
+    real_replace = os.replace
+
+    def fail_new_activation(source, destination):
+        if Path(source) == replacement:
+            raise PermissionError("persistent lock")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr("mariana.toolchain.os.replace", fail_new_activation)
+    monkeypatch.setattr("mariana.toolchain.time.sleep", lambda _delay: None)
+    with pytest.raises(ToolchainError, match="atomically activate"):
+        ToolchainManager._replace_install(replacement, target)
+    assert (target / "version").read_text() == "old"
+    assert not target.with_name(".tool.old").exists()

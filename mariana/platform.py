@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 
 class PlatformCapabilityError(RuntimeError):
@@ -50,7 +50,10 @@ def get_master_volume() -> int:
     if sys.platform == "win32":
         from pycaw.pycaw import AudioUtilities
 
-        return int(round(AudioUtilities.GetSpeakers().EndpointVolume.GetMasterVolumeLevelScalar() * 100))
+        speakers = AudioUtilities.GetSpeakers()
+        if speakers is None:
+            raise PlatformCapabilityError("Windows did not report a default audio endpoint")
+        return round(speakers.EndpointVolume.GetMasterVolumeLevelScalar() * 100)
     if sys.platform == "darwin":
         return int(_run_text(["osascript", "-e", "output volume of (get volume settings)"]))
     if wpctl := shutil.which("wpctl"):
@@ -67,7 +70,10 @@ def set_master_volume(value: float) -> None:
     if sys.platform == "win32":
         from pycaw.pycaw import AudioUtilities
 
-        AudioUtilities.GetSpeakers().EndpointVolume.SetMasterVolumeLevelScalar(percent / 100, None)
+        speakers = AudioUtilities.GetSpeakers()
+        if speakers is None:
+            raise PlatformCapabilityError("Windows did not report a default audio endpoint")
+        speakers.EndpointVolume.SetMasterVolumeLevelScalar(percent / 100, None)
         return
     if sys.platform == "darwin":
         _run_text(["osascript", "-e", f"set volume output volume {percent}"])

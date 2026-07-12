@@ -2,23 +2,22 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import configparser
+import hashlib
 import io
 import json
+import re
 import subprocess
 import time
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urljoin, urlparse
-import hashlib
-import re
 
 import requests
 
 from .database import MarianaDatabase
 from .identity import USER_AGENT
 from .playback import CREATE_NO_WINDOW, find_executable
-
 
 RADIO_BROWSER_URL = "https://de1.api.radio-browser.info/json"
 MAX_PLAYLIST_DEPTH = 3

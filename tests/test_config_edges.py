@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 import toml
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from config_manager import deep_merge_defaults, load_system_settings, load_user_settings
 

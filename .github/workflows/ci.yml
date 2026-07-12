@@ -32,38 +32,34 @@ jobs:
       - name: Verify versions and dependencies
         run: |
           python tools/check_version.py
+          python tools/verify_text_integrity.py
+          python tools/verify_docs.py
           python -m pip check
           npm audit --audit-level=high
       - name: Compile and lint Python
         run: |
           python -m compileall -q main.py mariana beta lyrics_provider recommendation_engine tools
           python -m ruff check .
+          pyright
       - name: Test Python with branch coverage
         run: >-
           python -m pytest -q
           --cov
           --cov-report=term-missing
           --cov-report=xml
+          --cov-report=json:coverage.json
           --cov-branch
-          --cov-fail-under=80
+          --cov-fail-under=90
+          --junitxml=junit.xml
       - name: Enforce new-package branch coverage
-        run: >-
-          python -m pytest -q
-          tests/test_source_resolvers.py
-          tests/test_library_indexer.py
-          tests/test_library_edge_cases.py
-          tests/test_library_service.py
-          tests/test_playback_supervisor.py
-          --cov=mariana.sources
-          --cov=mariana.library
-          --cov=mariana.supervisor
-          --cov-branch
-          --cov-fail-under=95
+        run: python tools/coverage_gate.py coverage.json --minimum 95
       - name: Test and build React terminal
         run: |
           npm run lint
           npm test
           npm run build
+      - name: Rebuild native Electron dependencies
+        run: npm run rebuild:native
       - name: Test native Electron PTY
         if: runner.os != 'Linux'
         run: npm run test:e2e:dev
@@ -76,5 +72,10 @@ jobs:
         if: always()
         with:
           name: ${{ runner.os }}-coverage
-          path: coverage.xml
+          path: |
+            coverage.xml
+            coverage.json
+            junit.xml
+            test-results/
+            playwright-report/
           if-no-files-found: ignore

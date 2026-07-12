@@ -12,8 +12,8 @@ class ClapUnavailable(RuntimeError):
 class ClapEmbedder:
     def __init__(self, checkpoint: Path | str, *, device: str = "cpu"):
         try:
-            import laion_clap
-            import torch
+            import laion_clap  # pyright: ignore[reportMissingImports]
+            import torch  # pyright: ignore[reportMissingImports]
         except ImportError as error:
             raise ClapUnavailable(
                 "Install requirements-recommendation-ai.txt to enable CLAP embeddings"

@@ -16,8 +16,9 @@
 
 # IMPORTS BEGIN #
 
-import time
 import threading
+import time
+
 APP_BOOT_START_TIME = time.time();                  print("Loaded 1/31",  end='\r')
 
 import os;                                          print("Loaded 2/31",  end='\r')
@@ -50,31 +51,33 @@ from logger import SAY;                             print("Loaded 21/31", end='\
 from multiprocessing import Process;                print("Loaded 22/31", end='\r')
 from first_boot_welcome_screen import notify;       print("Loaded 23/31", end='\r')
 from config_manager import load_system_settings, load_user_settings
-from runtime_check import check_runtime, format_runtime_report
-from mariana.database import MarianaDatabase
 from mariana.broadcast import BroadcastError, BroadcastState, IcecastBroadcaster
 from mariana.credentials import CredentialError, CredentialStore
-from mariana.download import DownloadError, download_media
+from mariana.database import MarianaDatabase
 from mariana.desktop_control import DesktopControl
+from mariana.download import DownloadError, download_media
 from mariana.identity import AcoustIDClient, IdentificationService, LRCLIBClient, MusicBrainzClient
 from mariana.library import LibraryCatalog, LibraryError
 from mariana.library_service import LibraryProfilerService
 from mariana.models import MediaCapabilities, MediaRef, MediaSource, PlaybackState
-from mariana.queueing import PersistentQueue, QueueError
-from mariana.radio import RadioCatalog, RadioError
-from mariana.sources import MediaFailure
 from mariana.paths import initialize_runtime_paths
 from mariana.platform import open_path, reveal_path
+from mariana.queueing import PersistentQueue, QueueError
+from mariana.radio import RadioCatalog, RadioError
 from mariana.sleep_timer import SleepAction, SleepTimer, parse_duration
+from mariana.sources import MediaFailure
 from mariana.toolchain import ToolchainError, ToolchainManager
 from mariana.version import __version__
 from recommendation_engine import Candidate, RecommendationEngine
+from runtime_check import check_runtime, format_runtime_report
 
 online_streaming_ext_load_error = 0
 comtypes_load_error = False # Made available after fix from comtypes issue #244, #180
                             # Previously: comtypes_load_error = True
 lyrics_ext_load_error = 0
-reddit_creds_are_valid = False
+REDDIT_RETIRED_MESSAGE = (
+    "Reddit live sessions (RPAN) have been retired and are no longer available in Mariana Player."
+)
 
 # try:
 #     import librosa
@@ -91,6 +94,7 @@ LYRICS_TEXT_PATH = RUNTIME_PATHS.temporary / 'lyrics.txt'
 LYRICS_HTML_PATH = RUNTIME_PATHS.temporary / 'lyrics.html'
 
 from beta import ffmpeg_player as vas
+
 print("Loaded 24/31", end='\r')
 
 try:
@@ -103,7 +107,7 @@ except ImportError:
     print("[INFO] ...Skipped 25/31")
 
 try:
-    from beta.IPrint import IPrint, blue_gradient_print, loading, cols
+    from beta.IPrint import IPrint, blue_gradient_print, cols, loading
     print("Loaded 26/31", end='\r')
 except ImportError:
     lyrics_ext_load_error = 1
@@ -119,20 +123,10 @@ except ImportError:
         print("[INFO] ...Could not load online streaming extension...")
     print("[INFO] ...Skipped 27/31")
 
-try:
-    from beta import redditsessions
-    if redditsessions.WARNING:
-        print("[WARN] Could not load reddit-sessions extension...")
-        print(f"[WARN] ...{redditsessions.WARNING}...")
-        print("[WARN] ...Skipped 28/31")
-    else:
-        reddit_creds_are_valid = True
-        print("Loaded 28/31", end='\r')
-except ImportError:
-    print("[INFO] Could not load reddit-sessions extension..., module 'praw' missing...")
-    print("[INFO] ...Skipped 28/31")
+print("[INFO] Reddit/RPAN commands are retained as retired aliases")
 
 from lyrics_provider.detect_song import get_song_info
+
 print("Loaded 29/31", end='\r')
 
 
@@ -147,7 +141,8 @@ except Exception:
         log_priority=2)
 
 try:
-    from beta.podcasts import get_latest_podbean_data, vendors as pod_vendors
+    from beta.podcasts import get_latest_podbean_data
+    from beta.podcasts import vendors as pod_vendors
     print("Loaded 31/31", end='\r')
 except Exception:
     print("[INFO] Could not load podcast extension...")
@@ -196,7 +191,7 @@ try:
         paths = logfile.read().splitlines()
         paths = [path for path in paths if not path.startswith('#')]
         paths = list(set(paths))
-except IOError:
+except OSError:
     if not FIRST_BOOT:
         sys.exit("[INFO] Could not find lib.lib file, '\
                 'please create one and add desired source directories. '\
@@ -229,7 +224,7 @@ try:
                 display_message = '',
                 log_message = 'User data found to be empty, reverting to default',
                 log_priority = 3)
-except IOError:
+except OSError:
     SAY(visible=True,
         display_message = f'Encountered missing program file @{RUNTIME_PATHS.user_data}',
         log_message = 'User data file not found',
@@ -407,7 +402,7 @@ def flatten(values):
 
 # Function to extract files from folders recursively
 def audio_file_gen(Dir, ext):
-    for root, dirs, files in os.walk(Dir):
+    for root, _dirs, files in os.walk(Dir):
         for filename in files:
             if os.path.splitext(filename)[1] == ext:
                 yield os.path.join(root, filename)
@@ -465,9 +460,6 @@ if _sound_files_names_only == []:
     if loglevel in [3, 4]:
         IPrint("[INFO] All source directories are empty, you may and add more source directories to your library", visible=visible)
         IPrint("[INFO] To edit this library file (of source directories), refer to the `help.md` markdown file.", visible=visible)
-
-if reddit_creds_are_valid: r_seshs = redditsessions.get_redditsessions()
-else: r_seshs = None
 
 def recents_queue_save(inf):
     """
@@ -578,7 +570,7 @@ def _set_current_media_state(media):
         MediaSource.PODCAST: 1,
         MediaSource.RADIO: 2,
         MediaSource.RECOMMENDATION: 0,
-    }.get(media.source, None)
+    }.get(media.source)
     isplaying = True
 
 
@@ -1256,7 +1248,7 @@ def remove_adjacent(seq): # works on any sequence, not just on numbers
             n -= 1
         else:
             i += 1
-    
+
     #### return seq #### don't do this
     # function acts in situ; should follow convention and return None
 
@@ -1360,7 +1352,7 @@ def searchsongs(queryitems):
     return out
 
 
-# TODO - Implement librosa bpm + online bpm API features 
+# TODO - Implement librosa bpm + online bpm API features
 # def get_bpm(filename, duration=50, enable_round=True):
 #     y, sr = librosa.load(filename, duration=duration)
 #     tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
@@ -1608,7 +1600,7 @@ def convert(seconds):
     minutes = seconds // 60
     seconds %= 60
 
-    return "{0:0>2.0f}:{1:0>2.0f}:{2:0>2.0f}".format(hour, minutes, seconds)
+    return f"{hour:0>2.0f}:{minutes:0>2.0f}:{seconds:0>2.0f}"
 
 def isdecimal(value):
     try:
@@ -1795,7 +1787,7 @@ def refresh_settings():
 
     # Supported file extensions
     # Progress is based on emitted PCM frames for every supported format.
-    supported_file_types = SYSTEM_SETTINGS["system_settings"]['supported_file_types'] 
+    supported_file_types = SYSTEM_SETTINGS["system_settings"]['supported_file_types']
     max_wait_limit_to_get_song_length = SYSTEM_SETTINGS['system_settings']['max_wait_limit_to_get_song_length']
     MAX_RECENTS_SIZE = SYSTEM_SETTINGS["system_settings"]['max_recents_size']
 
@@ -1809,27 +1801,6 @@ def refresh_settings():
     if not loglevel:
         restore_default.restore('loglevel', SETTINGS)
         loglevel = SETTINGS.get('loglevel')
-
-def reload_reddit_creds():
-    global r_seshs
-
-    try:
-        from beta import redditsessions
-        importlib.reload(redditsessions)
-
-        if redditsessions.WARNING:
-            if loglevel in [3, 4]:
-                IPrint("[WARN] Could not load reddit-sessions extension...", visible=visible)
-                IPrint(f"[WARN] ...{redditsessions.WARNING}...", visible=visible)
-            reddit_creds_are_valid = False
-        else:
-            reddit_creds_are_valid = True
-    except ImportError:
-        if loglevel in [3, 4]:
-            IPrint("[INFO] Could not load reddit-sessions extension..., module 'praw' missing...", visible=visible)
-
-    if reddit_creds_are_valid: r_seshs = redditsessions.get_redditsessions()
-    else: r_seshs = None
 
 def text_overflow_prettify(text, length_thresh=100, end_length = 8, as_tuple=False):
     if length_thresh == 100:
@@ -1912,7 +1883,7 @@ def lyrics_ops(show_window):
     elif current_media_type == 3:
         IPrint('Lyrics for reddit sessions are not supported', visible=visible)
 
-    
+
     if current_media_type is not None:
         lyrics_saved_for_song = currentsong
 
@@ -1947,7 +1918,7 @@ def display_and_choose_podbean(latest_podbeans, commandslist, result_count, is_r
 
     latest_podbeans_table = []
     for pod in latest_podbeans[:result_count]:
-        table_items_1 = [text_overflow_prettify(pod[key].strip('...'), length_thresh=60) if pod.get(key) else None for key in ['title', 'caption'] ]
+        table_items_1 = [text_overflow_prettify(pod[key].strip('.'), length_thresh=60) if pod.get(key) else None for key in ['title', 'caption'] ]
         table_items_2 = [pod[key] if pod.get(key) else None for key in ['pub_date', 'is_explicit']]
         table_items = table_items_1+table_items_2
         latest_podbeans_table.append(table_items)
@@ -2199,7 +2170,7 @@ def process(command):
                         warn_msg=f'/? Invalid command {commandslist[0]}, perhaps you meant "{commandslist[0]}s"'
                 else:
                     warn_msg=f'/? Invalid command {commandslist[0]}, perhaps you meant "{commandslist[0]}s"'
-            
+
             if warn_msg:
                 SAY(visible=visible,
                     display_message=warn_msg,
@@ -2660,7 +2631,7 @@ def process(command):
                         rawtime = str(int(get_current_progress()) - int(commandslist[1][1:]))
                     else:
                         rawtime = commandslist[1]
-    
+
                     time_validity = validate_time(rawtime)
 
                     if not time_validity: # Raw time is valid
@@ -2679,7 +2650,7 @@ def process(command):
 
                         # TODO - Make following error messages more meaningful by giving them more
                         # context depending on if absolute or relative seek was called...
-                        
+
                         # E.g. say "reached beginning" instead of "seek val can't be -ve"
                         # When using relative seek
 
@@ -2803,7 +2774,7 @@ def process(command):
                         confirm_dl = True
                     else:
                         confirm_dl = False
-                
+
                 if confirm_dl:
                     SAY(visible=visible,
                         log_message='Download confirmed and initiated',
@@ -2865,7 +2836,7 @@ def process(command):
                         confirm_dl = True
                     else:
                         confirm_dl = False
-                
+
                 if confirm_dl:
                     SAY(visible=visible,
                         log_message='Download confirmed and initiated',
@@ -3493,7 +3464,7 @@ def process(command):
                 r_station = commandslist[1].strip()
 
             if len(commandslist) in [1, 2]:
-                r_stations = 'coffee chillout lounge'.split()
+                r_stations = ['coffee', 'chillout', 'lounge']
 
                 radio_media = None
                 if r_station.isnumeric():
@@ -3520,7 +3491,7 @@ def process(command):
 
 
         elif commandslist[0] in ['/rs', '/reddit-sessions']:
-            IPrint(redditsessions.RETIRED_MESSAGE, visible=visible)
+            IPrint(REDDIT_RETIRED_MESSAGE, visible=visible)
 
         elif commandslist in [['vivojay', 'favourite'], ['vivojay', 'fav']]:
             dev_fav_song = 'https://www.youtube.com/watch?v=izWf40-3n1Y'
@@ -3594,9 +3565,9 @@ def showbanner():
                 banner_lines = [(x + ' ' * (maxlen - len(x))) for x in banner_lines]
                 for banner_line in banner_lines:
                     blue_gradient_print(banner_line, cols+cols[::-1])
-        except IOError:
+        except OSError:
             pass
-    
+
     if visible: showversion()
 
 def initialize_audio_output():

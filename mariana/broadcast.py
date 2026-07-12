@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from enum import StrEnum
 import base64
 import os
 import socket
@@ -11,7 +9,10 @@ import ssl
 import subprocess
 import threading
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
+from enum import StrEnum
+from typing import Any, cast
 from urllib.parse import quote, urlencode, urlparse
 
 import numpy as np
@@ -49,7 +50,7 @@ class BroadcastProfile:
     public: bool = False
 
     @classmethod
-    def from_mapping(cls, name: str, value: dict[str, Any]) -> "BroadcastProfile":
+    def from_mapping(cls, name: str, value: dict[str, Any]) -> BroadcastProfile:
         profile = cls(
             name=name,
             server_url=str(value.get("server url") or ""),
@@ -127,7 +128,7 @@ class ProgramRing:
             if isinstance(samples, np.ndarray):
                 source = samples
             else:
-                source = np.frombuffer(samples, dtype=np.float32).reshape(-1, CHANNELS)
+                source = np.frombuffer(cast(Any, samples), dtype=np.float32).reshape(-1, CHANNELS)
             offset = 0
             remaining = min(frames, source.shape[0])
             while remaining:
@@ -192,7 +193,7 @@ class IcecastAuthTunnel:
             while not self._stop.is_set():
                 try:
                     client, _address = self._server.accept() if self._server else (None, None)
-                except socket.timeout:
+                except TimeoutError:
                     continue
                 if client:
                     self._relay(client)
@@ -257,7 +258,7 @@ class IcecastAuthTunnel:
                     while not self._stop.is_set():
                         try:
                             data = upstream.recv(16_384)
-                        except socket.timeout:
+                        except TimeoutError:
                             continue
                         if not data:
                             break
@@ -270,7 +271,7 @@ class IcecastAuthTunnel:
             while not self._stop.is_set():
                 try:
                     data = client.recv(65_536)
-                except socket.timeout:
+                except TimeoutError:
                     continue
                 if not data:
                     break
@@ -326,9 +327,10 @@ class IcecastBroadcaster:
         self._error: str | None = None
         self._last_metadata_update = 0.0
         self._accept_audio = threading.Event()
+        self.configuration_errors: dict[str, str] = {}
 
     @classmethod
-    def from_settings(cls, value: dict[str, Any], **kwargs) -> "IcecastBroadcaster":
+    def from_settings(cls, value: dict[str, Any], **kwargs) -> IcecastBroadcaster:
         profiles: dict[str, BroadcastProfile] = {}
         errors: dict[str, str] = {}
         for name, mapping in (value.get("profiles") or {}).items():

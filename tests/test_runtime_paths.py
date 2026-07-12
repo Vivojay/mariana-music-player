@@ -1,6 +1,8 @@
 import json
 
-from mariana.paths import RuntimePaths, initialize_runtime_paths
+import pytest
+
+from mariana.paths import RuntimePaths, _copy_atomic, initialize_runtime_paths
 
 
 def test_runtime_paths_copy_legacy_state_without_removing_source(tmp_path):
@@ -33,3 +35,23 @@ def test_runtime_path_initialization_is_additive(tmp_path):
     initialize_runtime_paths(RuntimePaths(resources, data))
     assert (data / "lib.lib").read_text() == "user choice\n"
     assert (data / "settings" / "settings.yml").read_text() == "visible: true\n"
+    initialize_runtime_paths(RuntimePaths(resources, data))
+
+
+def test_runtime_path_initialization_creates_empty_library_and_user_state(tmp_path):
+    resources = tmp_path / "resources"
+    (resources / "settings").mkdir(parents=True)
+    (resources / "settings" / "settings.yml.default").write_text("visible: true\n")
+    paths = initialize_runtime_paths(RuntimePaths(resources, tmp_path / "state"))
+    assert paths.library_file.read_text().startswith("# Add one")
+    assert paths.user_data.read_text() == "default_user_data: {}\n"
+
+
+def test_atomic_copy_rejects_verification_mismatch(tmp_path, monkeypatch):
+    source, destination = tmp_path / "source", tmp_path / "destination"
+    source.write_text("content")
+    digests = iter(("source", "different"))
+    monkeypatch.setattr("mariana.paths._digest", lambda _path: next(digests))
+    with pytest.raises(OSError, match="Verification failed"):
+        _copy_atomic(source, destination)
+    assert not destination.exists()

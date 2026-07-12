@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
 import os
-from pathlib import Path
 import platform
 import shutil
 import tarfile
 import tempfile
-from typing import Any
+import time
 import zipfile
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 import requests
 
@@ -104,11 +105,41 @@ class ToolchainManager:
             temporary_target = target.with_name(f".{target.name}.new")
             shutil.rmtree(temporary_target, ignore_errors=True)
             shutil.copytree(extracted, temporary_target)
-            if target.exists():
-                shutil.rmtree(target)
-            os.replace(temporary_target, target)
+            self._replace_install(temporary_target, target)
         self._activate(target, artifact)
         return target
+
+    @staticmethod
+    def _replace_path(source: Path, destination: Path, attempts: int = 6) -> None:
+        last_error: OSError | None = None
+        for attempt in range(attempts):
+            try:
+                os.replace(source, destination)
+                return
+            except OSError as error:
+                last_error = error
+                if attempt + 1 < attempts:
+                    time.sleep(0.05 * (2**attempt))
+        assert last_error is not None
+        raise last_error
+
+    @classmethod
+    def _replace_install(cls, temporary_target: Path, target: Path) -> None:
+        """Activate a verified directory, restoring the prior version on failure."""
+        backup = target.with_name(f".{target.name}.old")
+        shutil.rmtree(backup, ignore_errors=True)
+        had_target = target.exists()
+        try:
+            if had_target:
+                cls._replace_path(target, backup)
+            cls._replace_path(temporary_target, target)
+        except OSError as error:
+            if had_target and backup.exists() and not target.exists():
+                cls._replace_path(backup, target)
+            shutil.rmtree(temporary_target, ignore_errors=True)
+            raise ToolchainError(f"Could not atomically activate managed tools: {error}") from error
+        else:
+            shutil.rmtree(backup, ignore_errors=True)
 
     def resolve(self, name: str) -> str | None:
         state = self.paths.tools / "current.json"

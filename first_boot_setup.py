@@ -1,7 +1,9 @@
 import os
 import stat
-import toml
 from pathlib import Path
+
+import toml
+
 from mariana.paths import runtime_paths
 
 APP_DIR = Path(__file__).resolve().parent
@@ -10,11 +12,12 @@ HTTP_TIMEOUT = (10, 60)
 
 def download_cloud_mariana_samples(about):
     import sys
-    import requests
     import zipfile
 
-    from tqdm.auto import tqdm
+    import requests
     from ruamel.yaml import YAML
+    from tqdm.auto import tqdm
+
     from beta.mediadl import setup_dl_dir
 
     yaml = YAML(typ='safe')
@@ -108,7 +111,7 @@ def fbs(about): # First boot setup
                 print()
                 print(f"Saving directory paths in your library\n  @location: {runtime_paths().library_file}!")
                 break
-            
+
             local_file_dirs = list(set(local_file_dirs))
 
             with runtime_paths().library_file.open('a', encoding='utf-8') as libfile:
@@ -143,6 +146,6 @@ def fbs(about): # First boot setup
 
     if run_now in ['no', 'n']:
         print("Mariana Player has been installed successfully for you...")
-    
+
     return (run_now in ['no', 'n']) # True:  DO NOT RUN player
                                     # False: Continue to run player...

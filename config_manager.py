@@ -9,7 +9,6 @@ from typing import Any
 import toml
 from ruamel.yaml import YAML
 
-
 from mariana.paths import runtime_paths
 
 yaml = YAML(typ="safe")

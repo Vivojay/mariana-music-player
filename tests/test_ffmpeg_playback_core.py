@@ -1,12 +1,12 @@
-from array import array
 import json
-from pathlib import Path
 import subprocess
+from array import array
+from pathlib import Path
 
 import pytest
 
-from mariana.models import MediaCapabilities, MediaRef, MediaSource, PlaybackState
 from mariana import playback
+from mariana.models import MediaCapabilities, MediaRef, MediaSource, PlaybackState
 
 
 class FakeStream:

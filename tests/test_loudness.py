@@ -1,13 +1,14 @@
-from dataclasses import replace
 import math
+from dataclasses import replace
+
 import pytest
 
-from mariana.database import MarianaDatabase, SCHEMA_VERSION
+from mariana.database import SCHEMA_VERSION, MarianaDatabase
 from mariana.loudness import (
     LoudnessProfile,
     LoudnessRepository,
-    RSGainAnalyzer,
     ReplayGainMode,
+    RSGainAnalyzer,
     album_identity,
     effective_gain_db,
     linear_gain,

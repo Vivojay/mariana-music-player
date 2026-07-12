@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 VERSION_FILE = Path(__file__).resolve().parents[1] / "version.json"
 
 

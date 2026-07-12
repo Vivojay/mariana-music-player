@@ -1,12 +1,12 @@
 import json
-from pathlib import Path
 import sqlite3
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from mariana.database import MarianaDatabase, SCHEMA_VERSION
+from mariana.database import SCHEMA_VERSION, MarianaDatabase
 from mariana.library import LibraryCatalog, LibraryError, parse_library_file
 
 

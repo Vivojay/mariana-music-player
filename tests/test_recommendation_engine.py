@@ -3,7 +3,7 @@ from pathlib import Path
 from mariana.database import MarianaDatabase
 from mariana.models import MediaRef, MediaSource
 from mariana.queueing import PersistentQueue
-from recommendation_engine.engine import Candidate, DEFAULT_REWARDS, RecommendationEngine, cosine, features
+from recommendation_engine.engine import DEFAULT_REWARDS, Candidate, RecommendationEngine, cosine, features
 from recommendation_engine.listenbrainz import ListenBrainzClient
 from recommendation_engine.research import Metrics, should_promote
 
