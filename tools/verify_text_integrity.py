@@ -22,7 +22,14 @@ TEXT_SUFFIXES = {
     ".yaml",
     ".yml",
 }
-MOJIBAKE_MARKERS = ("â€", "â†", "âŒ", "Ã—", "ðŸ", "\ufffd")
+MOJIBAKE_MARKERS = (
+    "\u00e2\u20ac",
+    "\u00e2\u2020",
+    "\u00e2\u0152",
+    "\u00c3\u00d7",
+    "\u00f0\u0178",
+    "\ufffd",
+)
 
 
 def tracked_text_files(root: Path) -> list[Path]:

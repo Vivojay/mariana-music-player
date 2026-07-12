@@ -30,7 +30,7 @@ def test_text_integrity_rejects_invalid_utf8_and_mojibake(tmp_path):
     valid = tmp_path / "valid.md"
     valid.write_text("Electron → PTY; close ×; timer ◷\n", encoding="utf-8")  # noqa: RUF001
     broken = tmp_path / "broken.md"
-    broken.write_text("release gateâ€”failed\n", encoding="utf-8")
+    broken.write_text("release gate\u00e2\u20ac\u201dfailed\n", encoding="utf-8")
     invalid = tmp_path / "invalid.txt"
     invalid.write_bytes(b"broken: \xff")
     failures = inspect([valid, broken, invalid])
