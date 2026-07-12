@@ -369,3 +369,164 @@ def test_completion_callback_advances_persistent_queue_without_restarting_prefet
     main._on_queue_item_complete(first.media)
     assert [event for _media, event in events] == ["completion", "start", "prefetch"]
     assert main.currentsong == "Second"
+
+
+def test_process_reconciles_finished_playback_and_tolerates_snapshot_failure(cli, monkeypatch):
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.IDLE),
+    )
+    main.process("count")
+    assert main.currentsong is None
+    assert main.isplaying is False
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: (_ for _ in ()).throw(RuntimeError("closing")),
+    )
+    main.process("count")
+
+
+def test_empty_library_and_recents_commands_are_safe(cli, monkeypatch):
+    monkeypatch.setattr(main, "_sound_files", [])
+    monkeypatch.setattr(main, "_sound_files_names_only", [])
+    monkeypatch.setattr(main, "RECENTS_QUEUE", [])
+    main.process("list")
+    main.process("rand")
+    main.process("last played")
+    assert any("There are no audios" in message.get("display_message", "") for message in cli.messages)
+    assert any("No recents" in message.get("display_message", "") for message in cli.messages)
+
+
+def test_refresh_all_confirmation_reprompts_and_can_cancel(cli, monkeypatch):
+    answers = iter(["invalid", "y"])
+    monkeypatch.setattr("builtins.input", lambda *_args: next(answers))
+    main.process("refresh all")
+    assert ("refresh-settings",) in cli.actions
+    assert ("reload", {"quick_load": False, "full": True}) in cli.actions
+
+    before = list(cli.actions)
+    monkeypatch.setattr("builtins.input", lambda *_args: "n")
+    main.process("refresh all")
+    assert cli.actions == before
+
+
+def test_navigation_covers_play_print_and_unavailable_states(cli, monkeypatch):
+    main.process("next")
+    main.process(".prev")
+    assert any(action[0] == "local" for action in cli.actions)
+    monkeypatch.setattr(main, "songindex", -1)
+    main.process("next")
+    monkeypatch.setattr(main, "songindex", "N/A")
+    main.process("prev")
+    assert any("No audio" in message.get("display_message", "") for message in cli.messages)
+    assert any("outside" in message.get("display_message", "") for message in cli.messages)
+
+
+def test_seek_and_progress_failure_states_are_typed(cli, monkeypatch):
+    monkeypatch.setattr(main, "currentsong_length", -1)
+    main.process("seek 10")
+    monkeypatch.setattr(main, "currentsong_length", 0)
+    main.process("seek 10")
+    monkeypatch.setattr(main, "currentsong", "stream")
+    monkeypatch.setattr(main, "currentsong_length", None)
+    monkeypatch.setattr(main, "get_currentsong_length", lambda: -1)
+    main.process("progress")
+    assert any("could not be loaded" in message.get("display_message", "") for message in cli.messages)
+    assert any("No audio to seek" in message.get("display_message", "") for message in cli.messages)
+
+
+def test_download_confirmation_and_rejection_paths(cli, monkeypatch):
+    monkeypatch.setattr(main, "current_media_type", 0)
+    monkeypatch.setattr(main, "currentsong", ("Video", "https://youtube.test/watch?v=1"))
+    answers = iter(["invalid", "yes", "y"])
+    monkeypatch.setattr("builtins.input", lambda *_args: next(answers))
+    main.process("download-yv")
+    main.process("download-ya")
+    spawned = [action for action in cli.actions if action[0] == "spawn"]
+    assert len(spawned) == 2
+    assert all(action[1][0] == main.sys.executable for action in spawned)
+
+    monkeypatch.setattr(main, "current_media_type", None)
+    main.process("download-yv")
+    main.process("download-ya")
+    assert any("local storage" in message.get("display_message", "") for message in cli.messages)
+
+
+@pytest.mark.parametrize(
+    ("media_type", "song"),
+    [
+        (0, ("Video", "https://youtube.test/watch?v=1")),
+        (1, "https://example.test/audio"),
+        (2, "coffee"),
+        (3, ("Session", "https://example.test/session")),
+        (99, "invalid"),
+    ],
+)
+def test_open_current_online_media_and_invalid_type(cli, monkeypatch, media_type, song):
+    monkeypatch.setattr(main, "current_media_type", media_type)
+    monkeypatch.setattr(main, "currentsong", song)
+    monkeypatch.setattr(main, "get_current_progress", lambda: 12)
+    monkeypatch.setattr(main.vas, "radio_stream_url", lambda station: f"https://radio.test/{station}")
+    main.process("open")
+    if media_type == 99:
+        assert any("invalid type" in message.get("log_message", "") for message in cli.messages)
+    else:
+        assert any(action[0] == "browser" for action in cli.actions)
+
+
+def test_sync_path_and_family_error_boundaries(cli, monkeypatch):
+    for media_type in range(4):
+        monkeypatch.setattr(main, "current_media_type", media_type)
+        main.process("sync")
+    assert ("media", {"action": "resync"}) in cli.actions
+    main.process("path invalid")
+    assert any("positive integer" in message.get("display_message", "") for message in cli.messages)
+
+    def fail(_arguments):
+        raise ValueError("invalid request")
+
+    for name in (
+        "sleep_command",
+        "replaygain_command",
+        "broadcast_command",
+        "tools_command",
+        "library_command",
+        "queue_command",
+        "radio_command",
+        "recommendation_command",
+    ):
+        monkeypatch.setattr(main, name, fail)
+    for command in (
+        "sleep 1m",
+        "replaygain status",
+        "broadcast status",
+        "tools status",
+        "library status",
+        "queue list",
+        "radio list",
+        "recommend 1",
+    ):
+        main.process(command)
+    assert sum("invalid request" in message.get("display_message", "") for message in cli.messages) == 8
+
+
+def test_online_resolution_failures_do_not_escape_process(cli, monkeypatch):
+    monkeypatch.setattr(main.YT_query, "search_youtube", lambda **_kwargs: (_ for _ in ()).throw(OSError("offline")))
+    monkeypatch.setattr(main, "play_vas_media", lambda **_kwargs: (_ for _ in ()).throw(OSError("offline")))
+    monkeypatch.setattr(main, "url_is_valid", lambda value=None, url=None, **_kwargs: bool(value or url))
+    main.process('/ys "query"')
+    main.process('/ys "query" 1')
+    main.process("/yl https://youtube.test/watch?v=1")
+    main.process("vivojay fav")
+    assert sum("Video Load Error" in message.get("display_message", "") for message in cli.messages) == 4
+
+
+def test_like_without_active_media_and_update_failure_are_reported(cli, monkeypatch):
+    monkeypatch.setattr(main.vas.controller, "snapshot", lambda: PlaybackSnapshot(PlaybackState.IDLE))
+    main.process("like")
+    assert "No active media" in cli.printed
+    monkeypatch.setattr(main, "prepare_update", lambda: (_ for _ in ()).throw(OSError("disk full")))
+    main.process("update prepare")
+    assert any("disk full" in message.get("display_message", "") for message in cli.messages)

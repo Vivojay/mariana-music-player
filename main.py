@@ -2611,7 +2611,7 @@ def process(command):
             IPrint(int(bool(currentsong)), visible=visible)
 
         elif commandslist[0].lower() == 'seek':
-            if currentsong_length:
+            if currentsong_length not in (None, 0, -1):
                 if len(commandslist) == 2:
                     if commandslist[1].startswith('+'):
                         rawtime = str(int(get_current_progress()) + int(commandslist[1][1:]))
@@ -3074,7 +3074,12 @@ def process(command):
                     IPrint(f"{colored.fg('red')}({colored.fg('aquamarine_1b')}Not Playing{colored.fg('red')}){colored.attr('reset')}", visible=visible)
 
             elif len(commandslist) == 2:
-                if int(commandslist[1]) > 0:
+                if not commandslist[1].isnumeric():
+                    SAY(visible=visible,
+                        display_message='Audio number must be a positive integer',
+                        log_message='Invalid non-numeric audio number provided for path lookup',
+                        log_priority=2)
+                elif int(commandslist[1]) > 0:
                     try:
                         IPrint(_sound_files[int(commandslist[1])-1], visible=visible)
                     except IndexError:
