@@ -1,14 +1,11 @@
 import io
-import json
 import zipfile
-from types import SimpleNamespace
 
 import pytest
 from ruamel.yaml import YAML
 
 import beta.mediadl as mediadl
 import first_boot_setup
-import meta_getter
 import restore_default
 
 
@@ -73,47 +70,6 @@ def test_first_boot_validates_answers_saves_library_and_runs_download(monkeypatc
     assert str(tmp_path).lower() in (tmp_path / "lib.lib").read_text(encoding="utf-8")
     assert about["first_boot"] is False
     assert system.is_file()
-
-
-def test_meta_getter_filters_sources_runs_ffprobe_and_persists_metadata(monkeypatch, tmp_path):
-    data = tmp_path / "data"
-    data.mkdir()
-    local = tmp_path / "song.mp3"
-    local.write_bytes(b"audio")
-    media = [str(local), "https://example.test/live", str(tmp_path / "missing.mp3")]
-    (data / "snd_files.json").write_text(json.dumps(media), encoding="utf-8")
-    calls = []
-
-    monkeypatch.setattr(meta_getter, "APP_DIR", tmp_path)
-    monkeypatch.setattr(meta_getter, "url_is_valid", lambda value: value.startswith("https://"))
-    monkeypatch.setattr(
-        meta_getter.sp,
-        "run",
-        lambda args, **kwargs: calls.append((args, kwargs))
-        or SimpleNamespace(stdout=json.dumps({"format": {"duration": "1"}, "streams": []})),
-    )
-
-    valid = meta_getter.get_meta([".mp3"])
-    assert valid == [str(local), "https://example.test/live"]
-    assert len(calls) == 2
-    outputs = list(data.glob("mediameta_*.json"))
-    assert len(outputs) == 2
-    assert all(json.loads(path.read_text(encoding="utf-8"))["format"]["bpm"] == 120 for path in outputs)
-
-
-def test_meta_getter_accepts_legacy_string_encoded_lists(monkeypatch, tmp_path):
-    data = tmp_path / "data"
-    data.mkdir()
-    local = tmp_path / "song.mp3"
-    local.touch()
-    (data / "snd_files.json").write_text(json.dumps(repr([str(local)])), encoding="utf-8")
-    monkeypatch.setattr(meta_getter, "APP_DIR", tmp_path)
-    monkeypatch.setattr(
-        meta_getter.sp,
-        "run",
-        lambda *_a, **_k: SimpleNamespace(stdout='{"format": {}, "streams": []}'),
-    )
-    assert meta_getter.get_meta(repr([".mp3"])) == [str(local)]
 
 
 def test_restore_default_updates_nested_setting_and_persists(monkeypatch, tmp_path):

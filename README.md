@@ -59,6 +59,8 @@ command families include:
 queue add|insert|remove|move|swap|jump|list|clear
 queue next|previous|shuffle|repeat|consume|save|load|undo|redo|autofill
 radio search|list|play|favorite|refresh|health
+library roots|scan|status|pause|resume|errors|retry|verify|info
+library clean --missing
 recommend [count]
 recommend autofill [count]
 recommend train
@@ -67,11 +69,25 @@ dislike
 download-ml <URL> [mp3|flac|wav|m4a|opus] [output path]
 ```
 
+`lib.lib` remains the human-editable list of library roots. Mariana indexes it
+incrementally in SQLite: unchanged files are not re-probed, renames retain their
+library identity, unavailable drives do not erase tracks, and deleted files are
+tombstoned until `library clean --missing` is explicitly issued. Native file
+events are debounced; network/removable roots use bounded polling. Fingerprint
+and recommendation feature work pauses while media is playing.
+
 Capabilities are explicit. Pause, stop, volume, mute, progress, history,
 queueing, and `now` apply to successfully decoded sources. Seeking is rejected
 for live/non-seekable streams. Radio resync restarts at the live edge. Mariana
 does not bypass DRM, authentication, geographic restrictions, or server access
 controls.
+
+Direct URLs are restricted to `file`, `http`, and `https`. HLS/DASH and
+Icecast/Shoutcast are supported over HTTP(S); arbitrary FFmpeg device and
+transport protocols are rejected. YouTube stream URLs are resolved immediately
+before use and are never stored. Optional authenticated YouTube access can
+reference a browser profile through `sources.youtube.browser profile`; Mariana
+does not copy cookies into its database or logs.
 
 ## Open identification and lyrics
 
@@ -125,6 +141,7 @@ Run the release-duration lifecycle soak with:
 
 ```powershell
 python -m tools.soak_test --seconds 28800 --live-radio `
+  --library-files 10000 `
   --ffmpeg-bin "C:\path\to\ffmpeg\bin"
 ```
 

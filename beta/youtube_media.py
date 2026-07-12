@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime, timezone
+from pathlib import Path
 import shutil
 from typing import Any
 
@@ -32,7 +33,14 @@ def integration_options(browser_profile: str | None = None) -> dict[str, Any]:
         "file_access_retries": 3,
     }
     for runtime, executable in (("deno", "deno"), ("node", "node"), ("quickjs", "qjs")):
-        if runtime_path := shutil.which(executable):
+        runtime_path = shutil.which(executable)
+        if not runtime_path and runtime == "node":
+            candidates = [
+                Path("C:/Program Files/nodejs/node.exe"),
+            ]
+            candidates.extend(sorted((Path.home() / "apps").glob("node-*-win-x64/node.exe"), reverse=True))
+            runtime_path = next((str(candidate) for candidate in candidates if candidate.is_file()), None)
+        if runtime_path:
             options["js_runtimes"] = {runtime: {"path": runtime_path}}
             break
     if profile := _browser_profile(browser_profile):
@@ -159,6 +167,11 @@ def resolve_stream(
         expires_at = datetime.fromtimestamp(expires_at, tz=timezone.utc).timestamp()
     return {
         "url": str(direct_url),
+        "http_headers": {
+            str(key): str(value)
+            for key, value in (info.get("http_headers") or {}).items()
+            if value is not None
+        },
         "expires_at": expires_at,
         "is_live": bool(info.get("is_live") or info.get("live_status") == "is_live"),
         "title": info.get("title"),

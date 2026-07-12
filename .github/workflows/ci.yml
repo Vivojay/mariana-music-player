@@ -7,7 +7,7 @@ on:
 jobs:
   windows-python-312:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -23,33 +23,30 @@ jobs:
         run: python -m pip check
       - name: Compile Python sources
         run: python -m compileall -q .
-      - name: Check critical syntax and name errors
-        run: python -m ruff check --select E9,F63,F7,F82 .
-      - name: Check modernized modules
-        run: python -m ruff check config_manager.py runtime_check.py terminal_colors.py beta/ffmpeg_player.py beta/youtube_media.py mariana recommendation_engine tests
+      - name: Check the complete source tree
+        run: python -m ruff check .
       - name: Run tests
         run: >-
           python -m pytest -q
           --cov
           --cov-report=term-missing
           --cov-report=xml
-          --cov-fail-under=70
-      - name: Enforce new-package branch coverage
+          --cov-branch
+          --cov-fail-under=80
+      - name: Enforce resolver, library, and supervisor branch coverage
         run: >-
           python -m pytest -q
-          tests/test_ffmpeg_playback_core.py
-          tests/test_playback_state_machine.py
-          tests/test_real_media_pipeline.py
-          tests/test_media_models_and_queue.py
-          tests/test_identity_and_lyrics.py
-          tests/test_radio_catalog.py
-          tests/test_custom_download.py
-          tests/test_recommendation_engine.py
-          tests/test_optional_embeddings.py
-          --cov=mariana
-          --cov=recommendation_engine
+          tests/test_source_resolvers.py
+          tests/test_library_indexer.py
+          tests/test_library_edge_cases.py
+          tests/test_library_service.py
+          tests/test_playback_supervisor.py
+          --cov=mariana.sources
+          --cov=mariana.library
+          --cov=mariana.library_service
+          --cov=mariana.supervisor
           --cov-branch
-          --cov-fail-under=90
+          --cov-fail-under=95
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4

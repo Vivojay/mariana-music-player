@@ -153,13 +153,17 @@ class LibraryProfilerService:
             now = time.monotonic()
             mode = None
             with self._request_lock:
-                if self._scan_request:
+                if self._scan_request and not self._paused.is_set():
                     mode, self._scan_request = self._scan_request, None
-                elif self._dirty_at is not None and now - self._dirty_at >= self.debounce_seconds:
+                elif (
+                    not self._paused.is_set()
+                    and self._dirty_at is not None
+                    and now - self._dirty_at >= self.debounce_seconds
+                ):
                     mode, self._dirty_at = "changed", None
-                elif now >= next_local or now >= next_network:
+                elif not self._paused.is_set() and (now >= next_local or now >= next_network):
                     mode = "changed"
-            if mode and not self._paused.is_set():
+            if mode:
                 try:
                     self.catalog.scan(mode)
                     self._last_error = None
@@ -184,7 +188,6 @@ class LibraryProfilerService:
             if allowed:
                 try:
                     processed = self.catalog.process_jobs(stage, limit=1, owner=owner)
-                    self._last_error = None
                 except Exception as error:
                     self._last_error = str(error)
             if not processed:

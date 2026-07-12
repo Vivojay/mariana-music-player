@@ -6,14 +6,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+from config_manager import load_system_settings, load_user_settings
+from logger import SAY
+from mariana.models import IdentityStatus, MediaRef, MediaSource, TrackIdentity
+
 APP_DIR = Path(__file__).resolve().parents[1]
 TEMP_DIR = APP_DIR / 'temp'
 RES_DIR = APP_DIR / 'res'
 WALLPAPER_DIR = RES_DIR / 'lyrics-wallpapers'
-
-from config_manager import load_system_settings, load_user_settings
-from logger import SAY
-from mariana.models import IdentityStatus, MediaRef, MediaSource, TrackIdentity
 
 IDENTIFICATION_SERVICE = None
 PLAYBACK_CONTROLLER = None
@@ -262,7 +262,8 @@ def show_window(max_wait_lim,
             head_text = "Lyrics N/A"
             text_to_be_displayed = "(Lyrics not available)"
 
-    if not show_window: return None
+    if not show_window:
+        return None
 
     # Create the window as a separate process
     # so that it does not-block the main CLI interface

@@ -349,8 +349,8 @@ def OrderedSet(iterable):
 
 
 # Flattens list of any depth
-def flatten(l):
-    for el in l:
+def flatten(values):
+    for el in values:
         if isinstance(el, Iterable) and not isinstance(el, (str, bytes)):
             yield from flatten(el)
         else:
@@ -830,7 +830,7 @@ def play_local_default_player(songpath, _songindex, is_queue=False):
             # Hence, we need to convert everything to lowercase...
             try:
                 songindex = [i.lower() for i in _sound_files].index(songpath.lower())+1
-            except:
+            except ValueError:
                 songindex = 'N/A'
 
             recents_queue_save((songindex, currentsong))
@@ -1401,7 +1401,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
         SAY(visible=visible,
             display_message = '',
             out_file='logs/history.log',
-            log_message = [' \u2014 '.join(currentsong[:-1]) if type(currentsong)==tuple else currentsong][0],
+            log_message = [' \u2014 '.join(currentsong[:-1]) if isinstance(currentsong, tuple) else currentsong][0],
             log_priority = 3,
             format_style = 0)
 
@@ -1570,7 +1570,7 @@ def lyrics_ops(show_window):
     get_related = SETTINGS['get related songs']
 
     if current_media_type == 0:
-        IPrint(f"Loading lyrics window for YT stream (Time taking)...", visible=visible)
+        IPrint('Loading lyrics window for YT stream (Time taking)...', visible=visible)
         get_lyrics.show_window(refresh_lyrics = refresh_lyrics,
                                 max_wait_lim = max_wait_limit_to_get_song_length,
                                 get_related=get_related,
@@ -1579,7 +1579,7 @@ def lyrics_ops(show_window):
                                 visible=visible,
                                 isYT=1)
     elif current_media_type == 1:
-        IPrint(f"Loading lyrics window for online media stream (Time taking)...", visible=visible)
+        IPrint('Loading lyrics window for online media stream (Time taking)...', visible=visible)
         get_lyrics.show_window(refresh_lyrics = refresh_lyrics,
                                 max_wait_lim = max_wait_limit_to_get_song_length,
                                 get_related=get_related,
@@ -1587,9 +1587,9 @@ def lyrics_ops(show_window):
                                 visible=visible,
                                 weblink=currentsong)
     elif current_media_type == 2:
-        IPrint(f"Lyrics for webradio are not supported", visible=visible)
+        IPrint('Lyrics for webradio are not supported', visible=visible)
     elif current_media_type == 3:
-        IPrint(f"Lyrics for reddit sessions are not supported", visible=visible)
+        IPrint('Lyrics for reddit sessions are not supported', visible=visible)
 
     
     if current_media_type is not None:
@@ -1882,7 +1882,7 @@ def process(command):
             if warn_msg:
                 SAY(visible=visible,
                     display_message=warn_msg,
-                    log_message=f'podbean command assumed to be misspelled',
+                    log_message="podbean command assumed to be misspelled",
                     log_priority=3)
 
         # Podbean music: default vendor => 1001tracklists
@@ -2026,7 +2026,7 @@ def process(command):
             reload_sounds(quick_load = False)
 
             IPrint(f"Loaded {len(_sound_files)}", visible=visible)
-            IPrint(f"Done", visible=visible)
+            IPrint('Done', visible=visible)
 
         elif commandslist in [['refresh'], ['refresh', 'all']]:
             if commandslist == ['refresh', 'all']:
@@ -2317,7 +2317,7 @@ def process(command):
         elif commandslist[0].lower() in ['isp?', 'ispl', 'isp']:
             SAY(visible=visible,
                 display_message='/? Invalid command, perhaps you meant "ispl?" for "is playing?"',
-                log_message=f'"ispl[aying]?" command assumed to be misspelled',
+                log_message="\"ispl[aying]?\" command assumed to be misspelled",
                 log_priority=3)
 
         elif commandslist[0].lower() in ['ispl?', 'isplaying?']:
@@ -2345,7 +2345,7 @@ def process(command):
                     if not time_validity: # Raw time is valid
                         # Take a valid raw value for time from the user. Format is defined in the time section of help
                         timeobj = timeinput_to_timeobj(rawtime)
-                        if not timeobj == ValueError:
+                        if timeobj is not ValueError:
                             if timeobj == (None, None):
                                 SAY(visible=visible,
                                     display_message = 'Internal Error',
@@ -2380,12 +2380,12 @@ def process(command):
                 if currentsong_length == -1:
                     SAY(visible=visible,
                         display_message="Error: Can't seek audio, as audio length could not be loaded",
-                        log_message=f'Song length could not be loaded, cannot seek',
+                        log_message="Song length could not be loaded, cannot seek",
                         log_priority=2)
                 else:
                     SAY(visible=visible,
                         display_message="Error: No audio to seek",
-                        log_message=f'Seeked audio w/o playing any',
+                        log_message="Seeked audio w/o playing any",
                         log_priority=2)
 
         elif commandslist in [['prog'], ['progress'], ['prog*'], ['progress*']]:
@@ -2413,7 +2413,7 @@ def process(command):
 
                 else:
                     SAY(visible=visible,
-                        display_message = f'Progress cannot be displayed for audio of unknown length',
+                        display_message = "Progress cannot be displayed for audio of unknown length",
                         log_message = 'Progress undefined for audio of unknown length',
                         log_priority = 2) # Log fatal crash
 
@@ -2425,7 +2425,7 @@ def process(command):
                 f'  {colored.fg("magenta_3a")}download-ya:{colored.fg("light_sky_blue_1")} Download YouTube audio\n'
                 f'  {colored.fg("magenta_3a")}download-ml:{colored.fg("light_sky_blue_1")} Download custom media link'
                 f'{colored.attr("reset")}\n',
-                log_message=f'"download-(\'ys\'|\'yv\'|\'ml\')" command assumed to be misspelled', log_priority=3)
+                log_message="\"download-('ys'|'yv'|'ml')\" command assumed to be misspelled", log_priority=3)
 
         # Download current/custom YouTube media (as video with audio)
         elif commandslist[0].lower() == 'download-yv':
@@ -2612,7 +2612,7 @@ def process(command):
                         log_message=f'Error in resetting: {currentsong}', log_priority=2)
             else:
                 SAY(visible=visible, display_message="Error: No audio to seek",
-                    log_message=f'Seeked audio w/o playing any', log_priority=2)
+                    log_message="Seeked audio w/o playing any", log_priority=2)
 
         elif command[0] == '.':
             try:
@@ -2722,7 +2722,7 @@ def process(command):
                             log_priority = 2)
 
             elif len(commandslist) > 1 and commandslist[1] in ['lib', 'library']:
-                IPrint(fr'Opening library file in editor', visible=visible)
+                IPrint('Opening library file in editor', visible=visible)
                 if not DEFAULT_EDITOR:
                     restore_default.restore('editor path', SETTINGS)
                     DEFAULT_EDITOR = SETTINGS.get('editor path')
@@ -2730,7 +2730,7 @@ def process(command):
                 sp.Popen([fr"{DEFAULT_EDITOR}", 'lib.lib'], shell=False)
 
             elif len(commandslist) > 1 and commandslist[1] in ['lyr', 'lyrics']:
-                IPrint(fr'Opening lyrics file in editor', visible=visible)
+                IPrint('Opening lyrics file in editor', visible=visible)
                 lyrics_ops(show_window = False)
                 if not DEFAULT_EDITOR:
                     restore_default.restore('editor path', SETTINGS)
@@ -2773,9 +2773,9 @@ def process(command):
         elif commandslist in [['sm'], ['sync'], ['sync', 'media']]:
             IPrint("Syncing current media...", visible=visible)
             if current_media_type == 0: # If YT vid is playing...
-                IPrint(f"YouTube audio cannot be synced, only seeked", visible=visible)
+                IPrint('YouTube audio cannot be synced, only seeked', visible=visible)
             elif current_media_type == 1: # If audio is playing...
-                IPrint(f"media url cannot be synced, only seeked", visible=visible)
+                IPrint('media url cannot be synced, only seeked', visible=visible)
             elif current_media_type == 2: # If radio is playing...
                 vas.media_player(action='resync') # Resync radio to live stream
             elif current_media_type == 3: # If reddit-session is streaming...
@@ -3012,7 +3012,7 @@ def process(command):
                         if int(rescount) <= 0:
                             SAY(visible=visible,
                                 log_message = 'Subceeded lower threshold for YT search result count',
-                                display_message = f'YT result count should be > 0, please retry',
+                                display_message = "YT result count should be > 0, please retry",
                                 log_priority = 2)
 
                         if int(rescount) > max_yt_search_results_threshold:
@@ -3024,7 +3024,7 @@ def process(command):
                 else:
                     SAY(visible=visible,
                         log_message = 'Invalid value for YT search result count',
-                        display_message = f'Invalid value for YT search result count',
+                        display_message = "Invalid value for YT search result count",
                         log_priority = 2)
 
                 if ytv_choices:
@@ -3174,7 +3174,7 @@ def mainprompt():
             print(colored.attr('reset'), end='')
             outcode = process(command)
 
-            if outcode == False:
+            if isinstance(outcode, bool) and not outcode:
                 exitplayer()
                 break
         except KeyboardInterrupt:

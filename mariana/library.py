@@ -153,7 +153,7 @@ class LibraryCatalog:
                 connection.execute(
                     "INSERT INTO library_roots(root_id, path, path_key, kind, available, last_seen) "
                     "VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(path_key) DO UPDATE SET "
-                    "path=excluded.path, kind=excluded.kind",
+                    "path=excluded.path, kind=excluded.kind, error=NULL",
                     (root_id, str(root), key, root_kind(root), int(root.is_dir()), now if root.is_dir() else None),
                 )
             if configured_keys:

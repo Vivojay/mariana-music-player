@@ -6,8 +6,9 @@ from pathlib import Path
 import time
 
 from mariana.models import MediaCapabilities, MediaRef, MediaSource, PlaybackState
-from mariana.playback import PlaybackController, PlaybackError, PlaybackSupervisor, UnsupportedAction
+from mariana.playback import PlaybackController, PlaybackError, UnsupportedAction
 from mariana.sources import ResolverRegistry
+from mariana.supervisor import PlaybackSupervisor
 
 
 controller = PlaybackController()

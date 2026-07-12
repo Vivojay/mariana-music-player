@@ -1,4 +1,5 @@
 from pathlib import Path
+import time
 import pytest
 import requests
 
@@ -9,6 +10,7 @@ from mariana.sources import (
     LocalResolver,
     MediaFailure,
     ResolverRegistry,
+    ResolvedMedia,
     YouTubeResolver,
     redacted_uri,
     sanitized_resolver_data,
@@ -116,3 +118,124 @@ def test_redacted_uri_hides_credentials_and_secret_query_values():
     value = redacted_uri("https://user:pass@example.test/a?token=secret&track=1#fragment")
     assert "user" not in value and "pass" not in value and "secret" not in value
     assert "track=1" in value and "REDACTED" in value
+
+
+def test_resolved_expiry_redaction_and_sanitization_edges():
+    media = MediaRef(MediaSource.URL, "https://example.test")
+    resolved = ResolvedMedia(media, media.original_uri, media.original_uri, media.capabilities, expires_at=time.time())
+    assert resolved.expired
+    resolved.expires_at = time.time() + 3600
+    assert not resolved.expired
+    assert redacted_uri("file:///track.mp3") == "file:///track.mp3"
+    assert "example.test:8443" in redacted_uri("https://u:p@example.test:8443/a?x=1")
+    assert sanitized_resolver_data({"youtube": True, "resolved_uri": "secret", "station_id": "id"}) == {
+        "youtube": True,
+        "station_id": "id",
+    }
+
+
+@pytest.mark.parametrize(
+    ("error", "code", "retryable"),
+    [
+        (requests.Timeout("slow"), FailureCode.TIMEOUT, True),
+        (RuntimeError("bad"), FailureCode.UNAVAILABLE, False),
+    ],
+)
+def test_base_failure_classification(error, code, retryable):
+    media = MediaRef(MediaSource.URL, "https://example.test")
+    failure = HttpResolver(Session(Response())).classify_failure(error, media)
+    assert (failure.code, failure.retryable) == (code, retryable)
+
+
+@pytest.mark.parametrize(
+    ("status", "code", "retryable"),
+    [
+        (401, FailureCode.AUTH_REQUIRED, False),
+        (403, FailureCode.AUTH_REQUIRED, False),
+        (429, FailureCode.RATE_LIMITED, True),
+        (503, FailureCode.UNAVAILABLE, True),
+    ],
+)
+def test_http_status_classification(status, code, retryable):
+    resolver = HttpResolver(Session(Response(status)))
+    media = MediaRef(MediaSource.URL, "https://example.test/media")
+    if retryable:
+        resolved = resolver.resolve(media)
+        assert resolved.metadata["probe_warning"]
+    else:
+        with pytest.raises(MediaFailure) as captured:
+            resolver.resolve(media)
+        assert (captured.value.code, captured.value.retryable) == (code, retryable)
+
+
+def test_http_get_fallback_and_embedded_credentials():
+    class FallbackSession(Session):
+        def head(self, url, **kwargs):
+            self.calls.append(("head", url, kwargs))
+            return Response(405, url=url)
+
+        def get(self, url, **kwargs):
+            self.calls.append(("get", url, kwargs))
+            return Response(206, url=url, headers={"content-range": "bytes 0-0/10"})
+
+    session = FallbackSession(None)
+    result = HttpResolver(session).resolve(MediaRef(MediaSource.URL, "https://example.test/media"))
+    assert result.capabilities.seekable and [call[0] for call in session.calls] == ["head", "get"]
+    with pytest.raises(MediaFailure) as captured:
+        HttpResolver(session).resolve(MediaRef(MediaSource.URL, "https://user:pass@example.test/media"))
+    assert captured.value.code == FailureCode.AUTH_REQUIRED
+
+
+def test_local_directory_and_youtube_resolution(monkeypatch, tmp_path):
+    with pytest.raises(MediaFailure):
+        LocalResolver().resolve(MediaRef(MediaSource.LOCAL, str(tmp_path)))
+    monkeypatch.setattr(
+        "beta.youtube_media.resolve_stream",
+        lambda *_args, **_kwargs: {
+            "url": "https://signed.test/audio",
+            "http_headers": {"User-Agent": "test"},
+            "is_live": True,
+            "expires_at": time.time() + 60,
+            "title": "Live",
+            "artist": "Artist",
+            "album": None,
+            "duration": None,
+        },
+    )
+    resolved = YouTubeResolver("edge:Default").resolve(
+        MediaRef(MediaSource.YOUTUBE, "https://youtube.com/watch?v=test")
+    )
+    assert resolved.capabilities.live and not resolved.capabilities.seekable
+    assert resolved.metadata["title"] == "Live"
+    assert resolved.headers == {"User-Agent": "test"}
+
+
+def test_registry_delegates_all_recommendation_shapes_and_radio_endpoints(monkeypatch, tmp_path):
+    song = tmp_path / "song.mp3"
+    song.touch()
+    session = Session(Response(headers={"content-length": "1"}))
+    registry = ResolverRegistry(http_session=session, radio_endpoints=lambda _media: ["https://radio.test/backup"])
+    local = registry.resolve(
+        MediaRef(MediaSource.RECOMMENDATION, str(song), resolver_data={"underlying_source": "local"})
+    )
+    assert local.playback_uri == str(song.resolve())
+    url = registry.resolve(MediaRef(MediaSource.RECOMMENDATION, "https://example.test/audio"))
+    assert url.playback_uri == "https://cdn.test/audio"
+    radio = registry.resolve(
+        MediaRef(
+            MediaSource.RADIO,
+            "https://radio.test/live",
+            capabilities=MediaCapabilities(finite=False, live=True, seekable=False),
+        )
+    )
+    assert radio.playback_uri.endswith("backup")
+    failure = MediaFailure(FailureCode.DRM, MediaSource.URL, "no")
+    assert registry.classify_failure(failure, MediaRef(MediaSource.URL, "https://example.test")) is failure
+
+
+def test_registry_unknown_source_is_typed():
+    registry = ResolverRegistry()
+    registry._resolvers.pop(MediaSource.URL)
+    with pytest.raises(MediaFailure) as captured:
+        registry.for_source(MediaSource.URL)
+    assert captured.value.code == FailureCode.UNSUPPORTED_PROTOCOL

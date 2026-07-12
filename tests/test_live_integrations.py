@@ -7,15 +7,44 @@ rate-limit, change responses, or be unavailable independently of Mariana Player.
 
 import os
 import shutil
+import time
 from pathlib import Path
 
 import pytest
 
 from beta.podcasts import refresh_podcast_data
-from beta.youtube_media import search, stream_url
+from beta.youtube_media import integration_options, search, stream_url
 from mariana.identity import fingerprint_file
 from mariana.database import MarianaDatabase
+from mariana.models import MediaRef, MediaSource, PlaybackState
+from mariana.playback import PlaybackController
 from mariana.radio import RadioCatalog
+from tools.soak_test import NullOutputStream
+
+CONFIGURED_FFMPEG = Path(
+    r"C:\Users\Vivan.Jaiswal\Documents\ffmpeg-2025-12-18-git-78c75d546a-essentials_build\bin"
+)
+
+
+def media_tool(name):
+    candidate = CONFIGURED_FFMPEG / f"{name}.exe"
+    return str(candidate) if candidate.is_file() else shutil.which(name)
+
+
+def assert_live_decode(media):
+    controller = PlaybackController(
+        ffmpeg_bin=str(CONFIGURED_FFMPEG),
+        ffprobe_bin=str(CONFIGURED_FFMPEG),
+        output_factory=NullOutputStream,
+    )
+    try:
+        controller.play(media)
+        deadline = time.monotonic() + 10
+        while controller.snapshot().state == PlaybackState.BUFFERING and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert controller.snapshot().state == PlaybackState.PLAYING
+    finally:
+        controller.close()
 
 
 pytestmark = [
@@ -25,16 +54,17 @@ pytestmark = [
 
 
 def test_live_multimedia_tools_are_discoverable():
-    assert shutil.which("ffmpeg")
-    assert shutil.which("ffprobe")
-    assert shutil.which("ffplay")
-    assert any(shutil.which(runtime) for runtime in ("deno", "node", "qjs"))
+    assert media_tool("ffmpeg")
+    assert media_tool("ffprobe")
+    assert media_tool("ffplay")
+    assert integration_options().get("js_runtimes")
 
 
 def test_live_youtube_search_and_stream_resolution():
     results = search("Rick Astley Never Gonna Give You Up official", limit=1)
     assert results and results[0]["url"].startswith("https://")
     assert stream_url(results[0]["url"], audio_only=True).startswith("http")
+    assert_live_decode(MediaRef(MediaSource.YOUTUBE, results[0]["url"]))
 
 
 def test_live_podcast_feed_refresh(tmp_path):
@@ -43,6 +73,7 @@ def test_live_podcast_feed_refresh(tmp_path):
     assert episodes
     assert any(item.get("enclosure_url") for item in episodes)
     assert output.is_file()
+    assert_live_decode(MediaRef(MediaSource.PODCAST, next(item["enclosure_url"] for item in episodes if item.get("enclosure_url"))))
 
 
 def test_live_chromaprint_returns_a_fingerprint():
@@ -56,7 +87,7 @@ def test_live_official_radio_endpoint_decodes(tmp_path):
     with MarianaDatabase(tmp_path / "radio.db") as database:
         result = RadioCatalog(database).health(
             "groove-salad",
-            ffmpeg_bin=str(Path(shutil.which("ffmpeg")).parent),
+            ffmpeg_bin=str(Path(media_tool("ffmpeg")).parent),
             force=True,
         )
     assert result["status"] == "healthy", result

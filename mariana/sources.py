@@ -201,7 +201,13 @@ class HttpResolver(BaseResolver):
             metadata_available=media.capabilities.metadata_available,
         )
         resolved = ResolvedMedia(media, url, canonical_uri(media.source, url), capabilities, endpoints=[url])
-        return self.probe(resolved)
+        try:
+            return self.probe(resolved)
+        except MediaFailure as error:
+            if not error.retryable:
+                raise
+            resolved.metadata["probe_warning"] = str(error)
+            return resolved
 
     def probe(self, resolved: ResolvedMedia) -> ResolvedMedia:
         try:
@@ -267,6 +273,7 @@ class YouTubeResolver(BaseResolver):
                 downloadable=not payload.get("is_live", False),
                 metadata_available=True,
             ),
+            headers=dict(payload.get("http_headers") or {}),
             expires_at=payload.get("expires_at"),
             metadata={key: payload.get(key) for key in ("title", "artist", "album", "duration")},
         )

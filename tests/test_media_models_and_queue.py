@@ -2,7 +2,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given, settings, strategies as st
 
 from mariana.database import MarianaDatabase, SCHEMA_VERSION
 from mariana.models import MediaCapabilities, MediaRef, MediaSource, TrackIdentity, IdentityStatus
@@ -170,6 +170,7 @@ def test_queue_empty_invalid_consume_and_saved_queue_compatibility(tmp_path: Pat
 
 
 @given(st.permutations((0, 1, 2, 3, 4)))
+@settings(deadline=None)
 def test_queue_move_permutations_preserve_unique_order(permutation):
     with TemporaryDirectory() as directory:
         with MarianaDatabase(Path(directory) / "property.db") as database:

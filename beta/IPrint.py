@@ -8,6 +8,7 @@
 # coloured program outputs
 # make /yl and /r <radio_index> work
 
+from terminal_colors import fg as _fg, bg as _bg, attr
 
 cols = [
     ('NAVY_BLUE', 'white'),
@@ -21,9 +22,6 @@ cols = [
     ('DEEP_SKY_BLUE_1', 'white'),
     ('DEEP_SKY_BLUE_2', 'white'),
 ]
-
-from multiprocessing import Process
-from terminal_colors import fg as _fg, bg as _bg, attr, back
 
 def IPrint(text="", visible=True):
     if visible:

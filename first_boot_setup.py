@@ -23,11 +23,14 @@ def download_cloud_mariana_samples(about):
         SETTINGS = yaml.load(u_data_file)
 
     dl_dir_setup_code = setup_dl_dir(SETTINGS, SYSTEM_SETTINGS)
-    if dl_dir_setup_code in range(4): return dl_dir_setup_code
+    if dl_dir_setup_code in range(4):
+        return dl_dir_setup_code
     output_zip_path = os.path.join(dl_dir_setup_code, 'mariana_samples.zip')
 
-    if sys.platform == 'win32': output_zip_path=output_zip_path.replace('/', '\\')
-    else: output_zip_path=output_zip_path.replace('\\', '/')
+    if sys.platform == 'win32':
+        output_zip_path = output_zip_path.replace('/', '\\')
+    else:
+        output_zip_path = output_zip_path.replace('\\', '/')
 
     # Mariana Cloud Music Collection (zip file) is located at: https://www.dropbox.com/s/s2cgmuwadkrsjl7/Mariana%20Cloud%20Music%20Collection.zip?dl=1
     mariana_samples_url = 'https://www.dropbox.com/s/s2cgmuwadkrsjl7/Mariana%20Cloud%20Music%20Collection.zip?dl=1'
@@ -96,8 +99,10 @@ def fbs(about): # First boot setup
             n+=1
             local_file_dir = input(f"  Enter directory path {n} ('xxx' to exit): ").lower().strip()
             if local_file_dir != 'xxx':
-                if os.path.isdir(local_file_dir): local_file_dirs.append(local_file_dir)
-                else: print("This directory does not exist, please retry...")
+                if os.path.isdir(local_file_dir):
+                    local_file_dirs.append(local_file_dir)
+                else:
+                    print("This directory does not exist, please retry...")
             else:
                 print()
                 print(f"Saving directory paths in your library\n  @location: {os.path.join(curdir, 'lib.lib')}!")

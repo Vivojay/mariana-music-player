@@ -30,6 +30,7 @@ def cli(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
     monkeypatch.setattr(main, "SAY", lambda **kwargs: messages.append(kwargs))
     monkeypatch.setattr(main, "reload_sounds", lambda **kwargs: actions.append(("reload", kwargs)))
+    monkeypatch.setattr(main, "refresh_settings", lambda: actions.append(("refresh-settings",)))
     monkeypatch.setattr(main, "open_in_youtube", lambda value: actions.append(("youtube", value)))
     monkeypatch.setattr(main, "local_play_commands", lambda commandslist: actions.append(("local", commandslist)))
     monkeypatch.setattr(main, "stopsong", lambda: actions.append(("stop",)))
@@ -46,7 +47,15 @@ def cli(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "library_command", lambda args: actions.append(("library", args)))
     monkeypatch.setattr(main, "radio_command", lambda args: actions.append(("radio", args)))
     monkeypatch.setattr(main, "recommendation_command", lambda args: actions.append(("recommend", args)))
-    monkeypatch.setattr(main, "url_is_valid", lambda value: value.startswith("https://"))
+    monkeypatch.setattr(main.RECOMMENDER, "record_event", lambda *args, **kwargs: actions.append(("event", args, kwargs)))
+    monkeypatch.setattr(main.YT_query, "search_youtube", lambda **_kwargs: ("Video", "https://youtube.test/watch?v=1"))
+    monkeypatch.setattr(main, "play_vas_media", lambda *args, **kwargs: actions.append(("play-vas", args, kwargs)))
+    monkeypatch.setattr(
+        main,
+        "url_is_valid",
+        lambda value=None, url=None, **_kwargs: (value or url or "").startswith("https://"),
+    )
+    monkeypatch.setattr(main, "download_media", lambda *args, **kwargs: actions.append(("download-media", args, kwargs)) or tmp_path / "media.mp3")
     monkeypatch.setattr(main.sounddevice, "query_devices", lambda **_kwargs: {"name": "Test Device"})
     monkeypatch.setattr(main.os, "system", lambda command: actions.append(("system", command)) or 0)
     monkeypatch.setattr(main.sp, "Popen", lambda args, **kwargs: actions.append(("spawn", args, kwargs)))
@@ -163,6 +172,63 @@ def cli(monkeypatch, tmp_path):
     ],
 )
 def test_command_matrix_never_requires_external_side_effects(cli, command):
+    main.process(command)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "/rss https://example.test/feed.xml 1",
+        "pod 1 1",
+        "pods 1",
+        "recent count",
+        "recents 1",
+        "recents 1-2",
+        "recents 1 2",
+        "last played",
+        "reload",
+        "refresh",
+        "refresh all",
+        "refresh lyrics",
+        "vis",
+        "prev",
+        "next",
+        ".prev",
+        ".next",
+        "now*",
+        "play 1",
+        "play 1 2",
+        "fade in 1",
+        "fade out 1",
+        "fade 10 20 1",
+        "m?",
+        "ispl",
+        "ispl?",
+        "isl?",
+        "seek 1",
+        "seek :30",
+        "download-yv https://youtube.test/watch?v=1",
+        "download-ya https://youtube.test/watch?v=1",
+        "download-ml https://example.test/audio mp3",
+        "open .",
+        "open lib",
+        "open lyrics",
+        "view lib",
+        "view lyrics",
+        "volume 25",
+        "mvolume 25",
+        "/ys query",
+        "/ys query 1",
+        "/yl https://youtube.test/watch?v=1",
+        "/ml https://example.test/audio",
+        "/wra",
+        "/wra coffee",
+        "like",
+        "dislike",
+        "vivojay fav",
+    ],
+)
+def test_extended_command_matrix_never_performs_real_io(cli, command):
     main.process(command)
 
 
