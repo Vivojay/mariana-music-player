@@ -48,7 +48,7 @@ def _options(**overrides: Any) -> dict[str, Any]:
         "noplaylist": True,
     }
     browser_profile = overrides.pop("browser_profile", None)
-    options.update(integration_options(browser_profile))
+    options.update(integration_options(browser_profile) if browser_profile else integration_options())
     options.update(overrides)
     return options
 

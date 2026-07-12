@@ -70,6 +70,19 @@ class ImmediateThread:
             self.target(*self.args)
 
 
+class Resolvers:
+    def resolve(self, media, **_kwargs):
+        return playback.ResolvedMedia(
+            media,
+            media.original_uri,
+            media.original_uri,
+            media.capabilities,
+        )
+
+    def classify_failure(self, error, media):
+        return playback.MediaFailure(playback.FailureCode.UNAVAILABLE, media.source, str(error))
+
+
 @pytest.fixture
 def controller(monkeypatch):
     Session.created.clear()
@@ -78,7 +91,7 @@ def controller(monkeypatch):
     Stream.instances.clear()
     monkeypatch.setattr(playback, "DecoderSession", Session)
     monkeypatch.setattr(playback.threading, "Thread", ImmediateThread)
-    return playback.PlaybackController(output_factory=Stream, crossfade_seconds=2)
+    return playback.PlaybackController(output_factory=Stream, crossfade_seconds=2, resolvers=Resolvers())
 
 
 def finite(name="track", duration=10):
@@ -96,10 +109,10 @@ def live():
 def test_prepare_success_failure_and_play_without_media(controller, monkeypatch):
     media = finite()
     assert controller.prepare(media, probe=False) is media
-    assert media.resolver_data["resolved_uri"].endswith("track.flac")
+    assert controller.resolved_uri.endswith("track.flac")
     with pytest.raises(playback.PlaybackError, match="No media"):
         playback.PlaybackController(output_factory=Stream).play()
-    monkeypatch.setattr(playback, "resolve_input", lambda _media: (_ for _ in ()).throw(ValueError("bad")))
+    monkeypatch.setattr(controller.resolvers, "resolve", lambda _media: (_ for _ in ()).throw(ValueError("bad")))
     with pytest.raises(ValueError, match="bad"):
         controller.prepare(finite("bad"), probe=False)
     assert controller.snapshot().state == PlaybackState.FAILED

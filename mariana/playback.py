@@ -14,9 +14,11 @@ import threading
 import time
 from typing import Callable, Protocol
 
+import numpy as np
 import sounddevice
 
 from .models import MediaCapabilities, MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
+from .sources import FailureCode, MediaFailure, ResolvedMedia, ResolverRegistry, redacted_uri
 
 
 SAMPLE_RATE = 48_000
@@ -63,9 +65,16 @@ def resolve_input(media: MediaRef) -> str:
     return str(media.resolver_data.get("resolved_uri") or media.original_uri)
 
 
-def probe_media(media: MediaRef, *, ffprobe_bin: str | None = None, timeout: float = 20) -> MediaRef:
+def probe_media(
+    media: MediaRef,
+    *,
+    source: str | None = None,
+    headers: dict[str, str] | None = None,
+    ffprobe_bin: str | None = None,
+    timeout: float = 20,
+) -> MediaRef:
     ffprobe = find_executable("ffprobe", ffprobe_bin)
-    source = resolve_input(media)
+    source = source or resolve_input(media)
     command = [
         ffprobe,
         "-v",
@@ -74,8 +83,10 @@ def probe_media(media: MediaRef, *, ffprobe_bin: str | None = None, timeout: flo
         "format=duration,format_name,tags:stream=codec_type,codec_name,duration,tags",
         "-of",
         "json",
-        source,
     ]
+    if headers:
+        command.extend(["-headers", "".join(f"{key}: {value}\r\n" for key, value in headers.items())])
+    command.append(source)
     try:
         result = subprocess.run(
             command,
@@ -87,7 +98,7 @@ def probe_media(media: MediaRef, *, ffprobe_bin: str | None = None, timeout: flo
         )
         payload = json.loads(result.stdout or "{}")
     except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as error:
-        raise PlaybackError(f"FFprobe could not inspect {media.original_uri}: {error}") from error
+        raise PlaybackError(f"FFprobe could not inspect {redacted_uri(media.original_uri)}: {error}") from error
 
     format_info = payload.get("format") or {}
     streams = payload.get("streams") or []
@@ -99,14 +110,13 @@ def probe_media(media: MediaRef, *, ffprobe_bin: str | None = None, timeout: flo
         duration = None
     tags = {str(key).lower(): value for key, value in (format_info.get("tags") or {}).items()}
     tags.update({str(key).lower(): value for key, value in (audio_stream.get("tags") or {}).items()})
-    is_live = media.source == MediaSource.RADIO or duration is None
+    is_live = media.capabilities.live or media.source == MediaSource.RADIO
     media.duration = duration
     media.title = media.title or tags.get("title")
     media.artist = media.artist or tags.get("artist")
     media.album = media.album or tags.get("album")
     media.resolver_data.update(
         {
-            "resolved_uri": source,
             "codec": audio_stream.get("codec_name"),
             "format": format_info.get("format_name"),
             "tags": tags,
@@ -115,7 +125,7 @@ def probe_media(media: MediaRef, *, ffprobe_bin: str | None = None, timeout: flo
     media.capabilities = MediaCapabilities(
         finite=not is_live,
         live=is_live,
-        seekable=not is_live,
+        seekable=media.capabilities.seekable and not is_live,
         fingerprintable=True,
         downloadable=media.source != MediaSource.RADIO,
         metadata_available=bool(tags),
@@ -160,11 +170,13 @@ class DecoderSession:
         self,
         media: MediaRef,
         *,
+        resolved: ResolvedMedia | None = None,
         ffmpeg_bin: str | None = None,
         start_at: float = 0,
         max_buffer_seconds: float = DEFAULT_BUFFER_SECONDS,
     ):
         self.media = media
+        self.resolved = resolved
         self.ffmpeg = find_executable("ffmpeg", ffmpeg_bin)
         self.start_at = max(0.0, start_at)
         self.max_buffer_bytes = int(max_buffer_seconds * SAMPLE_RATE * BYTES_PER_FRAME)
@@ -200,6 +212,11 @@ class DecoderSession:
     def error(self) -> str | None:
         return "\n".join(self._stderr) or None
 
+    @property
+    def failed(self) -> bool:
+        process = self.process
+        return bool(self.eof and process is not None and process.poll() not in {None, 0})
+
     def reset_fingerprint(self) -> None:
         with self._condition:
             self._fingerprint.clear()
@@ -207,7 +224,7 @@ class DecoderSession:
     def start(self) -> None:
         if self.process is not None:
             return
-        source = str(self.media.resolver_data.get("resolved_uri") or resolve_input(self.media))
+        source = self.resolved.playback_uri if self.resolved else resolve_input(self.media)
         log_level = "info" if self.media.capabilities.live else "warning"
         command = [self.ffmpeg, "-hide_banner", "-loglevel", log_level, "-nostdin"]
         if self.start_at and self.media.capabilities.seekable:
@@ -218,11 +235,25 @@ class DecoderSession:
                 "30000000",
                 "-reconnect",
                 "1",
+                "-reconnect_at_eof",
+                "1" if self.media.capabilities.live else "0",
+                "-reconnect_on_network_error",
+                "1",
+                "-reconnect_on_http_error",
+                "429,5xx",
                 "-reconnect_streamed",
                 "1",
                 "-reconnect_delay_max",
                 "5",
+                "-reconnect_max_retries",
+                "3",
+                "-reconnect_delay_total_max",
+                "30",
+                "-respect_retry_after",
+                "1",
             ]
+        if self.resolved and self.resolved.headers:
+            command += ["-headers", "".join(f"{key}: {value}\r\n" for key, value in self.resolved.headers.items())]
         command += [
             "-i",
             source,
@@ -360,11 +391,13 @@ class PlaybackController:
         ffprobe_bin: str | None = None,
         crossfade_seconds: float = 0.0,
         output_factory: Callable[..., OutputStream] | None = None,
+        resolvers: ResolverRegistry | None = None,
     ):
         self.ffmpeg_bin = ffmpeg_bin
         self.ffprobe_bin = ffprobe_bin
         self.crossfade_seconds = max(0.0, crossfade_seconds)
-        self.output_factory = output_factory or sounddevice.RawOutputStream
+        self.output_factory = output_factory or sounddevice.OutputStream
+        self.resolvers = resolvers or ResolverRegistry()
         self._lock = threading.RLock()
         self._active: DecoderSession | None = None
         self._next: DecoderSession | None = None
@@ -374,7 +407,9 @@ class PlaybackController:
         self._muted = False
         self._error: str | None = None
         self._prepared: MediaRef | None = None
+        self._resolved: ResolvedMedia | None = None
         self.on_complete: Callable[[MediaRef], None] | None = None
+        self.on_failure: Callable[[MediaRef, MediaFailure], None] | None = None
         self._watch_stop = threading.Event()
         self._identity_generation = 0
 
@@ -383,11 +418,21 @@ class PlaybackController:
             self._state = PlaybackState.RESOLVING
             self._error = None
         try:
+            resolved = self.resolvers.resolve(media)
+            media.capabilities = resolved.capabilities
             if probe:
-                media = probe_media(media, ffprobe_bin=self.ffprobe_bin)
-            else:
-                media.resolver_data["resolved_uri"] = resolve_input(media)
+                media = probe_media(
+                    media,
+                    source=resolved.playback_uri,
+                    headers=resolved.headers,
+                    ffprobe_bin=self.ffprobe_bin,
+                )
+            for field in ("title", "artist", "album", "duration"):
+                if getattr(media, field) is None and resolved.metadata.get(field) is not None:
+                    setattr(media, field, resolved.metadata[field])
+            resolved.capabilities = media.capabilities
             self._prepared = media
+            self._resolved = resolved
             return media
         except Exception as error:
             with self._lock:
@@ -400,11 +445,13 @@ class PlaybackController:
             self.prepare(media, probe=probe)
         if self._prepared is None:
             raise PlaybackError("No media has been prepared")
+        prepared, resolved = self._prepared, self._resolved
         self.stop()
-        media = self._prepared
+        self._prepared, self._resolved = prepared, resolved
+        media = prepared
         with self._lock:
             self._state = PlaybackState.BUFFERING
-            session = DecoderSession(media, ffmpeg_bin=self.ffmpeg_bin, start_at=start_at)
+            session = DecoderSession(media, resolved=self._resolved, ffmpeg_bin=self.ffmpeg_bin, start_at=start_at)
             session.on_metadata = lambda title, source=session: self._handle_stream_metadata(source, title)
             self._active = session
             session.start()
@@ -423,8 +470,19 @@ class PlaybackController:
         return media
 
     def prefetch(self, media: MediaRef, *, probe: bool = True) -> MediaRef:
-        media = probe_media(media, ffprobe_bin=self.ffprobe_bin) if probe else media
-        session = DecoderSession(media, ffmpeg_bin=self.ffmpeg_bin)
+        resolved = self.resolvers.resolve(media)
+        media.capabilities = resolved.capabilities
+        media = (
+            probe_media(
+                media,
+                source=resolved.playback_uri,
+                headers=resolved.headers,
+                ffprobe_bin=self.ffprobe_bin,
+            )
+            if probe
+            else media
+        )
+        session = DecoderSession(media, resolved=resolved, ffmpeg_bin=self.ffmpeg_bin)
         session.on_metadata = lambda title, source=session: self._handle_stream_metadata(source, title)
         session.start()
         if not session.wait_for_buffer(timeout=10):
@@ -458,8 +516,12 @@ class PlaybackController:
         if _status:
             with self._lock:
                 self._error = f"Audio output reported: {_status}"
+        numpy_output = isinstance(outdata, np.ndarray)
         if not active or state == PlaybackState.PAUSED:
-            outdata[:] = b"\0" * size
+            if numpy_output:
+                outdata.fill(0)
+            else:
+                outdata[:] = b"\0" * size
             return
         crossfade = False
         fraction = 0.0
@@ -472,16 +534,58 @@ class PlaybackController:
             crossfade = True
             fraction = min(1.0, max(0.0, 1 - (active.media.duration - active.position) / self.crossfade_seconds))
         first = active.read(frames)
-        if crossfade and next_session:
+        if numpy_output:
+            outdata.fill(0)
+            first_samples = np.frombuffer(first, dtype=np.float32).reshape(-1, CHANNELS)
+            count = min(frames, first_samples.shape[0])
+            if count:
+                np.multiply(first_samples[:count], gain * (1 - fraction if crossfade else 1), out=outdata[:count])
+            if crossfade and next_session:
+                second = next_session.read(frames)
+                second_samples = np.frombuffer(second, dtype=np.float32).reshape(-1, CHANNELS)
+                second_count = min(frames, second_samples.shape[0])
+                if second_count:
+                    outdata[:second_count] += second_samples[:second_count] * gain * fraction
+                np.clip(outdata, -1.0, 1.0, out=outdata)
+        elif crossfade and next_session:
             second = next_session.read(frames)
             payload = _mix_pcm(first, second, gain * (1 - fraction), gain * fraction, size)
             with self._lock:
                 self._state = PlaybackState.CROSSFADING
         else:
             payload = _scale_pcm(first, gain).ljust(size, b"\0")
-        outdata[:] = payload[:size]
+        if crossfade:
+            with self._lock:
+                self._state = PlaybackState.CROSSFADING
+        if not numpy_output:
+            outdata[:] = payload[:size]
         if active.eof and active.buffered_seconds == 0:
-            self._promote_next(active)
+            self._finish_active(active)
+
+    def _finish_active(self, active: DecoderSession) -> None:
+        if getattr(active, "failed", False):
+            failure = MediaFailure(
+                FailureCode.DECODE,
+                active.media.source,
+                active.error or "FFmpeg stopped before playback completed",
+                retryable=active.media.source != MediaSource.LOCAL,
+            )
+            with self._lock:
+                if self._active is not active:
+                    return
+                self._active = None
+                self._state = PlaybackState.FAILED
+                self._error = str(failure)
+            threading.Thread(target=active.stop, name="mariana-decoder-cleanup", daemon=True).start()
+            if self.on_failure:
+                threading.Thread(
+                    target=self.on_failure,
+                    args=(active.media, failure),
+                    name="mariana-playback-failure",
+                    daemon=True,
+                ).start()
+            return
+        self._promote_next(active)
 
     def _promote_next(self, expected: DecoderSession) -> None:
         with self._lock:
@@ -512,7 +616,7 @@ class PlaybackController:
             if active is None:
                 return
             if active.eof and active.buffered_seconds == 0:
-                self._promote_next(active)
+                self._finish_active(active)
                 return
 
     def pause(self) -> None:
@@ -547,7 +651,7 @@ class PlaybackController:
             self._state = PlaybackState.SEEKING
             media = active.media
             active.stop()
-            replacement = DecoderSession(media, ffmpeg_bin=self.ffmpeg_bin, start_at=target)
+            replacement = DecoderSession(media, resolved=self._resolved, ffmpeg_bin=self.ffmpeg_bin, start_at=target)
             replacement.on_metadata = lambda title, source=replacement: self._handle_stream_metadata(source, title)
             self._active = replacement
             replacement.start()
@@ -563,6 +667,11 @@ class PlaybackController:
                 raise UnsupportedAction("Only live streams can be resynchronized")
             media = active.media
         self.play(media, probe=False)
+
+    @property
+    def resolved_uri(self) -> str | None:
+        with self._lock:
+            return self._resolved.playback_uri if self._resolved else None
 
     def set_volume(self, value: float) -> None:
         value = float(value)
@@ -604,6 +713,7 @@ class PlaybackController:
             active, next_session = self._active, self._next
             self._active = None
             self._next = None
+            self._resolved = None
             if active or next_session:
                 self._state = PlaybackState.STOPPING
         for session in (active, next_session):
@@ -645,6 +755,148 @@ class PlaybackController:
                 error=self._error,
                 media=active.media if active else self._prepared,
             )
+
+
+class PlaybackSupervisor:
+    """Bounded recovery and cancellation above the PCM controller."""
+
+    NETWORK_DELAYS = (1.0, 2.0, 4.0)
+    RADIO_DELAYS = (2.0, 5.0, 15.0, 30.0)
+
+    def __init__(
+        self,
+        controller: PlaybackController,
+        *,
+        resolvers: ResolverRegistry | None = None,
+        wait: Callable[[float], bool] | None = None,
+    ) -> None:
+        self.controller = controller
+        self.resolvers = resolvers or controller.resolvers
+        self._cancel = threading.Event()
+        self._lock = threading.RLock()
+        self._recovering = False
+        self._requested: MediaRef | None = None
+        self.on_terminal_failure: Callable[[MediaRef, MediaFailure], None] | None = None
+        self.metrics = {
+            "retries": 0,
+            "resolver_refreshes": 0,
+            "endpoint_changes": 0,
+            "output_recoveries": 0,
+            "cancellations": 0,
+        }
+        self._wait = wait or self._cancel.wait
+        controller.on_failure = self._on_decoder_failure
+
+    def _failure(self, error: BaseException, media: MediaRef) -> MediaFailure:
+        if isinstance(error, MediaFailure):
+            return error
+        if isinstance(error, PlaybackError):
+            return MediaFailure(
+                FailureCode.DECODE,
+                media.source,
+                str(error),
+                retryable=media.source != MediaSource.LOCAL,
+                cause=error,
+            )
+        return self.resolvers.classify_failure(error, media)
+
+    @staticmethod
+    def _copy_with_uri(media: MediaRef, uri: str) -> MediaRef:
+        return MediaRef(
+            media.source,
+            uri,
+            title=media.title,
+            artist=media.artist,
+            album=media.album,
+            duration=media.duration,
+            stable_id=media.stable_id,
+            resolver_data=dict(media.resolver_data),
+            provenance=media.provenance,
+            capabilities=media.capabilities,
+        )
+
+    def _candidates(self, media: MediaRef) -> list[MediaRef]:
+        if media.source != MediaSource.RADIO:
+            return [media]
+        endpoints = list(dict.fromkeys(media.resolver_data.get("endpoints") or [media.original_uri]))
+        return [self._copy_with_uri(media, endpoint) for endpoint in endpoints]
+
+    def play(self, media: MediaRef, *, start_at: float = 0, probe: bool = True) -> MediaRef:
+        with self._lock:
+            self._cancel.clear()
+            self._requested = media
+        candidates = self._candidates(media)
+        delays = self.RADIO_DELAYS if media.source == MediaSource.RADIO else self.NETWORK_DELAYS
+        attempts = 1 if media.source == MediaSource.LOCAL else len(delays) + 1
+        last_failure: MediaFailure | None = None
+        for attempt in range(attempts):
+            if self._cancel.is_set():
+                self.metrics["cancellations"] += 1
+                raise MediaFailure(FailureCode.CANCELLED, media.source, "Playback was cancelled")
+            candidate = candidates[attempt % len(candidates)]
+            if attempt and len(candidates) > 1:
+                self.metrics["endpoint_changes"] += 1
+            try:
+                return self.controller.play(candidate, start_at=start_at if attempt == 0 else 0, probe=probe)
+            except Exception as error:
+                last_failure = self._failure(error, candidate)
+                if not last_failure.retryable or attempt + 1 >= attempts:
+                    break
+                self.metrics["retries"] += 1
+                if media.source == MediaSource.YOUTUBE:
+                    self.metrics["resolver_refreshes"] += 1
+                delay = last_failure.retry_after or delays[min(attempt, len(delays) - 1)]
+                if self._wait(delay):
+                    self.metrics["cancellations"] += 1
+                    raise MediaFailure(FailureCode.CANCELLED, media.source, "Playback was cancelled")
+        assert last_failure is not None
+        if self.on_terminal_failure:
+            self.on_terminal_failure(media, last_failure)
+        raise last_failure
+
+    def _on_decoder_failure(self, media: MediaRef, failure: MediaFailure) -> None:
+        with self._lock:
+            if self._recovering or self._cancel.is_set() or self._requested is None:
+                return
+            self._recovering = True
+
+        def recover() -> None:
+            try:
+                self.play(self._requested or media)
+            except MediaFailure:
+                pass
+            finally:
+                with self._lock:
+                    self._recovering = False
+
+        threading.Thread(target=recover, name="mariana-playback-recovery", daemon=True).start()
+
+    def recover_output(self) -> None:
+        last_error: BaseException | None = None
+        for _ in range(3):
+            if self._cancel.is_set():
+                raise MediaFailure(FailureCode.CANCELLED, MediaSource.LOCAL, "Output recovery was cancelled")
+            try:
+                self.controller.recover_output()
+                self.metrics["output_recoveries"] += 1
+                return
+            except Exception as error:
+                last_error = error
+                self._wait(0.25)
+        raise MediaFailure(
+            FailureCode.OUTPUT_DEVICE,
+            self._requested.source if self._requested else MediaSource.LOCAL,
+            "The audio output device could not be recovered",
+            cause=last_error,
+        )
+
+    def stop(self) -> None:
+        self._cancel.set()
+        self.controller.stop()
+
+    def close(self) -> None:
+        self._cancel.set()
+        self.controller.close()
 
 
 def launch_ffplay(media: MediaRef, *, ffplay_bin: str | None = None) -> subprocess.Popen:

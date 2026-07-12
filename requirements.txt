@@ -30,6 +30,8 @@ mutagen==1.48.1
     # via
     #   -r requirements.in
     #   yt-dlp
+numpy==2.5.1
+    # via -r requirements.in
 pillow==12.3.0
     # via -r requirements.in
 psutil==7.2.2

@@ -6,10 +6,12 @@ from pathlib import Path
 import time
 
 from mariana.models import MediaCapabilities, MediaRef, MediaSource, PlaybackState
-from mariana.playback import PlaybackController, PlaybackError, UnsupportedAction
+from mariana.playback import PlaybackController, PlaybackError, PlaybackSupervisor, UnsupportedAction
+from mariana.sources import ResolverRegistry
 
 
 controller = PlaybackController()
+supervisor = PlaybackSupervisor(controller)
 current_media: MediaRef | None = None
 radio_catalog = None
 RADIO_STREAMS: dict[str, str] = {
@@ -21,14 +23,19 @@ RADIO_STREAMS: dict[str, str] = {
 
 
 def configure(*, ffmpeg_bin=None, ffprobe_bin=None, crossfade_seconds=0, catalog=None):
-    global controller, radio_catalog
-    controller.close()
+    global controller, supervisor, radio_catalog
+    supervisor.close()
+    radio_catalog = catalog
+    resolvers = ResolverRegistry(
+        radio_endpoints=lambda media: list(media.resolver_data.get("endpoints") or [media.original_uri])
+    )
     controller = PlaybackController(
         ffmpeg_bin=ffmpeg_bin,
         ffprobe_bin=ffprobe_bin or ffmpeg_bin,
         crossfade_seconds=crossfade_seconds,
+        resolvers=resolvers,
     )
-    radio_catalog = catalog
+    supervisor = PlaybackSupervisor(controller, resolvers=resolvers)
 
 
 class PlayerAdapter:
@@ -84,6 +91,10 @@ def set_media(_type=None, vidurl=None, audurl=None, localpath=None):
             MediaSource.RADIO,
             radio_url,
             title=station_title,
+            resolver_data={
+                "station_id": getattr(catalog_station, "station_id", station) if radio_catalog is not None else station,
+                "endpoints": radio_catalog.endpoints(catalog_station) if radio_catalog is not None else [radio_url],
+            },
             capabilities=MediaCapabilities(finite=False, live=True, seekable=False, downloadable=False),
         )
     elif _type == "yt_video":
@@ -97,18 +108,19 @@ def set_media(_type=None, vidurl=None, audurl=None, localpath=None):
             current_media.resolver_data["legacy_playlist"] = list(localpath)
     else:
         raise ValueError("Media type not provided")
-    current_media = controller.prepare(current_media)
-    return current_media.resolver_data["resolved_uri"]
+    return current_media.original_uri
 
 
 def media_player(action=None, playing_time=None):
     del playing_time
     if action == "play":
-        controller.play()
+        if current_media is None:
+            raise PlaybackError("No media has been prepared")
+        supervisor.play(current_media)
     elif action == "pausetoggle":
         controller.toggle_pause()
     elif action == "stop":
-        controller.stop()
+        supervisor.stop()
     elif action == "resync":
         controller.restart_live()
     else:
@@ -128,4 +140,4 @@ def wait_until_playing(timeout=15, poll_interval=0.05):
 
 
 def close() -> None:
-    controller.close()
+    supervisor.close()

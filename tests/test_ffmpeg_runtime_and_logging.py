@@ -38,15 +38,28 @@ class Controller:
         return PlaybackSnapshot(self.state)
 
 
+class Supervisor:
+    def __init__(self, controller):
+        self.controller = controller
+
+    def play(self, media):
+        self.controller.prepared = media
+        self.controller.play()
+
+    def stop(self):
+        self.controller.stop()
+
+
 def test_ffmpeg_facade_supports_local_url_and_actions(monkeypatch, tmp_path):
     controller = Controller()
     monkeypatch.setattr(media_player, "controller", controller)
+    monkeypatch.setattr(media_player, "supervisor", Supervisor(controller))
     local = tmp_path / "track.mp3"
     local.write_bytes(b"audio")
-    assert media_player.set_media(_type="local", localpath=str(local)).startswith("resolved:")
-    assert controller.prepared.source == MediaSource.LOCAL
+    assert media_player.set_media(_type="local", localpath=str(local)) == str(local.resolve())
+    assert media_player.current_media.source == MediaSource.LOCAL
     media_player.set_media(_type="audio", audurl="https://example.test/audio")
-    assert controller.prepared.source == MediaSource.URL
+    assert media_player.current_media.source == MediaSource.URL
     for action in ("play", "pausetoggle", "stop", "resync"):
         media_player.media_player(action=action)
     assert controller.actions == ["play", "pause", "stop", "resync"]
