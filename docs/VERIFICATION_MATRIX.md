@@ -1,5 +1,7 @@
 # Verification matrix
 
+Latest recorded run: [2026-07-12](verification/2026-07-12.md).
+
 | Area | Deterministic evidence | Live/native evidence | Release state |
 |---|---|---|---|
 | Local/HTTP/HLS playback | Resolver, decoder, seek, truncation, retry, cleanup, real FFmpeg fixtures | Speaker, device loss, sleep/resume | Native pending |
