@@ -1,34 +1,16 @@
-# Mariana test strategy
+# Mariana test suites
 
-The deterministic suite mocks external network and audio-device boundaries but
-uses real SQLite transactions. It covers configuration migration, canonical
-media references, queue property tests and crash restoration, FFmpeg state and
-PCM math, conservative AcoustID policy, MusicBrainz rate/caching behavior,
-LRCLIB resolution, radio playlists/failover, recommendation ranking/models,
-downloads, first boot, podcasts, YouTube, logging, source resolver conformance,
-incremental library migrations/jobs/watchers, and the legacy CLI surface.
+The deterministic Python suite mocks network and audio-device boundaries while
+using real SQLite transactions. Real-process tests generate WAV, MP3, FLAC,
+OGG, AAC, and WebM media and exercise FFmpeg, FFprobe, Chromaprint, and encoded
+Opus/MP3 broadcast output when those tools are installed.
 
-The desktop layer adds `npm test` for React behavior and `npm run test:e2e` for
-an Electron → sandboxed preload → node-pty → Python REPL command round trip.
+The frontend uses Vitest for renderer, preload-facing state, accessibility, and
+terminal lifecycle behavior. Playwright launches Electron with the real
+node-pty to verify commands, ANSI-compatible output, history, resizing, theme
+changes, timer controls, restart, and process-tree shutdown.
 
-`test_real_media_pipeline.py` additionally invokes the installed tools to
-generate, inspect, decode, seek, and clean up WAV, MP3, FLAC, OGG, AAC, and WebM
-media and to produce a real Chromaprint fingerprint.
-
-```powershell
-python -m pytest -q --cov --cov-branch --cov-fail-under=80 --cov-report=term-missing
-```
-
-Opt-in network probes:
-
-```powershell
-$env:MARIANA_LIVE_TESTS = "1"
-python -m pytest -q -m live
-```
-
-Public services can fail independently, so their live probes are not normal CI
-gates. Manual Windows, macOS, and Linux acceptance must still verify real speaker output, output
-device loss/recovery, rapid pause/seek/next, radio failover, synchronized lyric
-display, one custom download, recommendation explanations, and clean exit. An
-eight-hour mixed local/URL/radio soak while library profiling is active is
-required before changing the release version to 0.7.0.
+Canonical commands, live-test policy, mutation scoring, coverage thresholds,
+packaged testing, manual acceptance, and the eight-hour soak are documented in
+[the testing guide](../docs/TESTING.md). Current feature-to-evidence status is
+tracked in the [verification matrix](../docs/VERIFICATION_MATRIX.md).

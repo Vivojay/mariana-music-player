@@ -218,9 +218,13 @@ RecBole/Implicit challenger research is isolated from the runtime; see
 
 ```powershell
 python -m pip install -r requirements-dev.txt
-python -m compileall -q .
+python tools/verify_text_integrity.py
+python tools/verify_docs.py
+python -m compileall -q main.py mariana beta lyrics_provider recommendation_engine tools
 python -m ruff check .
-python -m pytest -q --cov --cov-branch --cov-report=term-missing
+pyright
+python -m pytest -q --cov --cov-branch --cov-report=json:coverage.json --cov-fail-under=90
+python tools/coverage_gate.py coverage.json --minimum 95
 python -m pip_audit -r requirements.txt
 ```
 
@@ -244,3 +248,12 @@ that a third-party stream stays online, that AcoustID contains a fingerprint,
 or that LRCLIB contains lyrics. Manual speaker output, rapid device switching,
 and the eight-hour soak remain release gates and must not be inferred from unit
 tests.
+
+## Engineering reference
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Security and privacy](docs/SECURITY.md)
+- [Known limitations](docs/KNOWN_LIMITATIONS.md)
+- [Testing and release gates](docs/TESTING.md)
+- [Verification matrix](docs/VERIFICATION_MATRIX.md)
+- [Changelog](CHANGELOG.md)
