@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import json
+import os
 from pathlib import Path
 import shutil
 import sqlite3
@@ -14,7 +15,7 @@ from typing import Any, Iterator
 
 APP_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_DATABASE = APP_DIR / "data" / "mariana.db"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 SCHEMA = """
@@ -125,6 +126,71 @@ CREATE TABLE IF NOT EXISTS app_state (
     value_json TEXT NOT NULL,
     updated_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS library_roots (
+    root_id TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    path_key TEXT UNIQUE NOT NULL,
+    kind TEXT NOT NULL,
+    available INTEGER NOT NULL DEFAULT 1,
+    last_seen REAL,
+    last_scan REAL,
+    backoff_until REAL,
+    error TEXT
+);
+CREATE TABLE IF NOT EXISTS library_files (
+    library_id TEXT PRIMARY KEY,
+    root_id TEXT NOT NULL REFERENCES library_roots(root_id),
+    canonical_path TEXT NOT NULL,
+    path_key TEXT UNIQUE NOT NULL,
+    file_key TEXT,
+    content_signature TEXT,
+    size INTEGER NOT NULL,
+    mtime_ns INTEGER NOT NULL,
+    extension TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'available',
+    missing_since REAL,
+    scan_generation TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    embedded_lyrics TEXT,
+    fingerprint TEXT,
+    fingerprint_duration REAL,
+    features_json TEXT NOT NULL DEFAULT '{}',
+    probe_version INTEGER NOT NULL DEFAULT 0,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS library_files_root_idx ON library_files(root_id, state);
+CREATE INDEX IF NOT EXISTS library_files_file_key_idx ON library_files(file_key);
+CREATE INDEX IF NOT EXISTS library_files_content_idx ON library_files(content_signature);
+CREATE TABLE IF NOT EXISTS library_scan_runs (
+    scan_id TEXT PRIMARY KEY,
+    mode TEXT NOT NULL,
+    status TEXT NOT NULL,
+    discovered INTEGER NOT NULL DEFAULT 0,
+    changed INTEGER NOT NULL DEFAULT 0,
+    unavailable_roots INTEGER NOT NULL DEFAULT 0,
+    errors INTEGER NOT NULL DEFAULT 0,
+    started_at REAL NOT NULL,
+    finished_at REAL,
+    error TEXT
+);
+CREATE TABLE IF NOT EXISTS library_jobs (
+    job_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    library_id TEXT NOT NULL REFERENCES library_files(library_id) ON DELETE CASCADE,
+    stage TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    priority INTEGER NOT NULL DEFAULT 0,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    lease_owner TEXT,
+    lease_until REAL,
+    next_retry REAL NOT NULL DEFAULT 0,
+    error_code TEXT,
+    error_text TEXT,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE(library_id, stage)
+);
+CREATE INDEX IF NOT EXISTS library_jobs_ready_idx
+ON library_jobs(stage, status, next_retry, priority);
 """
 
 
@@ -138,7 +204,19 @@ class MarianaDatabase:
         self._connection.execute("PRAGMA foreign_keys = ON")
         self._connection.execute("PRAGMA journal_mode = WAL")
         self._connection.execute("PRAGMA synchronous = FULL")
+        previous_version = self._schema_version()
+        if previous_version and previous_version < SCHEMA_VERSION:
+            self.backup(self.path.with_suffix(self.path.suffix + f".pre-schema-{SCHEMA_VERSION}.bak"))
         self.migrate()
+
+    def _schema_version(self) -> int:
+        try:
+            row = self._connection.execute(
+                "SELECT value FROM schema_meta WHERE key='schema_version'"
+            ).fetchone()
+            return int(row[0]) if row else 0
+        except sqlite3.DatabaseError:
+            return 0
 
     def migrate(self) -> None:
         with self.transaction() as connection:
@@ -188,9 +266,20 @@ class MarianaDatabase:
 
     def backup(self, destination: Path | str | None = None) -> Path:
         destination = Path(destination or self.path.with_suffix(f".{int(time.time())}.bak"))
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_suffix(destination.suffix + ".tmp")
         with self._lock:
             self._connection.commit()
-            shutil.copy2(self.path, destination)
+            temporary.unlink(missing_ok=True)
+            output = sqlite3.connect(temporary)
+            try:
+                self._connection.backup(output)
+                result = output.execute("PRAGMA integrity_check").fetchone()
+                if not result or result[0] != "ok":
+                    raise sqlite3.DatabaseError("SQLite backup integrity check failed")
+            finally:
+                output.close()
+            os.replace(temporary, destination)
         return destination
 
     def migrate_legacy_play_counts(self, path: Path | str) -> dict[str, int]:
