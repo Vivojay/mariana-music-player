@@ -21,5 +21,15 @@
       "darwin-arm64": ["deno-aarch64-apple-darwin.zip", "687ae485168ba73a4f1ee3a954eb4f077eca82f2fefd236a6a83a3889287876c"],
       "linux-x64": ["deno-x86_64-unknown-linux-gnu.zip", "934d1bd5cb09eaed7f2e4a4fc58208d04a3c5c0fcde9f319d93d735265c67a4a"]
     }
+  },
+  "rsgain": {
+    "version": "3.7",
+    "source": ["rsgain-3.7-source.tar.xz", "54037f73ba6682f9b71b2265275f5f89de50b90b12d5af512287c60d9d52c9cc"],
+    "assets": {
+      "win32-x64": ["rsgain-3.7-win64.zip", "8d6e16d1af5a805fb2dd6183e11f4f8bc51240f8a896fd37ab8fca655bb70800"],
+      "darwin-x64": ["rsgain-3.7-macOS-x86_64.zip", "5e7f9655ff38ece783588b7210feae3a1eef1f9f41f3e9961c42f31cd53b4f17"],
+      "darwin-arm64": ["rsgain-3.7-macOS-arm64.zip", "481f192354723c54e9605e3c9a9cf453b7cf87eed35b8e92fed5efdfa3ac4e86"],
+      "linux-x64": ["rsgain-3.7-Linux.tar.xz", "28c529f20b822df803ab1bde981ca3256cf58276e5e1d0b8e969faf017842151"]
+    }
   }
 }

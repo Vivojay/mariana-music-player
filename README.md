@@ -4,7 +4,7 @@ Mariana is a local-first command-line and Electron terminal media player for
 64-bit Windows, macOS, and Linux. The 0.7 development platform decodes audio
 with FFmpeg into a bounded PCM pipeline,
 plays it through `sounddevice`, and uses FFplay only as an external diagnostic
-or video fallback. The working version is `0.7.0-dev.1`; the stable release remains 0.6.2 until every
+or video fallback. The working version is `0.7.0-dev.2`; the stable release remains 0.6.2 until every
 release gate—including manual speaker and soak acceptance—has passed.
 
 Supported sources include local audio, YouTube, podcasts, custom HTTP media,
@@ -24,10 +24,11 @@ output, nested prompts, Ctrl+C, resizing, and every CLI command remain intact.
 - FFmpeg, FFprobe, and FFplay from the same x64 build
 - Deno or Node.js 22+ for reliable yt-dlp extraction
 - Chromaprint `fpcalc` 1.6.0 for acoustic identification
+- rsgain 3.7 for non-destructive ReplayGain 2 loudness analysis
 
 Existing external tool paths remain supported. Packaged desktop releases use a
 signed manifest to download the matching checksum-verified FFmpeg 8.1.2,
-Chromaprint 1.6.0, and Deno toolchain into the user-data directory. Source
+Chromaprint 1.6.0, rsgain 3.7, and Deno toolchain into the user-data directory. Source
 launches may instead configure a local directory such as:
 
 ```text
@@ -85,6 +86,8 @@ command families include:
 queue add|insert|remove|move|swap|jump|list|clear
 queue next|previous|shuffle|repeat|consume|save|load|undo|redo|autofill
 radio search|list|play|favorite|refresh|health
+radio add|info|metadata|resync|leveling
+radio credentials set|delete|status <station> [username]
 library roots|scan|status|pause|resume|errors|retry|verify|info
 library clean --missing
 recommend [count]
@@ -94,6 +97,10 @@ like
 dislike
 sleep <duration> [pause|stop] [fade <duration>]
 sleep status|cancel
+replaygain on [track|album|auto]
+replaygain off|status|mode|preamp|scan|rescan
+broadcast profiles|status|start|stop|test
+broadcast credentials set|delete|status <profile>
 tools status|install|repair
 download-ml <URL> [mp3|flac|wav|m4a|opus] [output path]
 ```
@@ -101,6 +108,42 @@ download-ml <URL> [mp3|flac|wav|m4a|opus] [output path]
 Sleep timers are session-only. They default to pausing and fade perceptually
 over the final ten minutes (or the whole timer when shorter), without replacing
 the user's base volume.
+
+ReplayGain is disabled by default and never writes media tags. Embedded
+`REPLAYGAIN_*` and Opus `R128_*_GAIN` values are reused; missing values are
+analyzed by checksum-pinned rsgain and stored only in SQLite. Track, album, and
+queue-aware auto modes apply before crossfade and broadcast, while user volume,
+mute, manual fade, and sleep automation remain local-only.
+
+Mariana receives Icecast/Shoutcast-compatible HTTP(S), ICY, HLS, M3U, and PLS
+streams. Optional live leveling is separately controlled by `radio leveling`
+and restarts a live decoder at the current edge. Private-stream and broadcast
+passwords are referenced from the operating-system keychain (Windows
+Credential Manager, macOS Keychain, or Linux Secret Service), never settings,
+SQLite, URLs, logs, or FFmpeg arguments.
+
+Broadcast profiles live under `broadcast.profiles` in settings. For example:
+
+```yaml
+broadcast:
+  profiles:
+    home:
+      server url: https://radio.example.net:8443
+      mount: /mariana.opus
+      username: source
+      credential reference: home
+      codec: opus
+      bitrate kbps: 128
+      station name: Mariana
+      description: Personal Mariana stream
+      genre: Music
+      public: false
+```
+
+`broadcast credentials set home` stores the password securely. Ogg Opus is the
+default; MP3 is available as an explicit compatibility profile. Broadcasting
+continues with silence during local pause, stop, queue gaps, and recovery. It
+disconnects only on `broadcast stop`, terminal failure, or application exit.
 
 ## Desktop updates and state
 
@@ -111,7 +154,7 @@ without deleting the originals.
 
 The signed desktop updater checks the stable GitHub Releases channel shortly
 after startup and every six hours. It downloads in-app but will not install
-while playback, a sleep timer, a command, or a profiler transaction is active.
+while playback, a broadcast, a sleep timer, a command, or a profiler transaction is active.
 A verified SQLite/configuration backup is required before restart-and-install.
 Release publication is manual and fails closed when the platform tool manifest,
 Apple notarization credentials, Windows signing certificate, or Linux signing

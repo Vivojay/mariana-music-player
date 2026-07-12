@@ -11,7 +11,7 @@ import subprocess
 import zipfile
 
 
-TOOLCHAIN_VERSION = "0.7.0-tools.1"
+TOOLCHAIN_VERSION = "0.7.0-tools.2"
 TOOLS_DIR = Path(__file__).resolve().parent
 
 
@@ -29,12 +29,16 @@ def main() -> None:
     parser.add_argument("--ffmpeg-dir", type=Path, required=True)
     parser.add_argument("--fpcalc", type=Path, required=True)
     parser.add_argument("--deno", type=Path, required=True)
+    parser.add_argument("--rsgain-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     staging = args.output / "staging" / "bin"
     shutil.rmtree(staging.parent, ignore_errors=True)
     staging.mkdir(parents=True)
+    if not args.rsgain_dir.is_dir():
+        raise SystemExit(f"Missing rsgain directory: {args.rsgain_dir}")
+    shutil.copytree(args.rsgain_dir, staging, dirs_exist_ok=True)
 
     sources = {
         "ffmpeg": args.ffmpeg_dir / executable_name("ffmpeg", args.platform),
@@ -42,15 +46,17 @@ def main() -> None:
         "ffplay": args.ffmpeg_dir / executable_name("ffplay", args.platform),
         "fpcalc": args.fpcalc,
         "deno": args.deno,
+        "rsgain": staging / executable_name("rsgain", args.platform),
     }
     executables: dict[str, str] = {}
     for name, source in sources.items():
         if not source.is_file():
             raise SystemExit(f"Missing {name}: {source}")
         destination = staging / executable_name(name, args.platform)
-        shutil.copy2(source, destination)
+        if source.resolve() != destination.resolve():
+            shutil.copy2(source, destination)
         destination.chmod(0o755)
-        validate(destination, ["--version"] if name == "deno" else ["-version"])
+        validate(destination, ["--version"] if name in {"deno", "rsgain"} else ["-version"])
         executables[name] = destination.relative_to(staging.parent).as_posix()
 
     metadata = staging.parent / "metadata"

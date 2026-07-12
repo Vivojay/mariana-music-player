@@ -24,18 +24,24 @@ jobs:
             chromaprint_sha: 946dc3eade645eb835c8d163c6bb354e092239988bff190b9c42589e8d5cf00a
             deno: deno-x86_64-unknown-linux-gnu.zip
             deno_sha: 934d1bd5cb09eaed7f2e4a4fc58208d04a3c5c0fcde9f319d93d735265c67a4a
+            rsgain: rsgain-3.7-Linux.tar.xz
+            rsgain_sha: 28c529f20b822df803ab1bde981ca3256cf58276e5e1d0b8e969faf017842151
           - runner: macos-14-large
             key: darwin-x64
             chromaprint: chromaprint-fpcalc-1.6.0-macos-x86_64.tar.gz
             chromaprint_sha: 5898f2442220f4d82920b9eb11c35fc30d379b1ce9cb8b9f869f3365d2236e99
             deno: deno-x86_64-apple-darwin.zip
             deno_sha: c953379e5a85a0a30e99aa51b807633e380e809a1181f53e4904d5fa73785bff
+            rsgain: rsgain-3.7-macOS-x86_64.zip
+            rsgain_sha: 5e7f9655ff38ece783588b7210feae3a1eef1f9f41f3e9961c42f31cd53b4f17
           - runner: macos-14-xlarge
             key: darwin-arm64
             chromaprint: chromaprint-fpcalc-1.6.0-macos-arm64.tar.gz
             chromaprint_sha: 2c6c837f57ab5ad330710dc296af4de62a51d3c14aa2309fe1afce2ab699bd35
             deno: deno-aarch64-apple-darwin.zip
             deno_sha: 687ae485168ba73a4f1ee3a954eb4f077eca82f2fefd236a6a83a3889287876c
+            rsgain: rsgain-3.7-macOS-arm64.zip
+            rsgain_sha: 481f192354723c54e9605e3c9a9cf453b7cf87eed35b8e92fed5efdfa3ac4e86
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     steps:
@@ -47,9 +53,9 @@ jobs:
         run: |
           if [[ "$RUNNER_OS" == "Linux" ]]; then
             sudo apt-get update
-            sudo apt-get install -y build-essential nasm yasm pkg-config libsdl2-dev libasound2-dev unzip
+            sudo apt-get install -y build-essential nasm yasm pkg-config libsdl2-dev libasound2-dev libopus-dev libmp3lame-dev unzip
           else
-            brew install nasm yasm pkg-config sdl2
+            brew install nasm yasm pkg-config sdl2 opus lame
           fi
       - name: Build pinned LGPL FFmpeg
         shell: bash
@@ -58,7 +64,7 @@ jobs:
           echo "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c  ffmpeg.tar.xz" | shasum -a 256 -c -
           tar -xf ffmpeg.tar.xz
           cd ffmpeg-8.1.2
-          ./configure --prefix="$GITHUB_WORKSPACE/tool-root" --disable-doc --disable-debug --disable-gpl --disable-nonfree --disable-shared --enable-static --enable-ffplay --enable-sdl2
+          ./configure --prefix="$GITHUB_WORKSPACE/tool-root" --disable-doc --disable-debug --disable-gpl --disable-nonfree --disable-shared --enable-static --enable-ffplay --enable-sdl2 --enable-libopus --enable-libmp3lame
           make -j2
           make install
       - name: Download official Chromaprint and Deno assets
@@ -70,6 +76,10 @@ jobs:
           curl --fail --location "https://github.com/denoland/deno/releases/download/v2.9.2/${{ matrix.deno }}" -o deno.zip
           echo "${{ matrix.deno_sha }}  deno.zip" | shasum -a 256 -c -
           mkdir deno && unzip -q deno.zip -d deno
+          curl --fail --location "https://github.com/complexlogic/rsgain/releases/download/v3.7/${{ matrix.rsgain }}" -o rsgain-asset
+          echo "${{ matrix.rsgain_sha }}  rsgain-asset" | shasum -a 256 -c -
+          mkdir rsgain
+          if [[ "${{ matrix.rsgain }}" == *.zip ]]; then unzip -q rsgain-asset -d rsgain; else tar -xf rsgain-asset -C rsgain; fi
       - name: Package and attest managed tools
         shell: bash
         run: >-
@@ -78,6 +88,7 @@ jobs:
           --ffmpeg-dir tool-root/bin
           --fpcalc "$(find chromaprint -type f -name fpcalc | head -1)"
           --deno deno/deno
+          --rsgain-dir "$(dirname "$(find rsgain -type f -name rsgain | head -1)")"
           --output tool-output
       - uses: anchore/sbom-action@v0
         with:
@@ -107,6 +118,7 @@ jobs:
           install: >-
             base-devel make diffutils nasm yasm pkg-config
             mingw-w64-ucrt-x86_64-toolchain mingw-w64-ucrt-x86_64-SDL2
+            mingw-w64-ucrt-x86_64-opus mingw-w64-ucrt-x86_64-lame
       - name: Build pinned LGPL FFmpeg
         shell: msys2 {0}
         run: |
@@ -114,7 +126,7 @@ jobs:
           echo "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c  ffmpeg.tar.xz" | sha256sum -c -
           tar -xf ffmpeg.tar.xz
           cd ffmpeg-8.1.2
-          ./configure --prefix="$GITHUB_WORKSPACE/tool-root" --disable-doc --disable-debug --disable-gpl --disable-nonfree --disable-shared --enable-static --enable-ffplay --enable-sdl2
+          ./configure --prefix="$GITHUB_WORKSPACE/tool-root" --disable-doc --disable-debug --disable-gpl --disable-nonfree --disable-shared --enable-static --enable-ffplay --enable-sdl2 --enable-libopus --enable-libmp3lame
           make -j2
           make install
       - name: Download official Chromaprint and Deno assets
@@ -126,6 +138,9 @@ jobs:
           Invoke-WebRequest https://github.com/denoland/deno/releases/download/v2.9.2/deno-x86_64-pc-windows-msvc.zip -OutFile deno.zip
           if ((Get-FileHash deno.zip).Hash.ToLower() -ne '5fe194d26ac5ef77fcc5288c2c438c7a0465f3b6180440ebf04092714bf2dcdf') { throw 'Deno checksum mismatch' }
           Expand-Archive deno.zip deno
+          Invoke-WebRequest https://github.com/complexlogic/rsgain/releases/download/v3.7/rsgain-3.7-win64.zip -OutFile rsgain.zip
+          if ((Get-FileHash rsgain.zip).Hash.ToLower() -ne '8d6e16d1af5a805fb2dd6183e11f4f8bc51240f8a896fd37ab8fca655bb70800') { throw 'rsgain checksum mismatch' }
+          Expand-Archive rsgain.zip rsgain
       - name: Package managed tools
         shell: pwsh
         run: >-
@@ -134,6 +149,7 @@ jobs:
           --ffmpeg-dir tool-root/bin
           --fpcalc (Get-ChildItem chromaprint -Recurse -Filter fpcalc.exe | Select-Object -First 1).FullName
           --deno deno/deno.exe
+          --rsgain-dir (Get-ChildItem rsgain -Recurse -Filter rsgain.exe | Select-Object -First 1).Directory.FullName
           --output tool-output
       - uses: anchore/sbom-action@v0
         with:
@@ -167,8 +183,8 @@ jobs:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: 0.7.0-tools.1
-          name: Mariana managed tools 0.7.0-tools.1
+          tag_name: 0.7.0-tools.2
+          name: Mariana managed tools 0.7.0-tools.2
           files: |
             assembled/**/*.zip
             assembled/**/*.spdx.json

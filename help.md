@@ -32,6 +32,9 @@ All searches are fuzzy
 | `queue repeat off\|one\|all` | Set repeat mode |
 | `queue save/load <name>` | Persist or restore a named queue |
 | `radio search/list/play/favorite/refresh/health` | Discover and validate stations |
+| `radio add/info/metadata/resync` | Import or inspect a direct station and restart at the live edge |
+| `radio leveling on\|off\|status` | Control dynamic loudness leveling for live streams |
+| `radio credentials set\|delete\|status <station> [username]` | Reference private-stream credentials in the OS keychain |
 | `library roots/status/errors/verify` | Inspect the incremental local-library index |
 | `library scan [changed\|full]` | Reconcile configured `lib.lib` roots |
 | `library pause/resume/retry` | Control or retry background profiling |
@@ -39,6 +42,10 @@ All searches are fuzzy
 | `library clean --missing` | Remove tombstones only; never delete media files |
 | `sleep <duration> [pause\|stop] [fade <duration>]` | Fade near expiry, then pause or stop |
 | `sleep status\|cancel` | Inspect or cancel the session sleep timer |
+| `replaygain on [track\|album\|auto]` | Enable non-destructive loudness normalization |
+| `replaygain off\|status\|mode\|preamp\|scan\|rescan` | Configure or analyze ReplayGain data |
+| `broadcast profiles\|start\|stop\|test\|status` | Control one Icecast source broadcast |
+| `broadcast credentials set\|delete\|status <profile>` | Manage a broadcast password through the OS keychain |
 | `tools status\|install\|repair` | Inspect or provision checksum-verified media tools |
 | `recommend [count]` | Show explainable local recommendations |
 | `recommend autofill [count]` | Add recommendations to the queue |

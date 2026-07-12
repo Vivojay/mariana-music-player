@@ -27,6 +27,7 @@ def test_runtime_report_is_actionable(monkeypatch):
     messages = format_runtime_report(report)
     assert any("ffmpeg" in message for message in messages)
     assert any("fpcalc" in message for message in messages)
+    assert any("rsgain" in message for message in messages)
     assert any("JavaScript runtime" in message for message in messages)
     assert any("output device" in message for message in messages)
 

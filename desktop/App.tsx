@@ -29,6 +29,8 @@ export default function App() {
   const [search, setSearch] = useState('')
   const [update, setUpdate] = useState<UpdateState>({ state: 'idle' })
   const [backendState, setBackendState] = useState('starting')
+  const [broadcastStatus, setBroadcastStatus] = useState<Record<string, unknown>>({ state: 'idle' })
+  const [loudnessStatus, setLoudnessStatus] = useState<Record<string, unknown>>({ replaygain_db: 0, live_leveling: false })
   const theme = themes[themeName] ?? themes.aurora
   const style = useMemo(() => ({
     '--app-bg': theme.chrome.background,
@@ -54,6 +56,8 @@ export default function App() {
       if (event.event === 'ready') setBackendState('ready')
       if (event.event === 'fatal-error') setBackendState('error')
       if (event.event === 'sleep') setTimerStatus(event.payload)
+      if (event.event === 'broadcast') setBroadcastStatus(event.payload)
+      if (event.event === 'loudness') setLoudnessStatus(event.payload)
     })
     const updater = window.mariana.updates.onState(setUpdate)
     const exited = window.mariana.terminal.onExit(() => setBackendState('stopped'))
@@ -113,6 +117,15 @@ export default function App() {
       <footer className="statusbar">
         <span><b>PTY</b> {backendState}</span>
         <span>{window.mariana.platform}</span>
+        <span title="Program loudness normalization">
+          <b>RG</b> {Number(loudnessStatus.replaygain_db || 0).toFixed(1)} dB
+          {loudnessStatus.live_leveling ? ' · live' : ''}
+        </span>
+        <span title={String(broadcastStatus.error || 'Icecast source status')}>
+          <b>CAST</b> {String(broadcastStatus.state || 'idle')}
+          {broadcastStatus.codec ? ` · ${String(broadcastStatus.codec)}` : ''}
+          {broadcastStatus.reconnects ? ` · ↻${String(broadcastStatus.reconnects)}` : ''}
+        </span>
         <button onClick={() => setReducedMotion((value) => !value)}>{reducedMotion ? 'motion off' : 'motion on'}</button>
         <span className="status-grow" />
         {update.state === 'downloaded' ? (

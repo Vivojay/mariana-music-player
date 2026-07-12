@@ -58,6 +58,7 @@ def has_audio_output() -> bool:
 def check_runtime(
     configured_ffmpeg_path: str | None = None,
     configured_fpcalc_path: str | None = None,
+    configured_rsgain_path: str | None = None,
 ) -> RuntimeReport:
     errors: list[str] = []
     warnings: list[str] = []
@@ -83,6 +84,11 @@ def check_runtime(
     executables["fpcalc"] = _configured_executable("fpcalc", configured_fpcalc_path) or (
         str(local_matches[0]) if local_matches else None
     )
+    rsgain_name = "rsgain.exe" if os.name == "nt" else "rsgain"
+    rsgain_matches = list(local_fpcalc.rglob(rsgain_name)) if local_fpcalc.exists() else []
+    executables["rsgain"] = _configured_executable("rsgain", configured_rsgain_path) or (
+        str(rsgain_matches[0]) if rsgain_matches else None
+    )
     for executable in ("ffmpeg", "ffprobe"):
         if not executables[executable]:
             errors.append(f"{executable} is required for playback and media inspection.")
@@ -90,6 +96,8 @@ def check_runtime(
         warnings.append("ffplay is unavailable; diagnostic/video fallback commands are disabled.")
     if not executables["fpcalc"]:
         warnings.append("Chromaprint fpcalc 1.6.0 is unavailable; install or repair the managed media tools.")
+    if not executables["rsgain"]:
+        warnings.append("rsgain 3.7 is unavailable; ReplayGain tag ingestion works, but new loudness scans are disabled.")
     if executables["ffmpeg"] and not inspect_ffmpeg(executables["ffmpeg"]):
         errors.append("The configured FFmpeg executable could not be started.")
     if not any(shutil.which(executable) for executable in ("deno", "node", "qjs")):
