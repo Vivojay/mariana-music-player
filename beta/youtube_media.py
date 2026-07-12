@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime, timezone
 import shutil
 from typing import Any
 
@@ -14,7 +15,16 @@ class YouTubeError(RuntimeError):
     """Raised when yt-dlp cannot resolve a requested YouTube resource."""
 
 
-def integration_options() -> dict[str, Any]:
+def _browser_profile(value: str | None) -> tuple[str, ...] | None:
+    if not value:
+        return None
+    parts = tuple(part.strip() for part in value.split(":", 1))
+    if not parts[0] or any(char in value for char in "\r\n\0"):
+        raise YouTubeError("Invalid browser profile reference")
+    return parts
+
+
+def integration_options(browser_profile: str | None = None) -> dict[str, Any]:
     options: dict[str, Any] = {
         "socket_timeout": 30,
         "retries": 5,
@@ -25,6 +35,8 @@ def integration_options() -> dict[str, Any]:
         if runtime_path := shutil.which(executable):
             options["js_runtimes"] = {runtime: {"path": runtime_path}}
             break
+    if profile := _browser_profile(browser_profile):
+        options["cookiesfrombrowser"] = profile
     return options
 
 
@@ -35,7 +47,8 @@ def _options(**overrides: Any) -> dict[str, Any]:
         "skip_download": True,
         "noplaylist": True,
     }
-    options.update(integration_options())
+    browser_profile = overrides.pop("browser_profile", None)
+    options.update(integration_options(browser_profile))
     options.update(overrides)
     return options
 
@@ -116,6 +129,43 @@ def stream_url(url: str, *, audio_only: bool = True) -> str:
     if not direct_url:
         raise YouTubeError("yt-dlp could not resolve a playable stream URL")
     return str(direct_url)
+
+
+def resolve_stream(
+    url: str,
+    *,
+    audio_only: bool = True,
+    browser_profile: str | None = None,
+) -> dict[str, Any]:
+    """Return transient stream information without persisting credentials."""
+    format_selector = "bestaudio/best" if audio_only else "best[acodec!=none][vcodec!=none]/best"
+    info = _extract(url, format=format_selector, browser_profile=browser_profile)
+    direct_url = info.get("url")
+    if not direct_url:
+        requested = info.get("requested_formats") or []
+        direct_url = next(
+            (item.get("url") for item in requested if isinstance(item, Mapping) and item.get("url")),
+            None,
+        )
+    if not direct_url:
+        raise YouTubeError("yt-dlp could not resolve a playable stream URL")
+    expires_at = None
+    expiry = info.get("url_expiry") or info.get("expires")
+    if isinstance(expiry, (int, float)):
+        expires_at = float(expiry)
+    elif isinstance(expiry, str) and expiry.isdigit():
+        expires_at = float(expiry)
+    if expires_at and expires_at < 10_000_000_000:
+        expires_at = datetime.fromtimestamp(expires_at, tz=timezone.utc).timestamp()
+    return {
+        "url": str(direct_url),
+        "expires_at": expires_at,
+        "is_live": bool(info.get("is_live") or info.get("live_status") == "is_live"),
+        "title": info.get("title"),
+        "artist": info.get("artist") or info.get("uploader"),
+        "album": info.get("album"),
+        "duration": info.get("duration"),
+    }
 
 
 def is_resolvable(url: str) -> bool:

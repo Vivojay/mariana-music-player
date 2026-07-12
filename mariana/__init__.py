@@ -15,6 +15,7 @@ from .models import (
     PlaybackState,
     TrackIdentity,
 )
+from .sources import FailureCode, MediaFailure, ResolvedMedia, ResolverRegistry
 
 __all__ = [
     "IdentityStatus",
@@ -25,4 +26,8 @@ __all__ = [
     "PlaybackSnapshot",
     "PlaybackState",
     "TrackIdentity",
+    "FailureCode",
+    "MediaFailure",
+    "ResolvedMedia",
+    "ResolverRegistry",
 ]

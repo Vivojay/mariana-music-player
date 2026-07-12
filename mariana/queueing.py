@@ -9,6 +9,7 @@ from typing import Iterable
 
 from .database import MarianaDatabase
 from .models import MediaCapabilities, MediaRef, MediaSource, QueueItem
+from .sources import sanitized_resolver_data
 
 
 VALID_REPEAT_MODES = {"off", "one", "all"}
@@ -51,7 +52,7 @@ class PersistentQueue:
                 media.album,
                 media.duration,
                 media.capabilities.to_json(),
-                json.dumps(media.resolver_data, ensure_ascii=False, sort_keys=True),
+                json.dumps(sanitized_resolver_data(media.resolver_data), ensure_ascii=False, sort_keys=True),
                 media.provenance,
                 time.time(),
             ),
