@@ -13,7 +13,7 @@ Latest recorded run: [2026-07-12](verification/2026-07-12.md).
 | ReplayGain | Tag parsing, album grouping, clipping, immutable-media assertion | Audible A/B and rsgain tool check | Native pending |
 | Icecast broadcast | Authentication tunnel, redaction, Opus/MP3 decode, reconnect | Configured remote server | Credentials pending |
 | Recommendations | Ranking, negatives, diversity, persistence, explanations | Long-session taste review | Manual pending |
-| Electron/PTTY | Vitest security/state tests and Playwright PTY/history/restart/theme checks | DPI, IME, clipboard, signed package | Native/signing pending |
+| Electron/PTTY | 8 Vitest tests, 2 development PTY scenarios, and 1 fresh Windows packaged-backend scenario | DPI, IME, clipboard, signed multi-OS package | Windows package passed; native/signing pending |
 | OTA/update | Preflight, safety state, checksum and migration contracts | Signed N to N+1 on every target | Signing pending |
 
 No row marked pending may be represented as passed in release notes. External

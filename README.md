@@ -216,6 +216,13 @@ RecBole/Implicit challenger research is isolated from the runtime; see
 
 ## Verification
 
+The latest Windows verification run passed 669 deterministic tests, all five
+credential-free live probes, the 90% repository coverage gate (90.04%), every
+independent 95% critical-module branch gate, 8 React unit tests, 2 development
+Electron PTY scenarios, and 1 freshly packaged Electron/backend scenario. See
+the [dated verification report](docs/verification/2026-07-12.md) for exact
+versions, metrics, and the release gates that remain pending.
+
 ```powershell
 python -m pip install -r requirements-dev.txt
 python tools/verify_text_integrity.py
@@ -246,8 +253,9 @@ Mariana guarantees typed failures, transactional state, bounded buffers and
 timeouts, and child-process cleanup under tested conditions. It cannot promise
 that a third-party stream stays online, that AcoustID contains a fingerprint,
 or that LRCLIB contains lyrics. Manual speaker output, rapid device switching,
-and the eight-hour soak remain release gates and must not be inferred from unit
-tests.
+the Linux mutation score, cross-platform native acceptance, signed OTA testing,
+credentialed integrations, and the eight-hour soak remain release gates and
+must not be inferred from unit tests.
 
 ## Engineering reference
 

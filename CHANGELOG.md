@@ -12,5 +12,7 @@
   testing, text/document integrity checks, expanded fault injection, and native
   release verification.
 
-This is a development version. Stable `0.7.0` remains blocked on the documented
-coverage, native, credentialed live, signing, and eight-hour soak gates.
+This is a development version. The deterministic 90% repository and 95%
+critical-module coverage gates now pass. Stable `0.7.0` remains blocked on the
+documented mutation, native, credentialed, signing/OTA, and eight-hour soak
+gates.

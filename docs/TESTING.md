@@ -30,6 +30,11 @@ npm run rebuild:native
 npm run test:e2e:dev
 ```
 
+On Windows, rebuilding `node-pty` requires the Visual Studio C++ build tools.
+The development and packaged PTY tests may use a verified prebuilt binary, but
+a native release build must still pass `npm run rebuild:native` on its CI
+runner before signing.
+
 Repository branch coverage must be at least 90%. Each module listed by
 `tools/coverage_gate.py` must independently reach 95%; an aggregate package
 percentage cannot hide a weak module.
