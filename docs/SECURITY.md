@@ -16,6 +16,13 @@
 - Managed tools require an exact SHA-256 match before extraction. Archive paths
   are validated, activation is transactional, and release publication fails
   closed when signing material is unavailable.
+- First-run sample archives reject HTTP errors, invalid ZIPs, traversal, and
+  symlink entries before an atomic activation. Setup errors are sanitized in
+  writable state and do not expose packaged resources to writes.
+- `rm`/`del` accepts only available indexed regular media beneath configured
+  library roots. It rejects URLs, directories, symlinks, missing/outside files,
+  requires confirmation, and uses the native trash API with no permanent-delete
+  fallback.
 - Audio and listening history stay local unless an optional integration such as
   ListenBrainz is explicitly enabled.
 

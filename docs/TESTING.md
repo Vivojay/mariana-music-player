@@ -50,6 +50,21 @@ private-radio, remote-Icecast, and authenticated YouTube tests require explicit
 test credentials and must never print them. Packaged Electron tests require
 `MARIANA_PACKAGED_EXE` pointing at an unpacked signed candidate.
 
+Fresh-data first-run package tests additionally accept
+`MARIANA_TEST_FFMPEG_BIN` so an isolated data directory can use a verified
+external FFmpeg/FFprobe/FFplay directory before managed release tools are
+published:
+
+```powershell
+$env:MARIANA_PACKAGED_EXE = "$PWD\release\win-unpacked\Mariana.exe"
+$env:MARIANA_TEST_FFMPEG_BIN = "C:\path\to\ffmpeg\bin"
+npm run test:e2e:packaged
+```
+
+The packaged suite proves setup completes once, the same data directory does
+not show the wizard on relaunch, interrupted setup resumes, and corrupt state
+offers repair.
+
 ## Native and endurance acceptance
 
 Record operating system, architecture, audio device, tool versions, result,

@@ -1,9 +1,9 @@
 ## About This Help
 
-EBNF metasyntax is used for syntax formatting here.  
+EBNF metasyntax is used for syntax formatting here.
 Lines written after a \` `#` \` symbol are not of any importance, they are stale unimplemented features or future ideas.
 
-Show commands shows files matching query in 4 columns by default.  
+Show commands shows files matching query in 4 columns by default.
 This can be changed in the config file.
 
 All searches are fuzzy
@@ -49,11 +49,41 @@ All searches are fuzzy
 | `tools status\|install\|repair` | Inspect or provision checksum-verified media tools |
 | `recommend [count]` | Show explainable local recommendations |
 | `recommend autofill [count]` | Add recommendations to the queue |
-| `like` / `dislike` | Record explicit preference feedback |
+| `recommend related [count]` | Recommend from the active media context |
+| `like` / `dislike` | Set the current item to favorite or blocked |
+| `fav`, `fav !`, `fav +`, `fav -` | Inspect, toggle, set, or clear favorite state |
+| `bl`, `bl !`, `bl +`, `bl -` | Inspect, toggle, set, or clear blocked state |
+| `favs [count]` / `blacklist [count]` | List persistent media preferences |
+| `hist` / `history [count]` | Show persistent playback history or its count |
+| `open hist` / `open history` | Open persistent history in the configured editor |
+| `include downloads` / `exclude downloads` | Toggle Mariana's managed download root without editing `lib.lib` |
+| `lyrics edit` / `lyr edit` | Edit an adjacent `.lrc`, with confirmation before cached lyrics create one |
+| `rm <index\|path>` / `del <index\|path>` | Confirm and send indexed local media to the operating-system trash |
+| `setup status\|resume\|restart\|repair` | Inspect or recover transactional first-run setup |
 | `download-ml <URL> [format] [path]` | Bounded custom-media download |
 
 Seeking applies only when the active source reports that capability. Use radio
 resync to restart a live stream at its current edge.
+
+### Testing-snapshot compatibility aliases
+
+These aliases are retained by the machine-readable compatibility registry and
+route through the same modern implementations:
+
+| Aliases | Modern behavior |
+| --- | --- |
+| `.`, `.*` | Show the current media name or full reference |
+| `+`, `-`, `.+`, `.-` | Next/previous display or play behavior |
+| `.arand`, `=arand`, `arand`, `arand*`, `/arand` | Historical random-media forms |
+| `mute` | Mute/unmute (`m`) |
+| `vh`, `volh`, `volumeh` | Player-volume compatibility forms |
+| `dl-yv`, `dl-ya` | YouTube video/audio download forms |
+| `/reddit-session`, `/reddit-sessions`, `/rpan` | Recognized retired RPAN forms; no network action |
+
+`all*`, advanced `find`/`rfind`/`lfind` searches, dotted/slashed search
+variants, `beta`, and `check_dev` remain recognized. Misspelled download
+commands receive a correction message and never execute. The old `weblinks`
+collection and `vivojay fav` hard-coded URL are retired with explicit guidance.
 
 ### General
 
@@ -124,16 +154,16 @@ They are available for possible future usage
 - show about
 
 #### download
-**download quality**  
+**download quality**
 It is defined for two kinds of downloads
 
-**Audio Only:**       Sets the quality of audio-only downloads  
+**Audio Only:**       Sets the quality of audio-only downloads
 **Video with Audio:** Sets the quality of video downloads (videos are always downloaded with audio)
 
-A value of 0 for either of these parameters means you want the WORST QUALITY download by default  
+A value of 0 for either of these parameters means you want the WORST QUALITY download by default
 A value of 1 for either of these parameters means you want the BEST QUALITY download by default
 
-\*NOTE: You may override the download quality directly in the player as well...  
+\*NOTE: You may override the download quality directly in the player as well...
 
 ### display items count
 **general:** number of items to display (general purpose)

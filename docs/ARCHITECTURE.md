@@ -19,9 +19,21 @@ resolver -> FFmpeg decoder -> ReplayGain/live leveling -> crossfade/program mix
 ```
 
 SQLite stores queues, library occurrences, jobs, identities, lyrics, loudness,
-radio health, recommendations, and migrations. The library profiler uses
+radio health, recommendations, media preferences, removal journals, and migrations. The library profiler uses
 leased resumable stages so discovery, probing, fingerprinting, loudness, and
 optional network enrichment can recover after interruption.
+
+First-run setup is a small state machine in the writable data directory. Its
+atomic state file and PID/creation-time lock make each library/sample/launch
+step resumable and idempotent. Completion is recorded before the optional
+“run now” choice returns, so a declined launch cannot cause another wizard.
+Existing pre-state-file installations are marked migrated/complete.
+
+Safe media removal crosses a filesystem/database transaction boundary using a
+small SQLite journal. Mariana validates an indexed local occurrence, asks for
+confirmation, sends it through Send2Trash, then tombstones the occurrence and
+removes queued copies. Startup recovery reconciles a successful trash action
+whose database update was interrupted; permanent deletion is never a fallback.
 
 External tools are resolved from an explicit setting, Mariana's verified
 managed-tool directory, a legacy local tool directory, then `PATH`. Managed

@@ -2,6 +2,8 @@
 
 Latest recorded run: [2026-07-12](verification/2026-07-12.md).
 
+## Current capability evidence
+
 | Area | Deterministic evidence | Live/native evidence | Release state |
 |---|---|---|---|
 | Local/HTTP/HLS playback | Resolver, decoder, seek, truncation, retry, cleanup, real FFmpeg fixtures | Speaker, device loss, sleep/resume | Native pending |
@@ -13,8 +15,101 @@ Latest recorded run: [2026-07-12](verification/2026-07-12.md).
 | ReplayGain | Tag parsing, album grouping, clipping, immutable-media assertion | Audible A/B and rsgain tool check | Native pending |
 | Icecast broadcast | Authentication tunnel, redaction, Opus/MP3 decode, reconnect | Configured remote server | Credentials pending |
 | Recommendations | Ranking, negatives, diversity, persistence, explanations | Long-session taste review | Manual pending |
-| Electron/PTTY | 8 Vitest tests, 2 development PTY scenarios, and 1 fresh Windows packaged-backend scenario | DPI, IME, clipboard, signed multi-OS package | Windows package passed; native/signing pending |
+| Setup | Atomic state/lock, interruption, corruption, optional-step failure, existing-install migration, relaunch | Four Windows packaged first-run/recovery scenarios passed | Cross-platform package pending |
+| Preferences/removal | Tri-state migration/idempotence, recommendation filtering, trash-only failure/recovery | Native recycle-bin restoration | Native restore pending |
+| Electron/PTTY | 8 Vitest tests and 2 development PTY scenarios | 4 Windows packaged scenarios; DPI, IME, clipboard, signed multi-OS package pending | Windows unpacked passed; native/signing pending |
 | OTA/update | Preflight, safety state, checksum and migration contracts | Signed N to N+1 on every target | Signing pending |
 
 No row marked pending may be represented as passed in release notes. External
 unavailability is recorded separately from Mariana defects.
+
+## June 2022 testing-repository command audit
+
+Audited source: `mujcentral/mariana-music-player-testing` at `2302501`
+(2022-06-12). Its unrelated Git history was not merged. Every externally
+reachable command family is classified below; none is unreviewed.
+
+| Snapshot command or alias | Classification | Current disposition |
+|---|---|---|
+| `exit`, `quit`, confirmed exit | Native | Clean supervised shutdown |
+| `all`, `all*`, `list`, `ls`, numeric input, `play` | Native | Database-backed library projection and FFmpeg playback |
+| `. <path>`, dotted numeric/path forms, `/open`, `open`, `view`, `path` | Modernized | Capability validation and cross-platform open/reveal adapters |
+| `fav`, `fav !`, `fav +/-`, `favs` | Modernized | Persistent favorite/neutral state in SQLite |
+| `bl`, `blacklisted`, `bl !`, `bl +/-`, `blacklist` | Modernized | Persistent blocked/neutral state; blocked items excluded from autofill |
+| `last`, `last played`, `recent`, `recents`, `hist`, `history`, `open history` | Modernized | Writable persistent history/recents |
+| `pod`, `podbean`, `pods`, `podbeans`, RSS forms | Modernized | Feedparser adapter, conditional caching, typed failures |
+| `include/exclude downloads`; all historical `reload` spellings | Modernized | Separately identified managed download-library root; `lib.lib` preserved |
+| `beta [on\|off]` | Compatibility-only | Formerly gated capabilities are always available |
+| `check_dev` | Compatibility-only | Read-only development-status response |
+| `refresh`, `refresh all`, `refresh lyrics`, `reload`, `sync media` | Modernized | Incremental library/lyrics refresh paths |
+| `prev`, `next`, `-`, `+`, `.-`, `.+` | Native/compatibility | Queue navigation and historical display/play aliases |
+| `.`, `.*`, `now`, `now*` | Native/compatibility | Current-media display |
+| `output device`, `input device` | Compatibility-only | Host capability response; unsupported control never crashes |
+| `fade`, `fade in`, `fade out` | Native | PCM gain automation |
+| `m?`, `ism?`, `ispl`, `isplaying?`, `isloaded?` | Compatibility-only | Playback-state inspection |
+| `seek`, `reset`, `t`, `prog`, `progress` | Native | Sample-derived progress; seek only for verified finite sources |
+| `download-*`, `dl-yv`, `dl-ya`, `download-ml` | Modernized | yt-dlp/FFmpeg downloader; misspellings only suggest a correction |
+| `.rand`, `=rand`, `rand`, `rand*`, `/rand` and all `arand` forms | Native/compatibility | Current library random selection |
+| `clear`, `cls`, `p`, `ph`, `s`, `stop`, `m`, `mute` | Native | PTY-safe terminal and playback controls |
+| `count`, `howmany`, `total`, `l`, `len`, `length`, `lib`, `library` | Native | Current library/progress projections |
+| `find/f`, `rfind/rf`, `lfind/lf`, dotted/slashed forms | Modernized | Normalized all-term, literal-number, loose any-term, first/random actions |
+| `rm`, `del` | Modernized | Indexed local files only; confirmation plus Send2Trash; no permanent fallback |
+| `v`, `vol`, `volume`, `vh`, `volh`, `volumeh` | Native/compatibility | Player-volume bus |
+| `mv`, `mvol`, `mvolume` | Modernized | Platform master-volume adapter or explicit unsupported response |
+| `music-downloads`, `md` | Native | Opens the managed download directory |
+| `/ys`, `/youtube-search`, `/yl`, `/youtube-link` | Modernized | Resolve-at-play-time yt-dlp adapter |
+| `/ml`, `/media-link` | Modernized | Unified direct HTTP(S)/file resolver |
+| `/wra`, `/webradio` | Modernized | Radio catalog, playlist resolution, health and endpoint failover |
+| `/rs`, `/reddit-session`, `/reddit-sessions`, `/rpan` | Retired | RPAN is gone; all aliases return the same explicit response |
+| `lyrics`, `lyr`, `lyrics edit`, `lyr edit` | Modernized | Open identification/LRCLIB and durable adjacent `.lrc` editing |
+| related-song behavior | Modernized | `recommend related [count]` and contextual queue autofill; no ShazamIO |
+| `weblinks` | Retired | Old Google Drive URL collection replaced by radio search and queues |
+| `vivojay fav`, `vivojay favourite` | Retired | Expired hard-coded URL removed; guidance points to preferences/recommendations |
+| Obsolete commented/TODO-only commands | Demonstrably dead | Not external behavior and not imported |
+
+The aliases in `mariana/commands.py` are the dispatch source of truth and are
+checked against `help.md` and parameterized tests.
+
+## June 2022 testing-repository file audit
+
+Every path in the external tree is covered below. “Excluded” means the old
+implementation was intentionally not imported; it does not mean its supported
+user-facing behavior disappeared.
+
+| External path(s) | Classification | Disposition |
+|---|---|---|
+| `Future Ideas and Issues to Address.md` | Preserved | Separate user-owned edit; never staged by this integration |
+| `README.md`, `help.md` | Modernized | Current architecture, commands, setup, security, and evidence |
+| `help_future.md`, `downgrade.txt` | Demonstrably dead | Stale planning/obsolete downgrade instructions not shipped |
+| `main.py` | Modernized | Existing command syntax routed into current services |
+| `first_boot_setup.py`, `first_boot_welcome_screen.py` | Modernized | Transactional writable setup state and idempotent steps |
+| `logger.py`, `restore_default.py`, `url_validate.py` | Modernized | Writable paths, fixed failures, unified resolver validation |
+| `meta_getter.py` | Excluded | Replaced by persistent incremental library profiler |
+| `requirements.txt` | Modernized | Resolver-generated Python 3.12 locks |
+| `settings/settings.yml`, `settings/settings.yml.default`, `settings/system.toml` | Modernized | Additive schema; no mutable packaged first-boot flag |
+| `user/user_data.yml` | Modernized | Migrated additively into user data |
+| `user/reddit_credentials.json` | Excluded | PRAW/RPAN retired; credentials are never imported |
+| `beta/IPrint.py` | Modernized | Current terminal-color compatibility layer |
+| `beta/YT_query.py` | Modernized | yt-dlp search adapter |
+| `beta/master_volume_control.py` | Modernized | Cross-platform master-volume adapters |
+| `beta/mediadl.py` | Modernized | yt-dlp/FFmpeg downloads and managed root |
+| `beta/podcasts.py` | Modernized | Feedparser implementation with cache/failure handling |
+| `beta/redditsessions.py` | Retired | Single explicit RPAN retirement response |
+| `beta/radio_weblinks.yml` | Excluded | Binary Google Drive collection was not a radio catalog |
+| `beta/vlc-async-stream.py` | Excluded | VLC replaced by supervised FFmpeg PCM playback |
+| `beta/widget_display.py` | Demonstrably dead | Unused Tk experiment not part of the CLI |
+| `beta/yt_urls.yml` | Excluded | Expiring URLs are resolved at playback and never persisted |
+| `lyrics_provider/detect_song.py`, `lyrics_provider/get_lyrics.py` | Modernized | Chromaprint/AcoustID/MusicBrainz/LRCLIB pipeline |
+| `lyrics_provider/get_related_music.py` | Excluded | Shazam related writer replaced by recommendation engine |
+| `lyrics_provider/lyrics_window_spawn.py` | Modernized | Writable generated CSS and current lyrics data |
+| `res/banner.banner`, `res/default.css`, `res/first_boot_startup_sound.mp3` | Native assets | Retained as immutable resources |
+| `res/lyrics_icon.png`, `res/welcome_banner.png` | Native assets | Retained as immutable resources |
+| `res/lyrics-wallpapers/1.DEFAULT.jpg` through `10.triangular-spiral-dark-purple-staircase.jpg` | Native assets | All ten retained |
+| `res/font-faces/Elsie/Elsie-Regular.ttf`, `res/font-faces/Elsie/SIL Open Font License.txt` | Native assets | Font and license retained |
+| `res/font-faces/Fira_Code/FiraCode-VariableFont_wght.ttf`, `OFL.txt`, `README.txt` | Native assets | Font and notices retained |
+| `res/font-faces/Fira_Code/static/FiraCode-Bold.ttf`, `FiraCode-Light.ttf`, `FiraCode-Medium.ttf`, `FiraCode-Regular.ttf`, `FiraCode-SemiBold.ttf` | Native assets | Static fonts retained |
+| Three `my-directory-list.txt` files | Excluded | Generated binary directory listings, not source/assets |
+| `res/style.css` | Excluded as mutable state | Generated lyrics CSS now lives under writable runtime data |
+
+This audit accounts for all 61 paths at `2302501`; there are no “unreviewed”
+entries.

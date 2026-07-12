@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from mariana.commands import ALIAS_COMPATIBILITY  # noqa: E402
 
 LINK = re.compile(r"(?<!!)\[[^]]+\]\(([^)]+)\)")
 REQUIRED_COMMAND_FAMILIES = {
@@ -14,6 +20,7 @@ REQUIRED_COMMAND_FAMILIES = {
     "radio",
     "recommend",
     "replaygain",
+    "setup",
     "sleep",
     "tools",
 }
@@ -21,7 +28,15 @@ REQUIRED_COMMAND_FAMILIES = {
 
 def markdown_files(root: Path) -> list[Path]:
     ignored = {"node_modules", "release", "dist", "dist-electron", "build", ".venv"}
-    return [path for path in root.rglob("*.md") if not ignored.intersection(path.parts)]
+    return [
+        path
+        for path in root.rglob("*.md")
+        if not ignored.intersection(path.relative_to(root).parts)
+        and not any(
+            part.startswith((".test-tmp", "pytest-cache-files-"))
+            for part in path.relative_to(root).parts
+        )
+    ]
 
 
 def verify(root: Path) -> list[str]:
@@ -39,6 +54,10 @@ def verify(root: Path) -> list[str]:
     for command in sorted(REQUIRED_COMMAND_FAMILIES):
         if command not in readme or command not in help_text:
             failures.append(f"command family {command!r} is missing from README.md or help.md")
+    for entry in ALIAS_COMPATIBILITY:
+        for alias in entry.aliases:
+            if f"`{alias}`" not in help_text:
+                failures.append(f"registered compatibility alias {alias!r} is missing from help.md")
     return failures
 
 

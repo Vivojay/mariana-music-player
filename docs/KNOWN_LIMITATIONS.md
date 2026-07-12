@@ -19,3 +19,9 @@
 - The legacy REPL is intentionally preserved for command compatibility. Its
   remaining extraction into smaller command handlers is maintenance work, not
   a condition for using the modern media pipeline.
+- Setup state is scoped to one application data directory. Explicitly choosing
+  a different data directory correctly creates a separate first-run state.
+- Sending a file to trash and updating SQLite cannot be one operating-system
+  transaction. Mariana journals and reconciles that boundary on restart, but a
+  native trash facility that is unavailable or refuses a file remains an
+  explicit failure.

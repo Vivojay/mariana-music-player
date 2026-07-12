@@ -92,9 +92,16 @@ library roots|scan|status|pause|resume|errors|retry|verify|info
 library clean --missing
 recommend [count]
 recommend autofill [count]
+recommend related [count]
 recommend train
-like
-dislike
+fav|bl [!|+|-]
+favs|blacklist [count]
+like|dislike
+hist|history [count]
+include|exclude downloads
+lyrics|lyr edit
+rm|del <library-index|indexed-path>
+setup status|resume|restart|repair
 sleep <duration> [pause|stop] [fade <duration>]
 sleep status|cancel
 replaygain on [track|album|auto]
@@ -152,6 +159,14 @@ SQLite, logs, `lib.lib`, lyrics, and model state in the operating system's user
 data directory. Legacy source-tree state is copied and verified on first launch
 without deleting the originals.
 
+First-run setup is tracked in an atomically replaced writable state file, not
+in packaged settings. A completed setup never runs again for the same data
+directory. Setup records its attempt, current and completed steps, timestamps,
+and sanitized failures; a PID/creation-time lock prevents concurrent wizards.
+Interrupted or corrupt setup offers resume, safe restart, repair, or an explicit
+skip of a failed optional sample download. `setup restart` resets only setup
+progress and preserves settings, media, history, the library, and preferences.
+
 The signed desktop updater checks the stable GitHub Releases channel shortly
 after startup and every six hours. It downloads in-app but will not install
 while playback, a broadcast, a sleep timer, a command, or a profiler transaction is active.
@@ -179,6 +194,16 @@ transport protocols are rejected. YouTube stream URLs are resolved immediately
 before use and are never stored. Optional authenticated YouTube access can
 reference a browser profile through `sources.youtube.browser profile`; Mariana
 does not copy cookies into its database or logs.
+
+The June 2022 testing snapshot was audited semantically rather than merged.
+Historical aliases—including `.`, `.*`, `+`, `-`, the `arand` family,
+`vh`/`volh`/`volumeh`, and `dl-yv`/`dl-ya`—route to current implementations.
+Advanced `find`/`rfind`/`lfind`, history, managed-download inclusion, persistent
+favorites/blocks, local lyric editing, and trash-only `rm`/`del` are retained.
+RPAN aliases remain recognized but report service retirement. VLC, pygame,
+ShazamIO, PRAW credentials, generated metadata, expired hard-coded URLs, and
+binary runtime state were deliberately not imported. The exhaustive audit is
+recorded in the [verification matrix](docs/VERIFICATION_MATRIX.md).
 
 ## Open identification and lyrics
 
@@ -216,10 +241,12 @@ RecBole/Implicit challenger research is isolated from the runtime; see
 
 ## Verification
 
-The latest Windows verification run passed 669 deterministic tests, all five
-credential-free live probes, the 90% repository coverage gate (90.04%), every
-independent 95% critical-module branch gate, 8 React unit tests, 2 development
-Electron PTY scenarios, and 1 freshly packaged Electron/backend scenario. See
+The latest Windows verification run passed 761 deterministic tests, the 90%
+repository coverage gate (90.96%), every independent 95% critical-module
+branch gate, 8 React unit tests, 2 development Electron PTY scenarios, and 4
+freshly packaged Electron/backend first-run scenarios. Five credential-free
+live probes passed earlier on the branch but were not rerun at the recorded
+commit. See
 the [dated verification report](docs/verification/2026-07-12.md) for exact
 versions, metrics, and the release gates that remain pending.
 

@@ -96,6 +96,9 @@ def test_documentation_gate_main_and_ignored_trees(tmp_path, monkeypatch, capsys
     ignored = tmp_path / "node_modules"
     ignored.mkdir()
     (ignored / "dependency.md").write_text("ignored", encoding="utf-8")
+    test_temporary = tmp_path / ".test-tmp-example"
+    test_temporary.mkdir()
+    (test_temporary / "fixture.md").write_text("ignored", encoding="utf-8")
     assert docs_gate.markdown_files(tmp_path) == [tmp_path / "README.md"]
     monkeypatch.setattr(docs_gate, "verify", lambda _root: [])
     docs_gate.main()
@@ -107,9 +110,14 @@ def test_documentation_gate_main_and_ignored_trees(tmp_path, monkeypatch, capsys
 
 def test_documentation_gate_ignores_external_and_fragment_links(tmp_path):
     commands = " ".join(sorted(docs_gate.REQUIRED_COMMAND_FAMILIES))
+    aliases = " ".join(
+        f"`{alias}`" for entry in docs_gate.ALIAS_COMPATIBILITY for alias in entry.aliases
+    )
     (tmp_path / "README.md").write_text(commands, encoding="utf-8")
     (tmp_path / "help.md").write_text(
         commands
+        + " "
+        + aliases
         + "\n[web](https://example.test) [mail](mailto:test@example.test) [fragment](#part) "
         + "[local](README.md#part)",
         encoding="utf-8",
