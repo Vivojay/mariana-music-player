@@ -1609,6 +1609,50 @@ def isdecimal(value):
     except ValueError:
         return False
 
+
+def parse_fade_arguments(arguments, current_volume):
+    """Parse the extended fade command without leaving partially initialized values."""
+    if not arguments or arguments[0].lower() != 'fade':
+        raise ValueError('Fade command must begin with "fade"')
+
+    tokens = arguments[1:]
+    if len(tokens) in {2, 3} and all(isdecimal(value) for value in tokens):
+        initial, final = (float(value) / 100 for value in tokens[:2])
+        duration = float(tokens[2]) if len(tokens) == 3 else 5.0
+    else:
+        initial = float(current_volume)
+        final = None
+        duration = 5.0
+        seen = set()
+        position = 0
+        while position < len(tokens):
+            keyword = tokens[position].lower()
+            if keyword not in {'from', 'to', 'in'} or keyword in seen:
+                raise ValueError(f'Invalid fade command token: {tokens[position]}')
+            if position + 1 >= len(tokens) or not isdecimal(tokens[position + 1]):
+                raise ValueError(f'Fade {keyword} value must be numeric')
+            value = float(tokens[position + 1])
+            seen.add(keyword)
+            if keyword == 'from':
+                initial = value / 100
+            elif keyword == 'to':
+                final = value / 100
+            else:
+                duration = value
+            position += 2
+
+        if final is None:
+            if 'from' in seen:
+                final = float(current_volume)
+            else:
+                raise ValueError('Fade command requires a final volume')
+
+    if not 0 <= initial <= 1 or not 0 <= final <= 1:
+        raise ValueError('Fade volume must be between 0 and 100')
+    if duration < 0:
+        raise ValueError('Fade duration must not be negative')
+    return initial, final, duration
+
 def rand_song_index_generate():
     global _sound_files_names_only
     if len(_sound_files) == 0:
@@ -2529,78 +2573,22 @@ def process(command):
                     log_message='Failed to fade in/out',
                     log_priority=2)
 
-        elif commandslist[0] in ['fade']:
-            """
-            Sample usage:
-                Fade from current volume to 30% in 3 seconds -> fade to 30 in 3
-                Fade from 20% to current volume in 2 seconds -> fade from 20 in 2
-                Fade from 20% to 30% in 3 seconds            -> fade from 20 to 30 in 3
-                Fade from 100% to 2% in 5 seconds (default)  -> fade from 100 to 2
-            """
-
-            if commandslist.count('from') == 0:
-                initvol = cached_volume
-            elif commandslist.count('from') == 1:
-                _from_index = commandslist.index('from')
-                if isdecimal(commandslist[_from_index+1]):
-                    initvol = float(commandslist[_from_index+1])
-                    initvol = initvol/100
-                else:
-                    SAY(visible=visible,
-                        display_message = 'Invalid initial volume provided. Must be between 0 and 100',
-                        log_message = 'Invalid initial volume provided',
-                        log_priority = 2)
-            elif commandslist.count('from') > 1:
-                SAY(visible=visible,
-                    display_message = 'Invalid fade command syntax (check initial volume)',
-                    log_message = 'Invalid fade command syntax (initial volume)',
-                    log_priority = 2)
-
-
-            if commandslist.count('to') == 1:
-                _to_index = commandslist.index('to')
-                if isdecimal(commandslist[_to_index+1]):
-                    finalvol = float(commandslist[_to_index+1])
-                    finalvol = finalvol/100
-                else:
-                    SAY(visible=visible,
-                        display_message = 'Invalid final volume provided. Must be between 0 and 100',
-                        log_message = 'Invalid initial volume provided',
-                        log_priority = 2)
-            else:
-                SAY(visible=visible,
-                    display_message = 'Invalid fade command syntax (check final volume)',
-                    log_message = 'Invalid fade command syntax (final volume)',
-                    log_priority = 2)
-
-
-            if commandslist.count('in') == 0:
-                fade_duration = 5
-            if commandslist.count('in') == 1:
-                _in_index = commandslist.index('in')
-                if isdecimal(commandslist[_in_index+1]):
-                    fade_duration = float(commandslist[_in_index+1])
-                else:
-                    SAY(visible=visible,
-                        display_message = 'Invalid final volume provided. Must be between 0 and 100',
-                        log_message = 'Invalid initial volume provided',
-                        log_priority = 2)
-
-            elif commandslist.count('in') > 1:
-                SAY(visible=visible,
-                    display_message = 'Invalid fade command syntax (check duration)',
-                    log_message = 'Invalid fade command syntax (duration)',
-                    log_priority = 2)
-
-                if len(commandslist) in range(3, 8):
-                    fade_in_out(initvol=initvol, finalvol=finalvol, fade_type=isplaying, fade_duration=fade_duration)
-                else:
-                    SAY(
-                        visible=visible,
-                        display_message='Invalid fade command syntax',
-                        log_message='Invalid fade command length',
-                        log_priority=2,
-                    )
+        elif commandslist[0] == 'fade':
+            try:
+                initvol, finalvol, fade_duration = parse_fade_arguments(commandslist, cached_volume)
+                fade_in_out(
+                    initvol=initvol,
+                    finalvol=finalvol,
+                    fade_type=isplaying,
+                    fade_duration=fade_duration,
+                )
+            except ValueError as error:
+                SAY(
+                    visible=visible,
+                    display_message=f'Invalid fade command: {error}',
+                    log_message=f'Invalid fade command: {error}',
+                    log_priority=2,
+                )
 
         elif commandslist[0].lower() in ['m?', 'ism?', 'ismute?']:
             # TODO - Make more reliable...?

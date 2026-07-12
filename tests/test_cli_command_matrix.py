@@ -173,6 +173,50 @@ def cli(monkeypatch, tmp_path):
         "broadcast status",
         "recommend 3",
         "/rs",
+        "list bad-range",
+        "list 1-2-3",
+        "/rss https://example.test/feed extra",
+        "pod",
+        "pod vendors 1",
+        ".podbeans",
+        "pods 1 2",
+        "recent bad-range",
+        "recent 1-2-3",
+        "recent 2-1",
+        "prev 0",
+        "prev invalid",
+        "prev 999",
+        "next 999",
+        "fade in invalid",
+        "fade in 1 2",
+        "fade from invalid to 50 in 2",
+        "fade from 20 to invalid in 2",
+        "fade from 20 to 50 in invalid",
+        "fade from 20 from 30 to 50",
+        "fade from 20 to 50 in 1 in 2",
+        "seek 1.5",
+        "seek invalid",
+        "seek -999",
+        "download-yv invalid",
+        "download-yv one two",
+        "download-ya invalid",
+        "download-ya one two",
+        "download-ml",
+        "999",
+        "path 999",
+        "sleep invalid",
+        "replaygain invalid",
+        "broadcast invalid",
+        "tools invalid",
+        "/ys \"query\" 0",
+        "/ys \"query\" 999",
+        "/ys \"query\" invalid",
+        "/yl invalid",
+        "/yl one two",
+        "/ml invalid",
+        "/ml one two",
+        "/wra 99",
+        "/wra one two",
     ],
 )
 def test_command_matrix_never_requires_external_side_effects(cli, command):
@@ -259,6 +303,48 @@ def test_exit_confirmation_paths(cli, monkeypatch):
     monkeypatch.setattr("builtins.input", lambda *_args: "y")
     assert main.process("exit") is False
     assert main.process("quit y") is False
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("fade to 30 in 3", (0.7, 0.3, 3.0)),
+        ("fade from 20 in 2", (0.2, 0.7, 2.0)),
+        ("fade from 20 to 80", (0.2, 0.8, 5.0)),
+        ("fade 10 20 1", (0.1, 0.2, 1.0)),
+    ],
+)
+def test_fade_parser_and_dispatch_are_complete(cli, command, expected):
+    main.cached_volume = 0.7
+    assert main.parse_fade_arguments(command.split(), main.cached_volume) == expected
+    main.process(command)
+    assert cli.actions[-1] == (
+        "fade",
+        {
+            "initvol": expected[0],
+            "finalvol": expected[1],
+            "fade_type": main.isplaying,
+            "fade_duration": expected[2],
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "fade",
+        "fade to",
+        "fade to loud",
+        "fade from 20 from 30 to 50",
+        "fade to 101",
+        "fade from -1 to 50",
+        "fade to 50 in -1",
+        "other to 50",
+    ],
+)
+def test_fade_parser_rejects_partial_or_unsafe_values(command):
+    with pytest.raises(ValueError):
+        main.parse_fade_arguments(command.split(), 0.5)
 
 
 def test_completion_callback_advances_persistent_queue_without_restarting_prefetched_media(monkeypatch):
