@@ -68,6 +68,7 @@ from mariana.download import DownloadError, download_media
 from mariana.identity import AcoustIDClient, IdentificationService, LRCLIBClient, MusicBrainzClient
 from mariana.library import LibraryCatalog, LibraryError
 from mariana.library_service import LibraryProfilerService
+from mariana.media_removal import MediaRemovalError, MediaRemovalService
 from mariana.models import MediaCapabilities, MediaRef, MediaSource, PlaybackState
 from mariana.paths import initialize_runtime_paths
 from mariana.platform import open_path, reveal_path
@@ -414,6 +415,8 @@ LIBRARY_SERVICE = LibraryProfilerService(
     probe_workers=LIBRARY_SETTINGS.get('probe workers', 2),
     deep_workers=LIBRARY_SETTINGS.get('deep workers', 1),
 )
+MEDIA_REMOVAL = MediaRemovalService(DATABASE, LIBRARY, QUEUE, vas.controller)
+MEDIA_REMOVAL.recover()
 
 if not loglevel:
     restore_default.restore('loglevel', SETTINGS)
@@ -1270,6 +1273,20 @@ def edit_current_lyrics():
     else:
         open_path(sidecar)
     return sidecar
+
+
+def recycle_library_media(arguments):
+    if not arguments:
+        raise MediaRemovalError('Usage: rm|del <library-index|indexed-path>')
+    target = MEDIA_REMOVAL.resolve(' '.join(arguments))
+    permission = input(f'Move "{target.path}" to the operating-system trash? (y/n): ').casefold().strip()
+    if permission not in {'y', 'yes'}:
+        IPrint('Media removal cancelled', visible=visible)
+        return None
+    removed = MEDIA_REMOVAL.remove(target)
+    reload_sounds(quick_load=True)
+    IPrint(f'Moved to trash: {removed.path}', visible=visible)
+    return removed
 
 def get_current_progress():
     return vas.player.get_time() / 1000
@@ -3376,6 +3393,12 @@ def process(command):
 
         elif commandslist == ['check_dev']:
             IPrint(f'Development mode: {"on" if ISDEV else "off"}', visible=visible)
+
+        elif commandslist[0] in {'rm', 'del'}:
+            try:
+                recycle_library_media(commandslist[1:])
+            except MediaRemovalError as error:
+                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
 
         elif commandslist in [['s'], ['stop']]:
             stopsong()

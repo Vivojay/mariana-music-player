@@ -776,6 +776,17 @@ class LibraryCatalog:
             cursor = connection.execute("DELETE FROM library_files WHERE state='missing'")
         return cursor.rowcount
 
+    def mark_missing(self, library_id: str) -> None:
+        now = time.time()
+        with self.database.transaction() as connection:
+            cursor = connection.execute(
+                "UPDATE library_files SET state='missing', missing_since=COALESCE(missing_since, ?), "
+                "updated_at=? WHERE library_id=?",
+                (now, now, library_id),
+            )
+            if cursor.rowcount != 1:
+                raise LibraryError(f"Unknown library item: {library_id}")
+
     def verify(self) -> dict[str, Any]:
         integrity = self.database.fetchone("PRAGMA integrity_check")
         missing = [path for path in self.paths() if not Path(path).is_file()]

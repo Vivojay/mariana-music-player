@@ -1,0 +1,133 @@
+from pathlib import Path
+
+import pytest
+
+from mariana.database import MarianaDatabase
+from mariana.library import LibraryCatalog
+from mariana.media_removal import MediaRemovalError, MediaRemovalPartialError, MediaRemovalService
+from mariana.models import MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
+from mariana.preferences import MediaPreferences, PreferenceState
+from mariana.queueing import PersistentQueue
+
+
+class Controller:
+    def __init__(self, media=None):
+        self.media = media
+        self.stopped = False
+
+    def snapshot(self):
+        return PlaybackSnapshot(PlaybackState.PLAYING if self.media else PlaybackState.IDLE, media=self.media)
+
+    def stop(self):
+        self.stopped = True
+
+
+def removal_fixture(tmp_path: Path):
+    root = tmp_path / "music"
+    root.mkdir()
+    song = root / "song.mp3"
+    song.write_bytes(b"audio")
+    library_file = tmp_path / "lib.lib"
+    library_file.write_text(str(root), encoding="utf-8")
+    database = MarianaDatabase(tmp_path / "state.db")
+    catalog = LibraryCatalog(database, library_file=library_file, supported_extensions=[".mp3"])
+    catalog.scan()
+    info = catalog.info(str(song))
+    queue = PersistentQueue(database)
+    media = MediaRef(MediaSource.LOCAL, str(song), stable_id=info["library_id"], title="Song")
+    queue.add(media)
+    return database, catalog, queue, song, media
+
+
+def test_successful_removal_uses_trash_tombstones_and_retains_preferences(tmp_path: Path):
+    database, catalog, queue, song, media = removal_fixture(tmp_path)
+    trashed = []
+
+    def trash(path):
+        trashed.append(path)
+        Path(path).unlink()
+
+    controller = Controller(media)
+    preferences = MediaPreferences(database)
+    preferences.set(media, PreferenceState.FAVORITE)
+    service = MediaRemovalService(database, catalog, queue, controller, trash=trash)
+    target = service.resolve("1")
+    service.remove(target)
+    assert trashed == [str(song.resolve())]
+    assert controller.stopped is True
+    assert catalog.info(str(song))["state"] == "missing"
+    assert queue.items() == []
+    assert preferences.get(media) == PreferenceState.FAVORITE
+    assert database.fetchall("SELECT key FROM app_state WHERE key LIKE 'media_removal:%'") == []
+    database.close()
+
+
+def test_cancelled_or_failed_trash_does_not_change_database(tmp_path: Path):
+    database, catalog, queue, song, media = removal_fixture(tmp_path)
+    service = MediaRemovalService(
+        database,
+        catalog,
+        queue,
+        Controller(),
+        trash=lambda _path: (_ for _ in ()).throw(OSError("denied")),
+    )
+    with pytest.raises(MediaRemovalError, match="denied"):
+        service.remove(service.resolve(str(song)))
+    assert catalog.info(str(song))["state"] == "available"
+    assert [item.media.stable_id for item in queue.items()] == [media.stable_id]
+    assert song.exists()
+    assert database.fetchall("SELECT key FROM app_state WHERE key LIKE 'media_removal:%'") == []
+    database.close()
+
+
+def test_post_trash_database_failure_is_recovered_from_journal(monkeypatch, tmp_path: Path):
+    database, catalog, queue, song, media = removal_fixture(tmp_path)
+    original = catalog.mark_missing
+    service = MediaRemovalService(database, catalog, queue, Controller(), trash=lambda path: Path(path).unlink())
+    monkeypatch.setattr(catalog, "mark_missing", lambda _stable_id: (_ for _ in ()).throw(RuntimeError("disk")))
+    with pytest.raises(MediaRemovalPartialError, match="reconciliation"):
+        service.remove(service.resolve(str(song)))
+    assert database.fetchall("SELECT key FROM app_state WHERE key LIKE 'media_removal:%'")
+    monkeypatch.setattr(catalog, "mark_missing", original)
+    assert service.recover() == 1
+    assert catalog.info(str(song))["state"] == "missing"
+    assert queue.items() == []
+    assert database.fetchall("SELECT key FROM app_state WHERE key LIKE 'media_removal:%'") == []
+    assert media.stable_id
+    database.close()
+
+
+def test_resolve_rejects_invalid_outside_and_symlink_targets(monkeypatch, tmp_path: Path):
+    database, catalog, queue, song, _media = removal_fixture(tmp_path)
+    service = MediaRemovalService(database, catalog, queue, Controller(), trash=lambda _path: None)
+    with pytest.raises(MediaRemovalError, match="positive"):
+        service.resolve("0")
+    outside = tmp_path / "outside.mp3"
+    outside.write_bytes(b"audio")
+    original_info = catalog.info
+    monkeypatch.setattr(
+        catalog,
+        "info",
+        lambda _value: {"library_id": "outside", "canonical_path": str(outside), "state": "available"},
+    )
+    with pytest.raises(MediaRemovalError, match="outside"):
+        service.resolve(str(outside))
+    monkeypatch.setattr(catalog, "info", original_info)
+    original_is_symlink = Path.is_symlink
+    monkeypatch.setattr(Path, "is_symlink", lambda self: self == song or original_is_symlink(self))
+    with pytest.raises(MediaRemovalError, match="non-symlink"):
+        service.resolve(str(song))
+    database.close()
+
+
+def test_recovery_clears_planned_journal_when_file_still_exists(tmp_path: Path):
+    database, catalog, queue, song, media = removal_fixture(tmp_path)
+    database.set_state(
+        "media_removal:planned",
+        {"library_id": media.stable_id, "path": str(song), "status": "planned"},
+    )
+    service = MediaRemovalService(database, catalog, queue, Controller(), trash=lambda _path: None)
+    assert service.recover() == 0
+    assert database.get_state("media_removal:planned") is None
+    assert catalog.info(str(song))["state"] == "available"
+    database.close()

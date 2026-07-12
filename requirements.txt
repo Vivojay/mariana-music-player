@@ -70,6 +70,8 @@ requests==2.34.2
     #   yt-dlp
 ruamel-yaml==0.19.1
     # via -r requirements.in
+send2trash==2.1.0
+    # via -r requirements.in
 sgmllib3k==1.0.0
     # via feedparser
 sounddevice==0.5.5

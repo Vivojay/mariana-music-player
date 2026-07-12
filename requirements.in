@@ -12,6 +12,7 @@ pywin32==312; sys_platform == "win32"
 PyYAML==6.0.3
 requests==2.34.2
 ruamel.yaml==0.19.1
+Send2Trash==2.1.0
 sounddevice==0.5.5
 tabulate==0.10.0
 toml==0.10.2

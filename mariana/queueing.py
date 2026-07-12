@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import random
 import time
 from collections.abc import Iterable
@@ -249,6 +250,36 @@ class PersistentQueue:
             connection.execute("DELETE FROM queue_items WHERE id=?", (selected.queue_id,))
             remaining = [cast(int, item.queue_id) for item in items if item.queue_id != selected.queue_id]
             self._renumber(connection, remaining)
+        return selected
+
+    def remove_media(self, stable_id: str, original_uri: str | None = None) -> list[QueueItem]:
+        items = self.items()
+        uri_key = os.path.normcase(os.path.abspath(original_uri)).casefold() if original_uri else None
+        selected = [
+            item
+            for item in items
+            if item.media.stable_id == stable_id
+            or (
+                uri_key is not None
+                and item.media.source == MediaSource.LOCAL
+                and os.path.normcase(os.path.abspath(item.media.original_uri)).casefold() == uri_key
+            )
+        ]
+        if not selected:
+            return []
+        selected_ids = {item.queue_id for item in selected}
+        remaining = [cast(int, item.queue_id) for item in items if item.queue_id not in selected_ids]
+        with self.database.transaction() as connection:
+            self._record_history(connection)
+            placeholders = ",".join("?" for _ in selected_ids)
+            connection.execute(f"DELETE FROM queue_items WHERE id IN ({placeholders})", tuple(selected_ids))
+            self._renumber(connection, remaining)
+            current = connection.execute("SELECT current_id FROM queue_state WHERE singleton=1").fetchone()
+            if current and current["current_id"] in selected_ids:
+                connection.execute(
+                    "UPDATE queue_state SET current_id=?, updated_at=? WHERE singleton=1",
+                    (remaining[0] if remaining else None, time.time()),
+                )
         return selected
 
     def move(self, source: int, destination: int) -> None:

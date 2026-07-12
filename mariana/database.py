@@ -303,6 +303,10 @@ class MarianaDatabase:
         row = self.fetchone("SELECT value_json FROM app_state WHERE key = ?", (key,))
         return json.loads(row["value_json"]) if row else default
 
+    def delete_state(self, key: str) -> None:
+        with self.transaction() as connection:
+            connection.execute("DELETE FROM app_state WHERE key=?", (key,))
+
     def backup(self, destination: Path | str | None = None) -> Path:
         destination = Path(destination or self.path.with_suffix(f".{int(time.time())}.bak"))
         destination.parent.mkdir(parents=True, exist_ok=True)
