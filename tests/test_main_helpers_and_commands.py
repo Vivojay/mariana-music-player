@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -485,3 +486,161 @@ def test_startup_enforces_platform_and_fatal_state(monkeypatch):
     with pytest.raises(SystemExit) as error:
         main.startup()
     assert error.value.code == 1
+
+
+def test_reload_sounds_uses_index_cache_and_full_scan(monkeypatch, tmp_path):
+    cache = tmp_path / "data" / "snd_files.json"
+    cache.parent.mkdir()
+    library_file = tmp_path / "lib.lib"
+    library_file.write_text(str(tmp_path), encoding="utf-8")
+    indexed = [str(tmp_path / "indexed.mp3")]
+    catalog = SimpleNamespace(
+        paths=lambda: indexed,
+        scan=lambda mode: setattr(catalog, "scan_mode", mode),
+        roots=lambda: [{"path": str(tmp_path), "available": True}],
+    )
+    monkeypatch.setattr(main, "LIBRARY", catalog)
+    monkeypatch.setattr(main, "SOUND_CACHE_PATH", cache)
+    monkeypatch.setattr(main, "RUNTIME_PATHS", SimpleNamespace(library_file=library_file))
+    monkeypatch.setattr(main, "FIRST_BOOT", False)
+    main.reload_sounds()
+    assert main._sound_files == indexed
+    assert main._sound_files_names_only == ["indexed"]
+
+    indexed[:] = [str(tmp_path / "rescanned.mp3")]
+    main.reload_sounds(quick_load=False, full=True)
+    assert catalog.scan_mode == "full"
+    assert json.loads(cache.read_text(encoding="utf-8")) == indexed
+
+
+def test_reload_sounds_cache_fallback_and_missing_library(monkeypatch, tmp_path):
+    cache = tmp_path / "snd_files.json"
+    cache.write_text(json.dumps([str(tmp_path / "cached.mp3")]), encoding="utf-8")
+    missing_library = tmp_path / "missing.lib"
+    messages = []
+    catalog = SimpleNamespace(paths=list, scan=lambda _mode: None, roots=list)
+    monkeypatch.setattr(main, "LIBRARY", catalog)
+    monkeypatch.setattr(main, "SOUND_CACHE_PATH", cache)
+    monkeypatch.setattr(main, "RUNTIME_PATHS", SimpleNamespace(library_file=missing_library))
+    monkeypatch.setattr(main, "SAY", lambda **kwargs: messages.append(kwargs))
+    monkeypatch.setattr(main, "FIRST_BOOT", False)
+    main.reload_sounds()
+    assert main._sound_files_names_only == ["cached"]
+    cache.unlink()
+    main.reload_sounds()
+    assert any("vanished" in message["display_message"] for message in messages)
+
+
+def test_mainprompt_clears_busy_state_after_interrupt_and_exit(monkeypatch):
+    entered = iter([KeyboardInterrupt(), "quit"])
+    printed = []
+
+    def prompt(_value):
+        value = next(entered)
+        if isinstance(value, BaseException):
+            raise value
+        return value
+
+    monkeypatch.setattr("builtins.input", prompt)
+    monkeypatch.setattr(main, "visible", True)
+    monkeypatch.setattr(main, "process", lambda command: False if command == "quit" else None)
+    monkeypatch.setattr(main, "exitplayer", lambda: printed.append("exit"))
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(value))
+    main.mainprompt()
+    assert printed == ["\n", "exit"]
+    assert not main.COMMAND_BUSY.is_set()
+
+
+def test_banner_version_and_audio_initialization(monkeypatch, tmp_path, capsys):
+    banner = tmp_path / "banner.banner"
+    banner.write_text("one\nlonger", encoding="utf-8")
+    rendered = []
+    showversion = main.showversion
+    monkeypatch.setattr(main, "RUNTIME_PATHS", SimpleNamespace(resource=lambda *_parts: banner))
+    monkeypatch.setattr(main, "blue_gradient_print", lambda line, colors: rendered.append((line, colors)))
+    monkeypatch.setattr(main, "showversion", lambda: rendered.append(("version", None)))
+    monkeypatch.setattr(main, "visible", True)
+    main.showbanner()
+    assert len(rendered) == 3
+    assert len(rendered[0][0]) == 10
+
+    monkeypatch.setattr(main.sounddevice, "query_devices", lambda: [{"max_output_channels": 2}])
+    main.initialize_audio_output()
+    monkeypatch.setattr(main.sounddevice, "query_devices", lambda: [{"max_output_channels": 0}])
+    with pytest.raises(RuntimeError, match="audio output device"):
+        main.initialize_audio_output()
+
+    monkeypatch.setattr(main, "showversion", showversion)
+    monkeypatch.setattr(main, "SYSTEM_SETTINGS", {"about": {}})
+    main.showversion()
+    assert capsys.readouterr().out
+
+
+def test_run_reports_every_update_safety_reason_and_first_boot(monkeypatch, tmp_path):
+    safety = {}
+    events = []
+    startup_sound = tmp_path / "startup.mp3"
+    startup_sound.write_bytes(b"audio")
+    desktop = SimpleNamespace(
+        start_playback_monitor=lambda callback: events.append(("playback-monitor", callback)),
+        start_safety_monitor=lambda callback: safety.update(callback=callback),
+        emit=lambda *args: events.append(args),
+    )
+    monkeypatch.setattr(main, "DESKTOP_CONTROL", desktop)
+    monkeypatch.setattr(main, "initialize_audio_output", lambda: events.append("audio"))
+    monkeypatch.setattr(main, "LIBRARY_SERVICE", SimpleNamespace(
+        start=lambda **kwargs: events.append(("library", kwargs)),
+        status=lambda: {"jobs": [{"status": "leased"}]},
+    ))
+    monkeypatch.setattr(main, "SLEEP_TIMER", SimpleNamespace(status=lambda: SimpleNamespace(active=True)))
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING),
+    )
+    monkeypatch.setattr(
+        main,
+        "BROADCASTER",
+        SimpleNamespace(snapshot=lambda: SimpleNamespace(state=main.BroadcastState.LIVE)),
+    )
+    monkeypatch.setattr(main.vas, "set_media", lambda **kwargs: events.append(("set-media", kwargs)))
+    monkeypatch.setattr(main.vas, "media_player", lambda **kwargs: events.append(("play", kwargs)))
+    monkeypatch.setattr(main, "notify", lambda **kwargs: events.append(("notify", kwargs)))
+    monkeypatch.setattr(main, "RUNTIME_PATHS", SimpleNamespace(resource=lambda *_parts: startup_sound))
+    monkeypatch.setattr(main, "save_user_data", lambda: events.append("save"))
+    monkeypatch.setattr(main, "showbanner", lambda: events.append("banner"))
+    monkeypatch.setattr(main, "mainprompt", lambda: events.append("prompt"))
+    monkeypatch.setattr(main, "FIRST_BOOT", True)
+    monkeypatch.setattr(main, "visible", True)
+    monkeypatch.setattr(main, "USER_DATA", playback_user_data())
+    main.COMMAND_BUSY.set()
+    try:
+        main.run()
+        safe, reasons = safety["callback"]()
+    finally:
+        main.COMMAND_BUSY.clear()
+    assert safe is False
+    assert reasons == [
+        "command-active",
+        "sleep-timer",
+        "playback-active",
+        "broadcast-active",
+        "profiler-transaction",
+    ]
+    assert any(event[0] == "set-media" for event in events if isinstance(event, tuple))
+    assert "banner" in events and "prompt" in events
+
+
+def test_startup_skips_run_for_soft_failure_and_runs_when_healthy(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main, "first_startup_greet", lambda _first: calls.append("greet"))
+    monkeypatch.setattr(main, "FIRST_BOOT", False)
+    monkeypatch.setattr(main, "enforce_os_requirement", False)
+    monkeypatch.setattr(main, "FATAL_ERROR_INFO", None)
+    monkeypatch.setattr(main, "run", lambda: calls.append("run"))
+    monkeypatch.setattr(main, "SOFT_FATAL_ERROR_INFO", "cancelled")
+    main.startup()
+    assert calls == ["greet"]
+    monkeypatch.setattr(main, "SOFT_FATAL_ERROR_INFO", None)
+    main.startup()
+    assert calls == ["greet", "greet", "run"]
