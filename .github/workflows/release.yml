@@ -57,6 +57,18 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libportaudio2 ffmpeg rpm
       - run: python -m pip install -r requirements-dev.txt
       - run: npm ci --ignore-scripts
+      - name: Run release verification gates
+        run: |
+          python tools/check_version.py
+          python tools/verify_text_integrity.py
+          python tools/verify_docs.py
+          python -m compileall -q main.py mariana beta lyrics_provider recommendation_engine tools
+          python -m ruff check .
+          pyright
+          python -m pytest -q --cov --cov-branch --cov-report=json:coverage.json --cov-fail-under=90
+          python tools/coverage_gate.py coverage.json --minimum 95
+          npm run lint
+          npm test
       - name: Verify explicit release authorization and signing
         run: python tools/release_preflight.py
         env:
@@ -74,6 +86,16 @@ jobs:
       - name: Rebuild native Electron dependencies
         run: npm run rebuild:native
       - run: npm run build
+      - name: Build unpacked app for PTY acceptance
+        run: npx electron-builder --dir --${{ matrix.target }} --${{ matrix.arch }} --publish never
+      - name: Locate unpacked application
+        run: python tools/locate_packaged_app.py --github-env
+      - name: Test packaged Electron PTY
+        if: runner.os != 'Linux'
+        run: npm run test:e2e:packaged
+      - name: Test packaged Electron PTY (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:e2e:packaged
       - name: Build signed desktop artifact
         run: npx electron-builder --${{ matrix.target }} --${{ matrix.arch }} --publish never
         env:

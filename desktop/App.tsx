@@ -19,8 +19,14 @@ function formatRemaining(value: unknown): string {
 }
 
 export default function App() {
-  const [themeName, setThemeName] = useState<ThemeName>(() => (localStorage.getItem('mariana.theme') as ThemeName) || 'aurora')
-  const [fontSize, setFontSize] = useState(() => Number(localStorage.getItem('mariana.fontSize') || 14))
+  const [themeName, setThemeName] = useState<ThemeName>(() => {
+    const stored = localStorage.getItem('mariana.theme')
+    return stored && stored in themes ? stored as ThemeName : 'aurora'
+  })
+  const [fontSize, setFontSize] = useState(() => {
+    const stored = Number(localStorage.getItem('mariana.fontSize') || 14)
+    return Number.isFinite(stored) ? Math.max(10, Math.min(24, stored)) : 14
+  })
   const [reducedMotion, setReducedMotion] = useState(() => matchMedia('(prefers-reduced-motion: reduce)').matches)
   const [timerOpen, setTimerOpen] = useState(false)
   const [customTimer, setCustomTimer] = useState('30m')
