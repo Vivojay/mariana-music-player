@@ -1,5 +1,6 @@
 """Broad behavior-level coverage for the preserved interactive command surface."""
 
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -69,6 +70,7 @@ def cli(monkeypatch, tmp_path):
         lambda value=None, url=None, **_kwargs: (value or url or "").startswith("https://"),
     )
     monkeypatch.setattr(main, "download_media", lambda *args, **kwargs: actions.append(("download-media", args, kwargs)) or tmp_path / "media.mp3")
+    monkeypatch.setattr(main, "start_youtube_download", lambda parameters: actions.append(("download-job", parameters)))
     monkeypatch.setattr(main.sounddevice, "query_devices", lambda **_kwargs: {"name": "Test Device"})
     monkeypatch.setattr(main.os, "system", lambda command: actions.append(("system", command)) or 0)
     monkeypatch.setattr(main.sp, "Popen", lambda args, **kwargs: actions.append(("spawn", args, kwargs)))
@@ -497,14 +499,41 @@ def test_download_confirmation_and_rejection_paths(cli, monkeypatch):
     monkeypatch.setattr("builtins.input", lambda *_args: next(answers))
     main.process("download-yv")
     main.process("download-ya")
-    spawned = [action for action in cli.actions if action[0] == "spawn"]
-    assert len(spawned) == 2
-    assert all(action[1][0] == main.sys.executable for action in spawned)
+    jobs = [action for action in cli.actions if action[0] == "download-job"]
+    assert [job[1]["typ"] for job in jobs] == [1, 0]
+    assert not [action for action in cli.actions if action[0] == "spawn"]
 
     monkeypatch.setattr(main, "current_media_type", None)
     main.process("download-yv")
     main.process("download-ya")
     assert any("local storage" in message.get("display_message", "") for message in cli.messages)
+
+
+def test_youtube_download_worker_never_spawns_another_mariana(monkeypatch):
+    completed = threading.Event()
+    messages = []
+    monkeypatch.setattr(main, "media_DL", lambda **_kwargs: completed.set() or 4)
+    monkeypatch.setattr(main, "SAY", lambda **kwargs: messages.append(kwargs))
+    monkeypatch.setattr(main.sp, "Popen", lambda *_args, **_kwargs: pytest.fail("download spawned a process"))
+    thread = main.start_youtube_download({"typ": 0})
+    thread.join(timeout=2)
+
+    assert completed.is_set()
+    assert not thread.is_alive()
+    assert any("download completed" in message["display_message"] for message in messages)
+
+
+def test_explicit_youtube_download_validates_syntax_without_network(cli, monkeypatch):
+    monkeypatch.setattr("builtins.input", lambda *_args: "y")
+    monkeypatch.setattr(main, "url_is_valid", lambda *_args, **_kwargs: pytest.fail("network validation ran"))
+
+    main.process("download-ya https://www.youtube.com/watch?v=abc12345678")
+    main.process("download-yv https://example.test/watch?v=abc12345678")
+
+    jobs = [action for action in cli.actions if action[0] == "download-job"]
+    assert len(jobs) == 1
+    assert jobs[0][1]["typ"] == 0
+    assert any("Invalid YouTube URL for video download" in message["display_message"] for message in cli.messages)
 
 
 @pytest.mark.parametrize(

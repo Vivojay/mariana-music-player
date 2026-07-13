@@ -77,7 +77,7 @@ route through the same modern implementations:
 | `.arand`, `=arand`, `arand`, `arand*`, `/arand` | Historical random-media forms |
 | `mute` | Mute/unmute (`m`) |
 | `vh`, `volh`, `volumeh` | Player-volume compatibility forms |
-| `dl-yv`, `dl-ya` | YouTube video/audio download forms |
+| `download-yv` / `dl-yv`, `download-ya` / `dl-ya` | Download YouTube video/audio in the current session; omit the URL to use the active item |
 | `/reddit-session`, `/reddit-sessions`, `/rpan` | Recognized retired RPAN forms; no network action |
 
 `all*`, advanced `find`/`rfind`/`lfind` searches, dotted/slashed search
@@ -168,6 +168,5 @@ A value of 1 for either of these parameters means you want the BEST QUALITY down
 ### display items count
 **general:** number of items to display (general purpose)
 **youtube-search results:** number of items to display in YouTube search results
-
 
 

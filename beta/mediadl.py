@@ -134,6 +134,9 @@ def media_DL(SETTINGS,
                                        # + Better looking...)
     }
     ydl_opts.update(integration_options())
+    ffmpeg_location = (SETTINGS.get('media tools') or {}).get('ffmpeg bin')
+    if ffmpeg_location:
+        ydl_opts['ffmpeg_location'] = os.path.expanduser(ffmpeg_location)
 
     if typ == 0:
         ydl_opts['postprocessors'] = [{

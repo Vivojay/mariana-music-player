@@ -44,7 +44,7 @@ from pathlib import Path
 import sounddevice;                                 print("Loaded 15/31", end='\r')
 # from scipy.io.wavfile import read;                  print("Loaded 15/31", end='\r')
 from getpass import getpass;                        print("Loaded 16/31", end='\r')
-from url_validate import url_is_valid;              print("Loaded 17/31", end='\r')
+from url_validate import id_if_url_is_of_yt_format, url_is_valid; print("Loaded 17/31", end='\r')
 from tabulate import tabulate as tbl;               print("Loaded 18/31", end='\r')
 from ruamel.yaml import YAML;                       print("Loaded 19/31", end='\r')
 from collections.abc import Iterable;               print("Loaded 20/31", end='\r')
@@ -82,6 +82,7 @@ from mariana.toolchain import ToolchainError, ToolchainManager
 from mariana.version import __version__
 from recommendation_engine import Candidate, RecommendationEngine
 from runtime_check import check_runtime, format_runtime_report
+from beta.mediadl import media_DL
 
 online_streaming_ext_load_error = 0
 comtypes_load_error = False # Made available after fix from comtypes issue #244, #180
@@ -309,6 +310,59 @@ SLEEP_TIMER = SleepTimer(
     on_update=lambda status: DESKTOP_CONTROL.emit('sleep', status.to_dict()),
 )
 COMMAND_BUSY = threading.Event()
+YOUTUBE_DOWNLOAD_JOBS: set[threading.Thread] = set()
+YOUTUBE_DOWNLOAD_JOBS_LOCK = threading.Lock()
+
+
+def start_youtube_download(download_parameters: dict) -> threading.Thread:
+    """Run one yt-dlp job without launching another Mariana executable."""
+    media_kind = "audio" if download_parameters.get("typ") == 0 else "video"
+
+    def worker() -> None:
+        try:
+            status = media_DL(**download_parameters)
+            if status == 4:
+                SAY(
+                    visible=globals().get("visible", True),
+                    display_message=f"YouTube {media_kind} download completed.",
+                    log_message=f"YouTube {media_kind} download completed",
+                    log_priority=3,
+                )
+            elif status != 5:
+                failures = {
+                    0: "The configured download folder does not exist.",
+                    1: "No download folder is configured.",
+                    2: "The download-folder configuration is incomplete.",
+                    3: "Mariana could not create its download directory.",
+                }
+                message = failures.get(status, f"YouTube {media_kind} download failed with status {status}.")
+                SAY(
+                    visible=globals().get("visible", True),
+                    display_message=message,
+                    log_message=message,
+                    log_priority=2,
+                )
+        except Exception as error:
+            message = f"YouTube {media_kind} download failed: {error}"
+            SAY(
+                visible=globals().get("visible", True),
+                display_message=message,
+                log_message=message,
+                log_priority=2,
+            )
+        finally:
+            with YOUTUBE_DOWNLOAD_JOBS_LOCK:
+                YOUTUBE_DOWNLOAD_JOBS.discard(threading.current_thread())
+
+    thread = threading.Thread(
+        target=worker,
+        name=f"mariana-youtube-{media_kind}-download",
+        daemon=True,
+    )
+    with YOUTUBE_DOWNLOAD_JOBS_LOCK:
+        YOUTUBE_DOWNLOAD_JOBS.add(thread)
+    thread.start()
+    return thread
 
 
 # Variables
@@ -2992,7 +3046,7 @@ def process(command):
 
             elif len(commandslist) == 2:
                 url = commandslist[1]
-                if url_is_valid(url = url):
+                if id_if_url_is_of_yt_format(url) is not None:
                     IPrint('Attempting to download YouTube video from:\n  '
                           f'{colored.fg("sandy_brown")}@ {colored.fg("orchid_2")}{url}{colored.attr("reset")}',
                           visible=visible)
@@ -3027,9 +3081,9 @@ def process(command):
                 if confirm_dl:
                     SAY(visible=visible,
                         log_message='Download confirmed and initiated',
-                        display_message='Your download has started',
+                        display_message='YouTube video download started in this Mariana session.',
                         log_priority = 3)
-                    sp.Popen([sys.executable, 'beta/mediadl.py', json.dumps(download_parmeters)], shell=False)
+                    start_youtube_download(download_parmeters)
 
         elif commandslist[0].lower() == 'download-ya':
             # TODO - Add way for user to customize download settings...
@@ -3054,7 +3108,7 @@ def process(command):
 
             elif len(commandslist) == 2:
                 url = commandslist[1]
-                if url_is_valid(url = url):
+                if id_if_url_is_of_yt_format(url) is not None:
                     IPrint('Attempting to download YouTube audio from:\n  '
                           f'{colored.fg("sandy_brown")}@ {colored.fg("orchid_2")}{url}{colored.attr("reset")}',
                           visible=visible)
@@ -3062,7 +3116,7 @@ def process(command):
                 else:
                     SAY(visible=visible,
                         log_message=f'Invalid YouTube URL for audio download: {url}',
-                        display_message=f'Invalid YouTube URL for video download: {url}',
+                        display_message=f'Invalid YouTube URL for audio download: {url}',
                         log_priority = 3)
 
             if len(commandslist) in [1, 2] and url:
@@ -3089,9 +3143,9 @@ def process(command):
                 if confirm_dl:
                     SAY(visible=visible,
                         log_message='Download confirmed and initiated',
-                        display_message='Your download has started',
+                        display_message='YouTube audio download started in this Mariana session.',
                         log_priority = 3)
-                    sp.Popen([sys.executable, 'beta/mediadl.py', json.dumps(download_parmeters)], shell=False)
+                    start_youtube_download(download_parmeters)
 
         elif commandslist[0].lower() == 'download-ml':
             if len(commandslist) not in (2, 3, 4):

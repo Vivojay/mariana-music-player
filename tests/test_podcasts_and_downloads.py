@@ -120,11 +120,13 @@ def test_setup_download_directory_reports_missing_separate_setting(monkeypatch, 
 def test_media_download_builds_audio_and_video_options(monkeypatch, tmp_path):
     monkeypatch.setattr(mediadl, "integration_options", lambda: {"socket_timeout": 30})
     settings = download_settings(tmp_path)
+    settings["media tools"] = {"ffmpeg bin": str(tmp_path / "ffmpeg-bin")}
 
     audio = mediadl.media_DL(settings, {}, "url", dry_run=True)
     assert audio["format"] == "bestaudio/best"
     assert audio["postprocessors"][0]["preferredcodec"] == "mp3"
     assert audio["socket_timeout"] == 30
+    assert audio["ffmpeg_location"] == str(tmp_path / "ffmpeg-bin")
 
     video = mediadl.media_DL(settings, {}, ["url"], typ=1, quality={"audio": 0, "video": 1}, dry_run=True)
     assert video["format"] == "bestvideo+worstaudio/best"

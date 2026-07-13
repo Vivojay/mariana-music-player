@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0-dev.3
+
+- Fixed packaged `download-yv` and `download-ya` commands so confirmed
+  downloads run as tracked background jobs in the current Mariana session
+  instead of relaunching the packaged backend as a second REPL.
+- YouTube downloads now pass Mariana's configured FFmpeg directory to yt-dlp
+  and report completion or configuration failures in the originating session.
+- YouTube download commands validate URL structure locally instead of making a
+  redundant extraction request before confirmation.
+
 ## 0.7.0-dev.2
 
 - Replaced legacy playback integrations with a supervised FFmpeg PCM platform.

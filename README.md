@@ -4,7 +4,7 @@ Mariana is a local-first command-line and Electron terminal media player for
 64-bit Windows, macOS, and Linux. The 0.7 development platform decodes audio
 with FFmpeg into a bounded PCM pipeline,
 plays it through `sounddevice`, and uses FFplay only as an external diagnostic
-or video fallback. The working version is `0.7.0-dev.2`; the stable release remains 0.6.2 until every
+or video fallback. The working version is `0.7.0-dev.3`; the stable release remains 0.6.2 until every
 release gate—including manual speaker and soak acceptance—has passed.
 
 Supported sources include local audio, YouTube, podcasts, custom HTTP media,
@@ -47,12 +47,12 @@ before the production release preflight can pass.
 
 ### Windows installer (development pre-release)
 
-Download `Mariana-0.7.0-dev.2-windows-x64.exe` from the
-[v0.7.0-dev.2 pre-release](https://github.com/Vivojay/mariana-music-player/releases/tag/v0.7.0-dev.2),
+Download `Mariana-0.7.0-dev.3-windows-x64.exe` from the
+[v0.7.0-dev.3 pre-release](https://github.com/Vivojay/mariana-music-player/releases/tag/v0.7.0-dev.3),
 then launch it from Explorer or PowerShell:
 
 ```powershell
-.\Mariana-0.7.0-dev.2-windows-x64.exe
+.\Mariana-0.7.0-dev.3-windows-x64.exe
 ```
 
 This development installer is not Authenticode-signed, so Windows may display
@@ -125,8 +125,14 @@ replaygain off|status|mode|preamp|scan|rescan
 broadcast profiles|status|start|stop|test
 broadcast credentials set|delete|status <profile>
 tools status|install|repair
+download-yv [YouTube URL]
+download-ya [YouTube URL]
 download-ml <URL> [mp3|flac|wav|m4a|opus] [output path]
 ```
+
+Omit the URL from `download-yv` or `download-ya` to download the active
+YouTube item. After confirmation, the download runs in the current Mariana
+session and reports its result there; it never opens another REPL.
 
 Sleep timers are session-only. They default to pausing and fade perceptually
 over the final ten minutes (or the whole timer when shorter), without replacing

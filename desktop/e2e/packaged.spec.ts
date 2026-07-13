@@ -1,10 +1,11 @@
 import { _electron as electron, expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
 const executable = process.env.MARIANA_PACKAGED_EXE
+const expectedVersion = JSON.parse(await readFile(path.resolve('package.json'), 'utf8')).version as string
 
 async function isolatedState(name: string) {
   return mkdtemp(path.join(os.tmpdir(), `mariana-${name}-`))
@@ -57,6 +58,41 @@ test('packaged Electron app launches its bundled CLI backend', async () => {
     await expect(page.locator('.backend-dot.ready')).toBeVisible({ timeout: 45_000 })
     await page.evaluate(() => window.mariana.terminal.write('sleep status\r'))
     await expect(page.getByLabel('Terminal output')).toContainText('Sleep timer is inactive', { timeout: 10_000 })
+  } finally {
+    await application.close()
+  }
+})
+
+test('packaged YouTube downloads stay in the current PTY session', async () => {
+  test.skip(!executable, 'set MARIANA_PACKAGED_EXE after npm run pack')
+  const userData = await isolatedState('download-session')
+  const inheritedPath = process.env.PATH ?? process.env.Path ?? ''
+  const mediaToolPath = process.env.MARIANA_TEST_FFMPEG_BIN
+  const application = await electron.launch({
+    executablePath: executable,
+    args: [`--user-data-dir=${userData}`],
+    env: {
+      ...process.env,
+      PATH: mediaToolPath ? `${mediaToolPath}${path.delimiter}${inheritedPath}` : inheritedPath,
+      MARIANA_E2E: '1',
+    },
+  })
+  try {
+    const page = await application.firstWindow()
+    const terminal = page.getByLabel('Terminal output')
+    await expect(page.locator('.backend-dot.ready')).toBeVisible({ timeout: 45_000 })
+    await expect(terminal).toContainText(`v ${expectedVersion}`)
+    await writeCommand(page, 'clear')
+    await expect(terminal).not.toContainText('Loaded 1/31', { timeout: 10_000 })
+    await writeCommand(page, 'download-ya https://www.youtube.com/watch?v=abc12345678')
+    await expect(terminal).toContainText('confirm AUDIO download', { timeout: 10_000 })
+    await writeCommand(page, 'y')
+    await expect(terminal).toContainText('YouTube audio download started in this Mariana session.', {
+      timeout: 10_000,
+    })
+    await page.waitForTimeout(2_000)
+    await expect(terminal).not.toContainText('Loaded 1/31')
+    await expect(page.locator('.backend-dot.ready')).toBeVisible()
   } finally {
     await application.close()
   }

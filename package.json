@@ -1,6 +1,6 @@
 {
   "name": "mariana-music-player",
-  "version": "0.7.0-dev.2",
+  "version": "0.7.0-dev.3",
   "description": "Cross-platform riced terminal shell for Mariana",
   "author": "Vivojay",
   "type": "module",
