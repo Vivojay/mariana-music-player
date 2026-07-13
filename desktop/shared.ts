@@ -1,5 +1,5 @@
 export type BackendEvent = {
-  event: 'ready' | 'playback' | 'station' | 'sleep' | 'broadcast' | 'loudness' | 'theme' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error'
+  event: 'ready' | 'playback' | 'station' | 'sleep' | 'broadcast' | 'loudness' | 'queue' | 'playlist' | 'album' | 'download' | 'theme' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error'
   payload: Record<string, unknown>
   timestamp: number
 }

@@ -953,6 +953,87 @@ def _print_queue_tree(nodes, *, playlist=False):
     return rows
 
 
+def _queue_node_payload(node):
+    if node['type'] == 'group':
+        group = node['group']
+        return {
+            'type': 'group',
+            'id': group.group_id,
+            'path': node['path'],
+            'name': group.name,
+            'kind': group.kind,
+            'strategy': group.strategy.value,
+            'priority': group.priority,
+            'atomic': group.atomic,
+            'children': [_queue_node_payload(child) for child in node.get('children', [])],
+        }
+    item = node['item']
+    return {
+        'type': 'item',
+        'id': str(item.queue_id),
+        'path': node['path'],
+        'title': item.media.title or item.media.original_uri,
+        'artist': item.media.artist,
+        'source': item.media.source.value,
+        'priority': item.priority,
+        'active': bool(QUEUE.current() and QUEUE.current().queue_id == item.queue_id),
+    }
+
+
+def _emit_queue_desktop_state():
+    if not getattr(DESKTOP_CONTROL, 'enabled', False):
+        return
+    DESKTOP_CONTROL.emit(
+        'queue',
+        {
+            'tree': [_queue_node_payload(node) for node in QUEUE.tree()],
+            'state': QUEUE.state(),
+            'origin': QUEUE.origin(),
+            'count': len(QUEUE.items()),
+        },
+    )
+    DESKTOP_CONTROL.emit(
+        'playlist',
+        {
+            'playlists': [
+                {
+                    'id': playlist.playlist_id,
+                    'name': playlist.name,
+                    'description': playlist.description,
+                    'revision': playlist.revision,
+                    'tracks': len(QUEUE.playlists.flattened_media(playlist.tree)),
+                }
+                for playlist in QUEUE.playlists.list()
+            ]
+        },
+    )
+
+
+def _album_desktop_payload(album):
+    return {
+        'id': album.album_id,
+        'title': album.title,
+        'artist': album.album_artist,
+        'release_mbid': album.release_mbid,
+        'date': album.date,
+        'country': album.country,
+        'edition': album.disambiguation,
+        'provenance': album.provenance,
+        'tracks': [
+            {
+                'position': track.position,
+                'disc': track.disc_number,
+                'track': track.track_number,
+                'title': track.title,
+                'artist': track.artist,
+                'duration': track.duration,
+                'status': track.resolution_status.value,
+            }
+            for track in album.tracks
+        ],
+    }
+
+
 def _queue_group_command(arguments):
     if not arguments:
         raise QueueError('Usage: queue group create|rename|move|remove|atomic ...')
@@ -1079,6 +1160,7 @@ def queue_command(arguments):
         IPrint('Queue restored' if changed else 'No queue history available', visible=visible)
     else:
         raise QueueError(f'Unknown queue operation: {operation}')
+    _emit_queue_desktop_state()
 
 
 def _playlist_insertion(value):
@@ -1232,6 +1314,7 @@ def playlist_command(arguments):
         IPrint(f'Exported playlist: {store.export_m3u(values[0], values[1])}', visible=visible)
     else:
         raise PlaylistError(f'Invalid playlist command: {operation}')
+    _emit_queue_desktop_state()
 
 
 def _album_reference(value):
@@ -1332,8 +1415,11 @@ def album_command(arguments):
             if rows else '(no albums found)',
             visible=visible,
         )
+        DESKTOP_CONTROL.emit('album', {'view': 'search', 'results': [_album_desktop_payload(album) for album in albums]})
     elif operation == 'show' and len(values) == 1:
-        _print_album(ALBUMS.resolve_reference(_album_reference(values[0])))
+        album = ALBUMS.resolve_reference(_album_reference(values[0]))
+        _print_album(album)
+        DESKTOP_CONTROL.emit('album', {'view': 'album', 'album': _album_desktop_payload(album)})
     elif operation == 'tracks' and len(values) == 1:
         album = ALBUMS.fetch(_album_reference(values[0]))
         rows = [
@@ -1347,12 +1433,14 @@ def album_command(arguments):
             for track in album.tracks
         ]
         IPrint(tbl(rows, headers=('Track', 'Artist', 'Title', 'Seconds', 'Resolution'), tablefmt='plain'), visible=visible)
+        DESKTOP_CONTROL.emit('album', {'view': 'album', 'album': _album_desktop_payload(album)})
     elif operation == 'fetch':
         refresh, values = _command_flag(values, '--refresh')
         if len(values) != 1:
             raise AlbumError('Usage: album fetch <album-ref> [--refresh]')
         album = ALBUMS.fetch(_album_reference(values[0]), refresh=refresh)
         _print_album(album)
+        DESKTOP_CONTROL.emit('album', {'view': 'album', 'album': _album_desktop_payload(album)})
     elif operation in {'play', 'queue'}:
         order, values = _command_option(values, '--order')
         selector, values = _command_option(values, '--tracks')
@@ -1394,6 +1482,8 @@ def album_command(arguments):
             + (f'; seed {applied_seed}' if applied_seed is not None else ''),
             visible=visible,
         )
+        DESKTOP_CONTROL.emit('album', {'view': 'album', 'album': _album_desktop_payload(album)})
+        _emit_queue_desktop_state()
     elif operation == 'save' and len(values) == 2:
         album = ALBUMS.fetch(_album_reference(values[0]))
         playlist = QUEUE.playlists.create(
@@ -1402,6 +1492,8 @@ def album_command(arguments):
             tree=_album_snapshot(album, album.tracks),
         )
         IPrint(f'Saved album as playlist: {playlist.name}', visible=visible)
+        DESKTOP_CONTROL.emit('album', {'view': 'album', 'album': _album_desktop_payload(album)})
+        _emit_queue_desktop_state()
     else:
         raise AlbumError(f'Invalid album command: {operation}')
 
@@ -5350,12 +5442,17 @@ def run():
         jobs = LIBRARY_SERVICE.status().get('jobs', [])
         if any(job.get('status') == 'leased' for job in jobs):
             reasons.append('profiler-transaction')
+        download_jobs = DOWNLOADS.status()
+        if any(job.get('state') in {'queued', 'running', 'paused'} for job in download_jobs):
+            reasons.append('download-active')
         return not reasons, reasons
     DESKTOP_CONTROL.start_safety_monitor(update_safety)
     DESKTOP_CONTROL.emit('ready', {
         'version': __version__,
         'theme': SETTINGS.get('appearance', {}).get('terminal theme', 'aurora'),
     })
+    _emit_queue_desktop_state()
+    DESKTOP_CONTROL.emit('download', {'jobs': DOWNLOADS.status()})
     LIBRARY_SERVICE.start(initial_scan=True)
     USER_DATA['default_user_data']['stats']['log_ins'] += 1
     save_user_data()

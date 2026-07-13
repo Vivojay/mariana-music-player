@@ -101,6 +101,45 @@ describe('Mariana desktop shell', () => {
     expect(write).not.toHaveBeenCalled()
   })
 
+  it('projects queue, playlist, album, and download events into CLI-backed controls', () => {
+    render(<App />)
+    act(() => {
+      backendEvent?.({
+        event: 'queue', payload: {
+          count: 1,
+          tree: [{ type: 'group', id: 'group-1', path: '1', name: 'Album group', strategy: 'custom', atomic: true, children: [
+            { type: 'item', id: 'item-1', path: '1.1', title: 'Queue Song', artist: 'Queue Artist', source: 'local', active: true },
+          ] }],
+        }, timestamp: 1,
+      })
+      backendEvent?.({ event: 'playlist', payload: { playlists: [{ id: 'playlist-1', name: 'Night Mix', revision: 2, tracks: 8 }] }, timestamp: 2 })
+      backendEvent?.({ event: 'download', payload: { job_id: 'job-1', kind: 'album', state: 'running', completed_items: 2, total_items: 4 }, timestamp: 3 })
+    })
+    expect(screen.getByRole('button', { name: 'Open queue tree' })).toHaveTextContent('1')
+    expect(screen.getByRole('button', { name: 'Open downloads' })).toHaveTextContent('1')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open media workspace' }))
+    expect(screen.getByLabelText('Queue tree')).toHaveTextContent('Album group')
+    expect(screen.getByLabelText('Queue tree')).toHaveTextContent('Queue Song')
+    fireEvent.click(screen.getByRole('button', { name: 'Playlists' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Play' }))
+    expect(write).toHaveBeenCalledWith('playlist play "Night Mix"\r')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Albums' }))
+    fireEvent.change(screen.getByLabelText('Search albums'), { target: { value: 'Daft Punk Discovery' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+    expect(write).toHaveBeenCalledWith('album search "Daft Punk Discovery"\r')
+    act(() => backendEvent?.({ event: 'album', payload: { view: 'search', results: [{ id: 'album-1', title: 'Discovery', artist: 'Daft Punk', date: '2001' }] }, timestamp: 4 }))
+    expect(screen.getByLabelText('Albums')).toHaveTextContent('Discovery')
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }))
+    expect(write).toHaveBeenCalledWith('album show album-1\r')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Downloads' }))
+    expect(screen.getByLabelText('Downloads')).toHaveTextContent('2/4 tracks')
+    fireEvent.click(screen.getByRole('button', { name: 'Pause' }))
+    expect(write).toHaveBeenCalledWith('download-ya pause job-1\r')
+  })
+
   it('trims Unicode labels by terminal display cells', () => {
     expect(trimDisplayCells('short', 64)).toBe('short')
     expect(trimDisplayCells('A界BC', 4)).toBe('A界…')
