@@ -41,8 +41,7 @@ def id_if_url_is_of_yt_format(some_url):
         return parts[1] or None
     return None
 
-def url_is_valid(url, yt=None): # yt param only added for compatibility with other files in codebase
-                                # it is not used in this function and is entirely ignored
+def url_is_valid(url, yt=None, browser_profile=None): # yt param retained for compatibility
     """
     Checks that a given URL is reachable.
     :param url: A URL
@@ -54,9 +53,11 @@ def url_is_valid(url, yt=None): # yt param only added for compatibility with oth
         if yt is not None:
             from beta.youtube_media import is_resolvable
 
-            return is_resolvable(f'https://www.youtube.com/watch?v={yt}')
+            return is_resolvable(
+                f'https://www.youtube.com/watch?v={yt}',
+                browser_profile=browser_profile,
+            )
         status_code = requests.head(url, allow_redirects=True, timeout=HTTP_TIMEOUT).status_code
         return status_code < 400
     except Exception:
         return False
-

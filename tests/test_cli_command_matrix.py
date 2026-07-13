@@ -53,6 +53,7 @@ def cli(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "recommendation_command", lambda args: actions.append(("recommend", args)))
     monkeypatch.setattr(main, "replaygain_command", lambda args: actions.append(("replaygain", args)))
     monkeypatch.setattr(main, "broadcast_command", lambda args: actions.append(("broadcast", args)))
+    monkeypatch.setattr(main.vas, "set_youtube_browser_profile", lambda value: actions.append(("youtube-profile", value)))
     monkeypatch.setattr(main.RECOMMENDER, "record_event", lambda *args, **kwargs: actions.append(("event", args, kwargs)))
     monkeypatch.setattr(main.PREFERENCES, "set", lambda *args, **kwargs: True)
     monkeypatch.setattr(main.PREFERENCES, "get", lambda *_args: PreferenceState.NEUTRAL)
@@ -210,6 +211,7 @@ def cli(monkeypatch, tmp_path):
         "beta",
         "beta off",
         "check_dev",
+        "youtube auth status",
         "rm 1",
         "del 2",
         "/rs",
@@ -536,6 +538,22 @@ def test_explicit_youtube_download_validates_syntax_without_network(cli, monkeyp
     assert any("Invalid YouTube URL for video download" in message["display_message"] for message in cli.messages)
 
 
+def test_youtube_link_validates_syntax_then_defers_network_resolution(cli, monkeypatch):
+    monkeypatch.setattr(
+        main,
+        "url_is_valid",
+        lambda *_args, **_kwargs: pytest.fail("YouTube link command performed duplicate network validation"),
+    )
+
+    main.process("/yl https://www.youtube.com/watch?v=abc12345678")
+
+    actions = [action for action in cli.actions if action[0] == "play-vas"]
+    assert actions[-1][2] == {
+        "media_url": "https://www.youtube.com/watch?v=abc12345678",
+        "single_video": True,
+    }
+
+
 @pytest.mark.parametrize(
     ("media_type", "song"),
     [
@@ -600,9 +618,60 @@ def test_online_resolution_failures_do_not_escape_process(cli, monkeypatch):
     monkeypatch.setattr(main, "url_is_valid", lambda value=None, url=None, **_kwargs: bool(value or url))
     main.process('/ys "query"')
     main.process('/ys "query" 1')
-    main.process("/yl https://youtube.test/watch?v=1")
+    main.process("/yl https://www.youtube.com/watch?v=abc12345678")
     main.process("vivojay fav")
-    assert sum("Video Load Error" in message.get("display_message", "") for message in cli.messages) == 3
+    assert sum("YouTube" in message.get("display_message", "") for message in cli.messages) == 3
+
+
+def test_youtube_auth_commands_persist_and_apply_profile_atomically(cli, monkeypatch):
+    settings = {"sources": {"youtube": {"browser profile": None}}}
+    saves = []
+    configured = []
+    monkeypatch.setattr(main, "SETTINGS", settings)
+    monkeypatch.setattr(main, "save_user_settings", lambda value, path: saves.append((value.copy(), path)))
+    monkeypatch.setattr(main.YT_query, "configure", lambda **kwargs: configured.append(kwargs["browser_profile"]))
+
+    assert main.youtube_auth_command(["set", "firefox:default-release"]) == "firefox:default-release"
+    assert main.youtube_auth_command(["status"]) == "firefox:default-release"
+    assert main.youtube_auth_command(["clear"]) is None
+
+    assert len(saves) == 2
+    assert configured == ["firefox:default-release", None]
+    assert ("youtube-profile", "firefox:default-release") in cli.actions
+    assert ("youtube-profile", None) in cli.actions
+    assert settings["sources"]["youtube"]["browser profile"] is None
+
+
+def test_youtube_auth_test_resolves_without_exposing_stream_url(cli, monkeypatch):
+    monkeypatch.setattr(main, "SETTINGS", {"sources": {"youtube": {"browser profile": "firefox"}}})
+    monkeypatch.setattr(
+        main,
+        "resolve_stream",
+        lambda url, **kwargs: {
+            "url": "https://signed.example.test/secret",
+            "title": "Resolved title",
+            "input": (url, kwargs),
+        },
+    )
+
+    result = main.youtube_auth_command(["test", "https://youtu.be/abc12345678"])
+    assert result["input"][1] == {"browser_profile": "firefox"}
+    assert any("Resolved title" in line for line in cli.printed)
+    assert not any("signed.example.test" in line for line in cli.printed)
+
+
+def test_youtube_auth_save_failure_restores_previous_profile(cli, monkeypatch):
+    settings = {"sources": {"youtube": {"browser profile": "edge:Default"}}}
+    monkeypatch.setattr(main, "SETTINGS", settings)
+    monkeypatch.setattr(
+        main,
+        "save_user_settings",
+        lambda *_args: (_ for _ in ()).throw(OSError("disk full")),
+    )
+
+    with pytest.raises(OSError, match="disk full"):
+        main.youtube_auth_command(["set", "firefox"])
+    assert settings["sources"]["youtube"]["browser profile"] == "edge:Default"
 
 
 def test_like_without_active_media_and_update_failure_are_reported(cli, monkeypatch):

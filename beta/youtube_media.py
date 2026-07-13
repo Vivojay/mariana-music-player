@@ -16,6 +16,44 @@ class YouTubeError(RuntimeError):
     """Raised when yt-dlp cannot resolve a requested YouTube resource."""
 
 
+def youtube_error_message(error: BaseException, browser_profile: str | None = None) -> str | None:
+    """Return actionable guidance for recognizable YouTube/TLS failures."""
+    detail = str(error).casefold()
+    if "certificate_verify_failed" in detail or "self-signed certificate" in detail:
+        return (
+            "Secure YouTube connection failed because the certificate is not trusted by the operating system. "
+            "Install the trusted root certificate and restart Mariana; TLS verification was not disabled."
+        )
+    if any(
+        marker in detail
+        for marker in (
+            "sign in to confirm",
+            "not a bot",
+            "cookies-from-browser",
+            "login required",
+            "requires authorization",
+            "requires a signed-in",
+            "rejected browser profile",
+        )
+    ):
+        if browser_profile:
+            return (
+                f'YouTube rejected browser profile "{browser_profile}". Sign in to YouTube in that browser, '
+                "close it if its cookie database is locked, then run `youtube auth status` and retry."
+            )
+        return (
+            "YouTube requires a signed-in browser session. Run `youtube auth set firefox` "
+            "(recommended) or `youtube auth set edge:Default`, then retry. Mariana stores only the profile "
+            "reference, never the cookies."
+        )
+    if "429" in detail or "rate limit" in detail or "too many requests" in detail:
+        return (
+            "YouTube temporarily rate-limited this connection. Wait before retrying; if YouTube also asks you "
+            "to sign in, configure an explicit browser profile with `youtube auth set`."
+        )
+    return None
+
+
 def _browser_profile(value: str | None) -> tuple[str, ...] | None:
     if not value:
         return None
@@ -23,6 +61,11 @@ def _browser_profile(value: str | None) -> tuple[str, ...] | None:
     if not parts[0] or any(char in value for char in "\r\n\0"):
         raise YouTubeError("Invalid browser profile reference")
     return parts
+
+
+def parse_browser_profile(value: str | None) -> tuple[str, ...] | None:
+    """Validate a yt-dlp browser/profile reference without reading cookies."""
+    return _browser_profile(value)
 
 
 def integration_options(browser_profile: str | None = None) -> dict[str, Any]:
@@ -73,13 +116,19 @@ def _webpage_url(entry: Mapping[str, Any]) -> str:
     return str(entry.get("url") or "")
 
 
-def search(query: str, limit: int = 1) -> list[dict[str, Any]]:
+def search(
+    query: str,
+    limit: int = 1,
+    *,
+    browser_profile: str | None = None,
+) -> list[dict[str, Any]]:
     if not query.strip() or limit < 1:
         return []
     result = _extract(
         f"ytsearch{limit}:{query}",
         extract_flat="in_playlist",
         playlistend=limit,
+        browser_profile=browser_profile,
     )
     entries = result.get("entries") or []
     return [
@@ -95,14 +144,20 @@ def search(query: str, limit: int = 1) -> list[dict[str, Any]]:
     ]
 
 
-def media_info(url: str, detailed: bool = False) -> dict[str, Any]:
-    info = _extract(url)
+def media_info(
+    url: str,
+    detailed: bool = False,
+    *,
+    browser_profile: str | None = None,
+) -> dict[str, Any]:
+    info = _extract(url, browser_profile=browser_profile)
+    stream_options = {"browser_profile": browser_profile} if browser_profile else {}
     normalized: dict[str, Any] = {
         "title": info.get("title") or "[Untitled YouTube media]",
         "duration": info.get("duration"),
         "streams": {
-            "bestaudurl": stream_url(url, audio_only=True),
-            "bestvidurl": stream_url(url, audio_only=False),
+            "bestaudurl": stream_url(url, audio_only=True, **stream_options),
+            "bestvidurl": stream_url(url, audio_only=False, **stream_options),
         },
     }
     if detailed:
@@ -118,9 +173,14 @@ def media_info(url: str, detailed: bool = False) -> dict[str, Any]:
     return normalized
 
 
-def stream_url(url: str, *, audio_only: bool = True) -> str:
+def stream_url(
+    url: str,
+    *,
+    audio_only: bool = True,
+    browser_profile: str | None = None,
+) -> str:
     format_selector = "bestaudio/best" if audio_only else "best[acodec!=none][vcodec!=none]/best"
-    info = _extract(url, format=format_selector)
+    info = _extract(url, format=format_selector, browser_profile=browser_profile)
     direct_url = info.get("url")
     if not direct_url:
         requested = info.get("requested_formats") or []
@@ -171,9 +231,9 @@ def resolve_stream(
     }
 
 
-def is_resolvable(url: str) -> bool:
+def is_resolvable(url: str, *, browser_profile: str | None = None) -> bool:
     try:
-        _extract(url)
+        _extract(url, browser_profile=browser_profile)
     except YouTubeError:
         return False
     return True

@@ -58,6 +58,7 @@ reachable command family is classified below; none is unreviewed.
 | `mv`, `mvol`, `mvolume` | Modernized | Platform master-volume adapter or explicit unsupported response |
 | `music-downloads`, `md` | Native | Opens the managed download directory |
 | `/ys`, `/youtube-search`, `/yl`, `/youtube-link` | Modernized | Resolve-at-play-time yt-dlp adapter |
+| `youtube auth status/set/clear/test` | Native | One non-secret browser reference shared by search, validation, playback, and downloads |
 | `/ml`, `/media-link` | Modernized | Unified direct HTTP(S)/file resolver |
 | `/wra`, `/webradio` | Modernized | Radio catalog, playlist resolution, health and endpoint failover |
 | `/rs`, `/reddit-session`, `/reddit-sessions`, `/rpan` | Retired | RPAN is gone; all aliases return the same explicit response |

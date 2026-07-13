@@ -5,6 +5,11 @@
   typed failure and does not report false success.
 - DRM, geographic restrictions, authenticated services without an explicit
   credential reference, and unsupported protocols are not bypassed.
+- YouTube may require a signed-in browser, temporarily rate-limit an IP, or
+  change player/attestation requirements. `youtube auth set firefox` applies a
+  local browser reference across search, playback, and downloads, but no client
+  can guarantee third-party acceptance. Mariana never bypasses the challenge or
+  reports an authentication rejection as an invalid command.
 - Seek, duration, resume, fingerprinting, and crossfade depend on verified
   source capabilities. Live streams normally support resynchronization instead
   of seeking.

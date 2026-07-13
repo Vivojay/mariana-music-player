@@ -77,7 +77,9 @@ def test_real_broadcast_encodes_decodable_normalized_program_mix(tmp_path, codec
     )
     broadcaster = IcecastBroadcaster({"local": profile}, ffmpeg_bin=ffmpeg, credentials=Credentials())
     broadcaster.start("local")
-    deadline = time.monotonic() + 10
+    # The broadcaster's own connection timeout is ten seconds. Leave enough
+    # headroom for a loaded CI runner to publish the terminal state afterward.
+    deadline = time.monotonic() + 15
     while broadcaster.snapshot().state != BroadcastState.LIVE and time.monotonic() < deadline:
         time.sleep(0.01)
     assert broadcaster.snapshot().state == BroadcastState.LIVE, broadcaster.snapshot().error

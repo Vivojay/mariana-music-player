@@ -53,9 +53,18 @@ def test_url_validation_uses_head_for_regular_urls(monkeypatch):
 
 
 def test_url_validation_uses_youtube_adapter_without_head(monkeypatch):
+    captured = {}
     monkeypatch.setattr(url_validate.requests, "head", lambda *_a, **_k: pytest.fail("HEAD should not run"))
-    monkeypatch.setattr(youtube_media, "is_resolvable", lambda url: url.endswith("abc12345678"))
-    assert url_validate.url_is_valid("https://youtu.be/abc12345678") is True
+    monkeypatch.setattr(
+        youtube_media,
+        "is_resolvable",
+        lambda url, **kwargs: captured.update(url=url, **kwargs) or url.endswith("abc12345678"),
+    )
+    assert url_validate.url_is_valid("https://youtu.be/abc12345678", browser_profile="firefox") is True
+    assert captured == {
+        "url": "https://www.youtube.com/watch?v=abc12345678",
+        "browser_profile": "firefox",
+    }
 
 
 def test_url_validation_returns_false_on_network_error(monkeypatch):
@@ -166,6 +175,30 @@ def test_youtube_resolvable_and_compatibility_facade(monkeypatch, capsys):
     assert "One" in capsys.readouterr().out
 
 
+def test_youtube_compatibility_facade_forwards_browser_profile(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        yt_query,
+        "search_media",
+        lambda *args, **kwargs: calls.append(("search", args, kwargs))
+        or [{"title": "One", "url": "u1"}],
+    )
+    monkeypatch.setattr(
+        yt_query,
+        "media_info",
+        lambda *args, **kwargs: calls.append(("info", args, kwargs)) or {"title": "One"},
+    )
+    yt_query.configure(browser_profile="firefox:default-release")
+    try:
+        assert yt_query.search_youtube("q") == ("One", "u1")
+        assert yt_query.vid_info("u1") == {"title": "One"}
+    finally:
+        yt_query.configure(browser_profile=None)
+
+    assert calls[0][2]["browser_profile"] == "firefox:default-release"
+    assert calls[1][2]["browser_profile"] == "firefox:default-release"
+
+
 def test_youtube_compatibility_facade_translates_errors(monkeypatch):
     monkeypatch.setattr(yt_query, "media_info", lambda *_a, **_k: (_ for _ in ()).throw(youtube_media.YouTubeError("bad")))
     with pytest.raises(OSError, match="bad"):
@@ -189,6 +222,36 @@ def test_browser_profile_and_runtime_options(monkeypatch):
     assert options["js_runtimes"] == {"deno": {"path": "C:/deno.exe"}}
     assert options["cookiesfrombrowser"] == ("chrome", "Default")
     assert youtube_media._options(browser_profile="firefox", quiet=False)["quiet"] is False
+
+
+@pytest.mark.parametrize(
+    ("detail", "profile", "expected"),
+    [
+        ("Sign in to confirm you're not a bot", None, "youtube auth set firefox"),
+        ("cookies-from-browser failed", "edge:Default", 'rejected browser profile "edge:Default"'),
+        ("HTTP Error 429: Too Many Requests", None, "rate-limited"),
+        ("CERTIFICATE_VERIFY_FAILED", None, "certificate is not trusted"),
+    ],
+)
+def test_youtube_error_messages_are_actionable(detail, profile, expected):
+    assert expected in youtube_media.youtube_error_message(RuntimeError(detail), profile)
+
+
+def test_youtube_operations_forward_browser_profile(monkeypatch):
+    calls = []
+
+    def extract(query, **options):
+        calls.append((query, options))
+        if query.startswith("ytsearch"):
+            return {"entries": [{"id": "abc12345678", "title": "One"}]}
+        return {"url": "https://media.test/audio"}
+
+    monkeypatch.setattr(youtube_media, "_extract", extract)
+    youtube_media.search("query", browser_profile="firefox")
+    youtube_media.stream_url("url", browser_profile="firefox")
+    assert youtube_media.is_resolvable("url", browser_profile="firefox")
+
+    assert all(options["browser_profile"] == "firefox" for _query, options in calls)
 
 
 def test_extract_rejects_non_mapping_response(monkeypatch):

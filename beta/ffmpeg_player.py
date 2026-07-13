@@ -66,6 +66,11 @@ def configure(
     supervisor = PlaybackSupervisor(controller, resolvers=resolvers)
 
 
+def set_youtube_browser_profile(browser_profile=None):
+    """Apply an explicit browser reference without replacing playback state."""
+    controller.resolvers.set_youtube_browser_profile(browser_profile)
+
+
 class PlayerAdapter:
     def get_length(self) -> int:
         duration = controller.snapshot().duration

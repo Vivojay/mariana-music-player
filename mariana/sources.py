@@ -311,8 +311,23 @@ class YouTubeResolver(BaseResolver):
             return MediaFailure(FailureCode.DRM, media.source, "DRM-protected media is not supported", cause=error)
         if "geo" in text or "country" in text:
             return MediaFailure(FailureCode.GEO_BLOCKED, media.source, "This media is unavailable in the current region", cause=error)
-        if "sign in" in text or "login" in text or "private" in text or "age" in text:
-            return MediaFailure(FailureCode.AUTH_REQUIRED, media.source, "This YouTube media requires authorization", cause=error)
+        if any(
+            marker in text
+            for marker in (
+                "sign in",
+                "login",
+                "private",
+                "age",
+                "not a bot",
+                "cookies-from-browser",
+                "requires authorization",
+                "requires a signed-in",
+            )
+        ):
+            from beta.youtube_media import youtube_error_message
+
+            message = youtube_error_message(error, self.browser_profile) or "This YouTube media requires authorization"
+            return MediaFailure(FailureCode.AUTH_REQUIRED, media.source, message, cause=error)
         if "429" in text or "rate" in text:
             return MediaFailure(FailureCode.RATE_LIMITED, media.source, "YouTube rate-limited Mariana", retryable=True, cause=error)
         return super().classify_failure(error, media)
@@ -364,6 +379,10 @@ class ResolverRegistry:
         }
         self._resolvers[MediaSource.RECOMMENDATION] = DelegatingResolver(self)
         self.radio_endpoints = radio_endpoints
+
+    def set_youtube_browser_profile(self, browser_profile: str | None) -> None:
+        """Atomically replace the YouTube resolver for subsequent resolutions."""
+        self._resolvers[MediaSource.YOUTUBE] = YouTubeResolver(browser_profile)
 
     def for_source(self, source: MediaSource) -> SourceResolver:
         try:

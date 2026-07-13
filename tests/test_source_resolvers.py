@@ -142,6 +142,24 @@ def test_youtube_failure_classification(text, code):
     assert YouTubeResolver().classify_failure(RuntimeError(text), media).code == code
 
 
+def test_youtube_auth_failure_and_registry_profile_update_are_actionable():
+    media = MediaRef(MediaSource.YOUTUBE, "https://youtube.com/watch?v=test")
+    anonymous = YouTubeResolver().classify_failure(RuntimeError("Sign in to confirm you're not a bot"), media)
+    configured = YouTubeResolver("edge:Default").classify_failure(
+        RuntimeError("cookies-from-browser failed"), media
+    )
+    assert anonymous.code == FailureCode.AUTH_REQUIRED
+    assert "youtube auth set firefox" in str(anonymous)
+    assert configured.code == FailureCode.AUTH_REQUIRED
+    assert "edge:Default" in str(configured)
+
+    registry = ResolverRegistry()
+    registry.set_youtube_browser_profile("firefox:default-release")
+    resolver = registry.for_source(MediaSource.YOUTUBE)
+    assert isinstance(resolver, YouTubeResolver)
+    assert resolver.browser_profile == "firefox:default-release"
+
+
 def test_recommendation_delegates_and_transient_values_are_not_persisted(tmp_path: Path):
     song = tmp_path / "song.mp3"
     song.touch()

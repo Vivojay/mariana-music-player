@@ -395,7 +395,7 @@ def test_online_command_families_dispatch_without_network(monkeypatch):
     chosen = []
     played = []
     messages = []
-    monkeypatch.setattr(main, "url_is_valid", lambda _url: True)
+    monkeypatch.setattr(main, "url_is_valid", lambda _url, **_kwargs: True)
     monkeypatch.setattr(
         main.YT_query,
         "search_youtube",

@@ -2,17 +2,13 @@
 
 from __future__ import annotations
 
-import os
 import re
 import subprocess
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ruamel.yaml import YAML
-
-from config_manager import load_user_settings
+from config_manager import load_user_settings, save_user_settings
 
 from .paths import RuntimePaths, runtime_paths
 from .toolchain import ToolchainError, ToolchainManager, executable_from_location, find_tool_executable
@@ -92,20 +88,7 @@ def discover_media_tools(settings: dict[str, Any] | None = None) -> MediaToolSta
 
 
 def _atomic_save_settings(settings: dict[str, Any], paths: RuntimePaths) -> None:
-    paths.settings.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{paths.settings.name}.", suffix=".tmp", dir=paths.settings.parent
-    )
-    temporary = Path(temporary_name)
-    try:
-        writer = YAML()
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            writer.dump(settings, stream)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, paths.settings)
-    finally:
-        temporary.unlink(missing_ok=True)
+    save_user_settings(settings, paths.settings)
 
 
 def persist_media_tools(

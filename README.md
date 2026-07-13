@@ -137,6 +137,7 @@ replaygain off|status|verify|mode|preamp|scan|rescan
 broadcast profiles|status|start|stop|test
 broadcast credentials set|delete|status <profile>
 tools status|setup|install|repair
+youtube auth status|set <browser[:profile]>|clear|test <YouTube URL>
 download-yv [YouTube URL]
 download-ya [YouTube URL]
 download-ml <URL> [mp3|flac|wav|m4a|opus] [output path]
@@ -240,8 +241,20 @@ reference a browser profile through `sources.youtube.browser profile`; Mariana
 does not copy cookies into its database or logs.
 
 Some YouTube media requires a signed-in session or triggers the site's bot
-challenge. In that case, open Mariana's writable `settings/settings.yml` and
-set a browser/profile reference, then restart the app:
+challenge. Configure one browser profile from inside Mariana; the setting is
+applied immediately to search, validation, playback, and downloads:
+
+```text
+youtube auth set firefox
+youtube auth status
+youtube auth test https://www.youtube.com/watch?v=...
+```
+
+Firefox is the recommended first choice. Named Firefox and Chromium profiles
+can use `browser:profile`, for example `firefox:default-release` or
+`edge:Default`. Use `youtube auth clear` to return to anonymous access.
+
+The equivalent writable setting is:
 
 ```yaml
 sources:
@@ -249,12 +262,15 @@ sources:
     browser profile: edge:Default
 ```
 
-`chrome:Default`, another Chromium profile name, or `firefox` are also
-supported by yt-dlp. Mariana asks the browser for cookies at use time; it does
-not copy them into settings, SQLite, logs, or the packaged application. Close
-the browser before retrying if its cookie database is locked. HTTPS uses the
-operating-system trust store, so an office TLS-inspection root certificate must
-be trusted by the host OS; Mariana never disables certificate verification.
+Mariana stores only this reference. yt-dlp reads cookies directly from the
+selected local profile when a YouTube command runs; Mariana does not copy them
+into settings, SQLite, logs, or the packaged application. Sign in to YouTube in
+that browser and close it before retrying if its cookie database is locked.
+HTTPS uses the operating-system trust store, so an office TLS-inspection root
+certificate must be trusted by the host OS; Mariana never disables certificate
+verification. YouTube can still impose IP rate limits or change its player and
+attestation requirements, so external rejection is reported explicitly rather
+than hidden or treated as an invalid command.
 
 The June 2022 testing snapshot was audited semantically rather than merged.
 Historical aliases—including `.`, `.*`, `+`, `-`, the `arand` family,

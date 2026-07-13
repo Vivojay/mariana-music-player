@@ -55,7 +55,7 @@ from collections.abc import Iterable;               print("Loaded 20/31", end='\
 from logger import SAY;                             print("Loaded 21/31", end='\r')
 from multiprocessing import Process;                print("Loaded 22/31", end='\r')
 from first_boot_welcome_screen import notify;       print("Loaded 23/31", end='\r')
-from config_manager import load_system_settings, load_user_settings
+from config_manager import load_system_settings, load_user_settings, save_user_settings
 from mariana.broadcast import BroadcastError, BroadcastState, IcecastBroadcaster
 from mariana.commands import (
     DOWNLOAD_TYPOS,
@@ -89,6 +89,7 @@ from mariana.version import __version__
 from recommendation_engine import Candidate, RecommendationEngine
 from runtime_check import check_runtime, format_runtime_report
 from beta.mediadl import media_DL
+from beta.youtube_media import YouTubeError, parse_browser_profile, resolve_stream, youtube_error_message
 
 online_streaming_ext_load_error = 0
 comtypes_load_error = False # Made available after fix from comtypes issue #244, #180
@@ -259,6 +260,9 @@ except OSError:
 
 
 SETTINGS = load_user_settings()
+YT_query.configure(
+    browser_profile=SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile')
+)
 
 MEDIA_TOOLS = SETTINGS.get('media tools', {})
 TOOLCHAIN = ToolchainManager(RUNTIME_PATHS)
@@ -1066,6 +1070,72 @@ def prepare_update():
     DESKTOP_CONTROL.emit('update-prepared', {'backup': str(backup_root)})
     IPrint(f'Update backup prepared at {backup_root}', visible=visible)
     return backup_root
+
+
+def youtube_browser_profile():
+    return SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile') or None
+
+
+def report_youtube_error(error, operation='operation'):
+    profile = youtube_browser_profile()
+    message = youtube_error_message(error, profile)
+    if message is None:
+        message = str(error) if isinstance(error, MediaFailure) else f'YouTube {operation} failed: {error}'
+    SAY(
+        visible=visible,
+        display_message=message,
+        log_message=f'YouTube {operation} failed: {error}',
+        log_priority=2,
+    )
+    return message
+
+
+def youtube_auth_command(arguments):
+    operation = arguments[0].lower() if arguments else 'status'
+    current = youtube_browser_profile()
+    if operation == 'status':
+        message = f'YouTube browser profile: {current or "not configured (anonymous access)"}'
+        IPrint(message, visible=visible)
+        return current
+    if operation == 'set':
+        if len(arguments) < 2:
+            raise ValueError('Usage: youtube auth set <browser[:profile]>')
+        profile = ' '.join(arguments[1:]).strip().strip('"\'')
+        parse_browser_profile(profile)
+    elif operation in {'clear', 'off', 'unset'}:
+        if len(arguments) != 1:
+            raise ValueError('Usage: youtube auth clear')
+        profile = None
+    elif operation == 'test':
+        if len(arguments) != 2:
+            raise ValueError('Usage: youtube auth test <YouTube URL>')
+        result = resolve_stream(arguments[1], browser_profile=current)
+        IPrint(f'YouTube access test passed: {result.get("title") or "media resolved"}', visible=visible)
+        return result
+    else:
+        raise ValueError(
+            'Usage: youtube auth [status|set <browser[:profile]>|clear|test <YouTube URL>]'
+        )
+
+    sources = SETTINGS.setdefault('sources', {})
+    youtube_settings = sources.setdefault('youtube', {})
+    previous = youtube_settings.get('browser profile')
+    youtube_settings['browser profile'] = profile
+    try:
+        save_user_settings(SETTINGS, RUNTIME_PATHS.settings)
+    except Exception:
+        youtube_settings['browser profile'] = previous
+        raise
+    YT_query.configure(browser_profile=profile)
+    vas.set_youtube_browser_profile(profile)
+    if profile:
+        IPrint(
+            f'YouTube browser profile set to {profile}. Cookies are read by yt-dlp only during YouTube commands.',
+            visible=visible,
+        )
+    else:
+        IPrint('YouTube browser authentication cleared; anonymous access is active.', visible=visible)
+    return profile
 
 
 def tools_command(arguments):
@@ -2149,6 +2219,9 @@ def refresh_settings():
     FALLBACK_RESULT_COUNT = SETTINGS['display items count']['general']['fallback']
     MAX_RESULT_COUNT = SETTINGS['display items count']['general']['maximum']
     max_yt_search_results_threshold = SETTINGS['display items count']['youtube-search results']['maximum']
+    browser_profile = SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile')
+    YT_query.configure(browser_profile=browser_profile)
+    vas.set_youtube_browser_profile(browser_profile)
 
     if not loglevel:
         restore_default.restore('loglevel', SETTINGS)
@@ -3542,6 +3615,16 @@ def process(command):
                     log_priority=2,
                 )
 
+        elif commandslist[0].lower() == 'youtube':
+            try:
+                if len(commandslist) < 2 or commandslist[1].lower() != 'auth':
+                    raise ValueError(
+                        'Usage: youtube auth [status|set <browser[:profile]>|clear|test <YouTube URL>]'
+                    )
+                youtube_auth_command(commandslist[2:])
+            except (OSError, ValueError, YouTubeError, MediaFailure) as error:
+                report_youtube_error(error, 'authentication')
+
         elif commandslist[0].lower() == 'setup':
             try:
                 setup_command(commandslist[1:])
@@ -3726,23 +3809,11 @@ def process(command):
                 ytv_choices = None
 
                 if rescount == '':
-                    try:
-                        ytv_choices = [YT_query.search_youtube(search=qr_val)]
-                    except OSError:
-                        SAY(visible=visible,
-                            display_message = 'Video Load Error: Could not load video... (Maybe check your VPN?)',
-                            log_message = 'Video load error: Could not load video',
-                            log_priority = 2)
+                    ytv_choices = [YT_query.search_youtube(search=qr_val)]
 
                 elif rescount.isnumeric():
                     if int(rescount) == 1:
-                        try:
-                            ytv_choices = [YT_query.search_youtube(search=qr_val)]
-                        except OSError:
-                            SAY(visible=visible,
-                                display_message = 'Video Load Error: Could not load video... (Maybe check your VPN?)',
-                                log_message = 'Video load error: Could not load video',
-                                log_priority = 2)
+                        ytv_choices = [YT_query.search_youtube(search=qr_val)]
                     elif int(rescount) in range(2, max_yt_search_results_threshold+1):
                         ytv_choices = YT_query.search_youtube(
                             search=qr_val, rescount=int(rescount))
@@ -3768,25 +3839,18 @@ def process(command):
                 if ytv_choices:
                     choose_media_url(media_url_choices=ytv_choices)
 
-            except Exception:
-                # raise
-                SAY(visible=visible,
-                    display_message="Invalid YouTube search, type: [/youtube-search | /ys] \"<search terms>\" [<result_count>]",
-                    log_message="Invalid YouTube search by user",
-                    log_priority=2)
+            except Exception as error:
+                report_youtube_error(error, 'search/playback')
 
         elif commandslist[0].lower() in ['/yl', '/youtube-link']:
             YOUTUBE_PLAY_TYPE = 0
             if len(commandslist) == 2:
                 media_url = commandslist[1]
-                if url_is_valid(media_url):
+                if id_if_url_is_of_yt_format(media_url):
                     try:
                         play_vas_media(media_url=media_url, single_video=True)
-                    except OSError:
-                        SAY(visible=visible,
-                            display_message = 'Video Load Error: Could not load video... (Maybe check your VPN?)',
-                            log_message = 'Video load error: Could not load video',
-                            log_priority = 2)
+                    except Exception as error:
+                        report_youtube_error(error, 'playback')
 
                 else:
                     SAY(visible=visible, display_message='Entered Youtube URL is invalid', log_message='Entered Youtube URL is invalid', log_priority = 2)

@@ -7,6 +7,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from ruamel.yaml import YAML
 
 import mariana.tool_setup as tool_setup
 import mariana.toolchain as toolchain
@@ -204,7 +205,7 @@ def test_persisted_paths_are_normalized_and_written_atomically(tmp_path):
     settings = {"media tools": {}, "unrelated": {"keep": True}}
 
     result = tool_setup.persist_media_tools(status, settings, paths=paths)
-    loaded = tool_setup.YAML(typ="safe").load(paths.settings.read_text(encoding="utf-8"))
+    loaded = YAML(typ="safe").load(paths.settings.read_text(encoding="utf-8"))
     assert result["unrelated"] == {"keep": True}
     assert loaded["media tools"]["ffmpeg bin"] == str(Path(status.executables["ffmpeg"]).parent)
     assert not list(paths.settings.parent.glob("*.tmp"))

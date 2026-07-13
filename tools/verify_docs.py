@@ -23,6 +23,7 @@ REQUIRED_COMMAND_FAMILIES = {
     "setup",
     "sleep",
     "tools",
+    "youtube",
 }
 
 

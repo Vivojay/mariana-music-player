@@ -186,7 +186,7 @@ def test_media_download_reports_failure_without_raising(monkeypatch, tmp_path):
     ("error", "profile", "expected"),
     [
         (OSError("CERTIFICATE_VERIFY_FAILED: self-signed certificate"), None, "trusted root certificate"),
-        (RuntimeError("Sign in to confirm you're not a bot"), None, "sources.youtube.browser profile"),
+        (RuntimeError("Sign in to confirm you're not a bot"), None, "youtube auth set firefox"),
         (RuntimeError("Sign in to confirm you're not a bot"), "edge:Default", "edge:Default"),
     ],
 )

@@ -47,6 +47,10 @@ All searches are fuzzy
 | `broadcast profiles\|start\|stop\|test\|status` | Control one Icecast source broadcast |
 | `broadcast credentials set\|delete\|status <profile>` | Manage a broadcast password through the OS keychain |
 | `tools status\|setup\|install\|repair` | Inspect, discover/configure, or provision checksum-verified media tools |
+| `youtube auth status` | Show the browser profile reference used by all YouTube operations |
+| `youtube auth set <browser[:profile]>` | Use a signed-in local browser profile; `firefox` is recommended first |
+| `youtube auth clear` | Return YouTube operations to anonymous access |
+| `youtube auth test <YouTube URL>` | Test extraction without displaying or persisting the signed stream URL |
 | `recommend [count]` | Show explainable local recommendations |
 | `recommend autofill [count]` | Add recommendations to the queue |
 | `recommend related [count]` | Recommend from the active media context |
@@ -168,4 +172,3 @@ A value of 1 for either of these parameters means you want the BEST QUALITY down
 ### display items count
 **general:** number of items to display (general purpose)
 **youtube-search results:** number of items to display in YouTube search results
-
