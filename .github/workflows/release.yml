@@ -55,6 +55,12 @@ jobs:
       - name: Install Linux packaging prerequisites
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libportaudio2 ffmpeg rpm
+      - name: Install macOS media runtime
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg portaudio
+      - name: Install Windows media runtime
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg --version=8.1.2 -y --no-progress
       - run: python -m pip install -r requirements-dev.txt
       - run: npm ci --ignore-scripts
       - name: Run release verification gates

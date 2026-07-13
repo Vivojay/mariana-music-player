@@ -7,6 +7,7 @@ an implementation stress probe but does not satisfy the release gate.
 from __future__ import annotations
 
 import argparse
+import os
 import socket
 import subprocess
 import tempfile
@@ -136,7 +137,8 @@ def run(
     cycles = 0
     with tempfile.TemporaryDirectory(prefix="mariana-soak-") as directory:
         directory = Path(directory)
-        ffmpeg = Path(ffmpeg_bin) / "ffmpeg.exe"
+        executable = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+        ffmpeg = Path(ffmpeg_bin) / executable
         tone = directory / "tone.flac"
         subprocess.run(
             [

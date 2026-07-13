@@ -53,7 +53,8 @@ test credentials and must never print them. Packaged Electron tests require
 Fresh-data first-run package tests additionally accept
 `MARIANA_TEST_FFMPEG_BIN` so an isolated data directory can use a verified
 external FFmpeg/FFprobe/FFplay directory before managed release tools are
-published:
+published. The real-process pytest and short soak scenarios use the same
+variable when FFmpeg is not already on `PATH`:
 
 ```powershell
 $env:MARIANA_PACKAGED_EXE = "$PWD\release\win-unpacked\Mariana.exe"

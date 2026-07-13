@@ -1,3 +1,5 @@
+import os
+import shutil
 import threading
 from pathlib import Path
 
@@ -7,24 +9,32 @@ import tools.soak_test as soak
 from mariana.models import PlaybackSnapshot, PlaybackState
 from tools.soak_test import NullOutputStream, SoakCredentials, run, wait_for_idle
 
-FFMPEG_BIN = Path(
-    r"C:\Users\Vivan.Jaiswal\Documents\ffmpeg-2025-12-18-git-78c75d546a-essentials_build\bin"
-)
+
+def ffmpeg_bin() -> Path | None:
+    if configured := os.environ.get("MARIANA_TEST_FFMPEG_BIN"):
+        directory = Path(configured).expanduser()
+        executable = directory / ("ffmpeg.exe" if os.name == "nt" else "ffmpeg")
+        if executable.is_file():
+            return directory
+    executable = shutil.which("ffmpeg")
+    return Path(executable).parent if executable else None
 
 
 def test_short_mixed_playback_and_library_soak_has_bounded_resources():
-    if not (FFMPEG_BIN / "ffmpeg.exe").is_file():
+    binary_directory = ffmpeg_bin()
+    if binary_directory is None:
         pytest.skip("configured FFmpeg build is unavailable")
-    result = run(2, str(FFMPEG_BIN), live_radio=False, library_files=100)
+    result = run(2, str(binary_directory), live_radio=False, library_files=100)
     assert result["cycles"] >= 1
     assert result["library_files"] == 100
     assert result["growth"] < 64 * 1024 * 1024
 
 
 def test_short_broadcast_soak_produces_decodable_program_bytes():
-    if not (FFMPEG_BIN / "ffmpeg.exe").is_file():
+    binary_directory = ffmpeg_bin()
+    if binary_directory is None:
         pytest.skip("configured FFmpeg build is unavailable")
-    result = run(1, str(FFMPEG_BIN), live_radio=False, library_files=10, broadcast=True)
+    result = run(1, str(binary_directory), live_radio=False, library_files=10, broadcast=True)
     assert result["cycles"] >= 1
     assert result["broadcast_connections"] >= 1
     assert result["broadcast_bytes"] >= 1024
