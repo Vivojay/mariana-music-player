@@ -85,6 +85,7 @@ from mariana.credentials import CredentialError, CredentialStore
 from mariana.database import MarianaDatabase
 from mariana.desktop_control import DesktopControl
 from mariana.download import DownloadError, download_media
+from mariana.download_jobs import DownloadJobError, DownloadManager
 from mariana.identity import AcoustIDClient, IdentificationService, LRCLIBClient, MusicBrainzClient
 from mariana.library import LibraryCatalog, LibraryError
 from mariana.library_service import LibraryProfilerService
@@ -335,6 +336,12 @@ ALBUMS = AlbumCatalog(
     DATABASE,
     musicbrainz=IDENTITY.musicbrainz,
     browser_profile=SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile'),
+)
+DOWNLOADS = DownloadManager(
+    DATABASE,
+    ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'),
+    browser_profile=SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile'),
+    on_update=lambda payload: DESKTOP_CONTROL.emit('download', payload),
 )
 vas.configure(
     ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'),
@@ -1399,6 +1406,171 @@ def album_command(arguments):
         raise AlbumError(f'Invalid album command: {operation}')
 
 
+def _download_destination(value=None):
+    if value:
+        return Path(value).expanduser()
+    configured = (SETTINGS.get('download') or {}).get('downloads folder')
+    destination = Path(configured).expanduser() if configured else Path.home() / 'Music'
+    if (SETTINGS.get('download') or {}).get('make a separate mariana folder within "downloads folder"', True):
+        folder = ((SYSTEM_SETTINGS.get('system_settings') or {}).get('mariana_dl_dir') or 'Mariana Player')
+        destination /= str(folder)
+    return destination
+
+
+def _current_youtube_media():
+    if current_media_type == 0 and isinstance(currentsong, (tuple, list)) and len(currentsong) > 1:
+        return MediaRef(MediaSource.YOUTUBE, str(currentsong[1]), title=str(currentsong[0]))
+    media = vas.controller.snapshot().media
+    if media is None:
+        raise DownloadJobError('No media is currently active')
+    if media.source == MediaSource.LOCAL:
+        raise DownloadJobError('The active track is already stored locally and will not be downloaded again')
+    if media.source != MediaSource.YOUTUBE:
+        raise DownloadJobError('The active media is not a downloadable YouTube track')
+    return media
+
+
+def _confirm_download(message, *, assume_yes=False):
+    if assume_yes:
+        return True
+    answer = input(f'{message} (y/N): ').strip().casefold()
+    return answer in {'y', 'yes'}
+
+
+def _download_album_job(reference, values, *, quality, destination, yes):
+    selector, values = _command_option(values, '--tracks')
+    missing_only, values = _command_flag(values, '--missing-only')
+    allow_partial, values = _command_flag(values, '--allow-partial')
+    if values:
+        raise DownloadJobError(f'Unknown album download option(s): {" ".join(values)}')
+    album = ALBUMS.fetch(_album_reference(reference))
+    tracks = ALBUMS.select_tracks(album, selector)
+    unresolved = [track for track in tracks if track.media is None]
+    if unresolved and not allow_partial:
+        raise DownloadJobError(
+            f'{len(unresolved)} selected album track(s) are unresolved; use --allow-partial to skip them'
+        )
+    downloadable = [
+        track for track in tracks
+        if track.media is not None and track.media.source == MediaSource.YOUTUBE
+    ]
+    if not downloadable:
+        raise DownloadJobError('No selected album tracks require a YouTube download')
+    edition = ' / '.join(
+        value for value in (album.date, album.country, album.disambiguation) if value
+    ) or 'edition unspecified'
+    if not _confirm_download(
+        f'Download album {album.album_artist or "Unknown artist"} — {album.title} '
+        f'({edition}); {len(downloadable)} track(s), {len(unresolved)} unresolved; '
+        f'destination {destination}?',
+        assume_yes=yes,
+    ):
+        IPrint('Album download cancelled', visible=visible)
+        return None
+    metadata = [
+        {
+            'title': track.title,
+            'artist': track.artist,
+            'album': album.title,
+            'album_artist': album.album_artist,
+            'disc_number': track.disc_number,
+            'track_number': track.track_number,
+            'position': track.position,
+            'recording_mbid': track.recording_mbid,
+            'release_mbid': track.release_mbid or album.release_mbid,
+        }
+        for track in downloadable
+    ]
+    return DOWNLOADS.create(
+        [track.media for track in downloadable],
+        kind='album',
+        quality=quality,
+        destination=destination,
+        album_id=album.album_id,
+        metadata=metadata,
+        missing_only=missing_only,
+    )
+
+
+def download_audio_command(arguments):
+    values = list(arguments)
+    if values and values[0].lower() == 'status':
+        if len(values) > 2:
+            raise DownloadJobError('Usage: download-ya status [job-id]')
+        jobs = DOWNLOADS.status(values[1] if len(values) > 1 else None)
+        rows = [
+            (
+                job['job_id'],
+                job['kind'],
+                job['state'],
+                f"{job['completed_items']}/{job['total_items']}",
+                job.get('current_position') or '',
+                job.get('error') or '',
+            )
+            for job in jobs
+        ]
+        IPrint(
+            tbl(rows, headers=('Job', 'Kind', 'State', 'Done', 'Current', 'Error'), tablefmt='plain')
+            if rows else '(no download jobs)',
+            visible=visible,
+        )
+        return jobs
+    if values and values[0].lower() in {'pause', 'resume', 'cancel'}:
+        if len(values) != 2:
+            raise DownloadJobError(f'Usage: download-ya {values[0].lower()} <job-id>')
+        action = values[0].lower()
+        job = getattr(DOWNLOADS, action)(values[1])
+        IPrint(f'Download job {job.job_id}: {job.state.value}', visible=visible)
+        return job
+
+    album_mode, values = _command_flag(values, '--album')
+    track_mode, values = _command_flag(values, '--track')
+    quality, values = _command_option(values, '--quality')
+    destination_value, values = _command_option(values, '--to')
+    yes, values = _command_flag(values, '--yes')
+    quality = (quality or 'best').lower()
+    destination = _download_destination(destination_value)
+    if quality not in {'best', 'worst'}:
+        raise DownloadJobError('Download quality must be best or worst')
+    if destination.exists() and not destination.is_dir():
+        raise DownloadJobError('Download destination must be a directory')
+    if album_mode and track_mode:
+        raise DownloadJobError('Choose either --album or --track, not both')
+    if album_mode:
+        reference = values.pop(0) if values and not values[0].startswith('--') else 'current'
+        job = _download_album_job(
+            reference,
+            values,
+            quality=quality,
+            destination=destination,
+            yes=yes,
+        )
+    else:
+        if any(value.startswith('--') for value in values):
+            raise DownloadJobError(f'Unknown track download option(s): {" ".join(values)}')
+        if len(values) > 1:
+            raise DownloadJobError('Usage: download-ya [current|<YouTube-video-URL>] [--track] [options]')
+        target = values[0] if values else 'current'
+        media = _current_youtube_media() if target == 'current' else MediaRef(MediaSource.YOUTUBE, target)
+        if not _confirm_download(
+            f'Download YouTube audio {media.title or media.original_uri} to {destination}?',
+            assume_yes=yes,
+        ):
+            IPrint('Audio download cancelled', visible=visible)
+            return None
+        job = DOWNLOADS.create(
+            [media],
+            kind='track',
+            quality=quality,
+            destination=destination,
+            metadata=[{'title': media.title, 'artist': media.artist}],
+        )
+    del track_mode
+    if job:
+        IPrint(f'Download job queued: {job.job_id}', visible=visible)
+    return job
+
+
 def library_command(arguments):
     operation = arguments[0].lower() if arguments else 'status'
     if operation == 'roots':
@@ -2433,6 +2605,7 @@ def exitplayer(sys_exit=False):
     closures = (
         ('sleep timer', SLEEP_TIMER.close),
         ('station', STATION.close),
+        ('downloads', DOWNLOADS.close),
         ('broadcast', BROADCASTER.close),
         ('desktop control', DESKTOP_CONTROL.close),
         ('playback', vas.supervisor.close),
@@ -3447,12 +3620,22 @@ def process(command):
             'metadata': lambda values: media_command(['metadata', *values]),
             'rename': rename_command,
             'station': station_command,
+            'download-ya': download_audio_command,
         }
         if handler := routed.get(commandslist[0].casefold()):
             try:
                 handler(commandslist[1:])
                 return None
-            except (LibraryError, StationError, StationSeedError, YouTubeError, ValueError, OSError) as error:
+            except (
+                AlbumError,
+                DownloadJobError,
+                LibraryError,
+                StationError,
+                StationSeedError,
+                YouTubeError,
+                ValueError,
+                OSError,
+            ) as error:
                 SAY(
                     visible=visible,
                     display_message=str(error),

@@ -15,7 +15,7 @@ from typing import Any
 
 from .paths import runtime_paths
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 SCHEMA = """
@@ -127,6 +127,39 @@ CREATE TABLE IF NOT EXISTS album_search_results (
 );
 CREATE INDEX IF NOT EXISTS album_search_created_idx
 ON album_search_results(created_at DESC);
+CREATE TABLE IF NOT EXISTS download_jobs (
+    job_id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK(kind IN ('track', 'album')),
+    state TEXT NOT NULL,
+    quality TEXT NOT NULL,
+    destination TEXT NOT NULL,
+    album_id TEXT,
+    total_items INTEGER NOT NULL,
+    completed_items INTEGER NOT NULL DEFAULT 0,
+    current_position INTEGER,
+    error TEXT,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS download_jobs_state_idx
+ON download_jobs(state, created_at);
+CREATE TABLE IF NOT EXISTS download_items (
+    item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT NOT NULL REFERENCES download_jobs(job_id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    canonical_url TEXT NOT NULL,
+    media_json TEXT NOT NULL,
+    state TEXT NOT NULL,
+    progress REAL NOT NULL DEFAULT 0,
+    output_path TEXT,
+    error TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    updated_at REAL NOT NULL,
+    UNIQUE(job_id, position)
+);
+CREATE INDEX IF NOT EXISTS download_items_job_idx
+ON download_items(job_id, position);
 CREATE TABLE IF NOT EXISTS track_identities (
     stable_id TEXT PRIMARY KEY,
     identity_json TEXT NOT NULL,

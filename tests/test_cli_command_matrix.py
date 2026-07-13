@@ -73,6 +73,20 @@ def cli(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(main, "download_media", lambda *args, **kwargs: actions.append(("download-media", args, kwargs)) or tmp_path / "media.mp3")
     monkeypatch.setattr(main, "start_youtube_download", lambda parameters: actions.append(("download-job", parameters)))
+    monkeypatch.setattr(
+        main,
+        "DOWNLOADS",
+        SimpleNamespace(
+            create=lambda *args, **kwargs: (
+                actions.append(("persistent-download", args, kwargs))
+                or SimpleNamespace(job_id="download-job", state=SimpleNamespace(value="queued"))
+            ),
+            status=lambda *_args: [],
+            pause=lambda job_id: SimpleNamespace(job_id=job_id, state=SimpleNamespace(value="paused")),
+            resume=lambda job_id: SimpleNamespace(job_id=job_id, state=SimpleNamespace(value="queued")),
+            cancel=lambda job_id: SimpleNamespace(job_id=job_id, state=SimpleNamespace(value="cancelled")),
+        ),
+    )
     monkeypatch.setattr(main.sounddevice, "query_devices", lambda **_kwargs: {"name": "Test Device"})
     monkeypatch.setattr(main.os, "system", lambda command: actions.append(("system", command)) or 0)
     monkeypatch.setattr(main.sp, "Popen", lambda args, **kwargs: actions.append(("spawn", args, kwargs)))
@@ -513,13 +527,14 @@ def test_download_confirmation_and_rejection_paths(cli, monkeypatch):
     main.process("download-yv")
     main.process("download-ya")
     jobs = [action for action in cli.actions if action[0] == "download-job"]
-    assert [job[1]["typ"] for job in jobs] == [1, 0]
+    assert [job[1]["typ"] for job in jobs] == [1]
+    assert len([action for action in cli.actions if action[0] == "persistent-download"]) == 1
     assert not [action for action in cli.actions if action[0] == "spawn"]
 
     monkeypatch.setattr(main, "current_media_type", None)
     main.process("download-yv")
     main.process("download-ya")
-    assert any("local storage" in message.get("display_message", "") for message in cli.messages)
+    assert any("stored locally" in message.get("display_message", "") for message in cli.messages)
 
 
 def test_youtube_download_worker_never_spawns_another_mariana(monkeypatch):
@@ -544,8 +559,8 @@ def test_explicit_youtube_download_validates_syntax_without_network(cli, monkeyp
     main.process("download-yv https://example.test/watch?v=abc12345678")
 
     jobs = [action for action in cli.actions if action[0] == "download-job"]
-    assert len(jobs) == 1
-    assert jobs[0][1]["typ"] == 0
+    assert jobs == []
+    assert len([action for action in cli.actions if action[0] == "persistent-download"]) == 1
     assert any("Invalid YouTube URL for video download" in message["display_message"] for message in cli.messages)
 
 

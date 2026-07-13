@@ -114,6 +114,15 @@ class AlbumTrackStatus(StrEnum):
     AMBIGUOUS = "ambiguous"
 
 
+class DownloadState(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
 @dataclass(frozen=True, slots=True)
 class MediaChapter:
     title: str
@@ -372,3 +381,33 @@ class AlbumRef:
             for item in data.get("tracks", [])
         ]
         return cls(**data)
+
+
+@dataclass(slots=True)
+class DownloadItem:
+    item_id: int | None
+    job_id: str
+    position: int
+    media: MediaRef
+    state: DownloadState = DownloadState.QUEUED
+    progress: float = 0.0
+    output_path: str | None = None
+    error: str | None = None
+    attempts: int = 0
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class DownloadJob:
+    job_id: str
+    kind: str
+    state: DownloadState = DownloadState.QUEUED
+    quality: str = "best"
+    destination: str = ""
+    album_id: str | None = None
+    total_items: int = 0
+    completed_items: int = 0
+    current_position: int | None = None
+    error: str | None = None
+    created_at: float = 0.0
+    updated_at: float = 0.0
