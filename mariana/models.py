@@ -62,6 +62,34 @@ class IdentityStatus(StrEnum):
     UNAVAILABLE = "unavailable"
 
 
+class StationState(StrEnum):
+    LOADING = "loading"
+    READY = "ready"
+    PAUSED = "paused"
+    PARTIAL = "partial"
+    EXHAUSTED = "exhausted"
+    FAILED = "failed"
+    STOPPED = "stopped"
+
+
+@dataclass(frozen=True, slots=True)
+class MediaChapter:
+    title: str
+    start_time: float
+    end_time: float
+
+    def contains(self, position: float) -> bool:
+        return self.start_time <= position < self.end_time
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> MediaChapter:
+        return cls(
+            title=str(value["title"]),
+            start_time=float(value["start_time"]),
+            end_time=float(value["end_time"]),
+        )
+
+
 @dataclass(slots=True)
 class MediaCapabilities:
     finite: bool = True
@@ -91,6 +119,7 @@ class MediaRef:
     resolver_data: dict[str, Any] = field(default_factory=dict)
     provenance: str = "user"
     capabilities: MediaCapabilities = field(default_factory=MediaCapabilities)
+    chapters: list[MediaChapter] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.stable_id:
@@ -109,7 +138,14 @@ class MediaRef:
         capabilities = data.get("capabilities")
         if isinstance(capabilities, dict):
             data["capabilities"] = MediaCapabilities(**capabilities)
+        data["chapters"] = [
+            item if isinstance(item, MediaChapter) else MediaChapter.from_dict(item)
+            for item in data.get("chapters", [])
+        ]
         return cls(**data)
+
+    def chapter_at(self, position: float) -> MediaChapter | None:
+        return next((chapter for chapter in self.chapters if chapter.contains(position)), None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +164,22 @@ class PlaybackSnapshot:
     stream_metadata: dict[str, Any] = field(default_factory=dict)
     output_device: str | None = None
     output_backend: str | None = None
+    current_chapter: MediaChapter | None = None
+
+
+@dataclass(slots=True)
+class StationSession:
+    session_id: str
+    seed: MediaRef
+    scope: str = "hybrid"
+    limit: int | None = 50
+    state: StationState = StationState.LOADING
+    generated_count: int = 0
+    ready_ahead: int = 0
+    progress_message: str | None = None
+    error_code: str | None = None
+    created_at: float = 0.0
+    updated_at: float = 0.0
 
 
 @dataclass(slots=True)

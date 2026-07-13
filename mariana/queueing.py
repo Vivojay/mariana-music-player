@@ -7,10 +7,11 @@ import os
 import random
 import time
 from collections.abc import Iterable
+from dataclasses import asdict
 from typing import cast
 
 from .database import MarianaDatabase
-from .models import MediaCapabilities, MediaRef, MediaSource, QueueItem
+from .models import MediaCapabilities, MediaChapter, MediaRef, MediaSource, QueueItem
 from .sources import sanitized_resolver_data
 
 VALID_REPEAT_MODES = {"off", "one", "all"}
@@ -33,8 +34,8 @@ class PersistentQueue:
             """
             INSERT INTO media_items(
                 stable_id, source, original_uri, title, artist, album, duration,
-                capabilities_json, resolver_json, provenance, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                capabilities_json, resolver_json, chapters_json, provenance, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(stable_id) DO UPDATE SET
                 source=excluded.source,
                 original_uri=excluded.original_uri,
@@ -44,6 +45,7 @@ class PersistentQueue:
                 duration=COALESCE(excluded.duration, media_items.duration),
                 capabilities_json=excluded.capabilities_json,
                 resolver_json=excluded.resolver_json,
+                chapters_json=excluded.chapters_json,
                 provenance=excluded.provenance,
                 updated_at=excluded.updated_at
             """,
@@ -57,6 +59,7 @@ class PersistentQueue:
                 media.duration,
                 media.capabilities.to_json(),
                 json.dumps(sanitized_resolver_data(media.resolver_data), ensure_ascii=False, sort_keys=True),
+                json.dumps([asdict(chapter) for chapter in media.chapters], ensure_ascii=False),
                 media.provenance,
                 time.time(),
             ),
@@ -217,6 +220,20 @@ class PersistentQueue:
             ),
         )
 
+    def export_snapshot(self) -> dict:
+        """Return a JSON-safe snapshot of queue ordering and playback cursor."""
+        with self.database.transaction() as connection:
+            return self._snapshot(connection)
+
+    def restore_snapshot(self, snapshot: dict, *, origin: str = CUSTOM_ORIGIN) -> None:
+        """Atomically restore a snapshot previously returned by export_snapshot."""
+        if not isinstance(snapshot, dict):
+            raise QueueError("Queue snapshot must be an object")
+        with self.database.transaction() as connection:
+            self._record_history(connection)
+            self._restore_snapshot(connection, snapshot)
+            self._set_origin(connection, origin)
+
     def _renumber(self, connection, ordered_ids: list[int]) -> None:
         connection.execute("UPDATE queue_items SET position = position + 1000000")
         for position, queue_id in enumerate(ordered_ids):
@@ -226,7 +243,7 @@ class PersistentQueue:
         rows = self.database.fetchall(
             """
             SELECT q.*, m.source, m.original_uri, m.title, m.artist, m.album, m.duration,
-                   m.capabilities_json, m.resolver_json, m.provenance
+                   m.capabilities_json, m.resolver_json, m.chapters_json, m.provenance
             FROM queue_items q JOIN media_items m ON m.stable_id=q.stable_id
             ORDER BY q.position ASC
             """
@@ -243,6 +260,7 @@ class PersistentQueue:
                 duration=row["duration"],
                 capabilities=MediaCapabilities.from_json(row["capabilities_json"]),
                 resolver_data=json.loads(row["resolver_json"]),
+                chapters=[MediaChapter.from_dict(item) for item in json.loads(row["chapters_json"] or "[]")],
                 provenance=row["provenance"],
             )
             result.append(

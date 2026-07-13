@@ -8,7 +8,18 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from mariana.database import SCHEMA_VERSION, MarianaDatabase
-from mariana.models import IdentityStatus, MediaCapabilities, MediaRef, MediaSource, TrackIdentity
+from mariana.models import (
+    IdentityStatus,
+    MediaCapabilities,
+    MediaChapter,
+    MediaRef,
+    MediaSource,
+    PlaybackSnapshot,
+    PlaybackState,
+    StationSession,
+    StationState,
+    TrackIdentity,
+)
 from mariana.queueing import CUSTOM_ORIGIN, DEFAULT_LIBRARY_ORIGIN, PersistentQueue, QueueError
 
 
@@ -23,10 +34,15 @@ def test_media_and_identity_contracts_round_trip():
         title="Station",
         capabilities=MediaCapabilities(finite=False, live=True, seekable=False),
         resolver_data={"endpoint": 2},
+        chapters=[MediaChapter("Intro", 0, 12.5), MediaChapter("Song", 12.5, 60)],
     )
     restored = MediaRef.from_dict(original.to_dict())
     assert restored == original
     assert MediaRef(MediaSource.RADIO, original.original_uri).stable_id == original.stable_id
+    assert restored.chapter_at(12.5).title == "Song"
+    assert restored.chapter_at(60) is None
+    assert PlaybackSnapshot(PlaybackState.PLAYING, media=restored, current_chapter=restored.chapters[0])
+    assert StationSession("session", restored, state=StationState.PAUSED).state == StationState.PAUSED
 
     identity = TrackIdentity(
         IdentityStatus.IDENTIFIED,
@@ -85,7 +101,7 @@ def test_fresh_database_migration_failure_has_no_backup_to_restore(monkeypatch, 
     with pytest.raises(RuntimeError, match="fail"):
         MarianaDatabase(path)
     assert path.is_file()
-    assert not path.with_suffix(".db.pre-schema-4.bak").exists()
+    assert not path.with_suffix(f".db.pre-schema-{SCHEMA_VERSION}.bak").exists()
 
 
 def test_legacy_library_roots_schema_adds_origin_column(tmp_path: Path):
@@ -98,6 +114,23 @@ def test_legacy_library_roots_schema_adds_origin_column(tmp_path: Path):
     with MarianaDatabase(path) as database:
         columns = {row["name"] for row in database.fetchall("PRAGMA table_info(library_roots)")}
         assert "origin" in columns
+
+
+def test_legacy_media_schema_adds_chapters_and_station_tables(tmp_path: Path):
+    path = tmp_path / "legacy-media.db"
+    connection = sqlite3.connect(path)
+    connection.executescript(
+        "CREATE TABLE media_items(stable_id TEXT PRIMARY KEY);"
+        "CREATE TABLE schema_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);"
+        "INSERT INTO schema_meta VALUES('schema_version', '4');"
+    )
+    connection.close()
+
+    with MarianaDatabase(path) as database:
+        columns = {row["name"] for row in database.fetchall("PRAGMA table_info(media_items)")}
+        tables = {row["name"] for row in database.fetchall("SELECT name FROM sqlite_master")}
+        assert "chapters_json" in columns
+        assert {"station_sessions", "station_items"} <= tables
 
 
 def test_legacy_play_counts_are_backed_up_and_imported_once(tmp_path: Path):
@@ -135,13 +168,23 @@ def test_queue_full_lifecycle_and_restart(tmp_path: Path):
     with MarianaDatabase(path) as database:
         queue = PersistentQueue(database)
         queue.add(media("a"))
-        queue.add(media("c"))
+        chaptered = media("c")
+        chaptered.chapters = [MediaChapter("Verse", 1, 2)]
+        queue.add(chaptered)
         queue.add(media("b"), position=1, priority=10)
         assert [item.media.title for item in queue.items()] == ["a", "b", "c"]
         assert queue.jump(1).media.title == "b"
         queue.move(1, 2)
         assert [item.media.title for item in queue.items()] == ["a", "c", "b"]
         queue.swap(0, 2)
+        assert [item.media.title for item in queue.items()] == ["b", "c", "a"]
+        assert queue.items()[1].media.chapters[0].title == "Verse"
+
+        snapshot = queue.export_snapshot()
+        queue.clear()
+        with pytest.raises(QueueError, match="object"):
+            queue.restore_snapshot([])
+        queue.restore_snapshot(snapshot)
         assert [item.media.title for item in queue.items()] == ["b", "c", "a"]
         queue.set_repeat("all")
         queue.set_consume(True)

@@ -15,7 +15,7 @@ from typing import Any
 
 from .paths import runtime_paths
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 SCHEMA = """
@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS media_items (
     duration REAL,
     capabilities_json TEXT NOT NULL,
     resolver_json TEXT NOT NULL,
+    chapters_json TEXT NOT NULL DEFAULT '[]',
     provenance TEXT NOT NULL,
     updated_at REAL NOT NULL
 );
@@ -214,6 +215,39 @@ CREATE TABLE IF NOT EXISTS library_jobs (
 );
 CREATE INDEX IF NOT EXISTS library_jobs_ready_idx
 ON library_jobs(stage, status, next_retry, priority);
+CREATE TABLE IF NOT EXISTS station_sessions (
+    session_id TEXT PRIMARY KEY,
+    seed_json TEXT NOT NULL,
+    scope TEXT NOT NULL CHECK(scope IN ('hybrid', 'local', 'online')),
+    generation_limit INTEGER,
+    state TEXT NOT NULL,
+    generated_count INTEGER NOT NULL DEFAULT 0,
+    ready_ahead INTEGER NOT NULL DEFAULT 0,
+    progress_message TEXT,
+    error_code TEXT,
+    queue_snapshot_json TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS station_one_active_idx
+ON station_sessions(active) WHERE active = 1;
+CREATE TABLE IF NOT EXISTS station_items (
+    session_id TEXT NOT NULL REFERENCES station_sessions(session_id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    stable_id TEXT NOT NULL,
+    media_json TEXT NOT NULL,
+    score REAL NOT NULL DEFAULT 0,
+    reasons_json TEXT NOT NULL DEFAULT '[]',
+    provider TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ready',
+    played INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL,
+    PRIMARY KEY(session_id, position),
+    UNIQUE(session_id, stable_id)
+);
+CREATE INDEX IF NOT EXISTS station_items_ready_idx
+ON station_items(session_id, played, position);
 """
 
 
@@ -259,6 +293,13 @@ class MarianaDatabase:
             if "origin" not in root_columns:
                 connection.execute(
                     "ALTER TABLE library_roots ADD COLUMN origin TEXT NOT NULL DEFAULT 'library-file'"
+                )
+            media_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(media_items)").fetchall()
+            }
+            if "chapters_json" not in media_columns:
+                connection.execute(
+                    "ALTER TABLE media_items ADD COLUMN chapters_json TEXT NOT NULL DEFAULT '[]'"
                 )
             connection.execute(
                 "INSERT INTO schema_meta(key, value) VALUES('schema_version', ?) "
