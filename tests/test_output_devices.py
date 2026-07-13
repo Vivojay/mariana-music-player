@@ -97,6 +97,13 @@ def test_device_score_and_endpoint_fallback_branches(monkeypatch):
     monkeypatch.setattr(output_devices.os, "name", "posix")
     assert output_devices._windows_default_endpoint() is None
 
+    outputs = [
+        (0, {"name": "USB DAC"}, "Core Audio"),
+        (1, {"name": "Primary Sound Driver"}, "MME"),
+    ]
+    assert output_devices._system_mapper(outputs) == outputs[1]
+    assert output_devices._system_mapper(outputs[:1]) is None
+
 
 def test_windows_endpoint_empty_and_failure_are_safe(monkeypatch):
     audio_utilities = SimpleNamespace()
@@ -114,8 +121,14 @@ def test_windows_endpoint_empty_and_failure_are_safe(monkeypatch):
     monkeypatch.setattr(
         audio_utilities,
         "GetSpeakers",
-        staticmethod(lambda: SimpleNamespace(FriendlyName="", id="")),
+        staticmethod(lambda: SimpleNamespace(FriendlyName="Speakers", id="endpoint-id")),
         raising=False,
+    )
+    assert output_devices._windows_default_endpoint() == ("endpoint-id", "Speakers")
+    monkeypatch.setattr(
+        audio_utilities,
+        "GetSpeakers",
+        staticmethod(lambda: SimpleNamespace(FriendlyName="", id="")),
     )
     assert output_devices._windows_default_endpoint() is None
     monkeypatch.setattr(

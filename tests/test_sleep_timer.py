@@ -58,11 +58,17 @@ def test_sleep_timer_fades_and_pauses_exactly_once():
 
 def test_sleep_timer_can_stop_and_replacement_cancels_old_action():
     controller = Controller()
-    timer = SleepTimer(controller)
+    finished = threading.Event()
+    timer = SleepTimer(
+        controller,
+        on_update=lambda status: finished.set()
+        if not status.active and status.action == SleepAction.STOP
+        else None,
+    )
     timer.start(0.03, action="pause", fade_seconds=0)
     timer.start(0.08, action=SleepAction.STOP, fade_seconds=0)
-    time.sleep(0.15)
-    assert controller.actions == ["stop"]
+    assert finished.wait(1)
+    assert list(controller.actions) == ["stop"]
 
 
 def test_cancel_restores_gain_and_inactive_expiry_is_harmless():
