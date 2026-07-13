@@ -11,7 +11,7 @@ test('hosts the real Mariana PTY in the riced terminal shell', async () => {
     page.on('console', (message) => console.log(`[renderer:${message.type()}] ${message.text()}`))
     page.on('pageerror', (error) => console.error(`[renderer:error] ${error.message}`))
     await expect(page).toHaveTitle('Mariana')
-    await expect(page.getByLabel('Mariana command terminal')).toBeVisible()
+    await expect(page.getByLabel('Mariana command terminal')).toBeVisible({ timeout: 30_000 })
     await expect(page.locator('.backend-dot.ready')).toBeVisible({ timeout: 30_000 })
     await expect(page.getByLabel('Terminal theme')).toHaveValue('aurora')
     await page.evaluate(() => window.mariana.terminal.write('sleep status\r'))

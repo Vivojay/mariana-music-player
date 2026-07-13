@@ -14,6 +14,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const repositoryRoot = path.resolve(__dirname, '..')
 const isDevelopment = !app.isPackaged
 const usesViteRenderer = isDevelopment && process.env.MARIANA_E2E_USE_DIST !== '1'
+if (process.env.MARIANA_E2E === '1') {
+  app.setPath(
+    'userData',
+    process.env.MARIANA_E2E_DATA_DIR || path.join(app.getPath('temp'), `mariana-e2e-${process.pid}`),
+  )
+}
 const controlToken = randomBytes(32).toString('hex')
 const controlEndpoint = process.platform === 'win32'
   ? `\\\\.\\pipe\\mariana-${process.pid}-${randomBytes(8).toString('hex')}`
@@ -96,9 +102,11 @@ async function createControlServer(): Promise<void> {
 
 function backendCommand(): { executable: string; args: string[]; cwd: string; resources: string } {
   if (isDevelopment) {
-    const executable = process.platform === 'win32'
+    const virtualenvPython = process.platform === 'win32'
       ? path.join(repositoryRoot, '.venv', 'Scripts', 'python.exe')
       : path.join(repositoryRoot, '.venv', 'bin', 'python')
+    const executable = process.env.MARIANA_PYTHON
+      || (fs.existsSync(virtualenvPython) ? virtualenvPython : 'python')
     return { executable, args: ['main.py'], cwd: repositoryRoot, resources: repositoryRoot }
   }
   const backend = path.join(process.resourcesPath, 'backend')
