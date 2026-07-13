@@ -45,6 +45,22 @@ before the production release preflight can pass.
 
 ## Installation
 
+### Windows installer (development pre-release)
+
+Download `Mariana-0.7.0-dev.2-windows-x64.exe` from the
+[v0.7.0-dev.2 pre-release](https://github.com/Vivojay/mariana-music-player/releases/tag/v0.7.0-dev.2),
+then launch it from Explorer or PowerShell:
+
+```powershell
+.\Mariana-0.7.0-dev.2-windows-x64.exe
+```
+
+This development installer is not Authenticode-signed, so Windows may display
+a publisher warning. It is not the stable `0.7.0` release and still requires a
+configured FFmpeg toolchain as described above.
+
+### Source and CLI
+
 ```powershell
 git clone https://github.com/Vivojay/mariana-music-player.git
 Set-Location mariana-music-player
