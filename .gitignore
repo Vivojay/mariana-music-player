@@ -27,7 +27,7 @@ venv/
 /.hypothesis/
 /.pytest_cache/
 /pytest-cache-files-*/
-/.test-tmp-*/
+/.test-*/
 
 # React/Electron build artifacts
 /node_modules/
