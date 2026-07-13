@@ -165,12 +165,16 @@ def probe_media(
     return media
 
 
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
 class WindowsJob:
     """Best-effort kill-on-close Windows job for child process cleanup."""
 
     def __init__(self, process: subprocess.Popen):
         self.handle = None
-        if os.name != "nt":
+        if not _is_windows():
             return
         try:
             import win32job

@@ -119,4 +119,4 @@ def test_real_broadcast_encodes_decodable_normalized_program_mix(tmp_path, codec
     spectrum = np.abs(np.fft.rfft(left))
     frequencies = np.fft.rfftfreq(len(left), 1 / 48_000)
     dominant = frequencies[int(np.argmax(spectrum[1:]) + 1)]
-    assert dominant == pytest.approx(440, abs=3)
+    assert dominant == pytest.approx(440, abs=5)

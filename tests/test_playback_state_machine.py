@@ -653,8 +653,38 @@ def test_windows_job_none_handle_and_legacy_tool_lookup(monkeypatch, tmp_path):
         CreateJobObject=lambda *_args: None,
         JobObjectExtendedLimitInformation=1,
     )
+    monkeypatch.setattr(playback, "_is_windows", lambda: True)
     monkeypatch.setitem(sys.modules, "win32job", fake_job)
     job = playback.WindowsJob(SimpleNamespace(_handle=1))
+    assert job.handle is None
+
+
+def test_windows_job_assigns_and_closes_handle_on_every_test_platform(monkeypatch):
+    calls = []
+    information = {"BasicLimitInformation": {"LimitFlags": 0}}
+    fake_job = SimpleNamespace(
+        CreateJobObject=lambda *_args: "job-handle",
+        QueryInformationJobObject=lambda *_args: information,
+        SetInformationJobObject=lambda *args: calls.append(("set", args)),
+        AssignProcessToJobObject=lambda *args: calls.append(("assign", args)),
+        JobObjectExtendedLimitInformation=1,
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE=2,
+    )
+    fake_api = SimpleNamespace(CloseHandle=lambda handle: calls.append(("close", handle)))
+    monkeypatch.setattr(playback, "_is_windows", lambda: True)
+    monkeypatch.setitem(sys.modules, "win32job", fake_job)
+    monkeypatch.setitem(sys.modules, "win32api", fake_api)
+
+    job = playback.WindowsJob(SimpleNamespace(_handle=7))
+    assert job.handle == "job-handle"
+    assert information["BasicLimitInformation"]["LimitFlags"] == 2
+    assert calls[:2] == [
+        ("set", ("job-handle", 1, information)),
+        ("assign", ("job-handle", 7)),
+    ]
+
+    job.close()
+    assert calls[-1] == ("close", "job-handle")
     assert job.handle is None
 
 
