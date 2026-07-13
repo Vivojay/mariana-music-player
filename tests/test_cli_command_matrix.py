@@ -641,6 +641,7 @@ def test_durable_lyrics_edit_creates_sidecar_only_after_confirmation(cli, monkey
     monkeypatch.setattr(main.vas.controller, "snapshot", lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=media))
     monkeypatch.setattr(main.vas.controller, "fingerprint_pcm", lambda: b"pcm")
     monkeypatch.setattr(main, "_preference_media", lambda value: value)
+    monkeypatch.setattr(main, "open_path", lambda _path: None)
     monkeypatch.setattr(
         main.IDENTITY,
         "identify",

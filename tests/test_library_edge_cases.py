@@ -55,6 +55,13 @@ def test_helpers_cover_missing_large_and_platform_variants(monkeypatch, tmp_path
     assert _safe_text("  ") is None
     assert file_key(SimpleNamespace(st_dev=1, st_ino=0)) is None
     assert root_kind(Path("//server/share")) == "network"
+    monkeypatch.setattr(library_module.sys, "platform", "win32")
+    monkeypatch.setattr(
+        ctypes,
+        "windll",
+        SimpleNamespace(kernel32=SimpleNamespace(GetDriveTypeW=lambda _anchor: 2)),
+        raising=False,
+    )
     monkeypatch.setattr(ctypes.windll.kernel32, "GetDriveTypeW", lambda _anchor: 2)
     assert root_kind(tmp_path) == "removable"
     monkeypatch.setattr(ctypes.windll.kernel32, "GetDriveTypeW", lambda _anchor: 4)

@@ -21,20 +21,22 @@ from mariana.playback import PlaybackController
 from mariana.radio import RadioCatalog
 from tools.soak_test import NullOutputStream
 
-CONFIGURED_FFMPEG = Path(
-    r"C:\Users\Vivan.Jaiswal\Documents\ffmpeg-2025-12-18-git-78c75d546a-essentials_build\bin"
-)
-
 
 def media_tool(name):
-    candidate = CONFIGURED_FFMPEG / f"{name}.exe"
-    return str(candidate) if candidate.is_file() else shutil.which(name)
+    if configured := os.environ.get("MARIANA_TEST_FFMPEG_BIN"):
+        candidate = Path(configured).expanduser() / (f"{name}.exe" if os.name == "nt" else name)
+        if candidate.is_file():
+            return str(candidate)
+    return shutil.which(name)
 
 
 def assert_live_decode(media):
+    ffmpeg = media_tool("ffmpeg")
+    ffprobe = media_tool("ffprobe")
+    assert ffmpeg and ffprobe
     controller = PlaybackController(
-        ffmpeg_bin=str(CONFIGURED_FFMPEG),
-        ffprobe_bin=str(CONFIGURED_FFMPEG),
+        ffmpeg_bin=str(Path(ffmpeg).parent),
+        ffprobe_bin=str(Path(ffprobe).parent),
         output_factory=NullOutputStream,
     )
     try:

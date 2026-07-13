@@ -1,5 +1,6 @@
 """Real-process acceptance for the installed FFmpeg and Chromaprint toolchain."""
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -10,14 +11,13 @@ from mariana.identity import find_fpcalc, fingerprint_file
 from mariana.models import MediaRef, MediaSource
 from mariana.playback import DecoderSession, probe_media
 
-CONFIGURED_FFMPEG = Path(
-    r"C:\Users\Vivan.Jaiswal\Documents\ffmpeg-2025-12-18-git-78c75d546a-essentials_build\bin"
-)
-
 
 def tool(name: str) -> str | None:
-    candidate = CONFIGURED_FFMPEG / f"{name}.exe"
-    return str(candidate) if candidate.is_file() else shutil.which(name)
+    if configured := os.environ.get("MARIANA_TEST_FFMPEG_BIN"):
+        candidate = Path(configured).expanduser() / (f"{name}.exe" if os.name == "nt" else name)
+        if candidate.is_file():
+            return str(candidate)
+    return shutil.which(name)
 
 
 @pytest.fixture(scope="module")
@@ -30,7 +30,7 @@ def media_fixtures(tmp_path_factory):
         "wav": ["-c:a", "pcm_s16le"],
         "mp3": ["-c:a", "libmp3lame"],
         "flac": ["-c:a", "flac"],
-        "ogg": ["-c:a", "libvorbis"],
+        "ogg": ["-c:a", "libopus"],
         "aac": ["-c:a", "aac", "-f", "adts"],
         "webm": ["-c:a", "libopus"],
     }

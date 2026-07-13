@@ -99,6 +99,9 @@ def test_documentation_gate_main_and_ignored_trees(tmp_path, monkeypatch, capsys
     test_temporary = tmp_path / ".test-tmp-example"
     test_temporary.mkdir()
     (test_temporary / "fixture.md").write_text("ignored", encoding="utf-8")
+    generated = tmp_path / "temp"
+    generated.mkdir()
+    (generated / "fixture.md").write_text("ignored", encoding="utf-8")
     assert docs_gate.markdown_files(tmp_path) == [tmp_path / "README.md"]
     monkeypatch.setattr(docs_gate, "verify", lambda _root: [])
     docs_gate.main()

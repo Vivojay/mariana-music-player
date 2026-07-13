@@ -6,6 +6,7 @@ import os
 import shutil
 import stat
 import tempfile
+import time
 import uuid
 from pathlib import Path
 
@@ -18,6 +19,18 @@ HTTP_TIMEOUT = (10, 60)
 
 class SampleSetupError(RuntimeError):
     """Raised when the optional sample step was selected but did not complete."""
+
+
+def _replace_with_retry(source: Path, destination: Path, *, attempts: int = 5) -> None:
+    """Atomically replace a path despite brief Windows scanner/indexer locks."""
+    for attempt in range(attempts):
+        try:
+            os.replace(source, destination)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.05 * (attempt + 1))
 
 
 def _answer(prompt: str) -> bool:
@@ -49,7 +62,7 @@ def _save_library_paths(paths: list[str]) -> None:
             stream.write("\n".join(output).rstrip() + "\n")
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, destination)
+        _replace_with_retry(temporary, destination)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -99,7 +112,7 @@ def download_cloud_mariana_samples(about):
         if destination.exists():
             shutil.rmtree(staging)
         else:
-            os.replace(staging, destination)
+            _replace_with_retry(staging, destination)
         return destination
     finally:
         archive_path.unlink(missing_ok=True)

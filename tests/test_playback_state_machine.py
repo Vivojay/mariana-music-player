@@ -256,6 +256,11 @@ def test_launch_ffplay_success_and_failure(monkeypatch):
 
 def test_decoder_start_http_command_errors_and_forced_kill(monkeypatch):
     commands = []
+    monkeypatch.setattr(
+        playback,
+        "_ffmpeg_http_options",
+        lambda _executable: {"reconnect_max_retries", "reconnect_delay_total_max", "respect_retry_after"},
+    )
 
     class Pipe:
         def read(self, _size=-1):
@@ -266,6 +271,7 @@ def test_decoder_start_http_command_errors_and_forced_kill(monkeypatch):
 
     class Process:
         _handle = 1
+        pid = 42
 
         def __init__(self):
             self.stdout = Pipe()
@@ -300,6 +306,7 @@ def test_decoder_start_http_command_errors_and_forced_kill(monkeypatch):
     session = playback.DecoderSession(media, start_at=2)
     session.start()
     assert "-reconnect" in commands[0] and "-ss" in commands[0]
+    assert "-reconnect_max_retries" in commands[0] and "-respect_retry_after" in commands[0]
     session.start()
     session.stop()
     assert process.terminated and process.killed
@@ -419,6 +426,7 @@ def test_decoder_properties_timeout_filter_and_private_tunnel(monkeypatch):
 
     monkeypatch.setattr("mariana.credentials.ListenerAuthTunnel", Tunnel)
     monkeypatch.setattr(playback.subprocess, "Popen", lambda command, **_kwargs: commands.append(command) or Process())
+    monkeypatch.setattr(playback, "_ffmpeg_http_options", lambda _executable: frozenset())
     monkeypatch.setattr(playback, "WindowsJob", lambda _process: SimpleNamespace(close=lambda: None))
 
     class NoThread:
@@ -634,7 +642,7 @@ def test_decoder_posix_shutdown_and_seek_failure(controller, monkeypatch):
 def test_windows_job_none_handle_and_legacy_tool_lookup(monkeypatch, tmp_path):
     legacy = tmp_path / ".tools"
     legacy.mkdir()
-    executable = legacy / "ffmpeg.exe"
+    executable = legacy / ("ffmpeg.exe" if playback.os.name == "nt" else "ffmpeg")
     executable.write_bytes(b"tool")
     monkeypatch.setattr("mariana.toolchain.find_managed_executable", lambda _name: None)
     monkeypatch.setattr("mariana.paths.runtime_paths", lambda: SimpleNamespace(resource=lambda _name: legacy))

@@ -13,6 +13,7 @@ import time
 from array import array
 from collections import deque
 from collections.abc import Callable
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Protocol, cast
 
@@ -67,6 +68,23 @@ def find_executable(name: str, configured_bin: str | None = None) -> str:
     if executable:
         return executable
     raise PlaybackError(f"{name} was not found; configure the FFmpeg bin directory or add it to PATH")
+
+
+@lru_cache(maxsize=8)
+def _ffmpeg_http_options(executable: str) -> frozenset[str]:
+    optional = {"reconnect_max_retries", "reconnect_delay_total_max", "respect_retry_after"}
+    try:
+        result = subprocess.run(
+            [executable, "-hide_banner", "-h", "protocol=http"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return frozenset()
+    output = f"{result.stdout}\n{result.stderr}"
+    return frozenset(option for option in optional if option in output)
 
 
 def resolve_input(media: MediaRef) -> str:
@@ -295,13 +313,15 @@ class DecoderSession:
                 "1",
                 "-reconnect_delay_max",
                 "5",
-                "-reconnect_max_retries",
-                "3",
-                "-reconnect_delay_total_max",
-                "30",
-                "-respect_retry_after",
-                "1",
             ]
+            supported = _ffmpeg_http_options(self.ffmpeg)
+            for option, value in (
+                ("reconnect_max_retries", "3"),
+                ("reconnect_delay_total_max", "30"),
+                ("respect_retry_after", "1"),
+            ):
+                if option in supported:
+                    command += [f"-{option}", value]
             if self.media.capabilities.live:
                 command += ["-icy", "1"]
         if self.resolved and self.resolved.headers:

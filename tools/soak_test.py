@@ -132,6 +132,7 @@ def run(
     broadcast: bool = False,
 ) -> dict:
     process = psutil.Process()
+    existing_children = {child.pid for child in process.children(recursive=True)}
     baseline = process.memory_info().rss
     peak = baseline
     cycles = 0
@@ -271,7 +272,11 @@ def run(
                 raise RuntimeError(f"Library soak failed: {library_failure}")
             if broadcast_sink and (not broadcast_sink.connections or broadcast_sink.bytes_received < 1024):
                 raise RuntimeError("Broadcast soak produced no encoded program stream")
-    children = [child for child in process.children(recursive=True) if child.is_running()]
+    children = [
+        child
+        for child in process.children(recursive=True)
+        if child.pid not in existing_children and child.is_running()
+    ]
     growth = peak - baseline
     if children:
         raise RuntimeError(f"Orphan child processes: {[(child.name(), child.pid) for child in children]}")

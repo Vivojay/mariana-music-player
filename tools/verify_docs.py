@@ -27,7 +27,7 @@ REQUIRED_COMMAND_FAMILIES = {
 
 
 def markdown_files(root: Path) -> list[Path]:
-    ignored = {"node_modules", "release", "dist", "dist-electron", "build", ".venv"}
+    ignored = {"node_modules", "release", "dist", "dist-electron", "build", "temp", ".venv"}
     return [
         path
         for path in root.rglob("*.md")

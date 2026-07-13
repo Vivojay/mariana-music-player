@@ -48,6 +48,41 @@ def test_sample_download_extracts_valid_archive_and_removes_zip(monkeypatch, tmp
     assert not (tmp_path / "mariana_samples.zip").exists()
 
 
+def test_atomic_setup_replace_retries_transient_permission_error(monkeypatch, tmp_path):
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    source.write_text("ready", encoding="utf-8")
+    real_replace = first_boot_setup.os.replace
+    calls = []
+
+    def transient_replace(current, target):
+        calls.append((current, target))
+        if len(calls) == 1:
+            raise PermissionError("temporarily locked")
+        real_replace(current, target)
+
+    monkeypatch.setattr(first_boot_setup.os, "replace", transient_replace)
+    monkeypatch.setattr(first_boot_setup.time, "sleep", lambda _delay: None)
+    first_boot_setup._replace_with_retry(source, destination)
+
+    assert len(calls) == 2
+    assert destination.read_text(encoding="utf-8") == "ready"
+
+
+def test_atomic_setup_replace_propagates_persistent_permission_error(monkeypatch, tmp_path):
+    source = tmp_path / "source"
+    source.write_text("ready", encoding="utf-8")
+    monkeypatch.setattr(
+        first_boot_setup.os,
+        "replace",
+        lambda *_args: (_ for _ in ()).throw(PermissionError("locked")),
+    )
+    monkeypatch.setattr(first_boot_setup.time, "sleep", lambda _delay: None)
+
+    with pytest.raises(PermissionError, match="locked"):
+        first_boot_setup._replace_with_retry(source, tmp_path / "destination", attempts=2)
+
+
 @pytest.mark.parametrize("member", ["../escape.txt", "album/../../escape.txt"])
 def test_sample_download_rejects_archive_path_traversal(monkeypatch, tmp_path, member):
     prepare_first_boot_download(monkeypatch, tmp_path, zip_bytes(member))

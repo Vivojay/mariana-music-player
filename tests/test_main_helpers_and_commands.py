@@ -465,6 +465,16 @@ def test_create_files_save_user_data_and_run_lifecycle(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "initialize_audio_output", lambda: events.append("audio"))
     monkeypatch.setattr(main, "save_user_data", lambda: events.append("save"))
     monkeypatch.setattr(main, "mainprompt", lambda: events.append("prompt"))
+    monkeypatch.setattr(
+        main,
+        "DESKTOP_CONTROL",
+        SimpleNamespace(
+            start_playback_monitor=lambda _callback: None,
+            start_safety_monitor=lambda _callback: None,
+            emit=lambda *_args: None,
+        ),
+    )
+    monkeypatch.setattr(main, "LIBRARY_SERVICE", SimpleNamespace(start=lambda **_kwargs: None))
     main.run()
     assert events == ["audio", "save", "prompt"]
     assert user["default_user_data"]["stats"]["log_ins"] == 1

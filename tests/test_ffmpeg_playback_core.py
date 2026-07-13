@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from array import array
 from pathlib import Path
@@ -26,12 +27,37 @@ class FakeStream:
 
 
 def test_find_executable_and_missing(tmp_path: Path, monkeypatch):
-    executable = tmp_path / "ffmpeg.exe"
+    executable = tmp_path / ("ffmpeg.exe" if os.name == "nt" else "ffmpeg")
     executable.write_bytes(b"")
     assert playback.find_executable("ffmpeg", str(tmp_path)) == str(executable.resolve())
     monkeypatch.setattr(playback.shutil, "which", lambda _name: None)
     with pytest.raises(playback.PlaybackError, match="was not found"):
         playback.find_executable("missing")
+
+
+def test_http_retry_option_detection_is_version_aware(monkeypatch):
+    playback._ffmpeg_http_options.cache_clear()
+    monkeypatch.setattr(
+        playback.subprocess,
+        "run",
+        lambda *_args, **_kwargs: type(
+            "Result",
+            (),
+            {"stdout": "reconnect_max_retries respect_retry_after", "stderr": "reconnect_delay_total_max"},
+        )(),
+    )
+    assert playback._ffmpeg_http_options("new-ffmpeg") == {
+        "reconnect_max_retries",
+        "reconnect_delay_total_max",
+        "respect_retry_after",
+    }
+    monkeypatch.setattr(
+        playback.subprocess,
+        "run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(subprocess.TimeoutExpired("ffmpeg", 5)),
+    )
+    assert playback._ffmpeg_http_options("unavailable-ffmpeg") == frozenset()
+    playback._ffmpeg_http_options.cache_clear()
 
 
 def test_probe_media_normalizes_metadata_and_capabilities(monkeypatch):

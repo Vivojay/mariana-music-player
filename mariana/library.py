@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -71,6 +72,7 @@ def parse_library_file(path: Path | str = DEFAULT_LIBRARY_FILE) -> list[Path]:
         value = raw.strip()
         if not value or value.startswith("#"):
             continue
+        value = re.sub(r"%([^%]+)%", lambda match: os.environ.get(match.group(1), match.group(0)), value)
         expanded = Path(os.path.expandvars(os.path.expanduser(value))).absolute()
         key = path_key(expanded)
         if key not in seen:
@@ -83,7 +85,7 @@ def root_kind(path: Path) -> str:
     value = str(path)
     if value.startswith(("\\\\", "//")):
         return "network"
-    if os.name == "nt":
+    if sys.platform == "win32":
         try:
             import ctypes
 

@@ -1,5 +1,6 @@
 """Real FFmpeg encoder acceptance through Mariana's authenticated loopback tunnel."""
 
+import os
 import shutil
 import socket
 import subprocess
@@ -12,14 +13,13 @@ import pytest
 
 from mariana.broadcast import BroadcastProfile, BroadcastState, IcecastBroadcaster
 
-CONFIGURED_FFMPEG = Path(
-    r"C:\Users\Vivan.Jaiswal\Documents\ffmpeg-2025-12-18-git-78c75d546a-essentials_build\bin"
-)
-
 
 def tool(name: str) -> str | None:
-    candidate = CONFIGURED_FFMPEG / f"{name}.exe"
-    return str(candidate) if candidate.is_file() else shutil.which(name)
+    if configured := os.environ.get("MARIANA_TEST_FFMPEG_BIN"):
+        candidate = Path(configured).expanduser() / (f"{name}.exe" if os.name == "nt" else name)
+        if candidate.is_file():
+            return str(candidate)
+    return shutil.which(name)
 
 
 class Credentials:
@@ -88,6 +88,7 @@ def test_real_broadcast_encodes_decodable_normalized_program_mix(tmp_path, codec
     for offset in range(0, len(stereo), 1024):
         block = stereo[offset : offset + 1024]
         broadcaster.offer(block, len(block))
+        time.sleep(len(block) / 48_000)
     time.sleep(0.5)
     broadcaster.stop()
     thread.join(10)
