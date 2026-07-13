@@ -118,7 +118,9 @@ def media_DL(SETTINGS,
         typ = ['audio', 'video'].index(typ)
 
     output_kind = ('audio', 'video')[typ]
-    ydl_outtmpl = os.path.join(dl_dir, f"%(title)s [{output_kind}].%(ext)s")
+    # Preserve the stable source ID in the filename so metadata-aware renaming and
+    # library deduplication can recover provenance even when tags are unavailable.
+    ydl_outtmpl = os.path.join(dl_dir, f"%(title)s [%(id)s] [{output_kind}].%(ext)s")
 
     if quality is None:
         if typ == 0:
@@ -155,6 +157,9 @@ def media_DL(SETTINGS,
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
                 'preferredquality': '192',
+            }, {
+                'key': 'FFmpegMetadata',
+                'add_metadata': True,
             }]
 
     if type(media_urls) != list:

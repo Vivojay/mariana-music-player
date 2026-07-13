@@ -25,14 +25,19 @@ visible: true
 editor path:
 get related songs: true
 
+appearance:
+  terminal theme: aurora
+
 media tools:
   ffmpeg bin:
   fpcalc bin:
   rsgain bin:
+  javascript bin:
 
 playback:
   crossfade seconds: 0
   buffer seconds: 8
+  autoplay: true
 
 replaygain:
   enabled: false

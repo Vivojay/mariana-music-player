@@ -237,6 +237,34 @@ def test_setup_repair_without_existing_state_and_process_matching(monkeypatch, t
     assert SetupStateStore._process_matches({}) is False
 
 
+def test_setup_state_replace_retries_sharing_violations_only(monkeypatch, tmp_path: Path):
+    source = tmp_path / "pending.json"
+    destination = tmp_path / "setup-state.json"
+    source.write_text("{}", encoding="utf-8")
+    calls = []
+    real_replace = __import__("os").replace
+
+    def transient_replace(left, right):
+        calls.append((left, right))
+        if len(calls) < 3:
+            raise PermissionError("scanner has the state file open")
+        real_replace(left, right)
+
+    monkeypatch.setattr("mariana.setup.os.replace", transient_replace)
+    monkeypatch.setattr("mariana.setup.time.sleep", lambda _seconds: None)
+    SetupStateStore._replace_state(source, destination, attempts=3)
+    assert destination.read_text(encoding="utf-8") == "{}"
+    assert len(calls) == 3
+
+    source.write_text("new", encoding="utf-8")
+    monkeypatch.setattr(
+        "mariana.setup.os.replace",
+        lambda _left, _right: (_ for _ in ()).throw(PermissionError("still locked")),
+    )
+    with pytest.raises(PermissionError, match="still locked"):
+        SetupStateStore._replace_state(source, destination, attempts=1)
+
+
 def test_setup_lock_recovers_corrupt_file_and_preserves_replaced_owner(tmp_path: Path):
     store = setup_store(tmp_path)
     store.lock_path.write_text("corrupt", encoding="utf-8")

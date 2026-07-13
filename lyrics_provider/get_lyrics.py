@@ -1,9 +1,7 @@
 
-import json
 import os
 import re
-import subprocess
-import sys
+import threading
 from pathlib import Path
 
 from config_manager import load_system_settings, load_user_settings
@@ -276,16 +274,21 @@ def show_window(max_wait_lim,
     # (if the user wants to)
     #
 
-    lyrics_spawn_params_dict = {
+    lyrics_spawn_params = {
         'text_to_be_displayed': text_to_be_displayed,
         'head_text': head_text,
         'foot_text': FOOT_TEXT,
     }
+    from .lyrics_window_spawn import spawn_lyrics_window
 
-    lyrics_spawn_params_str = json.dumps(lyrics_spawn_params_dict)
-
-    subprocess.Popen(
-        [sys.executable, str(Path(__file__).with_name('lyrics_window_spawn.py')), lyrics_spawn_params_str],
-        shell=False,
-        cwd=APP_DIR,
+    # A frozen build's sys.executable is Mariana itself. Launching the helper with
+    # it used to create a second full player session. A daemon UI thread keeps the
+    # lyrics window independent without spawning the application recursively.
+    worker = threading.Thread(
+        target=spawn_lyrics_window,
+        kwargs=lyrics_spawn_params,
+        name='mariana-lyrics-window',
+        daemon=True,
     )
+    worker.start()
+    return worker

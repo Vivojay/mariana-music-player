@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "bundle": "official-tools-2026.07",
+  "bundle": "official-tools-2026.07.1",
   "platforms": {
     "win32-x64": [
       {
@@ -23,6 +23,13 @@
         "sha256": "8d6e16d1af5a805fb2dd6183e11f4f8bc51240f8a896fd37ab8fca655bb70800",
         "archive": "zip",
         "executables": ["rsgain"]
+      },
+      {
+        "name": "Deno 2.9.2",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.2/deno-x86_64-pc-windows-msvc.zip",
+        "sha256": "5fe194d26ac5ef77fcc5288c2c438c7a0465f3b6180440ebf04092714bf2dcdf",
+        "archive": "zip",
+        "executables": ["deno"]
       }
     ]
   }

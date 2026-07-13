@@ -80,10 +80,22 @@ class SetupStateStore:
                 json.dump(asdict(state), stream, indent=2, sort_keys=True)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temporary, self.path)
+            self._replace_state(temporary, self.path)
         finally:
             temporary.unlink(missing_ok=True)
         return state
+
+    @staticmethod
+    def _replace_state(source: Path, destination: Path, attempts: int = 6) -> None:
+        """Retry only transient Windows sharing violations, never disk failures."""
+        for attempt in range(attempts):
+            try:
+                os.replace(source, destination)
+                return
+            except PermissionError:
+                if attempt + 1 == attempts:
+                    raise
+                time.sleep(0.025 * (2**attempt))
 
     def begin(self, step: str | None = None) -> SetupState:
         state = self.load()

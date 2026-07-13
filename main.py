@@ -19,23 +19,38 @@
 import threading
 import time
 
-APP_BOOT_START_TIME = time.time();                  print("Loaded 1/31",  end='\r')
+_BOOT_TOTAL = 31
 
-import os;                                          print("Loaded 2/31",  end='\r')
+
+def _boot_progress(step, label=''):
+    """Render one in-place, text-and-bar startup progress update."""
+    width = 24
+    completed = max(0, min(width, round(width * step / _BOOT_TOTAL)))
+    bar = '#' * completed + '-' * (width - completed)
+    print(
+        f"Loaded {step}/{_BOOT_TOTAL} [{bar}] {step / _BOOT_TOTAL:>4.0%} {label:<18}",
+        end='\r',
+        flush=True,
+    )
+
+
+APP_BOOT_START_TIME = time.time();                  _boot_progress(1, 'core')
+
+import os;                                          _boot_progress(2, 'paths')
 # import itertools;                                   print("Loaded 3/31",  end='\r')
 
-import re;                                          print("Loaded 3/31",  end='\r')
-import sys;                                         print("Loaded 4/31",  end='\r')
-print("Loaded 6/31",  end='\r')
-import random as rand;                              print("Loaded 7/31",  end='\r')
-import importlib;                                   print("Loaded 8/31",  end='\r')
-import terminal_colors as colored;                  print("Loaded 9/31", end='\r')
-import subprocess as sp;                            print("Loaded 10/31", end='\r')
+import re;                                          _boot_progress(3, 'matching')
+import sys;                                         _boot_progress(4, 'runtime')
+_boot_progress(5, 'runtime')
+import random as rand;                              _boot_progress(6, 'selection')
+import importlib;                                   _boot_progress(7, 'extensions')
+import terminal_colors as colored;                  _boot_progress(8, 'terminal')
+import subprocess as sp;                            _boot_progress(9, 'processes')
 import shutil
-import restore_default;                             print("Loaded 11/31", end='\r')
-print("Loaded 12/31", end='\r')
-import json;                                        print("Loaded 13/31", end='\r')
-import webbrowser;                                  print("Loaded 14/31", end='\r')
+import restore_default;                             _boot_progress(10, 'configuration')
+_boot_progress(11, 'configuration')
+import json;                                        _boot_progress(12, 'storage')
+import webbrowser;                                  _boot_progress(13, 'web links')
 import tempfile
 from pathlib import Path
 
@@ -45,16 +60,15 @@ SYSTEM_TRUST_STORE_ENABLED = enable_system_trust_store()
 
 # import concurrent.futures;                          print("Loaded 15/31", end='\r')
 
-import sounddevice;                                 print("Loaded 15/31", end='\r')
+import sounddevice;                                 _boot_progress(14, 'audio devices')
 # from scipy.io.wavfile import read;                  print("Loaded 15/31", end='\r')
-from getpass import getpass;                        print("Loaded 16/31", end='\r')
-from url_validate import id_if_url_is_of_yt_format, url_is_valid; print("Loaded 17/31", end='\r')
-from tabulate import tabulate as tbl;               print("Loaded 18/31", end='\r')
-from ruamel.yaml import YAML;                       print("Loaded 19/31", end='\r')
-from collections.abc import Iterable;               print("Loaded 20/31", end='\r')
-from logger import SAY;                             print("Loaded 21/31", end='\r')
-from multiprocessing import Process;                print("Loaded 22/31", end='\r')
-from first_boot_welcome_screen import notify;       print("Loaded 23/31", end='\r')
+from getpass import getpass;                        _boot_progress(15, 'prompts')
+from url_validate import id_if_url_is_of_yt_format, url_is_valid; _boot_progress(16, 'URL validation')
+from tabulate import tabulate as tbl;               _boot_progress(17, 'tables')
+from ruamel.yaml import YAML;                       _boot_progress(18, 'settings')
+from collections.abc import Iterable;               _boot_progress(19, 'collections')
+from logger import SAY;                             _boot_progress(20, 'logging')
+from first_boot_welcome_screen import notify;       _boot_progress(21, 'first run')
 from config_manager import load_system_settings, load_user_settings, save_user_settings
 from mariana.broadcast import BroadcastError, BroadcastState, IcecastBroadcaster
 from mariana.commands import (
@@ -73,8 +87,9 @@ from mariana.identity import AcoustIDClient, IdentificationService, LRCLIBClient
 from mariana.library import LibraryCatalog, LibraryError
 from mariana.library_service import LibraryProfilerService
 from mariana.loudness import LoudnessError, RSGainAnalyzer
+from mariana.media_details import flattened_details, short_filename
 from mariana.media_removal import MediaRemovalError, MediaRemovalService
-from mariana.models import MediaCapabilities, MediaRef, MediaSource, PlaybackState
+from mariana.models import IdentityStatus, MediaCapabilities, MediaRef, MediaSource, PlaybackState
 from mariana.paths import initialize_runtime_paths
 from mariana.platform import open_path, reveal_path
 from mariana.preferences import MediaPreferences, PreferenceState
@@ -83,13 +98,14 @@ from mariana.radio import RadioCatalog, RadioError
 from mariana.sleep_timer import SleepAction, SleepTimer, parse_duration
 from mariana.sources import MediaFailure
 from mariana.setup import SetupStateError, SetupStateStore
-from mariana.tool_setup import discover_media_tools, setup_media_tools
+from mariana.tool_setup import discover_media_tools, persist_media_tools, setup_media_tools
 from mariana.toolchain import ToolchainError, ToolchainManager, find_javascript_runtime
 from mariana.version import __version__
 from recommendation_engine import Candidate, RecommendationEngine
 from runtime_check import check_runtime, format_runtime_report
 from beta.mediadl import media_DL
 from beta.youtube_media import YouTubeError, parse_browser_profile, resolve_stream, youtube_error_message
+_boot_progress(22, 'media services')
 
 online_streaming_ext_load_error = 0
 comtypes_load_error = False # Made available after fix from comtypes issue #244, #180
@@ -115,11 +131,11 @@ LYRICS_HTML_PATH = RUNTIME_PATHS.temporary / 'lyrics.html'
 
 from beta import ffmpeg_player as vas
 
-print("Loaded 24/31", end='\r')
+_boot_progress(23, 'playback')
 
 try:
     YT_query = importlib.import_module("beta.YT_query")
-    print("Loaded 25/31", end='\r')
+    _boot_progress(24, 'YouTube')
 except ImportError:
     # raise
     if not online_streaming_ext_load_error:
@@ -128,7 +144,7 @@ except ImportError:
 
 try:
     from beta.IPrint import IPrint, blue_gradient_print, cols, loading
-    print("Loaded 26/31", end='\r')
+    _boot_progress(25, 'display')
 except ImportError:
     lyrics_ext_load_error = 1
     print("[INFO] Could not load coloured print extension...")
@@ -136,7 +152,7 @@ except ImportError:
 
 try:
     from lyrics_provider import get_lyrics
-    print("Loaded 27/31", end='\r')
+    _boot_progress(26, 'lyrics')
 except ImportError:
     print("[INFO] Could not load lyrics extension...")
     if not lyrics_ext_load_error:
@@ -147,12 +163,12 @@ print("[INFO] Reddit/RPAN commands are retained as retired aliases")
 
 from lyrics_provider.detect_song import get_song_info
 
-print("Loaded 29/31", end='\r')
+_boot_progress(27, 'identification')
 
 
 try:
     from mariana.platform import get_master_volume, set_master_volume
-    print("Loaded 30/31", end='\r')
+    _boot_progress(28, 'system volume')
 except Exception:
     comtypes_load_error = True
     SAY(visible=False, # global var `visible` hasn't been defined yet...
@@ -160,13 +176,18 @@ except Exception:
         display_message="", # ...because we don't want to display anything on screen to the user
         log_priority=2)
 
+_boot_progress(29, 'platform')
+
 try:
     from beta.podcasts import get_latest_podbean_data
     from beta.podcasts import vendors as pod_vendors
-    print("Loaded 31/31", end='\r')
+    _boot_progress(30, 'podcasts')
 except Exception:
     print("[INFO] Could not load podcast extension...")
     print("[INFO] ...Skipped 31/31")
+
+_boot_progress(31, 'ready')
+print()
 
 # IMPORTS END #
 
@@ -235,6 +256,7 @@ def first_startup_greet(is_first_boot):
             ):
                 SOFT_FATAL_ERROR_INFO = "User skipped startup"
             FIRST_BOOT = SETUP_STORE.load().status != 'complete'
+            refresh_runtime_configuration(show_report=True)
             reload_sounds(quick_load = False)
         except ImportError:
             sys.exit('[ERROR] Critical guide setup-file missing, please consider reinstalling this file or the entire program\nAborting Mariana Player. . .')
@@ -265,6 +287,9 @@ YT_query.configure(
 )
 
 MEDIA_TOOLS = SETTINGS.get('media tools', {})
+if MEDIA_TOOLS.get('javascript bin'):
+    os.environ['MARIANA_JAVASCRIPT_RUNTIME'] = str(MEDIA_TOOLS['javascript bin'])
+AUTOPLAY_ENABLED = bool(SETTINGS.get('playback', {}).get('autoplay', True))
 TOOLCHAIN = ToolchainManager(RUNTIME_PATHS)
 DATABASE = MarianaDatabase(RUNTIME_PATHS.database)
 DATABASE.migrate_legacy_play_counts(RUNTIME_PATHS.user_data)
@@ -394,9 +419,10 @@ RUNTIME_REPORT = check_runtime(
     MEDIA_TOOLS.get('fpcalc bin'),
     MEDIA_TOOLS.get('rsgain bin'),
 )
-for runtime_message in format_runtime_report(RUNTIME_REPORT):
-    print(f"[{runtime_message}]")
-if RUNTIME_REPORT.errors:
+if not FIRST_BOOT:
+    for runtime_message in format_runtime_report(RUNTIME_REPORT):
+        print(f"[{runtime_message}]")
+if RUNTIME_REPORT.errors and not FIRST_BOOT:
     FATAL_ERROR_INFO = "; ".join(RUNTIME_REPORT.errors)
 
 """
@@ -464,6 +490,85 @@ LIBRARY = LibraryCatalog(
     analyze_loudness=bool(REPLAYGAIN_SETTINGS.get('enabled') and REPLAYGAIN_SETTINGS.get('analyze missing', True)),
     managed_roots=_managed_library_roots,
 )
+
+
+def refresh_runtime_configuration(*, show_report=False):
+    """Apply setup-time tool paths to already-created services in this process."""
+    global SETTINGS, MEDIA_TOOLS, RUNTIME_REPORT, FATAL_ERROR_INFO, AUTOPLAY_ENABLED
+    global visible, loglevel, DEFAULT_EDITOR
+
+    refreshed = load_user_settings()
+    SETTINGS.clear()
+    SETTINGS.update(refreshed)
+    MEDIA_TOOLS = SETTINGS.setdefault('media tools', {})
+    if MEDIA_TOOLS.get('javascript bin'):
+        os.environ['MARIANA_JAVASCRIPT_RUNTIME'] = str(MEDIA_TOOLS['javascript bin'])
+    AUTOPLAY_ENABLED = bool(SETTINGS.get('playback', {}).get('autoplay', True))
+    visible = SETTINGS.get('visible', True)
+    loglevel = SETTINGS.get('loglevel', 3)
+    DEFAULT_EDITOR = SETTINGS.get('editor path')
+    browser_profile = SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile')
+    YT_query.configure(browser_profile=browser_profile)
+    vas.configure(
+        ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'),
+        crossfade_seconds=SETTINGS.get('playback', {}).get('crossfade seconds', 0),
+        catalog=RADIO,
+        browser_profile=browser_profile,
+        replaygain=REPLAYGAIN_SETTINGS,
+        live_leveling=LIVE_LEVELING_SETTINGS,
+    )
+    IDENTITY.fpcalc_bin = MEDIA_TOOLS.get('fpcalc bin')
+    LIBRARY.ffmpeg_bin = MEDIA_TOOLS.get('ffmpeg bin')
+    LIBRARY.fpcalc_bin = MEDIA_TOOLS.get('fpcalc bin')
+    LIBRARY.rsgain = RSGainAnalyzer(MEDIA_TOOLS.get('rsgain bin'))
+    RUNTIME_REPORT = check_runtime(
+        MEDIA_TOOLS.get('ffmpeg bin'),
+        MEDIA_TOOLS.get('fpcalc bin'),
+        MEDIA_TOOLS.get('rsgain bin'),
+    )
+    FATAL_ERROR_INFO = '; '.join(RUNTIME_REPORT.errors) if RUNTIME_REPORT.errors else None
+    if show_report:
+        for runtime_message in format_runtime_report(RUNTIME_REPORT):
+            print(f'[{runtime_message}]')
+    return RUNTIME_REPORT
+
+
+def ensure_managed_tool_migration():
+    """Offer one versioned, default-yes repair for installations predating the full bundle."""
+    bundle = 'official-tools-2026.07.1'
+    marker = DATABASE.get_state('managed_tool_prompt_version')
+    status = discover_media_tools(SETTINGS)
+    javascript = find_javascript_runtime(MEDIA_TOOLS.get('javascript bin'))
+    if status.complete and javascript:
+        DATABASE.set_state('managed_tool_prompt_version', bundle)
+        return status
+    if marker == bundle or os.environ.get('MARIANA_E2E') == '1':
+        return status
+    print('\nMariana can install the missing verified media tools now (FFmpeg, fpcalc, rsgain, and Deno).')
+    answer = input('Automatically download and configure them? [Y/n]: ').strip().casefold()
+    while answer not in {'', 'y', 'yes', 'n', 'no'}:
+        answer = input('Please enter Y or N [Y]: ').strip().casefold()
+    if answer in {'n', 'no'}:
+        DATABASE.set_state('managed_tool_prompt_version', bundle)
+        IPrint("Skipped for this version; run 'tools setup' whenever you are ready.", visible=visible)
+        return status
+    try:
+        TOOLCHAIN.install_recommended(progress=lambda message: IPrint(message, visible=visible))
+        status = discover_media_tools(SETTINGS)
+        if not status.complete or not find_javascript_runtime():
+            raise ToolchainError('one or more installed executables failed validation')
+        persist_media_tools(status, SETTINGS, paths=RUNTIME_PATHS)
+        DATABASE.set_state('managed_tool_prompt_version', bundle)
+        refresh_runtime_configuration(show_report=True)
+        IPrint('Managed media tools are ready.', visible=visible)
+        return status
+    except (ToolchainError, OSError) as error:
+        IPrint(
+            f'Managed tool installation failed: {error}. It will be offered again; '
+            "use 'tools setup' for manual paths.",
+            visible=visible,
+        )
+        return status
 vas.controller.loudness_repository = LIBRARY.loudness
 LIBRARY_SERVICE = LibraryProfilerService(
     LIBRARY,
@@ -712,6 +817,18 @@ def _on_queue_item_complete(media):
     RECOMMENDER.record_event(media, 'completion')
     current = QUEUE.current()
     if current is None or current.media.stable_id != media.stable_id:
+        if AUTOPLAY_ENABLED and media.source == MediaSource.LOCAL:
+            completed_path = os.path.normcase(os.path.abspath(media.original_uri)).casefold()
+            index = next(
+                (
+                    position
+                    for position, path in enumerate(_sound_files)
+                    if os.path.normcase(os.path.abspath(path)).casefold() == completed_path
+                ),
+                None,
+            )
+            if index is not None and index + 1 < len(_sound_files):
+                play_local_default_player(_sound_files[index + 1], _songindex=index + 2)
         return
     next_item = QUEUE.next()
     if next_item is None and QUEUE.state().get('autofill'):
@@ -1439,6 +1556,200 @@ def recycle_library_media(arguments):
     IPrint(f'Moved to trash: {removed.path}', visible=visible)
     return removed
 
+
+HELP_GROUPS = (
+    ('Playback', 'ls, <number>, .rand, pause, stop, next, prev, seek, progress, now, autoplay'),
+    ('Queue', 'queue add/list/next/previous/move/remove/shuffle/repeat/save/load'),
+    ('Online', '/ys, /yl, radio, podcast, rss, download-ya, download-yv, download-ml'),
+    ('Library', 'library status/scan/info, find, rfind, lfind, reload, rename short'),
+    ('Details', 'media info/probe/fingerprint/identify, lyrics, replaygain status'),
+    ('App', 'theme, tools status/setup, sleep, history, cls, exit'),
+)
+
+
+def help_command(arguments):
+    """Display a deliberately short command map; detailed docs remain one command away."""
+    topic = arguments[0].casefold() if arguments else None
+    rows = HELP_GROUPS
+    if topic and topic not in {'all', 'full'}:
+        rows = tuple(row for row in HELP_GROUPS if row[0].casefold().startswith(topic))
+        if not rows:
+            raise ValueError(f'Unknown help topic: {topic}')
+    IPrint(tbl(rows, headers=('Commands', 'Common forms'), tablefmt='plain'), visible=visible)
+    IPrint("Use 'help <group>' to narrow this list; README.md documents every command family.", visible=visible)
+    return rows
+
+
+def autoplay_command(arguments):
+    global AUTOPLAY_ENABLED
+    operation = arguments[0].casefold() if arguments else 'status'
+    if operation == 'status':
+        IPrint(f'Autoplay: {"on" if AUTOPLAY_ENABLED else "off"} (sequential local-library playback)', visible=visible)
+        return AUTOPLAY_ENABLED
+    if operation not in {'on', 'off'} or len(arguments) != 1:
+        raise ValueError('Usage: autoplay [on|off|status]')
+    previous = AUTOPLAY_ENABLED
+    AUTOPLAY_ENABLED = operation == 'on'
+    playback_settings = SETTINGS.setdefault('playback', {})
+    playback_settings['autoplay'] = AUTOPLAY_ENABLED
+    try:
+        save_user_settings(SETTINGS, RUNTIME_PATHS.settings)
+    except Exception:
+        AUTOPLAY_ENABLED = previous
+        playback_settings['autoplay'] = previous
+        raise
+    IPrint(f'Autoplay {operation}', visible=visible)
+    return AUTOPLAY_ENABLED
+
+
+THEME_PRESETS = {
+    'aurora': 'Mariana Aurora',
+    'windows': 'Windows Terminal Acrylic',
+    'kitty': 'Kitty / Catppuccin',
+    'gruvbox': 'Gruvbox Dark',
+}
+
+
+def theme_command(arguments):
+    appearance = SETTINGS.setdefault('appearance', {})
+    current = str(appearance.get('terminal theme') or 'aurora')
+    operation = arguments[0].casefold() if arguments else 'current'
+    if operation in {'list', 'ls'}:
+        IPrint(tbl([(key, value, '*' if key == current else '') for key, value in THEME_PRESETS.items()],
+                   headers=('Preset', 'Name', ''), tablefmt='plain'), visible=visible)
+        return current
+    if operation in {'current', 'status'}:
+        IPrint(f'Theme: {current} ({THEME_PRESETS.get(current, "custom")})', visible=visible)
+        return current
+    if operation not in THEME_PRESETS or len(arguments) != 1:
+        raise ValueError(f'Usage: theme [{"|".join(THEME_PRESETS)}|list|current]')
+    previous = appearance.get('terminal theme')
+    appearance['terminal theme'] = operation
+    try:
+        save_user_settings(SETTINGS, RUNTIME_PATHS.settings)
+    except Exception:
+        appearance['terminal theme'] = previous
+        raise
+    DESKTOP_CONTROL.emit('theme', {'name': operation})
+    IPrint(f'Theme changed to {THEME_PRESETS[operation]}', visible=visible)
+    return operation
+
+
+def _media_info(arguments):
+    snapshot = vas.controller.snapshot()
+    target = ' '.join(arguments).strip()
+    media = snapshot.media
+    if target and target not in {'current', 'now'}:
+        info = LIBRARY.info(target)
+        if not info:
+            raise ValueError(f'Indexed media was not found: {target}')
+        media = MediaRef(
+            MediaSource.LOCAL,
+            info['canonical_path'],
+            stable_id=info['library_id'],
+            title=info['metadata'].get('title'),
+            artist=info['metadata'].get('artist'),
+            album=info['metadata'].get('album'),
+            duration=info['metadata'].get('duration'),
+            provenance='library',
+        )
+        return media, info
+    if media is None:
+        raise ValueError('No media is currently active; pass a library index or indexed path')
+    if media.source == MediaSource.LOCAL:
+        info = LIBRARY.info(media.original_uri)
+        if info:
+            return media, info
+    return media, {
+        'library_id': media.stable_id,
+        'canonical_path': media.original_uri,
+        'state': snapshot.state.value,
+        'metadata': {
+            'source': media.source.value,
+            'title': media.title,
+            'artist': media.artist,
+            'album': media.album,
+            'duration': media.duration or snapshot.duration,
+            'provenance': media.provenance,
+            'stream_title': snapshot.stream_title,
+        },
+    }
+
+
+def media_command(arguments):
+    operation = arguments[0].casefold() if arguments else 'info'
+    target_arguments = [value for value in arguments[1:] if value != '--full']
+    media, info = _media_info(target_arguments)
+    if operation in {'info', 'probe', 'metadata'}:
+        rows = flattened_details(info)
+        if media.source == MediaSource.LOCAL and Path(media.original_uri).is_file():
+            stat = Path(media.original_uri).stat()
+            rows.extend((('Filesystem created/changed', time.ctime(stat.st_ctime)),
+                         ('Filesystem modified', time.ctime(stat.st_mtime))))
+        IPrint(tbl(rows, tablefmt='plain'), visible=visible)
+        return info
+    if operation == 'fingerprint':
+        fingerprint = info.get('fingerprint')
+        if not fingerprint:
+            IPrint(
+                "No saved Chromaprint fingerprint is available yet. Run 'library scan changed'; "
+                "the profiler will calculate it when fpcalc is installed.",
+                visible=visible,
+            )
+            return None
+        value = str(fingerprint) if '--full' in arguments else f'{len(str(fingerprint))} characters'
+        IPrint(f'Chromaprint ({info.get("fingerprint_duration") or "unknown"} s): {value}', visible=visible)
+        return fingerprint
+    if operation == 'identify':
+        if info.get('fingerprint'):
+            identity = IDENTITY.identify_fingerprint(
+                media,
+                float(info.get('fingerprint_duration') or media.duration or 0),
+                str(info['fingerprint']),
+            )
+        else:
+            identity = IDENTITY.identify(media, pcm=vas.controller.fingerprint_pcm())
+        rows = [(key.replace('_', ' ').title(), value) for key, value in identity.to_dict().items()
+                if value not in (None, '', [], {})]
+        IPrint(tbl(rows, tablefmt='plain'), visible=visible)
+        if identity.status != IdentityStatus.IDENTIFIED:
+            IPrint('No confident identity was guessed; the reported status is intentional.', visible=visible)
+        return identity
+    raise ValueError('Usage: media [info|probe|metadata|fingerprint|identify] [current|index|path] [--full]')
+
+
+def rename_command(arguments):
+    global currentsong
+    if not arguments or arguments[0].casefold() != 'short':
+        raise ValueError('Usage: rename short [current|library-index|indexed-path] [--dry-run|--yes]')
+    flags = {value for value in arguments[1:] if value.startswith('--')}
+    target = ' '.join(value for value in arguments[1:] if not value.startswith('--')) or 'current'
+    media, info = _media_info([target])
+    if media.source != MediaSource.LOCAL or info.get('state') != 'available':
+        raise ValueError('Only an available, indexed local media file can be renamed')
+    source = Path(info['canonical_path'])
+    filename = short_filename(source, info.get('metadata') or {})
+    destination = source.with_name(filename)
+    IPrint(f'Rename preview:\n  {source.name}\n  -> {destination.name}', visible=visible)
+    if '--dry-run' in flags:
+        return destination
+    if '--yes' not in flags:
+        permission = input('Apply this rename? (y/n): ').casefold().strip()
+        if permission not in {'y', 'yes'}:
+            IPrint('Rename cancelled', visible=visible)
+            return None
+    snapshot = vas.controller.snapshot()
+    if snapshot.media and snapshot.media.stable_id == media.stable_id:
+        stopsong()
+    renamed = LIBRARY.rename(info['library_id'], filename)
+    if currentsong and os.path.normcase(os.path.abspath(str(currentsong))).casefold() == os.path.normcase(
+        os.path.abspath(str(source))
+    ).casefold():
+        currentsong = str(renamed)
+    reload_sounds(quick_load=True)
+    IPrint(f'Renamed: {renamed}', visible=visible)
+    return renamed
+
 def get_current_progress():
     return vas.player.get_time() / 1000
 
@@ -1462,14 +1773,62 @@ def save_song_data():
         json.dump(SONG_DATA, s_data_file)
 
 def exitplayer(sys_exit=False):
-    global EXIT_INFO, APP_BOOT_START_TIME, USER_DATA
+    global EXIT_INFO, APP_BOOT_START_TIME, USER_DATA, currentsong, isplaying
 
-    SLEEP_TIMER.close()
-    BROADCASTER.close()
+    IPrint(colored.fg('red')+'Exiting...'+colored.attr('reset'), visible=visible)
     DESKTOP_CONTROL.emit('shutdown-ack')
-    DESKTOP_CONTROL.close()
-    stopsong()
-    LIBRARY_SERVICE.close()
+    snapshot = vas.controller.snapshot()
+    if snapshot.media:
+        RECOMMENDER.record_event(
+            snapshot.media,
+            'played_duration',
+            reward=0,
+            context={'position': snapshot.position, 'duration': snapshot.duration},
+        )
+
+    # These services are independent at shutdown. Closing them concurrently keeps
+    # one slow network encoder, watcher, or device driver from serially delaying exit.
+    closures = (
+        ('sleep timer', SLEEP_TIMER.close),
+        ('broadcast', BROADCASTER.close),
+        ('desktop control', DESKTOP_CONTROL.close),
+        ('playback', vas.supervisor.close),
+        ('library profiler', LIBRARY_SERVICE.close),
+    )
+    threads = []
+    failures = []
+
+    def close_component(name, callback):
+        try:
+            callback()
+        except Exception as error:
+            failures.append((name, error))
+
+    for name, callback in closures:
+        worker = threading.Thread(
+            target=close_component,
+            args=(name, callback),
+            name=f'mariana-shutdown-{name.replace(" ", "-")}',
+            daemon=True,
+        )
+        worker.start()
+        threads.append((name, worker))
+    deadline = time.monotonic() + 6
+    for name, worker in threads:
+        worker.join(max(0, deadline - time.monotonic()))
+        if worker.is_alive():
+            failures.append((name, TimeoutError('shutdown exceeded six-second global deadline')))
+
+    for name, error in failures:
+        SAY(
+            visible=visible,
+            display_message=f'[WARNING] {name} did not close cleanly; process cleanup will finish on exit.',
+            log_message=f'{name} shutdown failure: {error}',
+            log_priority=2,
+        )
+    currentsong = None
+    isplaying = False
+    purge_old_lyrics_if_exist()
     APP_CLOSE_TIME = time.time()
 
     time_spent_on_app = APP_CLOSE_TIME - APP_BOOT_END_TIME
@@ -1487,8 +1846,6 @@ def exitplayer(sys_exit=False):
 
     USER_DATA['default_user_data']['stats']['times_spent'].append(time_spent_on_app)
     save_user_data()
-
-    IPrint(colored.fg('red')+'Exiting...'+colored.attr('reset'), visible=visible)
 
     if sys_exit:
         sys.exit(f"{EXIT_INFO}")
@@ -1608,12 +1965,9 @@ def voltransition(
 
 
 def vol_trans_process_spawn():
-    vol_trans_process = Process(target=voltransition,
-                                kwargs={'initial': cached_volume,
-                                        'final': 0,
-                                        'disablecaching': True})
-    vol_trans_process.start()
-    vol_trans_process.join()
+    # This operation is synchronous by design. Multiprocessing would relaunch the
+    # frozen Mariana executable on Windows, producing a nested player session.
+    voltransition(initial=cached_volume, final=0, disablecaching=True)
 
 # https://stackoverflow.com/a/3463582/17685480
 def remove_adjacent(seq): # works on any sequence, not just on numbers
@@ -2407,6 +2761,30 @@ def process(command):
             isplaying = False
     except Exception:
         pass
+
+    if commandslist:
+        routed = {
+            'h': help_command,
+            'help': help_command,
+            '?': help_command,
+            'autoplay': autoplay_command,
+            'theme': theme_command,
+            'media': media_command,
+            'metadata': lambda values: media_command(['metadata', *values]),
+            'rename': rename_command,
+        }
+        if handler := routed.get(commandslist[0].casefold()):
+            try:
+                handler(commandslist[1:])
+                return None
+            except (LibraryError, ValueError, OSError) as error:
+                SAY(
+                    visible=visible,
+                    display_message=str(error),
+                    log_message=f'{commandslist[0]} command failed: {error}',
+                    log_priority=2,
+                )
+                return None
 
     if commandslist != []:  # Atleast 1 word
 
@@ -3959,15 +4337,48 @@ def process(command):
 
 
 
+def _prompt_time(seconds):
+    seconds = max(0, int(seconds or 0))
+    return f'{seconds // 60:02d}:{seconds % 60:02d}'
+
+
+def prompt_text():
+    """Build the testing snapshot's richer two-line prompt from live state."""
+    snapshot = vas.controller.snapshot()
+    media = snapshot.media
+    if media:
+        title = media.title or Path(media.original_uri).stem or media.original_uri
+        prefix = f'[{songindex}] ' if isinstance(songindex, int) and songindex > 0 else ''
+        first = (
+            colored.fg('light_slate_blue') + '┏━' +
+            colored.fg('navajo_white_1') + f' {prefix}{text_overflow_prettify(str(title), 72)}'
+        )
+        duration = snapshot.duration or media.duration or 0
+        percent = (snapshot.position / duration * 100) if duration else 0
+        state = {
+            PlaybackState.PLAYING: 'playing ▶',
+            PlaybackState.PAUSED: 'paused Ⅱ',
+            PlaybackState.BUFFERING: 'buffering …',
+            PlaybackState.FAILED: 'failed !',
+        }.get(snapshot.state, snapshot.state.value)
+        status = f'{_prompt_time(snapshot.position)} ━ {_prompt_time(duration)} ━ {percent:>3.0f}% ━ {state}'
+    else:
+        first = colored.fg('light_slate_blue') + '┏━' + colored.fg('navajo_white_1') + ' (Not Playing)'
+        status = 'ready'
+    second = (
+        colored.fg('light_slate_blue') + '┗━ ' +
+        colored.fg('aquamarine_3') + status + ' ' +
+        colored.fg('gold_1') + '❱ ' +
+        colored.attr('reset') + colored.fg('dark_turquoise')
+    )
+    return f'{first}{colored.attr("reset")}\n{second}'
+
+
 def mainprompt():
     global visible
     while True:
         try:
-            prompt = colored.bg('gold_1')+\
-                     colored.fg('black')+')> '+\
-                     colored.attr('reset')+\
-                     colored.fg('dark_turquoise')
-
+            prompt = prompt_text()
             command = input(prompt) if visible else getpass(prompt)
             print(colored.attr('reset'), end='')
             COMMAND_BUSY.set()
@@ -4051,7 +4462,10 @@ def run():
             reasons.append('profiler-transaction')
         return not reasons, reasons
     DESKTOP_CONTROL.start_safety_monitor(update_safety)
-    DESKTOP_CONTROL.emit('ready', {'version': __version__})
+    DESKTOP_CONTROL.emit('ready', {
+        'version': __version__,
+        'theme': SETTINGS.get('appearance', {}).get('terminal theme', 'aurora'),
+    })
     LIBRARY_SERVICE.start(initial_scan=True)
     USER_DATA['default_user_data']['stats']['log_ins'] += 1
     save_user_data()
@@ -4070,8 +4484,12 @@ def run():
 def startup():
     global enforce_os_requirement, SOFT_FATAL_ERROR_INFO
 
+    was_first_boot = FIRST_BOOT
     try: first_startup_greet(FIRST_BOOT)
     except Exception: raise
+
+    if not was_first_boot and not SOFT_FATAL_ERROR_INFO:
+        ensure_managed_tool_migration()
 
     if enforce_os_requirement and sys.platform not in {'win32', 'darwin', 'linux'}:
         sys.exit(f'ABORTING: Mariana Player does not support {sys.platform}')

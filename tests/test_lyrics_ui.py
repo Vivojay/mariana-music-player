@@ -1,5 +1,3 @@
-import json
-
 import pytest
 
 import lyrics_provider.get_lyrics as get_lyrics
@@ -86,17 +84,20 @@ def test_show_window_uses_cache_and_open_attribution(monkeypatch, lyrics_paths):
         f"{separator}\nCached Artist\n{separator}\nCached lyrics", encoding="utf-8"
     )
     captured = {}
-    monkeypatch.setattr(
-        get_lyrics.subprocess,
-        "Popen",
-        lambda args, **kwargs: captured.update(args=args, kwargs=kwargs),
-    )
-    get_lyrics.show_window(5, True, False, refresh_lyrics=False)
-    payload = json.loads(captured["args"][2])
-    assert payload["head_text"] == "Cached Artist"
-    assert "LRCLIB" in payload["foot_text"]
-    assert "Chromaprint" in payload["foot_text"]
-    assert captured["kwargs"]["shell"] is False
+
+    class ImmediateThread:
+        def __init__(self, *, target, kwargs, **_options):
+            captured.update(target=target, kwargs=kwargs)
+
+        def start(self):
+            return None
+
+    monkeypatch.setattr(get_lyrics.threading, "Thread", ImmediateThread)
+    worker = get_lyrics.show_window(5, True, False, refresh_lyrics=False)
+    assert worker is not None
+    assert captured["kwargs"]["head_text"] == "Cached Artist"
+    assert "LRCLIB" in captured["kwargs"]["foot_text"]
+    assert "Chromaprint" in captured["kwargs"]["foot_text"]
 
 
 def test_show_window_uses_custom_wallpaper_and_reports_missing_file(monkeypatch, lyrics_paths):
@@ -152,12 +153,14 @@ def test_show_window_handles_invalid_wallpaper_index_and_missing_cache(monkeypat
     assert any("between 1 and" in message["display_message"] for message in messages)
     (temp / "lyrics.txt").unlink()
 
-    monkeypatch.setattr(
-        get_lyrics.subprocess,
-        "Popen",
-        lambda args, **kwargs: spawned.update(args=args, kwargs=kwargs),
-    )
+    class ImmediateThread:
+        def __init__(self, *, target, kwargs, **_options):
+            spawned.update(target=target, kwargs=kwargs)
+
+        def start(self):
+            return None
+
+    monkeypatch.setattr(get_lyrics.threading, "Thread", ImmediateThread)
     get_lyrics.show_window(5, True, False, refresh_lyrics=False)
-    payload = json.loads(spawned["args"][2])
-    assert payload["head_text"] == "Lyrics N/A"
-    assert payload["text_to_be_displayed"] == "(Lyrics not available)"
+    assert spawned["kwargs"]["head_text"] == "Lyrics N/A"
+    assert spawned["kwargs"]["text_to_be_displayed"] == "(Lyrics not available)"

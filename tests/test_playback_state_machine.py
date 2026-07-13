@@ -113,6 +113,13 @@ def test_prepare_success_failure_and_play_without_media(controller, monkeypatch)
     media = finite()
     assert controller.prepare(media, probe=False) is media
     assert controller.resolved_uri.endswith("track.flac")
+    probed = finite("probed")
+    monkeypatch.setattr(
+        playback,
+        "probe_media",
+        lambda value, **_kwargs: value,
+    )
+    assert controller.prepare(probed, probe=True) is probed
     with pytest.raises(playback.PlaybackError, match="No media"):
         playback.PlaybackController(output_factory=Stream).play()
     monkeypatch.setattr(controller.resolvers, "resolve", lambda _media: (_ for _ in ()).throw(ValueError("bad")))
@@ -456,6 +463,34 @@ def test_decoder_properties_timeout_filter_and_private_tunnel(monkeypatch):
     session.reset_fingerprint()
     session.stop()
     assert ("closed",) in commands
+
+
+def test_decoder_buffer_reads_complete_frames_and_reports_position(monkeypatch):
+    monkeypatch.setattr(playback, "find_executable", lambda *_args: "ffmpeg")
+    session = playback.DecoderSession(finite("buffer"), start_at=2)
+    session._buffer.extend(b"\x00" * (playback.BYTES_PER_FRAME * 3 + 1))
+
+    assert session.wait_for_buffer(
+        minimum_seconds=1 / playback.SAMPLE_RATE,
+        timeout=0,
+    )
+    payload = session.read(2)
+    assert len(payload) == playback.BYTES_PER_FRAME * 2
+    assert session.frames_emitted == 2
+    assert session.position == pytest.approx(2 + 2 / playback.SAMPLE_RATE)
+    assert len(session._buffer) == playback.BYTES_PER_FRAME + 1
+
+
+def test_windows_job_close_tolerates_host_api_failure(monkeypatch):
+    job = object.__new__(playback.WindowsJob)
+    job.handle = 123
+    monkeypatch.setitem(
+        sys.modules,
+        "win32api",
+        SimpleNamespace(CloseHandle=lambda _handle: (_ for _ in ()).throw(OSError("closed"))),
+    )
+    job.close()
+    assert job.handle is None
 
 
 def test_failed_completion_sink_isolation_and_replaygain_branches(controller, monkeypatch):

@@ -162,6 +162,15 @@ def test_auth_tunnel_response_relay_stops_without_reading_after_cancellation():
     tunnel._relay_responses(client, upstream)
 
 
+def test_auth_tunnel_response_relay_treats_disconnect_as_normal():
+    tunnel = IcecastAuthTunnel(profile(), MemoryCredentials())
+    client = SimpleNamespace(sendall=lambda _data: pytest.fail("a failed read must not write"))
+    upstream = SimpleNamespace(
+        recv=lambda _size: (_ for _ in ()).throw(ConnectionResetError("peer disconnected"))
+    )
+    tunnel._relay_responses(client, upstream)
+
+
 class FakeTunnel:
     def __init__(self, _profile, _credentials):
         self.connected = threading.Event()
@@ -223,6 +232,47 @@ def test_broadcaster_command_has_no_secret_and_transport_is_independent(monkeypa
     broadcaster.stop()
     assert broadcaster.snapshot().state == BroadcastState.IDLE
     assert any(update.state == BroadcastState.LIVE for update in updates)
+
+
+def test_broadcaster_cancels_during_reconnect_backoff():
+    class StopDuringBackoff:
+        def is_set(self):
+            return False
+
+        def wait(self, _delay):
+            return True
+
+    broadcaster = IcecastBroadcaster(
+        {"home": profile()},
+        credentials=MemoryCredentials(),
+        tunnel_factory=lambda *_args: (_ for _ in ()).throw(OSError("offline")),
+    )
+    broadcaster._profile = profile()
+    broadcaster._stop = StopDuringBackoff()
+    broadcaster._run()
+    assert broadcaster.snapshot().state == BroadcastState.IDLE
+
+
+def test_broadcaster_cleanup_accepts_process_that_exits_during_pipe_close():
+    class VanishingProcess:
+        def __init__(self):
+            self.polls = 0
+            self.stdin = SimpleNamespace(
+                close=lambda: (_ for _ in ()).throw(BrokenPipeError("encoder exited"))
+            )
+
+        def poll(self):
+            self.polls += 1
+            return None if self.polls == 1 else 0
+
+        def kill(self):
+            pytest.fail("an already-exited encoder must not be killed")
+
+    broadcaster = IcecastBroadcaster({"home": profile()}, credentials=MemoryCredentials())
+    process = VanishingProcess()
+    broadcaster._process = process
+    broadcaster._close_attempt()
+    assert broadcaster._process is None and process.polls == 2
 
 
 def test_metadata_updates_are_throttled_and_do_not_expose_password(monkeypatch):

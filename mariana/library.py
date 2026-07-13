@@ -531,6 +531,13 @@ class LibraryCatalog:
             "artist": tags.get("artist"),
             "album": tags.get("album"),
             "album_artist": tags.get("album_artist") or tags.get("albumartist"),
+            "releaser": tags.get("releaser") or tags.get("organization"),
+            "distributor": tags.get("distributor"),
+            "publisher": tags.get("publisher"),
+            "label": tags.get("label") or tags.get("record_label"),
+            "youtube_id": tags.get("youtube_id"),
+            "webpage_url": tags.get("purl") or tags.get("webpage_url"),
+            "comment": tags.get("comment"),
             "disc": tags.get("disc") or tags.get("discnumber"),
             "release_mbid": tags.get("musicbrainz_albumid") or tags.get("musicbrainz_releaseid"),
             "genre": tags.get("genre"),
@@ -789,6 +796,56 @@ class LibraryCatalog:
             if cursor.rowcount != 1:
                 raise LibraryError(f"Unknown library item: {library_id}")
 
+    def rename(self, library_id: str, filename: str) -> Path:
+        """Rename one indexed occurrence, rolling the file back if SQLite rejects it."""
+        row = self.database.fetchone("SELECT * FROM library_files WHERE library_id=?", (library_id,))
+        if not row or row["state"] != "available":
+            raise LibraryError(f"Available library item not found: {library_id}")
+        source = Path(row["canonical_path"])
+        if not source.is_file() or source.is_symlink():
+            raise LibraryError("Only available, non-symlink media files can be renamed")
+        if Path(filename).name != filename or not filename.strip():
+            raise LibraryError("The replacement must be a filename, not a path")
+        destination = source.with_name(filename)
+        if destination.suffix.casefold() != source.suffix.casefold():
+            raise LibraryError("Renaming cannot change the media extension")
+        if destination.exists() and path_key(destination) != path_key(source):
+            raise LibraryError(f"A file already exists at {destination}")
+        if path_key(destination) == path_key(source):
+            return source
+
+        try:
+            source.replace(destination)
+            stat = destination.stat()
+            with self.database.transaction() as connection:
+                connection.execute(
+                    "UPDATE library_files SET canonical_path=?, path_key=?, file_key=?, size=?, mtime_ns=?, "
+                    "updated_at=? WHERE library_id=?",
+                    (
+                        str(destination.absolute()),
+                        path_key(destination),
+                        file_key(stat),
+                        stat.st_size,
+                        stat.st_mtime_ns,
+                        time.time(),
+                        library_id,
+                    ),
+                )
+                connection.execute(
+                    "UPDATE media_items SET original_uri=?, updated_at=? WHERE stable_id=?",
+                    (str(destination.absolute()), time.time(), library_id),
+                )
+        except Exception as error:
+            if destination.exists() and not source.exists():
+                try:
+                    destination.replace(source)
+                except OSError as rollback_error:
+                    raise LibraryError(
+                        f"Rename failed and the original filename could not be restored: {rollback_error}"
+                    ) from error
+            raise LibraryError(f"Could not rename indexed media: {error}") from error
+        return destination
+
     def verify(self) -> dict[str, Any]:
         integrity = self.database.fetchone("PRAGMA integrity_check")
         missing = [path for path in self.paths() if not Path(path).is_file()]
@@ -798,6 +855,8 @@ class LibraryCatalog:
         if value.isdigit():
             rows = self.database.fetchall("SELECT * FROM library_files ORDER BY path_key LIMIT 1 OFFSET ?", (int(value) - 1,))
             row = rows[0] if rows else None
+        elif len(value) == 32 and value.isalnum():
+            row = self.database.fetchone("SELECT * FROM library_files WHERE library_id=?", (value,))
         else:
             row = self.database.fetchone("SELECT * FROM library_files WHERE path_key=?", (path_key(value),))
         if not row:

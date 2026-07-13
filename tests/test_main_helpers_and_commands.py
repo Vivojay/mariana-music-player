@@ -18,6 +18,14 @@ def test_ordered_set_flatten_and_search_helpers(monkeypatch):
     assert main.searchsongs(["blue", "moon", "blue"]) == [(1, "Blue Moon")]
 
 
+def test_startup_progress_keeps_text_and_bar_in_sync(capsys):
+    main._boot_progress(31, "ready")
+    output = capsys.readouterr().out
+    assert "Loaded 31/31" in output
+    assert "[########################]" in output
+    assert "100%" in output and output.endswith("\r")
+
+
 def test_audio_file_generator_is_recursive_and_extension_exact(tmp_path):
     nested = tmp_path / "nested"
     nested.mkdir()
@@ -327,24 +335,12 @@ def test_progress_length_seek_and_volume_transition(monkeypatch):
     assert volumes[-1] == 100
 
 
-def test_volume_transition_process_uses_keyword_arguments(monkeypatch):
-    captured = {}
-
-    class FakeProcess:
-        def __init__(self, **kwargs):
-            captured.update(kwargs)
-
-        def start(self):
-            captured["started"] = True
-
-        def join(self):
-            captured["joined"] = True
-
-    monkeypatch.setattr(main, "Process", FakeProcess)
+def test_volume_transition_helper_does_not_spawn_a_frozen_app(monkeypatch):
+    captured = []
     monkeypatch.setattr(main, "cached_volume", 0.75)
+    monkeypatch.setattr(main, "voltransition", lambda **kwargs: captured.append(kwargs))
     main.vol_trans_process_spawn()
-    assert captured["kwargs"] == {"initial": 0.75, "final": 0, "disablecaching": True}
-    assert captured["started"] and captured["joined"]
+    assert captured == [{"initial": 0.75, "final": 0, "disablecaching": True}]
 
 
 def test_play_pause_stop_and_fade_transitions(monkeypatch):
@@ -494,6 +490,7 @@ def test_clear_terminal_erases_screen_scrollback_and_homes_cursor(monkeypatch, c
 
 def test_startup_enforces_platform_and_fatal_state(monkeypatch):
     monkeypatch.setattr(main, "first_startup_greet", lambda _first: None)
+    monkeypatch.setattr(main, "ensure_managed_tool_migration", lambda: None)
     monkeypatch.setattr(main, "FIRST_BOOT", False)
     monkeypatch.setattr(main, "_sound_files", [])
     monkeypatch.setattr(main, "SOFT_FATAL_ERROR_INFO", None)
@@ -668,9 +665,282 @@ def test_startup_skips_run_for_soft_failure_and_runs_when_healthy(monkeypatch):
     monkeypatch.setattr(main, "enforce_os_requirement", False)
     monkeypatch.setattr(main, "FATAL_ERROR_INFO", None)
     monkeypatch.setattr(main, "run", lambda: calls.append("run"))
+    monkeypatch.setattr(main, "ensure_managed_tool_migration", lambda: calls.append("tools"))
     monkeypatch.setattr(main, "SOFT_FATAL_ERROR_INFO", "cancelled")
     main.startup()
     assert calls == ["greet"]
     monkeypatch.setattr(main, "SOFT_FATAL_ERROR_INFO", None)
     main.startup()
-    assert calls == ["greet", "greet", "run"]
+    assert calls == ["greet", "greet", "tools", "run"]
+
+
+def test_compact_help_autoplay_and_theme_commands_persist(monkeypatch):
+    printed = []
+    saved = []
+    emitted = []
+    settings = {"playback": {"autoplay": True}, "appearance": {"terminal theme": "aurora"}}
+    monkeypatch.setattr(main, "SETTINGS", settings)
+    monkeypatch.setattr(main, "AUTOPLAY_ENABLED", True)
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
+    monkeypatch.setattr(main, "save_user_settings", lambda value, path: saved.append((value, path)))
+    monkeypatch.setattr(main, "RUNTIME_PATHS", SimpleNamespace(settings=Path("settings.yml")))
+    monkeypatch.setattr(main, "DESKTOP_CONTROL", SimpleNamespace(emit=lambda *args: emitted.append(args)))
+
+    assert main.process("help") is None
+    assert main.process("autoplay off") is None
+    assert settings["playback"]["autoplay"] is False
+    assert main.process("theme gruvbox") is None
+    assert settings["appearance"]["terminal theme"] == "gruvbox"
+    assert emitted == [("theme", {"name": "gruvbox"})]
+    assert len(saved) == 2
+    assert any("Playback" in value for value in printed)
+
+
+def test_library_autoplay_advances_only_after_completed_local_media(monkeypatch, tmp_path):
+    first = str(tmp_path / "first.mp3")
+    second = str(tmp_path / "second.mp3")
+    played = []
+    monkeypatch.setattr(main, "AUTOPLAY_ENABLED", True)
+    monkeypatch.setattr(main, "_sound_files", [first, second])
+    monkeypatch.setattr(main.QUEUE, "current", lambda: None)
+    monkeypatch.setattr(main.RECOMMENDER, "record_event", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        main,
+        "play_local_default_player",
+        lambda path, _songindex: played.append((path, _songindex)),
+    )
+    main._on_queue_item_complete(main.MediaRef(main.MediaSource.LOCAL, first))
+    assert played == [(second, 2)]
+    main._on_queue_item_complete(main.MediaRef(main.MediaSource.URL, "https://example.test/live"))
+    assert played == [(second, 2)]
+
+
+def test_rich_prompt_reports_media_progress(monkeypatch):
+    media = main.MediaRef(main.MediaSource.LOCAL, "C:/music/track.mp3", title="Track")
+    monkeypatch.setattr(main, "songindex", 3)
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(
+            PlaybackState.PLAYING,
+            media=media,
+            position=30,
+            duration=120,
+        ),
+    )
+    prompt = main.prompt_text()
+    assert "┏━" in prompt and "┗━" in prompt
+    assert "[3] Track" in prompt
+    assert "00:30" in prompt and "02:00" in prompt and "25%" in prompt
+
+
+def test_exit_closes_independent_services_without_serial_waits(monkeypatch):
+    closed = []
+    messages = []
+    empty = PlaybackSnapshot(PlaybackState.IDLE)
+    monkeypatch.setattr(main, "visible", True)
+    monkeypatch.setattr(main, "APP_BOOT_END_TIME", main.time.time())
+    monkeypatch.setattr(main, "USER_DATA", playback_user_data())
+    monkeypatch.setattr(main, "save_user_data", lambda: closed.append("save"))
+    monkeypatch.setattr(main, "purge_old_lyrics_if_exist", lambda: closed.append("lyrics"))
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: messages.append(str(value)))
+    monkeypatch.setattr(main, "SAY", lambda **_kwargs: None)
+    monkeypatch.setattr(main.vas.controller, "snapshot", lambda: empty)
+    monkeypatch.setattr(main.vas.supervisor, "close", lambda: closed.append("playback"))
+    monkeypatch.setattr(main, "SLEEP_TIMER", SimpleNamespace(close=lambda: closed.append("sleep")))
+    monkeypatch.setattr(main, "BROADCASTER", SimpleNamespace(close=lambda: closed.append("broadcast")))
+    monkeypatch.setattr(
+        main,
+        "DESKTOP_CONTROL",
+        SimpleNamespace(emit=lambda *_args: closed.append("ack"), close=lambda: closed.append("desktop")),
+    )
+    monkeypatch.setattr(main, "LIBRARY_SERVICE", SimpleNamespace(close=lambda: closed.append("library")))
+
+    main.exitplayer()
+    assert {"sleep", "broadcast", "desktop", "playback", "library", "save", "lyrics"} <= set(closed)
+    assert "ack" in closed
+    assert any("Exiting" in value for value in messages)
+
+
+def test_help_autoplay_and_theme_validation_and_rollback(monkeypatch):
+    printed = []
+    settings = {"playback": {"autoplay": True}, "appearance": {"terminal theme": "aurora"}}
+    monkeypatch.setattr(main, "SETTINGS", settings)
+    monkeypatch.setattr(main, "AUTOPLAY_ENABLED", True)
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
+    monkeypatch.setattr(main, "RUNTIME_PATHS", SimpleNamespace(settings=Path("settings.yml")))
+    monkeypatch.setattr(main, "DESKTOP_CONTROL", SimpleNamespace(emit=lambda *_args: None))
+
+    assert main.help_command(["play"])[0][0] == "Playback"
+    assert main.autoplay_command([]) is True
+    assert main.theme_command(["list"]) == "aurora"
+    assert main.theme_command(["status"]) == "aurora"
+    with pytest.raises(ValueError, match="Unknown help topic"):
+        main.help_command(["missing"])
+    with pytest.raises(ValueError, match="Usage: autoplay"):
+        main.autoplay_command(["maybe"])
+    with pytest.raises(ValueError, match="Usage: theme"):
+        main.theme_command(["missing"])
+
+    monkeypatch.setattr(
+        main,
+        "save_user_settings",
+        lambda *_args: (_ for _ in ()).throw(OSError("read-only")),
+    )
+    with pytest.raises(OSError, match="read-only"):
+        main.autoplay_command(["off"])
+    assert main.AUTOPLAY_ENABLED is True and settings["playback"]["autoplay"] is True
+    with pytest.raises(OSError, match="read-only"):
+        main.theme_command(["gruvbox"])
+    assert settings["appearance"]["terminal theme"] == "aurora"
+
+
+def test_media_commands_cover_saved_and_live_identity_paths(monkeypatch, tmp_path):
+    source = tmp_path / "Artist - Track.mp3"
+    source.write_bytes(b"audio")
+    info = {
+        "library_id": "a" * 32,
+        "canonical_path": str(source),
+        "state": "available",
+        "metadata": {"title": "Track", "artist": "Artist", "duration": 120},
+        "fingerprint_duration": 119.0,
+        "fingerprint": "chromaprint-value",
+    }
+    printed = []
+    identified = SimpleNamespace(
+        status=main.IdentityStatus.IDENTIFIED,
+        to_dict=lambda: {"status": "identified", "title": "Track", "artist": "Artist"},
+    )
+    ambiguous = SimpleNamespace(
+        status=main.IdentityStatus.AMBIGUOUS,
+        to_dict=lambda: {"status": "ambiguous", "title": None},
+    )
+    identity_calls = []
+    controller = SimpleNamespace(
+        snapshot=lambda: PlaybackSnapshot(PlaybackState.PLAYING),
+        fingerprint_pcm=lambda: b"pcm",
+    )
+    monkeypatch.setattr(main.vas, "controller", controller)
+    monkeypatch.setattr(main, "LIBRARY", SimpleNamespace(info=lambda target: info if target == "1" else None))
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
+    monkeypatch.setattr(
+        main,
+        "IDENTITY",
+        SimpleNamespace(
+            identify_fingerprint=lambda *args: identity_calls.append(("saved", args)) or identified,
+            identify=lambda *args, **kwargs: identity_calls.append(("pcm", args, kwargs)) or ambiguous,
+        ),
+    )
+
+    assert main.media_command(["info", "1"]) is info
+    assert "chromaprint-value" not in printed[-1]
+    assert main.media_command(["fingerprint", "1"]) == "chromaprint-value"
+    assert "17 characters" in printed[-1]
+    assert main.media_command(["fingerprint", "1", "--full"]) == "chromaprint-value"
+    assert "chromaprint-value" in printed[-1]
+    assert main.media_command(["identify", "1"]) is identified
+    assert identity_calls[-1][0] == "saved"
+
+    info["fingerprint"] = None
+    assert main.media_command(["fingerprint", "1"]) is None
+    assert "No saved Chromaprint" in printed[-1]
+    assert main.media_command(["identify", "1"]) is ambiguous
+    assert identity_calls[-1][0] == "pcm"
+    assert "No confident identity" in printed[-1]
+    with pytest.raises(ValueError, match="Usage: media"):
+        main.media_command(["unknown", "1"])
+    with pytest.raises(ValueError, match="was not found"):
+        main.media_command(["info", "missing"])
+    with pytest.raises(ValueError, match="No media"):
+        main.media_command(["info"])
+
+
+def test_short_rename_preview_cancel_and_apply(monkeypatch, tmp_path):
+    source = tmp_path / "old.mp3"
+    source.write_bytes(b"audio")
+    media = main.MediaRef(main.MediaSource.LOCAL, str(source), stable_id="stable")
+    info = {
+        "library_id": "stable",
+        "canonical_path": str(source),
+        "state": "available",
+        "metadata": {"artist": "Artist", "title": "Track", "date": "2025"},
+    }
+    renamed = source.with_name("Artist - Track 2025.mp3")
+    printed = []
+    events = []
+    monkeypatch.setattr(main, "_media_info", lambda _args: (media, info))
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
+    monkeypatch.setattr(main, "LIBRARY", SimpleNamespace(rename=lambda *_args: renamed))
+    monkeypatch.setattr(main, "reload_sounds", lambda **kwargs: events.append(("reload", kwargs)))
+    monkeypatch.setattr(main, "stopsong", lambda: events.append("stop"))
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=media),
+    )
+    monkeypatch.setattr(main, "currentsong", str(source))
+
+    assert main.rename_command(["short", "--dry-run"]) == renamed
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "n")
+    assert main.rename_command(["short"]) is None
+    assert "Rename cancelled" in printed[-1]
+    assert main.rename_command(["short", "--yes"]) == renamed
+    assert "stop" in events and main.currentsong == str(renamed)
+    assert any(isinstance(event, tuple) and event[0] == "reload" for event in events)
+    with pytest.raises(ValueError, match="Usage: rename"):
+        main.rename_command([])
+    info["state"] = "missing"
+    with pytest.raises(ValueError, match="available"):
+        main.rename_command(["short", "--yes"])
+
+
+def test_managed_tool_migration_handles_complete_declined_success_and_failure(monkeypatch):
+    states = {}
+    status = SimpleNamespace(complete=True)
+    messages = []
+    database = SimpleNamespace(
+        get_state=lambda key: states.get(key),
+        set_state=lambda key, value: states.__setitem__(key, value),
+    )
+    monkeypatch.setattr(main, "DATABASE", database)
+    monkeypatch.setattr(main, "discover_media_tools", lambda _settings: status)
+    monkeypatch.setattr(main, "find_javascript_runtime", lambda *_args: "deno")
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: messages.append(str(value)))
+    assert main.ensure_managed_tool_migration() is status
+    assert states["managed_tool_prompt_version"] == "official-tools-2026.07.1"
+
+    status.complete = False
+    states.clear()
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "n")
+    assert main.ensure_managed_tool_migration() is status
+    assert "Skipped" in messages[-1]
+
+    states.clear()
+    installed = []
+    incomplete = SimpleNamespace(complete=False)
+    complete = SimpleNamespace(complete=True)
+    statuses = iter([incomplete, complete])
+    monkeypatch.setattr(main, "discover_media_tools", lambda _settings: next(statuses))
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "")
+    monkeypatch.setattr(
+        main,
+        "TOOLCHAIN",
+        SimpleNamespace(install_recommended=lambda **_kwargs: installed.append("install")),
+    )
+    monkeypatch.setattr(main, "persist_media_tools", lambda *_args, **_kwargs: installed.append("persist"))
+    monkeypatch.setattr(main, "refresh_runtime_configuration", lambda **_kwargs: installed.append("refresh"))
+    assert main.ensure_managed_tool_migration() is complete
+    assert installed == ["install", "persist", "refresh"]
+
+    states.clear()
+    monkeypatch.setattr(main, "discover_media_tools", lambda _settings: incomplete)
+    monkeypatch.setattr(
+        main,
+        "TOOLCHAIN",
+        SimpleNamespace(
+            install_recommended=lambda **_kwargs: (_ for _ in ()).throw(main.ToolchainError("offline"))
+        ),
+    )
+    assert main.ensure_managed_tool_migration() is incomplete
+    assert "failed" in messages[-1].casefold()
+    assert "managed_tool_prompt_version" not in states

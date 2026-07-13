@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -11,7 +12,13 @@ from typing import Any
 from config_manager import load_user_settings, save_user_settings
 
 from .paths import RuntimePaths, runtime_paths
-from .toolchain import ToolchainError, ToolchainManager, executable_from_location, find_tool_executable
+from .toolchain import (
+    ToolchainError,
+    ToolchainManager,
+    executable_from_location,
+    find_javascript_runtime,
+    find_tool_executable,
+)
 
 FFMPEG_TOOLS = ("ffmpeg", "ffprobe", "ffplay")
 OPTIONAL_TOOLS = ("fpcalc", "rsgain")
@@ -109,6 +116,9 @@ def persist_media_tools(
         media_tools["fpcalc bin"] = str(Path(fpcalc).parent)
     if rsgain:
         media_tools["rsgain bin"] = str(Path(rsgain).parent)
+    if javascript := find_javascript_runtime(media_tools.get("javascript bin")):
+        media_tools["javascript bin"] = str(Path(javascript[1]).parent)
+        os.environ["MARIANA_JAVASCRIPT_RUNTIME"] = javascript[1]
     _atomic_save_settings(settings, paths)
     return settings
 
@@ -118,6 +128,8 @@ def _print_status(status: MediaToolStatus) -> None:
     for name in ALL_TOOLS:
         value = status.executables.get(name)
         print(f"  {name:<7} {'OK  ' + value if value else 'NOT FOUND'}")
+    javascript = find_javascript_runtime()
+    print(f"  {'JS':<7} {'OK  ' + javascript[1] if javascript else 'NOT FOUND'}")
 
 
 def _manual_settings(settings: dict[str, Any]) -> dict[str, Any]:
@@ -144,6 +156,14 @@ def _manual_settings(settings: dict[str, Any]) -> dict[str, Any]:
                 media_tools[setting] = str(Path(found).parent)
                 break
             print(f"That location does not contain a working {name} executable.")
+    if not find_javascript_runtime(media_tools.get("javascript bin")):
+        while True:
+            value = input("Deno/Node path (executable or its containing directory): ").strip()
+            found = executable_from_location("deno", value) or executable_from_location("node", value)
+            if found:
+                media_tools["javascript bin"] = str(Path(found).parent)
+                break
+            print("That location does not contain a working Deno or Node executable.")
     return updated
 
 
@@ -158,14 +178,15 @@ def setup_media_tools(
     paths = paths or runtime_paths()
     settings = settings or load_user_settings()
     status = discover_media_tools(settings)
-    if status.complete:
+    javascript = find_javascript_runtime(settings.get("media tools", {}).get("javascript bin"))
+    if status.complete and javascript:
         persist_media_tools(status, settings, paths=paths)
         return status
     if not interactive:
         return status
 
     _print_status(status)
-    print("\nMariana needs the missing tools for playback, lyrics identification, and loudness analysis.")
+    print("\nMariana needs the missing tools for playback, lyrics identification, loudness analysis, and YouTube.")
     print("  [1] Automatically download verified recommended tools (default)")
     print("  [2] Enter installed tool paths manually")
     if not status.missing_required:
@@ -183,7 +204,9 @@ def setup_media_tools(
     if choice in {"2", "manual"}:
         settings = _manual_settings(settings)
         status = discover_media_tools(settings)
-        if not status.complete:
+        if not status.complete or not find_javascript_runtime(
+            settings.get("media tools", {}).get("javascript bin")
+        ):
             raise ToolSetupError("One or more configured media tools failed validation")
         persist_media_tools(status, settings, paths=paths)
         return status
@@ -196,7 +219,7 @@ def setup_media_tools(
             f"Automatic tool setup failed: {error}. Resume setup to retry or choose manual paths."
         ) from error
     status = discover_media_tools(settings)
-    if not status.complete:
+    if not status.complete or not find_javascript_runtime():
         raise ToolSetupError("The verified tool installation completed but one or more executables failed validation")
     persist_media_tools(status, settings, paths=paths)
     return status

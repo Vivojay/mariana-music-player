@@ -34,7 +34,7 @@ def markdown_files(root: Path) -> list[Path]:
         for path in root.rglob("*.md")
         if not ignored.intersection(path.relative_to(root).parts)
         and not any(
-            part.startswith((".test-tmp", "pytest-cache-files-"))
+            part.startswith((".test-", "pytest-cache-files-"))
             for part in path.relative_to(root).parts
         )
     ]

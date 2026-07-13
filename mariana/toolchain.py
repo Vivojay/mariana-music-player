@@ -47,6 +47,7 @@ BOOTSTRAP_HOSTS = (
     "https://www.gyan.dev/ffmpeg/builds/packages/",
     "https://github.com/acoustid/chromaprint/releases/download/",
     "https://github.com/complexlogic/rsgain/releases/download/",
+    "https://github.com/denoland/deno/releases/download/",
 )
 
 
@@ -211,6 +212,8 @@ class ToolchainManager:
                 self._download(
                     ToolArtifact(source.url, source.sha256, source.archive, {}),
                     archive,
+                    progress=progress,
+                    label=source.name,
                 )
                 destination = extracted / f"source-{index}"
                 destination.mkdir()
@@ -291,16 +294,38 @@ class ToolchainManager:
         except (OSError, KeyError, TypeError, json.JSONDecodeError):
             return None
 
-    def _download(self, artifact: ToolArtifact, destination: Path) -> None:
+    def _download(
+        self,
+        artifact: ToolArtifact,
+        destination: Path,
+        *,
+        progress: Callable[[str], None] | None = None,
+        label: str = "managed tools",
+    ) -> None:
         hasher = hashlib.sha256()
         try:
             with self.session.get(artifact.url, stream=True, timeout=(10, 120)) as response:
                 response.raise_for_status()
+                total = int(getattr(response, "headers", {}).get("content-length") or 0)
+                received = 0
+                last_reported = -1
                 with destination.open("wb") as output:
                     for chunk in response.iter_content(1024 * 1024):
                         if chunk:
                             hasher.update(chunk)
                             output.write(chunk)
+                            received += len(chunk)
+                            if progress and total:
+                                percent = min(100, int(received * 100 / total))
+                                bucket = percent // 5
+                                if bucket != last_reported:
+                                    last_reported = bucket
+                                    filled = min(20, percent // 5)
+                                    progress(
+                                        f"  {label}: [{'#' * filled}{'-' * (20 - filled)}] "
+                                        f"{percent:>3}% ({received / 1_048_576:.1f}/"
+                                        f"{total / 1_048_576:.1f} MiB)"
+                                    )
         except requests.RequestException as error:
             raise ToolchainError(f"Managed tool download failed: {error}") from error
         if hasher.hexdigest() != artifact.sha256:
@@ -404,19 +429,23 @@ def find_tool_executable(name: str, configured: str | None = None) -> str | None
     return next((str(path.resolve()) for path in common_tool_locations(name) if path.is_file()), None)
 
 
-def find_javascript_runtime() -> tuple[str, str] | None:
+def find_javascript_runtime(configured: str | None = None) -> tuple[str, str] | None:
     """Find a yt-dlp JavaScript runtime without assuming one machine layout."""
     runtimes = (("deno", "deno"), ("node", "node"), ("quickjs", "qjs"))
     for runtime, executable in runtimes:
+        if candidate := executable_from_location(executable, configured):
+            return runtime, candidate
+    for runtime, executable in runtimes:
         if candidate := find_managed_executable(executable) or shutil.which(executable):
             return runtime, candidate
-
-    if platform.system() != "Windows":
-        return None
-
-    node_candidates = [Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "nodejs" / "node.exe"]
-    node_candidates.extend(sorted((Path.home() / "apps").glob("node-*-win-x64/node.exe"), reverse=True))
-    for candidate in node_candidates:
-        if candidate.is_file():
-            return "node", str(candidate.resolve())
+    if platform.system() == "Windows":
+        node_candidates = [Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "nodejs" / "node.exe"]
+        node_candidates.extend(sorted((Path.home() / "apps").glob("node-*-win-x64/node.exe"), reverse=True))
+        for candidate in node_candidates:
+            if candidate.is_file():
+                return "node", str(candidate.resolve())
+    environment_location = os.environ.get("MARIANA_JAVASCRIPT_RUNTIME")
+    for runtime, executable in runtimes:
+        if candidate := executable_from_location(executable, environment_location):
+            return runtime, candidate
     return None

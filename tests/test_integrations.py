@@ -101,6 +101,8 @@ def test_downloader_dry_run_preserves_quality_settings(tmp_path: Path):
     options = media_DL(settings, {"system_settings": {}}, ["https://example.test"], dry_run=True)
     assert options["format"] == "bestaudio/best"
     assert options["postprocessors"][0]["key"] == "FFmpegExtractAudio"
+    assert options["postprocessors"][1]["key"] == "FFmpegMetadata"
+    assert "%(id)s" in options["outtmpl"]
     assert "[audio]" in options["outtmpl"]
 
     video_options = media_DL(
