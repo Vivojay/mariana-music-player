@@ -588,6 +588,14 @@ def test_banner_version_and_audio_initialization(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr(main.sounddevice, "query_devices", lambda: [{"max_output_channels": 2}])
     main.initialize_audio_output()
+    monkeypatch.setenv("MARIANA_E2E", "1")
+    monkeypatch.setattr(
+        main.sounddevice,
+        "query_devices",
+        lambda: pytest.fail("headless E2E must not query physical audio devices"),
+    )
+    main.initialize_audio_output()
+    monkeypatch.delenv("MARIANA_E2E")
     monkeypatch.setattr(main.sounddevice, "query_devices", lambda: [{"max_output_channels": 0}])
     with pytest.raises(RuntimeError, match="audio output device"):
         main.initialize_audio_output()

@@ -3927,6 +3927,8 @@ def showbanner():
     if visible: showversion()
 
 def initialize_audio_output():
+    if os.environ.get('MARIANA_E2E') == '1':
+        return
     try:
         devices = sounddevice.query_devices()
         if not any(device.get('max_output_channels', 0) > 0 for device in devices):
