@@ -31,7 +31,7 @@ lyrics:
   solid color bg:
     color: '#121212'
 media tools:
-  ffmpeg bin: C:\Users\Vivan.Jaiswal\Documents\ffmpeg-2025-12-18-git-78c75d546a-essentials_build\bin
+  ffmpeg bin:
   fpcalc bin:
 playback:
   crossfade seconds: 0

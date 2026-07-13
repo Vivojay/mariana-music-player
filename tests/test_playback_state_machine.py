@@ -511,8 +511,7 @@ def test_numpy_crossfade_empty_next_and_output_recovery(controller):
 
 
 def test_remaining_playback_branches(controller, monkeypatch, tmp_path):
-    monkeypatch.setattr("mariana.toolchain.find_managed_executable", lambda _name: None)
-    monkeypatch.setattr(playback.shutil, "which", lambda name: f"PATH/{name}")
+    monkeypatch.setattr("mariana.toolchain.find_tool_executable", lambda name, _configured=None: f"PATH/{name}")
     assert playback.find_executable("ffmpeg", str(tmp_path / "missing")) == "PATH/ffmpeg"
 
     with monkeypatch.context() as scoped:
@@ -646,7 +645,8 @@ def test_windows_job_none_handle_and_legacy_tool_lookup(monkeypatch, tmp_path):
     executable.write_bytes(b"tool")
     monkeypatch.setattr("mariana.toolchain.find_managed_executable", lambda _name: None)
     monkeypatch.setattr("mariana.paths.runtime_paths", lambda: SimpleNamespace(resource=lambda _name: legacy))
-    monkeypatch.setattr(playback.shutil, "which", lambda _name: None)
+    monkeypatch.setattr("mariana.toolchain.shutil.which", lambda _name: None)
+    monkeypatch.setattr("mariana.toolchain.common_tool_locations", lambda _name: ())
     assert playback.find_executable("ffmpeg") == str(executable.resolve())
 
     fake_job = SimpleNamespace(

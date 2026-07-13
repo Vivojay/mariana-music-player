@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "bundle": "official-tools-2026.07",
+  "platforms": {
+    "win32-x64": [
+      {
+        "name": "FFmpeg 8.1.2 essentials",
+        "url": "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-8.1.2-essentials_build.zip",
+        "sha256": "db580001caa24ac104c8cb856cd113a87b0a443f7bdf47d8c12b1d740584a2ec",
+        "archive": "zip",
+        "executables": ["ffmpeg", "ffprobe", "ffplay"]
+      },
+      {
+        "name": "Chromaprint 1.6.0",
+        "url": "https://github.com/acoustid/chromaprint/releases/download/v1.6.0/chromaprint-fpcalc-1.6.0-windows-x86_64.zip",
+        "sha256": "30179d3d0dc4cc92f1a0995c1a2e523fb4867724c2ee6a6ceae474f8e4d6937a",
+        "archive": "zip",
+        "executables": ["fpcalc"]
+      },
+      {
+        "name": "rsgain 3.7",
+        "url": "https://github.com/complexlogic/rsgain/releases/download/v3.7/rsgain-3.7-win64.zip",
+        "sha256": "8d6e16d1af5a805fb2dd6183e11f4f8bc51240f8a896fd37ab8fca655bb70800",
+        "archive": "zip",
+        "executables": ["rsgain"]
+      }
+    ]
+  }
+}

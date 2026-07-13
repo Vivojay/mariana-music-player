@@ -11,6 +11,12 @@ import restore_default
 from mariana.setup import SetupStateStore
 
 
+@pytest.fixture(autouse=True)
+def configured_media_tools(monkeypatch):
+    """Keep these setup cases isolated from the dedicated media-tool setup tests."""
+    monkeypatch.setattr(first_boot_setup, "setup_media_tools", lambda **_kwargs: None)
+
+
 class ArchiveResponse:
     def __init__(self, content: bytes):
         self.content = content

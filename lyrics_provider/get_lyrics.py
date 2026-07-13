@@ -95,11 +95,16 @@ def get_lyrics(max_wait_lim,
             duration=media.duration,
             confidence=identity.confidence,
             provenance=identity.provenance,
+            metadata=identity.metadata,
         )
     result = IDENTIFICATION_SERVICE.lyrics(media, identity)
     if result.status == IdentityStatus.IDENTIFIED and (result.plain or result.synced):
         head_text = " — ".join(value for value in (identity.artist, identity.title) if value) or media.title or "Lyrics"
         text_to_be_displayed = result.plain or result.synced
+    elif identity.status == IdentityStatus.UNAVAILABLE:
+        reason = identity.metadata.get("reason", "Audio identification is unavailable")
+        head_text = "Lyrics identification unavailable"
+        text_to_be_displayed = f"{reason}. Run 'tools setup', then retry lyrics."
 
     return (text_to_be_displayed, head_text)
 
@@ -284,4 +289,3 @@ def show_window(max_wait_lim,
         shell=False,
         cwd=APP_DIR,
     )
-

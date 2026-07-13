@@ -18,6 +18,12 @@ def setup_store(tmp_path: Path) -> SetupStateStore:
     return store
 
 
+@pytest.fixture(autouse=True)
+def configured_media_tools(monkeypatch):
+    """Keep legacy setup cases focused on steps other than media-tool provisioning."""
+    monkeypatch.setattr(first_boot_setup, "setup_media_tools", lambda **_kwargs: None)
+
+
 def test_first_boot_can_decline_samples_and_exit(monkeypatch, tmp_path: Path):
     about = {"ver": {"maj": 0, "min": 6, "rel": 2}}
     store = setup_store(tmp_path)
@@ -34,6 +40,24 @@ def test_first_boot_can_decline_samples_and_exit(monkeypatch, tmp_path: Path):
 
     assert first_boot_setup.fbs(about, store) is True
     assert store.load().status == "complete"
+
+
+def test_first_boot_commits_media_tools_before_library(monkeypatch, tmp_path: Path):
+    about = {"ver": {"maj": 0, "min": 7, "rel": 0}}
+    store = setup_store(tmp_path)
+    calls = []
+    monkeypatch.setattr(first_boot_setup, "setup_media_tools", lambda **_kwargs: calls.append(store.load().current_step))
+    monkeypatch.setattr(
+        first_boot_setup,
+        "runtime_paths",
+        lambda: SimpleNamespace(library_file=tmp_path / "lib.lib"),
+    )
+    answers = iter(("n", "n", "n"))
+    monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
+
+    assert first_boot_setup.fbs(about, store) is True
+    assert calls == ["tools"]
+    assert store.load().completed_steps[0] == "tools"
 
 
 def test_setup_state_detects_corruption_and_repairs(monkeypatch, tmp_path: Path):
@@ -130,7 +154,7 @@ def test_failed_optional_samples_can_be_explicitly_skipped(monkeypatch, tmp_path
     assert first_boot_setup.fbs({"ver": {"maj": 0, "min": 7, "rel": 0}}, store) is True
     state = store.load()
     assert state.status == "complete"
-    assert state.completed_steps == ["library", "samples", "launch"]
+    assert set(state.completed_steps) == {"tools", "library", "samples", "launch"}
 
 
 @pytest.mark.parametrize("interrupt_at", ["library", "samples", "launch"])

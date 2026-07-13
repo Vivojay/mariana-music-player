@@ -15,6 +15,7 @@ from mariana.identity import (
     local_lyrics,
 )
 from mariana.models import IdentityStatus, MediaRef, MediaSource, TrackIdentity
+from mariana.playback import PlaybackError
 
 
 class Response:
@@ -209,3 +210,34 @@ def test_identification_and_lyrics_are_persistently_cached(tmp_path: Path, monke
         assert service.lyrics(media, identity).plain == "words"
         assert service.lyrics(media, identity).plain == "words"
         assert lyrics.calls == 1
+
+
+def test_missing_fpcalc_returns_typed_unavailable_identity(tmp_path: Path, monkeypatch):
+    media_path = tmp_path / "song.wav"
+    media_path.write_bytes(b"audio")
+    media = MediaRef(MediaSource.LOCAL, str(media_path))
+    monkeypatch.setattr(
+        "mariana.identity.find_fpcalc",
+        lambda _configured=None: (_ for _ in ()).throw(PlaybackError("missing")),
+    )
+    with MarianaDatabase(tmp_path / "mariana.db") as database:
+        result = IdentificationService(database).identify(media)
+    assert result.status == IdentityStatus.UNAVAILABLE
+    assert "tools setup" in result.metadata["reason"]
+
+
+def test_lyrics_provider_reports_missing_fpcalc_without_a_traceback(tmp_path: Path, monkeypatch):
+    from lyrics_provider import get_lyrics
+
+    media_path = tmp_path / "song.mp3"
+    media_path.write_bytes(b"audio")
+    monkeypatch.setattr(
+        "mariana.identity.find_fpcalc",
+        lambda _configured=None: (_ for _ in ()).throw(PlaybackError("missing")),
+    )
+    with MarianaDatabase(tmp_path / "mariana.db") as database:
+        service = IdentificationService(database)
+        get_lyrics.configure(service, None)
+        text, heading = get_lyrics.get_lyrics(10, False, songfile=str(media_path))
+    assert heading == "Lyrics identification unavailable"
+    assert "tools setup" in text

@@ -439,11 +439,10 @@ def test_loudness_remaining_policy_and_analyzer_errors(tmp_path, monkeypatch):
     ) == 24
     analyzer = loudness.RSGainAnalyzer()
     assert analyzer.analyze([]) == {}
-    monkeypatch.setattr(loudness, "find_managed_executable", lambda _name: None)
-    monkeypatch.setattr(loudness.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(loudness, "find_tool_executable", lambda *_args: None)
     with pytest.raises(loudness.LoudnessError, match="not found"):
         analyzer.analyze([tmp_path / "x.wav"])
-    monkeypatch.setattr(loudness.shutil, "which", lambda _name: "rsgain")
+    monkeypatch.setattr(loudness, "find_tool_executable", lambda *_args: "rsgain")
     monkeypatch.setattr(
         loudness.subprocess,
         "run",

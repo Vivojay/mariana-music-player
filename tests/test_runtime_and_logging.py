@@ -20,9 +20,8 @@ def test_fatal_logging_writes_general_and_crash_logs(tmp_path: Path):
 
 
 def test_runtime_report_is_actionable(monkeypatch):
-    monkeypatch.setattr("runtime_check.shutil.which", lambda _name: None)
+    monkeypatch.setattr("runtime_check.find_tool_executable", lambda *_args: None)
     monkeypatch.setattr("runtime_check.find_javascript_runtime", lambda: None)
-    monkeypatch.setattr("runtime_check.Path.rglob", lambda *_args: [])
     monkeypatch.setattr("runtime_check.has_audio_output", lambda: False)
     report = check_runtime()
     messages = format_runtime_report(report)

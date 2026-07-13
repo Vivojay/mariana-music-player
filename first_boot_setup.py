@@ -12,6 +12,7 @@ from pathlib import Path
 
 from mariana.paths import runtime_paths
 from mariana.setup import SetupStateError, SetupStateStore
+from mariana.tool_setup import setup_media_tools
 
 APP_DIR = Path(__file__).resolve().parent
 HTTP_TIMEOUT = (10, 60)
@@ -165,6 +166,11 @@ def fbs(about, store: SetupStateStore | None = None):
         print("=" * (len(greet) + 8))
 
         try:
+            state = store.begin("tools")
+            if "tools" not in state.completed_steps:
+                setup_media_tools(paths=runtime_paths())
+                state = store.complete_step("tools")
+
             state = store.begin("library")
             if "library" not in state.completed_steps:
                 directories: list[str] = []

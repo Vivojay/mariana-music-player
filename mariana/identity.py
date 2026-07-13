@@ -21,7 +21,7 @@ from mutagen import MutagenError  # pyright: ignore[reportMissingImports]
 
 from .database import MarianaDatabase
 from .models import IdentityStatus, LyricsResult, MediaRef, MediaSource, TrackIdentity
-from .playback import CHANNELS, CREATE_NO_WINDOW, SAMPLE_RATE, SAMPLE_WIDTH, find_executable
+from .playback import CHANNELS, CREATE_NO_WINDOW, SAMPLE_RATE, SAMPLE_WIDTH, PlaybackError, find_executable
 from .version import __version__
 
 APP_NAME = "Mariana"
@@ -45,7 +45,12 @@ def find_fpcalc(configured: str | None = None) -> str:
 
 
 def _run_fpcalc(path: Path | str, fpcalc_bin: str | None = None) -> tuple[float, str]:
-    executable = find_fpcalc(fpcalc_bin)
+    try:
+        executable = find_fpcalc(fpcalc_bin)
+    except PlaybackError as error:
+        raise IdentificationError(
+            "Chromaprint fpcalc is unavailable; run 'tools setup' to configure or install it"
+        ) from error
     try:
         result = subprocess.run(
             [executable, "-json", "-length", "120", str(path)],

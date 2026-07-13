@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import signal
 import subprocess
 import threading
@@ -14,7 +13,6 @@ from array import array
 from collections import deque
 from collections.abc import Callable
 from functools import lru_cache
-from pathlib import Path
 from typing import Any, Protocol, cast
 
 import numpy as np
@@ -47,27 +45,13 @@ class OutputStream(Protocol):
 
 
 def find_executable(name: str, configured_bin: str | None = None) -> str:
-    if configured_bin:
-        candidate = Path(configured_bin).expanduser()
-        if candidate.is_dir():
-            candidate /= f"{name}.exe" if os.name == "nt" else name
-        if candidate.is_file():
-            return str(candidate.resolve())
-    from .paths import runtime_paths
-    from .toolchain import find_managed_executable
+    from .toolchain import find_tool_executable
 
-    if managed := find_managed_executable(name):
-        return managed
-    legacy_name = f"{name}.exe" if os.name == "nt" else name
-    legacy_root = runtime_paths().resource('.tools')
-    if legacy_root.is_dir() and (
-        legacy := next((candidate for candidate in legacy_root.rglob(legacy_name) if candidate.is_file()), None)
-    ):
-        return str(legacy.resolve())
-    executable = shutil.which(name)
-    if executable:
+    if executable := find_tool_executable(name, configured_bin):
         return executable
-    raise PlaybackError(f"{name} was not found; configure the FFmpeg bin directory or add it to PATH")
+    raise PlaybackError(
+        f"{name} was not found; run 'tools setup' or configure its executable/directory in settings"
+    )
 
 
 @lru_cache(maxsize=8)

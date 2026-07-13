@@ -30,7 +30,7 @@ def test_find_executable_and_missing(tmp_path: Path, monkeypatch):
     executable = tmp_path / ("ffmpeg.exe" if os.name == "nt" else "ffmpeg")
     executable.write_bytes(b"")
     assert playback.find_executable("ffmpeg", str(tmp_path)) == str(executable.resolve())
-    monkeypatch.setattr(playback.shutil, "which", lambda _name: None)
+    monkeypatch.setattr("mariana.toolchain.find_tool_executable", lambda *_args: None)
     with pytest.raises(playback.PlaybackError, match="was not found"):
         playback.find_executable("missing")
 

@@ -7,7 +7,6 @@ import io
 import math
 import os
 import re
-import shutil
 import subprocess
 import time
 from collections.abc import Iterable
@@ -17,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from .database import MarianaDatabase
-from .toolchain import find_managed_executable
+from .toolchain import find_tool_executable
 
 TARGET_LUFS = -18.0
 DEFAULT_HEADROOM_DBTP = -1.0
@@ -312,14 +311,39 @@ class RSGainAnalyzer:
         self.executable = executable
         self.timeout = timeout
 
+    def resolve(self) -> str:
+        executable = find_tool_executable("rsgain", self.executable)
+        if not executable:
+            suffix = ".exe" if os.name == "nt" else ""
+            raise LoudnessError(f"rsgain{suffix} was not found; run 'tools setup'")
+        return executable
+
+    def verify(self) -> tuple[str, str]:
+        executable = self.resolve()
+        try:
+            result = subprocess.run(
+                [executable, "--version"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+                check=True,
+                creationflags=CREATE_NO_WINDOW,
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            raise LoudnessError(f"rsgain could not be started: {error}") from error
+        output = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", result.stdout or result.stderr)
+        version = next((line.strip() for line in output.splitlines() if line.strip()), "")
+        if not version:
+            raise LoudnessError("rsgain returned no version information")
+        return executable, version
+
     def analyze(self, paths: Iterable[Path], *, album: bool = False) -> dict[str, dict[str, float | None]]:
         files = [Path(path).resolve() for path in paths]
         if not files:
             return {}
-        executable = self.executable or find_managed_executable("rsgain") or shutil.which("rsgain")
-        if not executable:
-            suffix = ".exe" if os.name == "nt" else ""
-            raise LoudnessError(f"rsgain{suffix} was not found; install or repair Mariana's managed media tools")
+        executable = self.resolve()
         command = [executable, "custom", "-s", "s", "-t", "-l", "-18", "-O"]
         if album and len(files) > 1:
             command.append("-a")

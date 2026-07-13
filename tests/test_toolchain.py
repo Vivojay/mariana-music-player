@@ -2,6 +2,7 @@ import hashlib
 import io
 import json
 import os
+import stat
 import tarfile
 import zipfile
 from pathlib import Path
@@ -241,6 +242,145 @@ def test_tar_extraction_rejects_links_and_unknown_kinds(tmp_path):
         ToolchainManager._extract(unsafe, destination, "tar.gz")
     with pytest.raises(ToolchainError, match="Unsupported"):
         ToolchainManager._extract(safe, destination, "rar")
+
+
+def test_zip_extraction_rejects_symlinks(tmp_path):
+    archive = tmp_path / "link.zip"
+    with zipfile.ZipFile(archive, "w") as package:
+        member = zipfile.ZipInfo("link")
+        member.create_system = 3
+        member.external_attr = (stat.S_IFLNK | 0o777) << 16
+        package.writestr(member, "../outside")
+    destination = tmp_path / "destination"
+    destination.mkdir()
+    with pytest.raises(ToolchainError, match="Unsafe"):
+        ToolchainManager._extract(archive, destination, "zip")
+
+
+def test_bootstrap_manifest_covers_unreadable_and_malformed_entries(tmp_path):
+    paths = RuntimePaths(tmp_path, tmp_path / "data")
+    missing = ToolchainManager(paths, bootstrap_manifest_path=tmp_path / "missing.json")
+    with pytest.raises(ToolchainError, match="Invalid bootstrap"):
+        missing.bootstrap_manifest()
+
+    manifest = tmp_path / "bootstrap.json"
+    cases = (
+        ({"schema": 1, "platforms": {"win32-x64": [{}]}}, "Incomplete"),
+        (
+            {
+                "schema": 1,
+                "platforms": {
+                    "win32-x64": [
+                        {
+                            "name": "bad hash",
+                            "url": "https://www.gyan.dev/ffmpeg/builds/packages/a.zip",
+                            "sha256": "z" * 64,
+                            "archive": "zip",
+                            "executables": ["ffmpeg"],
+                        }
+                    ]
+                },
+            },
+            "SHA-256",
+        ),
+        (
+            {
+                "schema": 1,
+                "platforms": {
+                    "win32-x64": [
+                        {
+                            "name": "empty",
+                            "url": "https://www.gyan.dev/ffmpeg/builds/packages/a.zip",
+                            "sha256": "0" * 64,
+                            "archive": "zip",
+                            "executables": [],
+                        }
+                    ]
+                },
+            },
+            "No executables",
+        ),
+    )
+    for payload, message in cases:
+        manifest.write_text(json.dumps(payload), encoding="utf-8")
+        manager = ToolchainManager(paths, bootstrap_manifest_path=manifest)
+        with pytest.raises(ToolchainError, match=message):
+            manager.bootstrap_artifacts("win32-x64")
+
+
+def test_bootstrap_install_rejects_archives_missing_declared_tools(monkeypatch, tmp_path):
+    monkeypatch.setattr(toolchain.platform, "system", lambda: "Windows")
+    archive = package_bytes({"readme.txt": b"missing"})
+    resources = tmp_path / "resources"
+    (resources / "tools").mkdir(parents=True)
+    bootstrap = resources / "tools" / "bootstrap-manifest.json"
+    bootstrap.write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "bundle": "test",
+                "platforms": {
+                    "win32-x64": [
+                        {
+                            "name": "missing",
+                            "url": "https://www.gyan.dev/ffmpeg/builds/packages/a.zip",
+                            "sha256": hashlib.sha256(archive).hexdigest(),
+                            "archive": "zip",
+                            "executables": ["ffmpeg"],
+                        }
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = ToolchainManager(
+        RuntimePaths(resources, tmp_path / "data"),
+        bootstrap_manifest_path=bootstrap,
+        session=Session(archive),
+    )
+    with pytest.raises(ToolchainError, match="did not contain"):
+        manager.install_bootstrap("win32-x64", progress=lambda _message: None)
+
+
+def test_executable_location_and_common_location_edge_cases(monkeypatch, tmp_path):
+    assert toolchain.executable_from_location("ffmpeg", None) is None
+    assert toolchain.executable_from_location("ffmpeg", tmp_path / "missing") is None
+
+    blocked = tmp_path / "blocked"
+    blocked.mkdir()
+    monkeypatch.setattr(toolchain.Path, "iterdir", lambda _self: (_ for _ in ()).throw(OSError("blocked")))
+    assert toolchain.executable_from_location("ffmpeg", blocked) is None
+
+    monkeypatch.setattr(toolchain.platform, "system", lambda: "Linux")
+    assert any(path.as_posix().endswith("/usr/bin/ffmpeg") for path in toolchain.common_tool_locations("ffmpeg"))
+
+
+def test_find_tool_executable_fallback_order(monkeypatch, tmp_path):
+    configured = tmp_path / "configured"
+    configured.mkdir()
+    executable = configured / ("ffmpeg.exe" if os.name == "nt" else "ffmpeg")
+    executable.write_bytes(b"tool")
+    assert toolchain.find_tool_executable("ffmpeg", str(configured)) == str(executable.resolve())
+
+    monkeypatch.setattr(toolchain, "executable_from_location", lambda *_args: None)
+    monkeypatch.setattr(toolchain, "find_managed_executable", lambda _name: "/managed/ffmpeg")
+    assert toolchain.find_tool_executable("ffmpeg") == "/managed/ffmpeg"
+    monkeypatch.setattr(toolchain, "find_managed_executable", lambda _name: None)
+    monkeypatch.setattr(toolchain.shutil, "which", lambda _name: str(executable))
+    assert toolchain.find_tool_executable("ffmpeg") == str(executable.resolve())
+
+
+def test_find_tool_executable_common_and_absent_branches(monkeypatch, tmp_path):
+    common = tmp_path / "ffmpeg"
+    common.write_bytes(b"tool")
+    monkeypatch.setattr(toolchain, "executable_from_location", lambda *_args: None)
+    monkeypatch.setattr(toolchain, "find_managed_executable", lambda _name: None)
+    monkeypatch.setattr(toolchain.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(toolchain, "common_tool_locations", lambda _name: (common,))
+    assert toolchain.find_tool_executable("ffmpeg") == str(common.resolve())
+    monkeypatch.setattr(toolchain, "common_tool_locations", lambda _name: ())
+    assert toolchain.find_tool_executable("ffmpeg") is None
 
 
 def test_javascript_runtime_prefers_managed_and_path_tools(monkeypatch):

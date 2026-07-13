@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import ctypes
-import os
-import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
-from pathlib import Path
 
-from mariana.toolchain import find_javascript_runtime
+from mariana.toolchain import find_javascript_runtime, find_tool_executable
 
 SUPPORTED_PYTHON = (3, 12)
 SUPPORTED_PLATFORMS = {"win32": "Windows", "darwin": "macOS", "linux": "Linux"}
@@ -28,13 +25,7 @@ class RuntimeReport:
 
 
 def _configured_executable(name: str, directory: str | None = None) -> str | None:
-    if directory:
-        candidate = Path(directory).expanduser()
-        if candidate.is_dir():
-            candidate /= f"{name}.exe" if os.name == "nt" else name
-        if candidate.is_file():
-            return str(candidate.resolve())
-    return shutil.which(name)
+    return find_tool_executable(name, directory)
 
 
 def inspect_ffmpeg(executable: str) -> str | None:
@@ -77,28 +68,17 @@ def check_runtime(
         name: _configured_executable(name, configured_ffmpeg_path)
         for name in ("ffmpeg", "ffprobe", "ffplay")
     }
-    from mariana.paths import runtime_paths
-
-    local_fpcalc = runtime_paths().tools
-    fpcalc_name = "fpcalc.exe" if os.name == "nt" else "fpcalc"
-    local_matches = list(local_fpcalc.rglob(fpcalc_name)) if local_fpcalc.exists() else []
-    executables["fpcalc"] = _configured_executable("fpcalc", configured_fpcalc_path) or (
-        str(local_matches[0]) if local_matches else None
-    )
-    rsgain_name = "rsgain.exe" if os.name == "nt" else "rsgain"
-    rsgain_matches = list(local_fpcalc.rglob(rsgain_name)) if local_fpcalc.exists() else []
-    executables["rsgain"] = _configured_executable("rsgain", configured_rsgain_path) or (
-        str(rsgain_matches[0]) if rsgain_matches else None
-    )
+    executables["fpcalc"] = _configured_executable("fpcalc", configured_fpcalc_path)
+    executables["rsgain"] = _configured_executable("rsgain", configured_rsgain_path)
     for executable in ("ffmpeg", "ffprobe"):
         if not executables[executable]:
             errors.append(f"{executable} is required for playback and media inspection.")
     if not executables["ffplay"]:
         warnings.append("ffplay is unavailable; diagnostic/video fallback commands are disabled.")
     if not executables["fpcalc"]:
-        warnings.append("Chromaprint fpcalc 1.6.0 is unavailable; install or repair the managed media tools.")
+        warnings.append("Chromaprint fpcalc 1.6.0 is unavailable; run 'tools setup' for lyrics identification.")
     if not executables["rsgain"]:
-        warnings.append("rsgain 3.7 is unavailable; ReplayGain tag ingestion works, but new loudness scans are disabled.")
+        warnings.append("rsgain 3.7 is unavailable; run 'tools setup' to enable new ReplayGain scans.")
     if executables["ffmpeg"] and not inspect_ffmpeg(executables["ffmpeg"]):
         errors.append("The configured FFmpeg executable could not be started.")
     javascript = find_javascript_runtime()

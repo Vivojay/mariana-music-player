@@ -5,6 +5,7 @@ import pytest
 
 from mariana.database import SCHEMA_VERSION, MarianaDatabase
 from mariana.loudness import (
+    LoudnessError,
     LoudnessProfile,
     LoudnessRepository,
     ReplayGainMode,
@@ -126,7 +127,7 @@ def test_rsgain_analysis_is_scan_only_and_preserves_media(tmp_path, monkeypatch)
         stderr = ""
 
     calls = []
-    monkeypatch.setattr("mariana.loudness.find_managed_executable", lambda _name: "rsgain")
+    monkeypatch.setattr("mariana.loudness.find_tool_executable", lambda *_args: "rsgain")
     monkeypatch.setattr(
         "mariana.loudness.subprocess.run",
         lambda command, **kwargs: calls.append((command, kwargs)) or Result(),
@@ -138,3 +139,18 @@ def test_rsgain_analysis_is_scan_only_and_preserves_media(tmp_path, monkeypatch)
     assert "-a" not in command
     assert before == (song.stat().st_mtime_ns, song.read_bytes())
     assert math.isfinite(result[str(song.resolve())]["track_peak"])
+
+
+def test_rsgain_analyzer_verifies_the_real_executable(monkeypatch):
+    monkeypatch.setattr("mariana.loudness.find_tool_executable", lambda *_args: "C:/tools/rsgain.exe")
+    monkeypatch.setattr(
+        "mariana.loudness.subprocess.run",
+        lambda command, **_kwargs: type("Result", (), {"stdout": "rsgain 3.7\n", "stderr": ""})(),
+    )
+    assert RSGainAnalyzer().verify() == ("C:/tools/rsgain.exe", "rsgain 3.7")
+    monkeypatch.setattr(
+        "mariana.loudness.subprocess.run",
+        lambda *_args, **_kwargs: type("Result", (), {"stdout": "", "stderr": ""})(),
+    )
+    with pytest.raises(LoudnessError, match="no version information"):
+        RSGainAnalyzer().verify()

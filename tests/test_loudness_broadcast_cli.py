@@ -50,6 +50,27 @@ def test_replaygain_cli_persists_runtime_policy_and_schedules_scans(monkeypatch)
         main.replaygain_command(["unknown"])
 
 
+def test_replaygain_status_and_verify_distinguish_analyzer_from_track_profile(monkeypatch):
+    messages = []
+    controller = SimpleNamespace(
+        replaygain_enabled=True,
+        replaygain_mode="track",
+        replaygain_preamp_db=0,
+        snapshot=lambda: PlaybackSnapshot(PlaybackState.IDLE),
+    )
+    analyzer = SimpleNamespace(verify=lambda: ("C:/tools/rsgain.exe", "rsgain 3.7"))
+    library = SimpleNamespace(loudness=SimpleNamespace(get=lambda _stable_id: None), rsgain=analyzer)
+    monkeypatch.setattr(main.vas, "controller", controller)
+    monkeypatch.setattr(main, "LIBRARY", library)
+    monkeypatch.setattr(main, "IPrint", lambda message, **_kwargs: messages.append(message))
+
+    main.replaygain_command(["status"])
+    assert "profile=no active track" in messages[-1]
+    assert "analyzer=available (rsgain 3.7" in messages[-1]
+    assert main.replaygain_command(["verify"]) == ("C:/tools/rsgain.exe", "rsgain 3.7")
+    assert "never modify media" in messages[-1]
+
+
 class Credentials:
     def __init__(self):
         self.calls = []

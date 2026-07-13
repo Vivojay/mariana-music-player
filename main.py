@@ -68,6 +68,7 @@ from mariana.download import DownloadError, download_media
 from mariana.identity import AcoustIDClient, IdentificationService, LRCLIBClient, MusicBrainzClient
 from mariana.library import LibraryCatalog, LibraryError
 from mariana.library_service import LibraryProfilerService
+from mariana.loudness import LoudnessError, RSGainAnalyzer
 from mariana.media_removal import MediaRemovalError, MediaRemovalService
 from mariana.models import MediaCapabilities, MediaRef, MediaSource, PlaybackState
 from mariana.paths import initialize_runtime_paths
@@ -78,7 +79,8 @@ from mariana.radio import RadioCatalog, RadioError
 from mariana.sleep_timer import SleepAction, SleepTimer, parse_duration
 from mariana.sources import MediaFailure
 from mariana.setup import SetupStateError, SetupStateStore
-from mariana.toolchain import ToolchainError, ToolchainManager
+from mariana.tool_setup import discover_media_tools, setup_media_tools
+from mariana.toolchain import ToolchainError, ToolchainManager, find_javascript_runtime
 from mariana.version import __version__
 from recommendation_engine import Candidate, RecommendationEngine
 from runtime_check import check_runtime, format_runtime_report
@@ -256,11 +258,6 @@ SETTINGS = load_user_settings()
 
 MEDIA_TOOLS = SETTINGS.get('media tools', {})
 TOOLCHAIN = ToolchainManager(RUNTIME_PATHS)
-if os.environ.get('MARIANA_DESKTOP') == '1' and not MEDIA_TOOLS.get('ffmpeg bin'):
-    try:
-        TOOLCHAIN.install()
-    except ToolchainError as error:
-        print(f'[WARNING: Managed media tools are unavailable: {error}]')
 DATABASE = MarianaDatabase(RUNTIME_PATHS.database)
 DATABASE.migrate_legacy_play_counts(RUNTIME_PATHS.user_data)
 PREFERENCES = MediaPreferences(DATABASE)
@@ -916,15 +913,30 @@ def sleep_command(arguments):
 
 def replaygain_command(arguments):
     operation = arguments[0].lower() if arguments else 'status'
-    if operation == 'status':
+    if operation in {'status', 'verify'}:
         snapshot = vas.controller.snapshot()
         media = snapshot.media
         profile = LIBRARY.loudness.get(media.stable_id) if media else None
+        analyzer = getattr(LIBRARY, 'rsgain', RSGainAnalyzer(MEDIA_TOOLS.get('rsgain bin')))
+        try:
+            analyzer_path, analyzer_version = analyzer.verify()
+            analyzer_status = f'available ({analyzer_version}; {analyzer_path})'
+        except LoudnessError as error:
+            analyzer_status = f'unavailable ({error})'
+        if operation == 'verify':
+            if analyzer_status.startswith('unavailable'):
+                raise LoudnessError(analyzer_status)
+            IPrint(
+                f'ReplayGain analyzer verified: {analyzer_status}. Scans are read-only and never modify media.',
+                visible=visible,
+            )
+            return analyzer_path, analyzer_version
         state = 'on' if vas.controller.replaygain_enabled else 'off'
+        profile_status = profile.source if profile else ('not analyzed for current track' if media else 'no active track')
         IPrint(
             f'ReplayGain: {state}; mode={vas.controller.replaygain_mode}; '
             f'preamp={vas.controller.replaygain_preamp_db:g} dB; applied={snapshot.replaygain_db:g} dB; '
-            f'profile={profile.source if profile else "unavailable"}',
+            f'profile={profile_status}; analyzer={analyzer_status}',
             visible=visible,
         )
         return snapshot
@@ -969,7 +981,7 @@ def replaygain_command(arguments):
     else:
         raise ValueError(
             'Usage: replaygain [on [track|album|auto]|off|status|mode <mode>|preamp <dB>|'
-            'scan [changed|full]|rescan <library-id|path>]'
+            'scan [changed|full]|rescan <library-id|path>|verify]'
         )
 
 
@@ -1055,16 +1067,27 @@ def prepare_update():
 def tools_command(arguments):
     operation = arguments[0].lower() if arguments else 'status'
     if operation == 'status':
+        status = discover_media_tools(SETTINGS)
         rows = []
-        for name in ('ffmpeg', 'ffprobe', 'ffplay', 'fpcalc', 'deno', 'rsgain'):
-            rows.append((name, TOOLCHAIN.resolve(name) or 'external/PATH/not found'))
-        IPrint(tbl(rows, headers=('Tool', 'Managed path'), tablefmt='plain'), visible=visible)
+        for name in ('ffmpeg', 'ffprobe', 'ffplay', 'fpcalc', 'rsgain'):
+            rows.append((name, status.executables.get(name) or 'not found', status.versions.get(name) or 'unavailable'))
+        javascript = find_javascript_runtime()
+        rows.append((javascript[0] if javascript else 'JavaScript', javascript[1] if javascript else 'not found', 'available' if javascript else 'unavailable'))
+        IPrint(tbl(rows, headers=('Tool', 'Resolved path', 'Version'), tablefmt='plain'), visible=visible)
         return rows
+    if operation == 'setup':
+        status = setup_media_tools(SETTINGS, paths=RUNTIME_PATHS, manager=TOOLCHAIN)
+        MEDIA_TOOLS.update(load_user_settings().get('media tools', {}))
+        IPrint(
+            'Media tools are configured. Restart Mariana if you selected manually installed paths.',
+            visible=visible,
+        )
+        return status
     if operation in {'install', 'repair'}:
-        root = TOOLCHAIN.install()
+        root = TOOLCHAIN.install_recommended(progress=lambda message: IPrint(message, visible=visible))
         IPrint(f'Managed media tools are ready at {root}', visible=visible)
         return root
-    raise ValueError('Usage: tools [status|install|repair]')
+    raise ValueError('Usage: tools [status|setup|install|repair]')
 
 
 def setup_command(arguments):

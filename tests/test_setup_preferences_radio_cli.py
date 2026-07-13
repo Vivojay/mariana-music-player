@@ -10,6 +10,7 @@ from mariana.models import MediaRef, MediaSource, PlaybackSnapshot, PlaybackStat
 from mariana.preferences import PreferenceEntry, PreferenceState
 from mariana.radio import RadioError, RadioStation
 from mariana.setup import SetupState, SetupStateError
+from mariana.tool_setup import MediaToolStatus
 
 
 class SetupStore:
@@ -57,6 +58,42 @@ def test_setup_command_status_repair_resume_restart_and_errors(monkeypatch):
     monkeypatch.setattr(store, "load", lambda: (_ for _ in ()).throw(SetupStateError("corrupt")))
     assert main.setup_command(["status"]) is None
     assert "corrupt" in printed[-1]
+
+
+def test_tools_command_reports_resolved_versions_and_runs_setup_or_install(monkeypatch, tmp_path):
+    printed = []
+    status = MediaToolStatus(
+        {
+            "ffmpeg": "C:/tools/ffmpeg.exe",
+            "ffprobe": "C:/tools/ffprobe.exe",
+            "ffplay": "C:/tools/ffplay.exe",
+            "fpcalc": "C:/tools/fpcalc.exe",
+            "rsgain": "C:/tools/rsgain.exe",
+        },
+        {name: f"{name} version" for name in ("ffmpeg", "ffprobe", "ffplay", "fpcalc", "rsgain")},
+    )
+    manager = SimpleNamespace(
+        install_recommended=lambda **kwargs: kwargs["progress"]("progress") or tmp_path / "tools"
+    )
+    monkeypatch.setattr(main, "IPrint", lambda value, **_kwargs: printed.append(str(value)))
+    monkeypatch.setattr(main, "discover_media_tools", lambda _settings: status)
+    monkeypatch.setattr(main, "find_javascript_runtime", lambda: ("node", "C:/node.exe"))
+    monkeypatch.setattr(main, "setup_media_tools", lambda *_args, **_kwargs: status)
+    monkeypatch.setattr(main, "load_user_settings", lambda: {"media tools": {"ffmpeg bin": "C:/tools"}})
+    monkeypatch.setattr(main, "TOOLCHAIN", manager)
+    monkeypatch.setattr(main, "MEDIA_TOOLS", {})
+
+    rows = main.tools_command(["status"])
+    assert rows[-1] == ("node", "C:/node.exe", "available")
+    monkeypatch.setattr(main, "find_javascript_runtime", lambda: None)
+    assert main.tools_command(["status"])[-1] == ("JavaScript", "not found", "unavailable")
+    assert main.tools_command(["setup"]) == status
+    assert main.MEDIA_TOOLS["ffmpeg bin"] == "C:/tools"
+    assert main.tools_command(["install"]) == tmp_path / "tools"
+    assert main.tools_command(["repair"]) == tmp_path / "tools"
+    assert "progress" in printed
+    with pytest.raises(ValueError, match="Usage"):
+        main.tools_command(["unknown"])
 
 
 def test_preference_listing_download_root_and_recycle_helpers(monkeypatch, tmp_path: Path):
