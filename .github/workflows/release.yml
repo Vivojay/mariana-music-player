@@ -72,7 +72,7 @@ jobs:
           python -m ruff check .
           pyright
           python -m pytest -q --cov --cov-branch --cov-report=json:coverage.json --cov-fail-under=90
-          python tools/coverage_gate.py coverage.json --minimum 95
+          python tools/coverage_gate.py coverage.json --minimum 95 --repository-minimum 90
           npm run lint
           npm test
       - name: Verify explicit release authorization and signing
