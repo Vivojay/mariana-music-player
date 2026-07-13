@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.7.0-dev.4
+
 - Added persistent eight-level queue groups, atomic album/playlist nodes,
   deterministic sequential/shuffle/priority/artist-fair/smart/custom ordering,
   cursor-safe mutations, and structural undo/redo.
@@ -16,6 +18,11 @@
 - Added an explicit 90% repository branch gate alongside independent 95%
   critical-module branch gates; the queue/album/download closure suite verifies
   migration, rollback, tree invariants, ambiguity, cancellation, and CLI errors.
+- Added track-seeded station sessions with progressive ten-track-ahead discovery,
+  safe cancellation, persisted paused restoration, and YouTube chapter awareness
+  in both the terminal prompt and desktop status UI.
+- Updated packaged download acceptance to validate the persistent job prompt,
+  status lifecycle, and same-PTY guarantee used by the transactional downloader.
 
 ## 0.7.0-dev.3
 

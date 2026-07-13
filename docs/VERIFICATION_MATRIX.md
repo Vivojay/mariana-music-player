@@ -1,6 +1,6 @@
 # Verification matrix
 
-Latest recorded run: [2026-07-13](verification/2026-07-13.md).
+Latest recorded run: [2026-07-14](verification/2026-07-14.md).
 
 ## Current capability evidence
 
@@ -18,7 +18,7 @@ Latest recorded run: [2026-07-13](verification/2026-07-13.md).
 | Recommendations | Ranking, negatives, diversity, persistence, explanations | Long-session taste review | Manual pending |
 | Setup | Atomic state/lock, interruption, corruption, tool discovery/provisioning, optional-step failure, existing-install migration, relaunch | Four Windows packaged first-run/recovery scenarios plus native verified-tool bootstrap | Cross-platform package pending |
 | Preferences/removal | Tri-state migration/idempotence, recommendation filtering, trash-only failure/recovery | Native recycle-bin restoration | Native restore pending |
-| Electron/PTTY | 8 Vitest tests and 2 development PTY scenarios | 4 Windows packaged scenarios; DPI, IME, clipboard, signed multi-OS package pending | Windows unpacked passed; native/signing pending |
+| Electron/PTTY | 12 Vitest tests and 2 development PTY scenarios | 5 Windows packaged scenarios; DPI, IME, clipboard, signed multi-OS package pending | Windows unpacked passed; native/signing pending |
 | OTA/update | Preflight, safety state, checksum and migration contracts | Signed N to N+1 on every target | Signing pending |
 
 No row marked pending may be represented as passed in release notes. External
