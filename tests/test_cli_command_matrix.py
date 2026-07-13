@@ -51,6 +51,7 @@ def cli(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "library_command", lambda args: actions.append(("library", args)))
     monkeypatch.setattr(main, "radio_command", lambda args: actions.append(("radio", args)))
     monkeypatch.setattr(main, "recommendation_command", lambda args: actions.append(("recommend", args)))
+    monkeypatch.setattr(main, "station_command", lambda args: actions.append(("station", args)))
     monkeypatch.setattr(main, "replaygain_command", lambda args: actions.append(("replaygain", args)))
     monkeypatch.setattr(main, "broadcast_command", lambda args: actions.append(("broadcast", args)))
     monkeypatch.setattr(main.vas, "set_youtube_browser_profile", lambda value: actions.append(("youtube-profile", value)))
@@ -597,6 +598,7 @@ def test_sync_path_and_family_error_boundaries(cli, monkeypatch):
         "queue_command",
         "radio_command",
         "recommendation_command",
+        "station_command",
     ):
         monkeypatch.setattr(main, name, fail)
     for command in (
@@ -608,9 +610,10 @@ def test_sync_path_and_family_error_boundaries(cli, monkeypatch):
         "queue list",
         "radio list",
         "recommend 1",
+        "station status",
     ):
         main.process(command)
-    assert sum("invalid request" in message.get("display_message", "") for message in cli.messages) == 8
+    assert sum("invalid request" in message.get("display_message", "") for message in cli.messages) == 9
 
 
 def test_online_resolution_failures_do_not_escape_process(cli, monkeypatch):

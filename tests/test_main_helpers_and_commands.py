@@ -8,7 +8,7 @@ from hypothesis import strategies as st
 
 import main
 from mariana import output_devices
-from mariana.models import PlaybackSnapshot, PlaybackState
+from mariana.models import MediaRef, MediaSource, PlaybackSnapshot, PlaybackState, StationSession, StationState
 
 
 def test_ordered_set_flatten_and_search_helpers(monkeypatch):
@@ -729,6 +729,74 @@ def test_compact_help_autoplay_and_theme_commands_persist(monkeypatch):
     assert any("Playback" in value for value in printed)
 
 
+def test_station_command_parses_options_prints_upcoming_and_controls(monkeypatch):
+    seed = MediaRef(
+        MediaSource.YOUTUBE,
+        "https://www.youtube.com/watch?v=seed",
+        title="Seed",
+        artist="Artist",
+        resolver_data={"is_music": True},
+    )
+    recommended = MediaRef(MediaSource.YOUTUBE, "https://youtube.test/next", title="Next", artist="Other")
+    session = StationSession(
+        "session",
+        seed,
+        scope="online",
+        limit=None,
+        state=StationState.READY,
+        generated_count=11,
+        ready_ahead=10,
+    )
+    calls = []
+
+    class Station:
+        def start(self, media, **options):
+            calls.append(("start", media, options))
+            return session
+
+        def session(self):
+            return session
+
+        def wait_initial(self, _timeout):
+            return session
+
+        def items(self, count):
+            return [{"media": recommended, "reasons": ["similar artist"]}][:count]
+
+        def more(self, count):
+            calls.append(("more", count))
+
+        def pause(self):
+            calls.append(("pause",))
+
+        def resume(self):
+            calls.append(("resume",))
+
+        def stop(self):
+            calls.append(("stop",))
+
+    monkeypatch.setattr(main, "STATION", Station())
+    monkeypatch.setattr(main, "visible", False)
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: calls.append(("print", str(value))))
+    monkeypatch.setattr(main, "_station_seed", lambda _value: seed)
+    monkeypatch.setattr(main, "_play_queue_item", lambda item: calls.append(("play", item)))
+    monkeypatch.setattr(main.QUEUE, "current", lambda: SimpleNamespace(media=seed))
+    monkeypatch.setattr(main.vas.controller, "snapshot", lambda: PlaybackSnapshot(PlaybackState.IDLE))
+
+    assert main.station_command(["start", "current", "--scope", "online", "--unlimited"]) is session
+    assert calls[0] == ("start", seed, {"scope": "online", "limit": None})
+    assert any("Next" in call[1] for call in calls if call[0] == "print")
+    assert main.station_command(["status"]) is session
+    assert main.station_command(["list", "1"])
+    assert main.station_command(["more", "2"]) is session
+    main.station_command(["pause"])
+    main.station_command(["resume"])
+    main.station_command(["stop"])
+    assert {call[0] for call in calls} >= {"more", "pause", "resume", "stop"}
+    with pytest.raises(main.StationError, match="Unknown station option"):
+        main.station_command(["start", "--bad"])
+
+
 def test_autonext_requires_the_completed_item_to_belong_to_the_active_queue(monkeypatch, tmp_path):
     first = str(tmp_path / "first.mp3")
     second = str(tmp_path / "second.mp3")
@@ -807,6 +875,7 @@ def test_exit_closes_independent_services_without_serial_waits(monkeypatch):
     monkeypatch.setattr(main.vas.controller, "snapshot", lambda: empty)
     monkeypatch.setattr(main.vas.supervisor, "close", lambda: closed.append("playback"))
     monkeypatch.setattr(main, "SLEEP_TIMER", SimpleNamespace(close=lambda: closed.append("sleep")))
+    monkeypatch.setattr(main, "STATION", SimpleNamespace(close=lambda: closed.append("station")))
     monkeypatch.setattr(main, "BROADCASTER", SimpleNamespace(close=lambda: closed.append("broadcast")))
     monkeypatch.setattr(
         main,
@@ -816,7 +885,7 @@ def test_exit_closes_independent_services_without_serial_waits(monkeypatch):
     monkeypatch.setattr(main, "LIBRARY_SERVICE", SimpleNamespace(close=lambda: closed.append("library")))
 
     main.exitplayer()
-    assert {"sleep", "broadcast", "desktop", "playback", "library", "save", "lyrics"} <= set(closed)
+    assert {"sleep", "station", "broadcast", "desktop", "playback", "library", "save", "lyrics"} <= set(closed)
     assert "ack" in closed
     assert any("Exiting" in value for value in messages)
 

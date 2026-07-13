@@ -27,6 +27,8 @@ DEFAULT_MODULES = (
     "mariana/setup.py",
     "mariana/sleep_timer.py",
     "mariana/sources.py",
+    "mariana/station.py",
+    "mariana/station_discovery.py",
     "mariana/supervisor.py",
 )
 

@@ -98,6 +98,8 @@ from mariana.queueing import PersistentQueue, QueueError
 from mariana.radio import RadioCatalog, RadioError
 from mariana.sleep_timer import SleepAction, SleepTimer, parse_duration
 from mariana.sources import MediaFailure
+from mariana.station import StationError, StationManager
+from mariana.station_discovery import StationDiscovery, StationSeedError
 from mariana.setup import SetupStateError, SetupStateStore
 from mariana.tool_setup import discover_media_tools, persist_media_tools, setup_media_tools
 from mariana.toolchain import ToolchainError, ToolchainManager, find_javascript_runtime
@@ -105,7 +107,7 @@ from mariana.version import __version__
 from recommendation_engine import Candidate, RecommendationEngine
 from runtime_check import check_runtime, format_runtime_report
 from beta.mediadl import media_DL
-from beta.youtube_media import YouTubeError, parse_browser_profile, resolve_stream, youtube_error_message
+from beta.youtube_media import YouTubeError, media_info, parse_browser_profile, resolve_stream, youtube_error_message
 _boot_progress(22, 'media services')
 
 online_streaming_ext_load_error = 0
@@ -339,6 +341,18 @@ vas.controller.add_metadata_sink(BROADCASTER.metadata)
 SLEEP_TIMER = SleepTimer(
     vas.controller,
     on_update=lambda status: DESKTOP_CONTROL.emit('sleep', status.to_dict()),
+)
+STATION = StationManager(
+    DATABASE,
+    QUEUE,
+    StationDiscovery(
+        DATABASE,
+        RECOMMENDER,
+        browser_profile=SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile'),
+    ),
+    on_update=lambda payload: DESKTOP_CONTROL.emit('station', payload),
+    pause_playback=vas.controller.pause,
+    resume_playback=vas.controller.resume,
 )
 COMMAND_BUSY = threading.Event()
 YOUTUBE_DOWNLOAD_JOBS: set[threading.Thread] = set()
@@ -819,6 +833,7 @@ def _prefetch_after(item):
 
 def _on_queue_item_complete(media):
     RECOMMENDER.record_event(media, 'completion')
+    STATION.mark_played(media)
     current = QUEUE.current()
     if current is None or current.media.stable_id != media.stable_id:
         RECOMMENDER.retrain_if_due()
@@ -1439,6 +1454,149 @@ def recommendation_command(arguments):
         raise QueueError(f'Unknown recommendation operation: {operation}')
 
 
+def _station_seed(value):
+    if value in {None, '', 'current'}:
+        media = _preference_media(vas.controller.snapshot().media)
+        if not media:
+            raise StationError('No current media is available to seed a station')
+        return media
+    media = _preference_media(_media_from_argument(value))
+    if media.source == MediaSource.YOUTUBE:
+        profile = SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile')
+        details = media_info(media.original_uri, detailed=True, browser_profile=profile)
+        categories = [str(item) for item in details.get('categories', [])]
+        media.title = details.get('title')
+        media.artist = details.get('artist')
+        media.album = details.get('album')
+        media.duration = details.get('duration')
+        media.capabilities = MediaCapabilities(
+            finite=not details.get('is_live'),
+            live=bool(details.get('is_live')),
+            seekable=not details.get('is_live'),
+            metadata_available=True,
+        )
+        media.resolver_data.update({
+            'youtube': True,
+            'categories': categories,
+            'track': details.get('track'),
+            'artist': details.get('artist'),
+            'is_music': bool(details.get('track') and details.get('artist'))
+            or any(item.casefold() == 'music' for item in categories),
+        })
+    return media
+
+
+def _station_rows(count=10):
+    return [
+        (
+            index + 1,
+            item['media'].title or item['media'].original_uri,
+            item['media'].artist or '',
+            '; '.join(item['reasons']),
+        )
+        for index, item in enumerate(STATION.items(count))
+    ]
+
+
+def _wait_for_station_initial(timeout=5.0):
+    frames = ('|', '/', '-', '\\')
+    deadline = time.monotonic() + timeout
+    index = 0
+    while time.monotonic() < deadline:
+        session = STATION.session()
+        if not session or session.state.value != 'loading':
+            break
+        if visible:
+            print(f'\r{frames[index % len(frames)]} Station: {session.progress_message or "loading"}', end='', flush=True)
+        index += 1
+        time.sleep(0.1)
+    if visible:
+        print('\r' + (' ' * 80) + '\r', end='', flush=True)
+    return STATION.wait_initial(0)
+
+
+def station_command(arguments):
+    operation = arguments[0].casefold() if arguments else 'status'
+    if operation == 'start':
+        scope = 'hybrid'
+        limit = 50
+        target_parts = []
+        index = 1
+        while index < len(arguments):
+            token = arguments[index]
+            if token == '--scope' and index + 1 < len(arguments):
+                scope = arguments[index + 1].casefold()
+                index += 2
+            elif token == '--limit' and index + 1 < len(arguments):
+                limit = int(arguments[index + 1])
+                index += 2
+            elif token == '--unlimited':
+                limit = None
+                index += 1
+            elif token.startswith('--'):
+                raise StationError(f'Unknown station option: {token}')
+            else:
+                target_parts.append(token)
+                index += 1
+        seed = _station_seed(' '.join(target_parts) if target_parts else 'current')
+        current = vas.controller.snapshot().media
+        STATION.start(seed, scope=scope, limit=limit)
+        if not current or current.stable_id != seed.stable_id:
+            _play_queue_item(QUEUE.current())
+        session = _wait_for_station_initial()
+        IPrint(
+            f'Station: {session.state.value}; {session.ready_ahead}/10 ready; '
+            f'{session.generated_count}/{session.limit if session.limit is not None else "unlimited"} generated',
+            visible=visible,
+        )
+        rows = _station_rows()
+        IPrint(
+            tbl(rows, headers=('#', 'Track', 'Artist', 'Why'), tablefmt='plain')
+            if rows else '(no recommendations yet)',
+            visible=visible,
+        )
+        return session
+    if operation == 'status':
+        session = STATION.session()
+        if not session:
+            IPrint('Station: stopped', visible=visible)
+            return None
+        IPrint(
+            f'Station: {session.state.value}; scope={session.scope}; ready={session.ready_ahead}/10; '
+            f'generated={session.generated_count}; limit={session.limit if session.limit is not None else "unlimited"}; '
+            f'{session.progress_message or ""}',
+            visible=visible,
+        )
+        return session
+    if operation == 'list':
+        count = int(arguments[1]) if len(arguments) > 1 else 10
+        rows = _station_rows(count)
+        IPrint(
+            tbl(rows, headers=('#', 'Track', 'Artist', 'Why'), tablefmt='plain') if rows else '(none)',
+            visible=visible,
+        )
+        return rows
+    if operation == 'more':
+        count = int(arguments[1]) if len(arguments) > 1 else 10
+        STATION.more(count)
+        session = _wait_for_station_initial()
+        IPrint(f'Station: {session.state.value}; {session.ready_ahead}/10 ready', visible=visible)
+        return session
+    if operation == 'pause':
+        STATION.pause()
+    elif operation == 'resume':
+        STATION.resume()
+    elif operation == 'stop':
+        STATION.stop()
+    else:
+        raise StationError(
+            'Usage: station start [current|index|path|youtube-url] [--scope hybrid|local|online] '
+            '[--limit N|--unlimited] | status | list [count] | more [count] | pause | resume | stop'
+        )
+    IPrint({'pause': 'Station paused', 'resume': 'Station resumed', 'stop': 'Station stopped'}[operation], visible=visible)
+    return STATION.session()
+
+
 def preference_command(arguments, state):
     media = _preference_media(vas.controller.snapshot().media)
     if not media:
@@ -1560,7 +1718,7 @@ def recycle_library_media(arguments):
 HELP_GROUPS = (
     ('Playback', 'ls, <number>, .rand, pause, stop, next, prev, seek, progress, now, autonext'),
     ('Queue', 'queue add/list/reset/next/previous/move/remove/shuffle/repeat/save/load'),
-    ('Online', '/ys, /yl, radio, podcast, rss, download-ya, download-yv, download-ml'),
+    ('Online', '/ys, /yl, station, radio, podcast, rss, download-ya, download-yv, download-ml'),
     ('Library', 'library status/scan/info, find, rfind, lfind, reload, rename short'),
     ('Details', 'media info/probe/fingerprint/identify, lyrics, replaygain status'),
     ('App', 'theme, tools status/setup, sleep, history, cls, exit'),
@@ -1792,6 +1950,7 @@ def exitplayer(sys_exit=False):
     # one slow network encoder, watcher, or device driver from serially delaying exit.
     closures = (
         ('sleep timer', SLEEP_TIMER.close),
+        ('station', STATION.close),
         ('broadcast', BROADCASTER.close),
         ('desktop control', DESKTOP_CONTROL.close),
         ('playback', vas.supervisor.close),
@@ -2801,12 +2960,13 @@ def process(command):
             'media': media_command,
             'metadata': lambda values: media_command(['metadata', *values]),
             'rename': rename_command,
+            'station': station_command,
         }
         if handler := routed.get(commandslist[0].casefold()):
             try:
                 handler(commandslist[1:])
                 return None
-            except (LibraryError, ValueError, OSError) as error:
+            except (LibraryError, StationError, StationSeedError, YouTubeError, ValueError, OSError) as error:
                 SAY(
                     visible=visible,
                     display_message=str(error),
