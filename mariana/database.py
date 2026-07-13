@@ -15,7 +15,7 @@ from typing import Any
 
 from .paths import runtime_paths
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 SCHEMA = """
@@ -67,6 +67,43 @@ CREATE TABLE IF NOT EXISTS named_queues (
     items_json TEXT NOT NULL,
     updated_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS queue_groups (
+    group_id TEXT PRIMARY KEY,
+    parent_id TEXT REFERENCES queue_groups(group_id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'manual',
+    sibling_position INTEGER NOT NULL,
+    strategy TEXT NOT NULL DEFAULT 'custom',
+    shuffle_seed INTEGER,
+    priority INTEGER NOT NULL DEFAULT 0,
+    atomic_group INTEGER NOT NULL DEFAULT 1,
+    source_ref TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS queue_groups_parent_idx
+ON queue_groups(parent_id, sibling_position);
+CREATE TABLE IF NOT EXISTS playlists (
+    playlist_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    name_key TEXT NOT NULL UNIQUE,
+    description TEXT,
+    tree_json TEXT NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 1,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS playlist_revisions (
+    revision_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    playlist_id TEXT NOT NULL REFERENCES playlists(playlist_id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL,
+    tree_json TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    UNIQUE(playlist_id, revision)
+);
+CREATE INDEX IF NOT EXISTS playlist_revisions_playlist_idx
+ON playlist_revisions(playlist_id, revision DESC);
 CREATE TABLE IF NOT EXISTS track_identities (
     stable_id TEXT PRIMARY KEY,
     identity_json TEXT NOT NULL,
@@ -300,6 +337,41 @@ class MarianaDatabase:
             if "chapters_json" not in media_columns:
                 connection.execute(
                     "ALTER TABLE media_items ADD COLUMN chapters_json TEXT NOT NULL DEFAULT '[]'"
+                )
+            queue_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(queue_items)").fetchall()
+            }
+            if "group_id" not in queue_columns:
+                connection.execute("ALTER TABLE queue_items ADD COLUMN group_id TEXT")
+            if "sibling_position" not in queue_columns:
+                connection.execute("ALTER TABLE queue_items ADD COLUMN sibling_position INTEGER")
+                connection.execute("UPDATE queue_items SET sibling_position=position")
+            state_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(queue_state)").fetchall()
+            }
+            if "root_strategy" not in state_columns:
+                connection.execute(
+                    "ALTER TABLE queue_state ADD COLUMN root_strategy TEXT NOT NULL DEFAULT 'custom'"
+                )
+            if "root_seed" not in state_columns:
+                connection.execute("ALTER TABLE queue_state ADD COLUMN root_seed INTEGER")
+            legacy_playlists = connection.execute(
+                "SELECT name,items_json,updated_at FROM named_queues"
+            ).fetchall()
+            for legacy in legacy_playlists:
+                name = str(legacy["name"]).strip()
+                if not name:
+                    continue
+                connection.execute(
+                    "INSERT OR IGNORE INTO playlists(playlist_id,name,name_key,tree_json,created_at,updated_at) "
+                    "VALUES(lower(hex(randomblob(16))),?,?,?,?,?)",
+                    (
+                        name,
+                        name.casefold(),
+                        json.dumps({"legacy_items": json.loads(legacy["items_json"])}, ensure_ascii=False),
+                        legacy["updated_at"],
+                        legacy["updated_at"],
+                    ),
                 )
             connection.execute(
                 "INSERT INTO schema_meta(key, value) VALUES('schema_version', ?) "

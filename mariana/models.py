@@ -98,6 +98,15 @@ class StationState(StrEnum):
     STOPPED = "stopped"
 
 
+class QueueStrategy(StrEnum):
+    SEQUENTIAL = "sequential"
+    SHUFFLE = "shuffle"
+    PRIORITY = "priority"
+    ARTIST_FAIR = "artist-fair"
+    SMART = "smart"
+    CUSTOM = "custom"
+
+
 @dataclass(frozen=True, slots=True)
 class MediaChapter:
     title: str
@@ -255,8 +264,36 @@ class QueueItem:
     added_at: float = 0.0
     attempts: int = 0
     failure_policy: str = "skip"
+    group_id: str | None = None
+    sibling_position: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         result = asdict(self)
         result["media"] = self.media.to_dict()
         return result
+
+
+@dataclass(slots=True)
+class QueueGroup:
+    group_id: str
+    name: str
+    parent_id: str | None = None
+    kind: str = "manual"
+    sibling_position: int = 0
+    strategy: QueueStrategy = QueueStrategy.CUSTOM
+    shuffle_seed: int | None = None
+    priority: int = 0
+    atomic: bool = True
+    source_ref: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class Playlist:
+    playlist_id: str
+    name: str
+    description: str | None = None
+    tree: dict[str, Any] = field(default_factory=dict)
+    revision: int = 1
+    created_at: float = 0.0
+    updated_at: float = 0.0
