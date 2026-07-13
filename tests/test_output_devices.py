@@ -1,4 +1,5 @@
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 from typing import ClassVar
 
 import pytest
@@ -98,17 +99,27 @@ def test_device_score_and_endpoint_fallback_branches(monkeypatch):
 
 
 def test_windows_endpoint_empty_and_failure_are_safe(monkeypatch):
-    from pycaw.pycaw import AudioUtilities
+    audio_utilities = SimpleNamespace()
+    comtypes = ModuleType("comtypes")
+    comtypes.CoInitialize = lambda: None
+    comtypes.CoUninitialize = lambda: None
+    pycaw_package = ModuleType("pycaw")
+    pycaw_module = ModuleType("pycaw.pycaw")
+    pycaw_module.AudioUtilities = audio_utilities
+    monkeypatch.setitem(sys.modules, "comtypes", comtypes)
+    monkeypatch.setitem(sys.modules, "pycaw", pycaw_package)
+    monkeypatch.setitem(sys.modules, "pycaw.pycaw", pycaw_module)
 
     monkeypatch.setattr(output_devices.os, "name", "nt")
     monkeypatch.setattr(
-        AudioUtilities,
+        audio_utilities,
         "GetSpeakers",
         staticmethod(lambda: SimpleNamespace(FriendlyName="", id="")),
+        raising=False,
     )
     assert output_devices._windows_default_endpoint() is None
     monkeypatch.setattr(
-        AudioUtilities,
+        audio_utilities,
         "GetSpeakers",
         staticmethod(lambda: (_ for _ in ()).throw(OSError("Core Audio unavailable"))),
     )
