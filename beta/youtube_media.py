@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
@@ -98,7 +98,7 @@ def _options(**overrides: Any) -> dict[str, Any]:
 
 def _extract(query: str, **options: Any) -> Mapping[str, Any]:
     try:
-        with YoutubeDL(_options(**options)) as ydl:
+        with YoutubeDL(cast(Any, _options(**options))) as ydl:
             info = ydl.extract_info(query, download=False)
             if not isinstance(info, Mapping):
                 raise YouTubeError("yt-dlp returned an unsupported response")
@@ -168,6 +168,11 @@ def media_info(
                 "views": info.get("view_count"),
                 "thumbnail": info.get("thumbnail"),
                 "formats": list(info.get("formats") or []),
+                "artist": info.get("artist") or info.get("uploader"),
+                "track": info.get("track"),
+                "album": info.get("album"),
+                "categories": list(info.get("categories") or []),
+                "is_live": bool(info.get("is_live") or info.get("live_status") == "is_live"),
             }
         )
     return normalized

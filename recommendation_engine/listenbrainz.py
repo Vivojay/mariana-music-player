@@ -28,3 +28,24 @@ class ListenBrainzClient:
         )
         response.raise_for_status()
         return response.json().get("payload", {}).get("mbids", [])
+
+    def artist_radio(self, artist_mbid: str, *, count: int = 25, mode: str = "medium") -> list[dict]:
+        """Return public LB Radio recording candidates for a MusicBrainz artist."""
+        if not artist_mbid or mode not in {"easy", "medium", "hard"}:
+            return []
+        response = self.session.get(
+            f"https://api.listenbrainz.org/1/lb-radio/artist/{artist_mbid}",
+            params={"mode": mode},
+            headers={"User-Agent": USER_AGENT},
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        payload = response.json().get("payload", {})
+        values = payload.get("recordings") or payload.get("mbids") or []
+        normalized = []
+        for item in values:
+            if isinstance(item, str):
+                normalized.append({"recording_mbid": item})
+            elif isinstance(item, dict):
+                normalized.append(dict(item))
+        return normalized[: min(max(count, 1), 100)]
