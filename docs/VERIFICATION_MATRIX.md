@@ -1,6 +1,6 @@
 # Verification matrix
 
-Latest recorded run: [2026-07-12](verification/2026-07-12.md).
+Latest recorded run: [2026-07-13](verification/2026-07-13.md).
 
 ## Current capability evidence
 
@@ -11,11 +11,11 @@ Latest recorded run: [2026-07-12](verification/2026-07-12.md).
 | Radio and ICY | Playlist recursion, metadata blocks, failover, health/backoff | SomaFM/Antenne probes and network-loss exercise | Live environment-dependent |
 | Queue and persistence | Property tests, crash restore, undo/redo, failure policy, SQLite rollback | Long mixed-session restore | Soak pending |
 | Library profiler | Incremental scans, moves, duplicates, watchers, leases, rollback, corruption | Large library and disappearing share | Soak/native pending |
-| Identity and lyrics | Chromaprint fixtures; mocked AcoustID, MusicBrainz, LRCLIB | Credentialed/public-domain probe | Credentials pending |
-| ReplayGain | Tag parsing, album grouping, clipping, immutable-media assertion | Audible A/B and rsgain tool check | Native pending |
+| Identity and lyrics | Chromaprint fixtures; missing-fpcalc typed failure; mocked AcoustID, MusicBrainz, LRCLIB | Credentialed/public-domain probe | Credentials pending |
+| ReplayGain | Tag parsing, album grouping, clipping, executable verification, immutable-media assertion | Audible A/B and rsgain tool check | Audible A/B pending |
 | Icecast broadcast | Authentication tunnel, redaction, Opus/MP3 decode, reconnect | Configured remote server | Credentials pending |
 | Recommendations | Ranking, negatives, diversity, persistence, explanations | Long-session taste review | Manual pending |
-| Setup | Atomic state/lock, interruption, corruption, optional-step failure, existing-install migration, relaunch | Four Windows packaged first-run/recovery scenarios passed | Cross-platform package pending |
+| Setup | Atomic state/lock, interruption, corruption, tool discovery/provisioning, optional-step failure, existing-install migration, relaunch | Four Windows packaged first-run/recovery scenarios plus native verified-tool bootstrap | Cross-platform package pending |
 | Preferences/removal | Tri-state migration/idempotence, recommendation filtering, trash-only failure/recovery | Native recycle-bin restoration | Native restore pending |
 | Electron/PTTY | 8 Vitest tests and 2 development PTY scenarios | 4 Windows packaged scenarios; DPI, IME, clipboard, signed multi-OS package pending | Windows unpacked passed; native/signing pending |
 | OTA/update | Preflight, safety state, checksum and migration contracts | Signed N to N+1 on every target | Signing pending |

@@ -66,6 +66,26 @@ The packaged suite proves setup completes once, the same data directory does
 not show the wizard on relaunch, interrupted setup resumes, and corrupt state
 offers repair.
 
+The media-tool setup suite additionally proves discovery-before-download,
+default auto-selection, exact-executable/directory normalization, version
+validation, trusted-host allowlisting, SHA-256 rejection, archive traversal
+rejection, atomic activation, and non-interactive no-prompt behavior. A native
+Windows acceptance run should execute:
+
+```powershell
+python -m mariana.tool_setup
+python main.py
+# In Mariana:
+tools status
+replaygain verify
+replaygain scan changed
+replaygain status
+```
+
+For a non-destructive rsgain check, hash and record the modification time of a
+test media file, run a scan-only (`-s s`) analysis, and prove both values are
+unchanged. Do not use tag-writing mode in Mariana acceptance tests.
+
 ## Native and endurance acceptance
 
 Record operating system, architecture, audio device, tool versions, result,

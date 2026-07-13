@@ -29,14 +29,27 @@ output, nested prompts, Ctrl+C, resizing, and every CLI command remain intact.
 Existing external tool paths remain supported. Packaged desktop releases use a
 signed manifest to download the matching checksum-verified FFmpeg 8.1.2,
 Chromaprint 1.6.0, rsgain 3.7, and Deno toolchain into the user-data directory. Source
-launches may instead configure a local directory such as:
+launches may instead configure either an executable or its containing directory,
+for example:
 
 ```text
-C:\Users\Vivan.Jaiswal\Documents\ffmpeg-2025-12-18-git-78c75d546a-essentials_build\bin
+C:\Tools\ffmpeg\bin\ffmpeg.exe
+C:\Tools\ffmpeg\bin
 ```
 
-Change `media tools.ffmpeg bin` in the user settings on another machine, run
-`tools install`, or put the executables on `PATH`.
+First boot checks explicit settings, managed tools, `PATH`, and common system,
+package-manager, and extracted-build locations. Every candidate is started and
+version-checked. If anything is missing, the first/default choice (press Enter)
+downloads pinned archives, verifies every SHA-256, extracts into staging, checks
+all executables, and atomically activates the result. The second choice accepts
+manual paths. Run `tools setup` at any later time to repeat this flow.
+
+On Windows, the source-build fallback downloads the pinned FFmpeg 8.1.2
+**essentials** ZIP from gyan.dev (one of the Windows builders linked by
+ffmpeg.org), official Chromaprint 1.6.0, and official rsgain 3.7. The Gyan
+essentials archive is an external GPLv3 tool; its notices remain in the
+installed archive. Production desktop bundles continue to prefer Mariana's
+release manifest and native managed-tool builds.
 
 Development builds deliberately ship with an unpublished manifest. The manual
 managed-tool workflow must publish all four native archives and its signed
@@ -56,8 +69,8 @@ then launch it from Explorer or PowerShell:
 ```
 
 This development installer is not Authenticode-signed, so Windows may display
-a publisher warning. It is not the stable `0.7.0` release and still requires a
-configured FFmpeg toolchain as described above.
+a publisher warning. It is not the stable `0.7.0` release. First boot discovers
+or offers to provision the media toolchain as described above.
 
 ### Source and CLI
 
@@ -69,7 +82,6 @@ py -3.12 -m venv .venv
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python -m pip check
-.\tools\install_chromaprint.ps1
 python main.py
 ```
 
@@ -121,10 +133,10 @@ setup status|resume|restart|repair
 sleep <duration> [pause|stop] [fade <duration>]
 sleep status|cancel
 replaygain on [track|album|auto]
-replaygain off|status|mode|preamp|scan|rescan
+replaygain off|status|verify|mode|preamp|scan|rescan
 broadcast profiles|status|start|stop|test
 broadcast credentials set|delete|status <profile>
-tools status|install|repair
+tools status|setup|install|repair
 download-yv [YouTube URL]
 download-ya [YouTube URL]
 download-ml <URL> [mp3|flac|wav|m4a|opus] [output path]
@@ -143,6 +155,13 @@ ReplayGain is disabled by default and never writes media tags. Embedded
 analyzed by checksum-pinned rsgain and stored only in SQLite. Track, album, and
 queue-aware auto modes apply before crossfade and broadcast, while user volume,
 mute, manual fade, and sleep automation remain local-only.
+
+`replaygain verify` starts the configured `rsgain` binary and reports its exact
+path/version. `replaygain scan changed` schedules missing profiles;
+`replaygain status` then distinguishes the analyzer state, the current track's
+profile, and the dB actually applied. `applied=0 dB` with `profile=not analyzed`
+means normalization is enabled but that track has no usable loudness profile
+yet—not that gain was silently guessed.
 
 Mariana receives Icecast/Shoutcast-compatible HTTP(S), ICY, HLS, M3U, and PLS
 streams. Optional live leveling is separately controlled by `radio leveling`
@@ -188,6 +207,9 @@ and sanitized failures; a PID/creation-time lock prevents concurrent wizards.
 Interrupted or corrupt setup offers resume, safe restart, repair, or an explicit
 skip of a failed optional sample download. `setup restart` resets only setup
 progress and preserves settings, media, history, the library, and preferences.
+Media-tool discovery/provisioning is its own idempotent first step; it is marked
+complete only after validation (or an explicit limited-mode choice when the
+required FFmpeg suite is already usable).
 
 The signed desktop updater checks the stable GitHub Releases channel shortly
 after startup and every six hours. It downloads in-app but will not install

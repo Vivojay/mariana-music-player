@@ -43,10 +43,10 @@ All searches are fuzzy
 | `sleep <duration> [pause\|stop] [fade <duration>]` | Fade near expiry, then pause or stop |
 | `sleep status\|cancel` | Inspect or cancel the session sleep timer |
 | `replaygain on [track\|album\|auto]` | Enable non-destructive loudness normalization |
-| `replaygain off\|status\|mode\|preamp\|scan\|rescan` | Configure or analyze ReplayGain data |
+| `replaygain off\|status\|verify\|mode\|preamp\|scan\|rescan` | Verify rsgain, configure policy, or analyze loudness data |
 | `broadcast profiles\|start\|stop\|test\|status` | Control one Icecast source broadcast |
 | `broadcast credentials set\|delete\|status <profile>` | Manage a broadcast password through the OS keychain |
-| `tools status\|install\|repair` | Inspect or provision checksum-verified media tools |
+| `tools status\|setup\|install\|repair` | Inspect, discover/configure, or provision checksum-verified media tools |
 | `recommend [count]` | Show explainable local recommendations |
 | `recommend autofill [count]` | Add recommendations to the queue |
 | `recommend related [count]` | Recommend from the active media context |
@@ -168,5 +168,4 @@ A value of 1 for either of these parameters means you want the BEST QUALITY down
 ### display items count
 **general:** number of items to display (general purpose)
 **youtube-search results:** number of items to display in YouTube search results
-
 
