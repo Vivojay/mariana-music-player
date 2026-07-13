@@ -162,8 +162,12 @@ def test_icecast_relay_covers_bidirectional_timeout_and_payload(monkeypatch):
     monkeypatch.setattr(broadcast.socket, "create_connection", lambda *_args, **_kwargs: upstream)
 
     class ImmediateThread:
-        def __init__(self, target, **_kwargs): self.target = target
-        def start(self): self.target()
+        def __init__(self, target, args=(), **_kwargs):
+            self.target = target
+            self.args = args
+
+        def start(self):
+            self.target(*self.args)
 
     monkeypatch.setattr(broadcast.threading, "Thread", ImmediateThread)
     tunnel = broadcast.IcecastAuthTunnel(

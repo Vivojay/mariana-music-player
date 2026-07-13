@@ -253,20 +253,12 @@ class IcecastAuthTunnel:
             client.settimeout(1)
             upstream.settimeout(1)
 
-            def response_loop() -> None:
-                try:
-                    while not self._stop.is_set():
-                        try:
-                            data = upstream.recv(16_384)
-                        except TimeoutError:
-                            continue
-                        if not data:
-                            break
-                        client.sendall(data)
-                except OSError:
-                    pass
-
-            response = threading.Thread(target=response_loop, name="mariana-icecast-response", daemon=True)
+            response = threading.Thread(
+                target=self._relay_responses,
+                args=(client, upstream),
+                name="mariana-icecast-response",
+                daemon=True,
+            )
             response.start()
             while not self._stop.is_set():
                 try:
@@ -282,6 +274,19 @@ class IcecastAuthTunnel:
             finally:
                 if upstream:
                     upstream.close()
+
+    def _relay_responses(self, client: socket.socket, upstream: socket.socket) -> None:
+        try:
+            while not self._stop.is_set():
+                try:
+                    data = upstream.recv(16_384)
+                except TimeoutError:
+                    continue
+                if not data:
+                    break
+                client.sendall(data)
+        except OSError:
+            pass
 
     def close(self) -> None:
         self._stop.set()

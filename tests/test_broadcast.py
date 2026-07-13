@@ -153,6 +153,15 @@ def test_listener_tunnel_injects_credentials_without_exposing_upstream_url():
     assert base64.b64encode(b"listener:secret-value") in received[0]
 
 
+def test_auth_tunnel_response_relay_stops_without_reading_after_cancellation():
+    tunnel = IcecastAuthTunnel(profile(), MemoryCredentials())
+    tunnel._stop.set()
+    client = SimpleNamespace(sendall=lambda _data: pytest.fail("cancelled relay must not write"))
+    upstream = SimpleNamespace(recv=lambda _size: pytest.fail("cancelled relay must not read"))
+
+    tunnel._relay_responses(client, upstream)
+
+
 class FakeTunnel:
     def __init__(self, _profile, _credentials):
         self.connected = threading.Event()
