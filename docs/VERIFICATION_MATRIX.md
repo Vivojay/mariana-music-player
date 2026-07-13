@@ -9,7 +9,8 @@ Latest recorded run: [2026-07-13](verification/2026-07-13.md).
 | Local/HTTP/HLS playback | Resolver, decoder, seek, truncation, retry, cleanup, real FFmpeg fixtures | Speaker, device loss, sleep/resume | Native pending |
 | YouTube and podcasts | Mocked extraction, expiry, metadata, feed caching, failure typing | Scheduled public probes | Live environment-dependent |
 | Radio and ICY | Playlist recursion, metadata blocks, failover, health/backoff | SomaFM/Antenne probes and network-loss exercise | Live environment-dependent |
-| Queue and persistence | Property tests, crash restore, undo/redo, failure policy, SQLite rollback | Long mixed-session restore | Soak pending |
+| Hierarchical queue/playlists | Tree depth/cycle/orphan invariants, flat migration, atomic groups, six deterministic strategies, cursor stability, undo/redo, versioned CRUD, M3U/YouTube snapshot import and export | Long mixed-session restore | Soak pending |
+| Albums/download jobs | Edition separation, multidisc selectors, local preference, typed ambiguity/partial policy, verified YouTube fallback, single-versus-album safety, persistent progress, pause/resume/cancel and recovery | Live MusicBrainz/YouTube resolution and long download interruption | Live/soak pending |
 | Library profiler | Incremental scans, moves, duplicates, watchers, leases, rollback, corruption | Large library and disappearing share | Soak/native pending |
 | Identity and lyrics | Chromaprint fixtures; missing-fpcalc typed failure; mocked AcoustID, MusicBrainz, LRCLIB | Credentialed/public-domain probe | Credentials pending |
 | ReplayGain | Tag parsing, album grouping, clipping, executable verification, immutable-media assertion | Audible A/B and rsgain tool check | Audible A/B pending |
@@ -108,6 +109,9 @@ user-facing behavior disappeared.
 | `media info/fingerprint/identify` | Native | Indexed/current metadata and conservative Chromaprint identity inspection |
 | `rename short` | Native | Transactional indexed-file rename with collision, extension, rollback, and source-ID safeguards |
 | `autoplay`, `autonext`, `queue reset` | Native | Fresh queues mirror library order; direct selection preserves queue identity; custom queues are not overwritten; disabling discards prefetch and retains the completed end position |
+| `queue tree/group/order/priority/dedupe`, `playlist *` | Native | Transactional hierarchical groups, deterministic upcoming-item strategies, versioned local snapshots, M3U/M3U8 and explicit YouTube-playlist import |
+| `album search/show/tracks/fetch/play/queue/save` | Native | Release-specific local/MusicBrainz catalog, multidisc ordering, conservative local matching, verified canonical YouTube fallback |
+| `download-ya --album`, `download-ya status/pause/resume/cancel` | Native | Explicit-only album expansion and persistent sequential jobs; plain `download-ya` remains current-track-only |
 | Electron tabs and output search | Native | Shared single PTY, bounded replay history, directional search, and synchronized theme presets |
 | `res/lyrics_icon.png`, `res/welcome_banner.png` | Native assets | Retained as immutable resources |
 | `res/lyrics-wallpapers/1.DEFAULT.jpg` through `10.triangular-spiral-dark-purple-staircase.jpg` | Native assets | All ten retained |

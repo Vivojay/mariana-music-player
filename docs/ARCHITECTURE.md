@@ -35,11 +35,28 @@ leased resumable stages so discovery, probing, fingerprinting, loudness, and
 optional network enrichment can recover after interruption.
 
 The initial persistent queue is a projection of available library occurrences
-in canonical library order. It continues tracking library scans until an
-explicit queue mutation marks it custom; `queue reset` deliberately recreates
-the projection. Direct local selection reuses the queued library identity, so
-decoder completion advances exactly one authoritative queue rather than a
-separate legacy playlist.
+in canonical library order. Its root is a hierarchy of media nodes and nested
+groups, capped at eight levels with transactional cycle/orphan validation.
+Album and playlist groups are atomic by default: root strategies move the group
+as a unit, then apply its own strategy internally. Deterministic sequential,
+seeded shuffle, stable priority, artist-fair round-robin, Bayesian/MMR smart,
+and explicit custom ordering compile the tree into one playback order without
+moving the active item. Every structural mutation records an undo snapshot.
+
+The library projection continues tracking scans until an explicit queue
+mutation marks it custom; `queue reset` deliberately recreates the projection.
+Direct local selection reuses the queued library identity, so decoder
+completion advances exactly one authoritative queue rather than a separate
+legacy playlist. Versioned playlist snapshots use the same validated tree
+format. Imports copy M3U/M3U8 or explicitly requested YouTube playlists; they
+never retain signed URLs or mutate a remote playlist.
+
+The album catalog stores release-specific editions, tracks, provenance, and
+resolution state. It prefers local release/recording identities, uses
+MusicBrainz release metadata for online discovery, and persists only canonical
+YouTube references for verified fallback tracks. Album download jobs are
+separate persistent records with sequential bounded execution, atomic output
+activation, progress events, and pause/resume/cancel recovery.
 
 First-run setup is a small state machine in the writable data directory. Its
 atomic state file and PID/creation-time lock make each library/sample/launch

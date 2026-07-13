@@ -31,6 +31,19 @@ All searches are fuzzy
 | `queue shuffle [seed]` | Reproducible shuffle |
 | `queue repeat off\|one\|all` | Set repeat mode |
 | `queue save/load <name>` | Persist or restore a named queue |
+| `queue tree` | Display one-based hierarchical paths and durable node IDs |
+| `queue group create/rename/move/remove/atomic` | Manage nested queue groups (maximum depth: eight) |
+| `queue order sequential\|shuffle\|priority\|artist-fair\|smart\|custom [--group <path>] [--seed N]` | Reorder upcoming nodes without restarting the active track |
+| `queue priority <path> <integer>` / `queue dedupe identity\|uri` | Set stable priority or remove duplicate occurrences |
+| `playlist list/create/show/rename/delete/clear` | Manage versioned local playlist snapshots |
+| `playlist add/remove/move/order` | Edit media, album, playlist, and nested-group content |
+| `playlist play/queue <name> [--flatten]` | Replace playback or append an atomic snapshot |
+| `playlist import <name> <m3u\|m3u8\|YouTube-playlist-URL>` | Import a snapshot without modifying its remote source |
+| `playlist export <name> <path.m3u8>` | Export canonical references as portable UTF-8 M3U8 |
+| `album search <query> [--scope local\|online\|hybrid] [--limit N]` | Find distinct local/MusicBrainz release editions |
+| `album show/tracks/fetch <album-ref>` | Inspect or refresh one edition and its resolution status |
+| `album play/queue <album-ref> [--order release\|shuffle\|smart\|custom] [--tracks <selector>]` | Play or enqueue a complete/selected multidisc album |
+| `album save <album-ref> <playlist-name>` | Save the resolved edition as a versioned playlist |
 | `radio search/list/play/favorite/refresh/health` | Discover and validate stations |
 | `radio add/info/metadata/resync` | Import or inspect a direct station and restart at the live edge |
 | `radio leveling on\|off\|status` | Control dynamic loudness leveling for live streams |
@@ -65,6 +78,9 @@ All searches are fuzzy
 | `rm <index\|path>` / `del <index\|path>` | Confirm and send indexed local media to the operating-system trash |
 | `setup status\|resume\|restart\|repair` | Inspect or recover transactional first-run setup |
 | `download-ml <URL> [format] [path]` | Bounded custom-media download |
+| `download-ya [current\|YouTube-URL] [--track] [--quality best\|worst] [--to <directory>]` | Download exactly one active/referenced track |
+| `download-ya --album [current\|album-ref\|YouTube-playlist-URL] [--tracks <selector>] [--missing-only] [--allow-partial] [--yes]` | Explicitly create a resumable complete-album job |
+| `download-ya status [job-id]` / `pause\|resume\|cancel <job-id>` | Inspect or control persistent download work |
 
 Seeking applies only when the active source reports that capability. Use radio
 resync to restart a live stream at its current edge.

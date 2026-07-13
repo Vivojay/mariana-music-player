@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Added persistent eight-level queue groups, atomic album/playlist nodes,
+  deterministic sequential/shuffle/priority/artist-fair/smart/custom ordering,
+  cursor-safe mutations, and structural undo/redo.
+- Added versioned playlist CRUD, nested snapshot composition, M3U/M3U8 import
+  and export, and explicit YouTube-playlist snapshot imports.
+- Added release-specific local/MusicBrainz album discovery, multidisc selectors,
+  conservative local matching, verified canonical YouTube fallback, album
+  playback/queueing, and playlist snapshots.
+- Replaced loose audio downloads with persistent current-track and explicit
+  `--album` jobs supporting progress, pause, resume, cancel, safe naming, and
+  restart recovery.
+- Added an explicit 90% repository branch gate alongside independent 95%
+  critical-module branch gates; the queue/album/download closure suite verifies
+  migration, rollback, tree invariants, ambiguity, cancellation, and CLI errors.
+
 ## 0.7.0-dev.3
 
 - Added synchronized startup progress bars, a richer two-line playback prompt,

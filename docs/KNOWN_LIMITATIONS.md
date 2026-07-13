@@ -1,5 +1,15 @@
 # Known limitations
 
+- Online album discovery depends on MusicBrainz and YouTube availability. A
+  release may therefore remain partial; Mariana reports unresolved tracks and
+  requires `--allow-partial` instead of silently substituting a different
+  edition or similarly named recording.
+- Imported YouTube playlists are local snapshots. Mariana neither synchronizes
+  later remote edits nor writes changes back to YouTube.
+- Download pause takes effect between items or at the downloader's next safe
+  checkpoint; it is not a byte-exact suspension guarantee for every remote
+  transport.
+
 - A third-party station, feed, YouTube item, AcoustID record, MusicBrainz
   endpoint, or LRCLIB lyric may disappear or be unavailable. Mariana returns a
   typed failure and does not report false success.

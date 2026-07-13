@@ -115,6 +115,10 @@ command families include:
 ```text
 queue add|insert|remove|move|swap|jump|list|clear|reset
 queue next|previous|shuffle|repeat|consume|save|load|undo|redo|autofill
+queue tree|group|order|priority|dedupe
+playlist list|create|show|rename|delete|clear
+playlist add|remove|move|order|play|queue|import|export
+album search|show|tracks|fetch|play|queue|save
 radio search|list|play|favorite|refresh|health
 radio add|info|metadata|resync|leveling
 radio credentials set|delete|status <station> [username]
@@ -150,7 +154,9 @@ rename short [current|library-index|indexed-path] [--dry-run|--yes]
 theme aurora|windows|kitty|gruvbox|list|current
 youtube auth status|set <browser[:profile]>|clear|test <YouTube URL>
 download-yv [YouTube URL]
-download-ya [YouTube URL]
+download-ya [current|YouTube URL] [--track] [--quality best|worst] [--to <directory>]
+download-ya --album [current|album-ref|YouTube-playlist-URL] [--tracks <selector>]
+download-ya status [job-id]|pause|resume|cancel <job-id>
 download-ml <URL> [mp3|flac|wav|m4a|opus] [output path]
 ```
 
@@ -160,6 +166,37 @@ session and reports its result there; it never opens another REPL.
 YouTube downloads retain the eleven-character source ID in both output naming
 and embedded metadata so `rename short` can produce
 `Creator - Title Year [YouTube-ID].ext` without guessing provenance.
+
+Queues are persistent trees. A group can contain tracks or other groups up to
+eight levels deep; album and playlist groups are atomic by default, so root
+ordering moves each group as one block while retaining its internal order.
+`queue order` supports `sequential`, reproducible `shuffle`, stable `priority`,
+deterministic `artist-fair`, recommendation-backed `smart`, and stored `custom`
+ordering. Strategies affect upcoming media only and never restart the active
+track. Structural edits, policies, and cursor changes participate in undo/redo.
+
+Playlists are versioned snapshots managed in Mariana's SQLite database. They
+can retain nested groups, embed another playlist or complete album as a group,
+import M3U/M3U8 or an explicitly supplied YouTube playlist, and export portable
+UTF-8 M3U8. Remote playlist imports are snapshots; Mariana never edits a remote
+YouTube playlist. Existing `queue save/load` commands remain compatible and
+use the same snapshot store.
+
+Album search keeps editions separate. Local release MBIDs and normalized album
+tags are preferred; hybrid search can add MusicBrainz releases, conservatively
+match known tracks, then use canonical YouTube videos for unresolved music.
+Multidisc selectors accept flattened positions (`1`, `1-5`) and disc positions
+(`2.4`); an explicit comma list is also the custom playback permutation.
+`album play` replaces the queue and starts playback, whereas `album queue`
+preserves the current track and appends an atomic album group by default.
+
+Plain `download-ya` always means one active track. A complete album is expanded
+only when `--album` is present. Album jobs are persisted and resumable, process
+one item at a time, show per-item and overall progress, and support
+pause/resume/cancel without starting another Mariana process. Local tracks are
+not downloaded again; `--missing-only` restricts an album job to its missing
+YouTube-backed tracks. Output uses portable
+`Album Artist/Album/Disc-Track Artist - Title [YouTube-ID].ext` naming.
 
 `media info`/`media probe` show FFprobe and Mutagen fields, filesystem dates,
 codec/container details, and saved analysis state. `media fingerprint` reports
