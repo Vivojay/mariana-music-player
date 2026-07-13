@@ -145,6 +145,22 @@ def test_queue_redo_and_validation(queue_cli):
         main.queue_command(["unknown"])
 
 
+def test_queue_next_marks_the_station_item_played(queue_cli, monkeypatch):
+    marked = []
+    media = queue_cli[0].current().media
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=media, position=5, duration=30),
+    )
+    monkeypatch.setattr(main.STATION, "mark_played", marked.append)
+    monkeypatch.setattr(main.RECOMMENDER, "record_event", lambda *_args, **_kwargs: None)
+
+    main.queue_command(["next"])
+
+    assert marked == [media]
+
+
 def test_queue_reset_restores_the_library_projection(queue_cli, monkeypatch):
     queue, paths = queue_cli
     library_media = [MediaRef(MediaSource.LOCAL, str(path), title=path.stem) for path in paths]

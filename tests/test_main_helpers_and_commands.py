@@ -780,6 +780,9 @@ def test_station_command_parses_options_prints_upcoming_and_controls(monkeypatch
         def resume(self):
             calls.append(("resume",))
 
+        def cancel_generation(self):
+            calls.append(("cancel",))
+
         def stop(self):
             calls.append(("stop",))
 
@@ -801,8 +804,55 @@ def test_station_command_parses_options_prints_upcoming_and_controls(monkeypatch
     main.station_command(["resume"])
     main.station_command(["stop"])
     assert {call[0] for call in calls} >= {"more", "pause", "resume", "stop"}
+    assert len([call for call in calls if call[0] == "play"]) == 2
     with pytest.raises(main.StationError, match="Unknown station option"):
         main.station_command(["start", "--bad"])
+
+
+def test_station_command_ctrl_c_restores_start_and_retains_refill(monkeypatch):
+    session = StationSession(
+        "session",
+        MediaRef(
+            MediaSource.YOUTUBE,
+            "https://www.youtube.com/watch?v=seed",
+            title="Seed",
+            artist="Artist",
+            resolver_data={"is_music": True},
+        ),
+        state=StationState.LOADING,
+    )
+    calls = []
+
+    class Station:
+        def start(self, *_args, **_kwargs):
+            calls.append("start")
+            return session
+
+        def stop(self):
+            calls.append("stop")
+
+        def more(self, _count):
+            calls.append("more")
+
+        def cancel_generation(self):
+            calls.append("cancel")
+
+        def session(self):
+            return session
+
+    monkeypatch.setattr(main, "STATION", Station())
+    monkeypatch.setattr(main, "visible", False)
+    monkeypatch.setattr(main, "_station_seed", lambda _value: session.seed)
+    monkeypatch.setattr(main.QUEUE, "current", lambda: SimpleNamespace(media=session.seed))
+    monkeypatch.setattr(main.vas.controller, "snapshot", lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=session.seed))
+    monkeypatch.setattr(main, "_wait_for_station_initial", lambda: (_ for _ in ()).throw(KeyboardInterrupt))
+    monkeypatch.setattr(main, "IPrint", lambda *_args, **_kwargs: None)
+
+    assert main.station_command(["start", "current"]) is None
+    assert calls == ["start", "stop"]
+    calls.clear()
+    assert main.station_command(["more", "3"]) is session
+    assert calls == ["more", "cancel"]
 
 
 def test_autonext_requires_the_completed_item_to_belong_to_the_active_queue(monkeypatch, tmp_path):

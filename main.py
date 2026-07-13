@@ -913,6 +913,7 @@ def queue_command(arguments):
                 'early_skip',
                 context={'position': snapshot.position, 'duration': snapshot.duration},
             )
+            STATION.mark_played(snapshot.media)
         item = QUEUE.next() if operation == 'next' else QUEUE.previous()
         if item:
             _play_queue_item(item)
@@ -1550,7 +1551,12 @@ def station_command(arguments):
         STATION.start(seed, scope=scope, limit=limit)
         if not current or current.stable_id != seed.stable_id:
             _play_queue_item(QUEUE.current())
-        session = _wait_for_station_initial()
+        try:
+            session = _wait_for_station_initial()
+        except KeyboardInterrupt:
+            STATION.stop()
+            IPrint('\nStation start cancelled; previous queue restored.', visible=visible)
+            return None
         IPrint(
             f'Station: {session.state.value}; {session.ready_ahead}/10 ready; '
             f'{session.generated_count}/{session.limit if session.limit is not None else "unlimited"} generated',
@@ -1586,13 +1592,24 @@ def station_command(arguments):
     if operation == 'more':
         count = int(arguments[1]) if len(arguments) > 1 else 10
         STATION.more(count)
-        session = _wait_for_station_initial()
+        try:
+            session = _wait_for_station_initial()
+        except KeyboardInterrupt:
+            STATION.cancel_generation()
+            IPrint('\nStation refill cancelled; validated tracks retained.', visible=visible)
+            return STATION.session()
         IPrint(f'Station: {session.state.value}; {session.ready_ahead}/10 ready', visible=visible)
         return session
     if operation == 'pause':
         STATION.pause()
     elif operation == 'resume':
         STATION.resume()
+        if vas.controller.snapshot().state not in {
+            PlaybackState.PLAYING,
+            PlaybackState.BUFFERING,
+            PlaybackState.CROSSFADING,
+        } and QUEUE.current():
+            _play_queue_item(QUEUE.current())
     elif operation == 'stop':
         STATION.stop()
     else:

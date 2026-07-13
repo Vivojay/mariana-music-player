@@ -133,6 +133,83 @@ def test_station_pause_cancels_stale_discovery(tmp_path: Path):
         manager.resume()
         assert resumes == [True]
         manager.stop()
+        manager.close()
+
+
+def test_station_cancelled_worker_replenishes_only_while_active(tmp_path: Path):
+    started = threading.Event()
+    release = threading.Event()
+
+    class RestartingDiscovery:
+        def __init__(self):
+            self.calls = 0
+
+        def discover(self, *_args, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                started.set()
+                release.wait(2)
+                return [DiscoveredTrack(youtube("stale"), 1, ["stale"], "test")]
+            return [DiscoveredTrack(youtube("fresh"), 1, ["fresh"], "test")]
+
+    with MarianaDatabase(tmp_path / "station.db") as database:
+        discovery = RestartingDiscovery()
+        manager = StationManager(database, PersistentQueue(database), discovery)
+        manager.start(youtube("seed"))
+        assert started.wait(1)
+        manager.mark_played(youtube("seed"))
+        release.set()
+        deadline = time.monotonic() + 2
+        while discovery.calls < 2 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert discovery.calls == 2
+        assert [item["media"].title for item in manager.items()] == ["fresh"]
+        manager.stop()
+        manager.close()
+
+
+def test_station_generation_can_be_cancelled_without_pausing_playback(tmp_path: Path):
+    started = threading.Event()
+    release = threading.Event()
+
+    class SlowDiscovery:
+        def discover(self, *_args, **_kwargs):
+            started.set()
+            release.wait(2)
+            return []
+
+    with MarianaDatabase(tmp_path / "station.db") as database:
+        manager = StationManager(database, PersistentQueue(database), SlowDiscovery())
+        manager.start(youtube("seed"))
+        assert started.wait(1)
+        manager.cancel_generation()
+        assert manager.session().state == StationState.PARTIAL
+        assert manager.session().error_code == "cancelled"
+        release.set()
+        manager.stop()
+        manager.close()
+
+
+def test_station_stop_and_close_never_touch_a_closed_database(tmp_path: Path):
+    started = threading.Event()
+    release = threading.Event()
+
+    class SlowDiscovery:
+        def discover(self, *_args, **_kwargs):
+            started.set()
+            release.wait(2)
+            return [DiscoveredTrack(youtube("late"), 1, ["late"], "test")]
+
+    database = MarianaDatabase(tmp_path / "station.db")
+    manager = StationManager(database, PersistentQueue(database), SlowDiscovery())
+    manager.start(youtube("seed"))
+    assert started.wait(1)
+    manager.stop()
+    manager.close()
+    database.close()
+    release.set()
+    time.sleep(0.05)
+    assert manager._worker is None or not manager._worker.is_alive()
 
 
 def test_inactive_station_commands_are_safe(tmp_path: Path):

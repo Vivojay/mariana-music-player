@@ -49,6 +49,8 @@ class StationManager:
         self._condition = threading.Condition(self._lock)
         self._cancel = threading.Event()
         self._worker: threading.Thread | None = None
+        self._pending_target = 0
+        self._closed = False
         self._restore_paused()
 
     def _restore_paused(self) -> None:
@@ -185,19 +187,37 @@ class StationManager:
 
     def _start_worker(self, target: int) -> None:
         with self._lock:
+            if self._closed:
+                return
             session = self.session()
             if not session or session.state == StationState.PAUSED:
                 return
             if self._worker and self._worker.is_alive():
+                self._pending_target = max(self._pending_target, max(1, target))
                 return
+            self._pending_target = 0
             self._cancel = threading.Event()
             self._worker = threading.Thread(
-                target=self._generate,
+                target=self._run_generation,
                 args=(session.session_id, max(1, target), self._cancel),
                 name="mariana-station-discovery",
                 daemon=True,
             )
             self._worker.start()
+
+    def _run_generation(self, session_id: str, target: int, cancel: threading.Event) -> None:
+        try:
+            self._generate(session_id, target, cancel)
+        finally:
+            restart_target = 0
+            with self._lock:
+                if self._worker is threading.current_thread():
+                    self._worker = None
+                    if not self._closed:
+                        restart_target = self._pending_target
+                    self._pending_target = 0
+            if restart_target:
+                self._start_worker(restart_target)
 
     def _generated_ids(self, session_id: str) -> set[str]:
         rows = self.database.fetchall(
@@ -238,6 +258,8 @@ class StationManager:
                 state, message, code = StationState.EXHAUSTED, "no additional playable recommendations", "catalog_exhausted"
             self._set_state(session_id, state, message, code)
         except Exception as error:
+            if cancel.is_set():
+                return
             ready = self._ready_count(session_id)
             state = StationState.PARTIAL if ready else StationState.FAILED
             self._set_state(session_id, state, "station discovery failed", type(error).__name__.casefold())
@@ -339,6 +361,7 @@ class StationManager:
         session = self.session()
         if not session:
             return
+        self._cancel.set()
         with self.database.transaction() as connection:
             connection.execute(
                 "UPDATE station_items SET played=1 WHERE session_id=? AND stable_id=?",
@@ -363,11 +386,25 @@ class StationManager:
         self._set_state(session.session_id, StationState.LOADING, "loading more recommendations", None)
         self._start_worker(count)
 
+    def cancel_generation(self) -> None:
+        """Cancel only discovery while retaining playback and validated items."""
+        session = self.session()
+        if not session:
+            raise StationError("No station session is active")
+        with self._lock:
+            self._pending_target = 0
+            self._cancel.set()
+        ready = self._ready_count(session.session_id)
+        state = StationState.READY if ready >= READY_AHEAD_TARGET else StationState.PARTIAL
+        self._set_state(session.session_id, state, "station generation cancelled", "cancelled")
+
     def pause(self) -> None:
         session = self.session()
         if not session:
             raise StationError("No station session is active")
-        self._cancel.set()
+        with self._lock:
+            self._pending_target = 0
+            self._cancel.set()
         with suppress(Exception):
             self.pause_playback()
         self._set_state(session.session_id, StationState.PAUSED, "paused", None)
@@ -385,7 +422,9 @@ class StationManager:
         session = self.session()
         if not session:
             raise StationError("No station session is active")
-        self._cancel.set()
+        with self._lock:
+            self._pending_target = 0
+            self._cancel.set()
         row = self.database.fetchone(
             "SELECT queue_snapshot_json FROM station_sessions WHERE session_id=?", (session.session_id,)
         )
@@ -401,7 +440,10 @@ class StationManager:
             self._condition.notify_all()
 
     def close(self) -> None:
-        self._cancel.set()
-        worker = self._worker
+        with self._lock:
+            self._closed = True
+            self._pending_target = 0
+            self._cancel.set()
+            worker = self._worker
         if worker and worker is not threading.current_thread():
             worker.join(timeout=1)
