@@ -41,12 +41,14 @@ First boot checks explicit settings, managed tools, `PATH`, and common system,
 package-manager, and extracted-build locations. Every candidate is started and
 version-checked. If anything is missing, the first/default choice (press Enter)
 downloads pinned archives, verifies every SHA-256, extracts into staging, checks
-all executables, and atomically activates the result. The second choice accepts
+all executables, and atomically activates the result. Download byte counts,
+percentages, and progress bars are shown while each archive is transferred. The second choice accepts
 manual paths. Run `tools setup` at any later time to repeat this flow.
 
 On Windows, the source-build fallback downloads the pinned FFmpeg 8.1.2
 **essentials** ZIP from gyan.dev (one of the Windows builders linked by
-ffmpeg.org), official Chromaprint 1.6.0, and official rsgain 3.7. The Gyan
+ffmpeg.org), official Chromaprint 1.6.0, official rsgain 3.7, and official
+Deno 2.9.2. The Gyan
 essentials archive is an external GPLv3 tool; its notices remain in the
 installed archive. Production desktop bundles continue to prefer Mariana's
 release manifest and native managed-tool builds.
@@ -137,6 +139,13 @@ replaygain off|status|verify|mode|preamp|scan|rescan
 broadcast profiles|status|start|stop|test
 broadcast credentials set|delete|status <profile>
 tools status|setup|install|repair
+help|h|? [playback|queue|online|library|details|app]
+autoplay [on|off|status]
+media info|probe|metadata [current|library-index|indexed-path]
+media fingerprint [current|library-index|indexed-path] [--full]
+media identify [current|library-index|indexed-path]
+rename short [current|library-index|indexed-path] [--dry-run|--yes]
+theme aurora|windows|kitty|gruvbox|list|current
 youtube auth status|set <browser[:profile]>|clear|test <YouTube URL>
 download-yv [YouTube URL]
 download-ya [YouTube URL]
@@ -146,6 +155,19 @@ download-ml <URL> [mp3|flac|wav|m4a|opus] [output path]
 Omit the URL from `download-yv` or `download-ya` to download the active
 YouTube item. After confirmation, the download runs in the current Mariana
 session and reports its result there; it never opens another REPL.
+YouTube downloads retain the eleven-character source ID in both output naming
+and embedded metadata so `rename short` can produce
+`Creator - Title Year [YouTube-ID].ext` without guessing provenance.
+
+`media info`/`media probe` show FFprobe and Mutagen fields, filesystem dates,
+codec/container details, and saved analysis state. `media fingerprint` reports
+the stored Chromaprint object (use `--full` only when the raw value is needed),
+while `media identify` queries the configured AcoustID/MusicBrainz path and
+returns an explicit unavailable, ambiguous, or no-match status instead of a guess.
+
+Sequential local-library autoplay is enabled by default and stops at the end of
+the library. Persistent queue repeat/autofill policies remain separate and take
+precedence for queued playback.
 
 Sleep timers are session-only. They default to pausing and fade perceptually
 over the final ten minutes (or the whole timer when shorter), without replacing
@@ -211,6 +233,23 @@ progress and preserves settings, media, history, the library, and preferences.
 Media-tool discovery/provisioning is its own idempotent first step; it is marked
 complete only after validation (or an explicit limited-mode choice when the
 required FFmpeg suite is already usable).
+Installations whose setup completed before the current full tool bundle receive
+one versioned, default-yes repair offer; declining it does not rerun the setup
+wizard and `tools setup` remains available.
+
+The CLI uses a two-line, media-aware prompt showing the active item, elapsed and
+total time, percentage, and playback state. The external June 2022 testing
+snapshot used the same mirrored blue-gradient banner as this repository—not a
+rainbow banner—so no nonexistent rainbow asset is claimed or synthesized.
+
+The Electron shell supports multiple terminal views over the one authoritative
+Mariana PTY. Each view keeps terminal state and can be searched independently;
+tabs intentionally share playback, queue, and database state rather than
+starting conflicting player processes. The Find Output field supports
+incremental highlighting, Enter/Shift+Enter navigation, arrow buttons, and
+Escape-to-clear. Theme changes made in the selector issue the same `theme`
+command as the CLI, keeping runtime settings, the preset selector, and future
+launches synchronized.
 
 The signed desktop updater checks the stable GitHub Releases channel shortly
 after startup and every six hours. It downloads in-app but will not install
@@ -318,13 +357,15 @@ RecBole/Implicit challenger research is isolated from the runtime; see
 
 ## Verification
 
-The latest Windows verification run passed 761 deterministic tests, the 90%
-repository coverage gate (90.96%), every independent 95% critical-module
-branch gate, 8 React unit tests, 2 development Electron PTY scenarios, and 4
-freshly packaged Electron/backend first-run scenarios. Five credential-free
-live probes passed earlier on the branch but were not rerun at the recorded
+The latest Windows verification run passed 834 deterministic Python tests,
+the 90% repository coverage gate (90.49%), every independent 95%
+critical-module branch gate, 9 React unit tests, and 5 freshly packaged
+Electron/backend scenarios with one explicitly opt-in live download skipped.
+The real installed-tool suite added 17 passing FFmpeg, FFprobe, Chromaprint,
+ReplayGain, Icecast, and short-soak scenarios. Five credential-free public
+service probes passed earlier on the branch but were not rerun at the recorded
 commit. See
-the [dated verification report](docs/verification/2026-07-12.md) for exact
+the [dated verification report](docs/verification/2026-07-13.md) for exact
 versions, metrics, and the release gates that remain pending.
 
 ```powershell

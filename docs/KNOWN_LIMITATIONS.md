@@ -30,3 +30,9 @@
   transaction. Mariana journals and reconciles that boundary on restart, but a
   native trash facility that is unavailable or refuses a file remains an
   explicit failure.
+- Electron tabs are independent terminal views over one Mariana PTY, not
+  independent player processes. This preserves single ownership of the audio
+  device, queue, and SQLite data directory.
+- Output search uses xterm.js scrollback retained by the desktop host. Retained
+  history is bounded to one million characters and resets on a full terminal
+  clear sequence.

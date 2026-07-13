@@ -104,6 +104,11 @@ user-facing behavior disappeared.
 | `lyrics_provider/get_related_music.py` | Excluded | Shazam related writer replaced by recommendation engine |
 | `lyrics_provider/lyrics_window_spawn.py` | Modernized | Writable generated CSS and current lyrics data |
 | `res/banner.banner`, `res/default.css`, `res/first_boot_startup_sound.mp3` | Native assets | Retained as immutable resources |
+| External testing snapshot prompt/banner | Modernized | Rich two-line prompt ported; banner verified as the same mirrored blue gradient, with no rainbow asset present |
+| `media info/fingerprint/identify` | Native | Indexed/current metadata and conservative Chromaprint identity inspection |
+| `rename short` | Native | Transactional indexed-file rename with collision, extension, rollback, and source-ID safeguards |
+| `autoplay` | Native | Persistent sequential local-library completion policy; queue policies remain authoritative |
+| Electron tabs and output search | Native | Shared single PTY, bounded replay history, directional search, and synchronized theme presets |
 | `res/lyrics_icon.png`, `res/welcome_banner.png` | Native assets | Retained as immutable resources |
 | `res/lyrics-wallpapers/1.DEFAULT.jpg` through `10.triangular-spiral-dark-purple-staircase.jpg` | Native assets | All ten retained |
 | `res/font-faces/Elsie/Elsie-Regular.ttf`, `res/font-faces/Elsie/SIL Open Font License.txt` | Native assets | Font and license retained |

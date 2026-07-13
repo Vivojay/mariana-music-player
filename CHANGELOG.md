@@ -2,6 +2,15 @@
 
 ## 0.7.0-dev.3
 
+- Added synchronized startup progress bars, a richer two-line playback prompt,
+  compact `help` aliases, persisted autoplay, CLI-controlled terminal themes,
+  media inspection/identification commands, and safe metadata-derived renames.
+- Added multiple searchable terminal views backed by one authoritative PTY;
+  closing, opening, or clearing a view never starts a second player process.
+- Made shutdown concurrent and bounded, and removed packaged subprocess paths
+  that could relaunch the complete application instead of the intended helper.
+- Expanded first-run provisioning to checksum-verified FFmpeg, FFprobe, FFplay,
+  Chromaprint, rsgain, and Deno downloads with byte and percentage progress.
 - Fixed packaged `download-yv` and `download-ya` commands so confirmed
   downloads run as tracked background jobs in the current Mariana session
   instead of relaunching the packaged backend as a second REPL.

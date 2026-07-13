@@ -30,6 +30,17 @@ npm run rebuild:native
 npm run test:e2e:dev
 ```
 
+Targeted UX and media-management checks can be run with:
+
+```powershell
+python -m pytest -q tests/test_media_details.py tests/test_tool_setup.py tests/test_lyrics_ui.py
+npm test -- --run desktop/App.test.tsx desktop/TerminalSurface.test.tsx
+```
+
+These cover safe metadata-derived renames, stable library identity, tool-bundle
+validation/progress, the non-recursive lyrics-window path, multiple terminal
+views, directional output search, and CLI/UI theme synchronization.
+
 On Windows, rebuilding `node-pty` requires the Visual Studio C++ build tools.
 The development and packaged PTY tests may use a verified prebuilt binary, but
 a native release build must still pass `npm run rebuild:native` on its CI

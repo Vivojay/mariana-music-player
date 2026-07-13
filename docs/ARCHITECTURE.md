@@ -6,6 +6,12 @@ native PTY and renders it with xterm.js. UI buttons send ordinary commands to
 the PTY. The authenticated side channel reports state but cannot execute
 commands.
 
+Electron may render several terminal tabs, but they are views of that one PTY,
+not additional Mariana processes. The host retains a bounded ANSI stream for
+new views and resets it on terminal-clear sequences. Search is performed by
+each view's xterm.js SearchAddon. Theme selection is a normal CLI command and a
+structured state event keeps the settings file and React selector synchronized.
+
 Media references are persisted using canonical, non-secret identifiers. Source
 resolvers create short-lived playback URLs immediately before use. The playback
 supervisor owns retries and failover; the playback controller owns FFmpeg
@@ -39,3 +45,7 @@ External tools are resolved from an explicit setting, Mariana's verified
 managed-tool directory, a legacy local tool directory, then `PATH`. Managed
 activation uses same-volume renames and restores the prior version if the new
 directory cannot be activated.
+The first-run bundle contains FFmpeg/FFprobe/FFplay, fpcalc, rsgain, and Deno;
+downloads are checksum-verified in staging and expose bounded progress updates.
+The setup-complete marker remains authoritative, while older installations get
+at most one versioned tool-bundle repair offer instead of rerunning the wizard.
