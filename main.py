@@ -79,6 +79,7 @@ from mariana.commands import (
     parse_search,
     search_rows,
 )
+from mariana.command_parser import CommandSyntaxError, split_command
 from mariana.credentials import CredentialError, CredentialStore
 from mariana.database import MarianaDatabase
 from mariana.desktop_control import DesktopControl
@@ -95,11 +96,13 @@ from mariana.models import (
     MediaRef,
     MediaSource,
     PlaybackState,
+    QueueStrategy,
     truncate_display_cells,
 )
 from mariana.output_devices import OutputDeviceError, default_output_device
 from mariana.paths import initialize_runtime_paths
 from mariana.platform import open_path, reveal_path
+from mariana.playlists import PlaylistError, PlaylistStore
 from mariana.preferences import MediaPreferences, PreferenceState
 from mariana.queueing import PersistentQueue, QueueError
 from mariana.radio import RadioCatalog, RadioError
@@ -873,6 +876,105 @@ def _on_queue_item_complete(media):
 vas.controller.on_complete = _on_queue_item_complete
 
 
+def _command_option(arguments, name, *, required=False):
+    values = list(arguments)
+    if name not in values:
+        if required:
+            raise ValueError(f'Missing required option: {name}')
+        return None, values
+    index = values.index(name)
+    if index + 1 >= len(values) or values[index + 1].startswith('--'):
+        raise ValueError(f'Option {name} requires a value')
+    value = values[index + 1]
+    del values[index:index + 2]
+    return value, values
+
+
+def _command_flag(arguments, name):
+    values = list(arguments)
+    enabled = name in values
+    if enabled:
+        values.remove(name)
+    return enabled, values
+
+
+def _one_based_position(value):
+    if value is None:
+        return None
+    try:
+        position = int(value)
+    except ValueError as error:
+        raise ValueError('Position must be a positive integer') from error
+    if position < 1:
+        raise ValueError('Position must be a positive integer')
+    return position - 1
+
+
+def _print_queue_tree(nodes, *, playlist=False):
+    rows = []
+
+    def visit(values, depth=0):
+        for node in values:
+            if node['type'] == 'group':
+                group = node['group']
+                if playlist:
+                    name = group.get('name') or 'Group'
+                    strategy = group.get('strategy', 'custom')
+                    atomic = bool(group.get('atomic', True))
+                    priority = int(group.get('priority', 0))
+                else:
+                    name = group.name
+                    strategy = group.strategy.value
+                    atomic = group.atomic
+                    priority = group.priority
+                rows.append((node['path'], '  ' * depth + f'[{name}]', strategy, priority, 'atomic' if atomic else 'open'))
+                visit(node.get('children', []), depth + 1)
+            else:
+                item = node['item']
+                media = MediaRef.from_dict(item['media']) if playlist else item.media
+                priority = int(item.get('priority', 0)) if playlist else item.priority
+                rows.append((node['path'], '  ' * depth + (media.title or media.original_uri), '', priority, 'media'))
+
+    visit(nodes)
+    IPrint(tbl(rows, headers=('Path', 'Node', 'Order', 'Priority', 'Policy'), tablefmt='plain') if rows else '(empty)', visible=visible)
+    return rows
+
+
+def _queue_group_command(arguments):
+    if not arguments:
+        raise QueueError('Usage: queue group create|rename|move|remove|atomic ...')
+    action, values = arguments[0].lower(), list(arguments[1:])
+    if action == 'create':
+        parent, values = _command_option(values, '--parent')
+        at, values = _command_option(values, '--at')
+        if len(values) != 1:
+            raise QueueError('Usage: queue group create "<name>" [--parent <path>] [--at N]')
+        group = QUEUE.create_group(values[0], parent=None if parent == 'root' else parent, position=_one_based_position(at))
+        IPrint(f'Created queue group: {group.name} [{group.group_id}]', visible=visible)
+    elif action == 'rename' and len(values) == 2:
+        group = QUEUE.rename_group(values[0], values[1])
+        IPrint(f'Renamed queue group: {group.name}', visible=visible)
+    elif action == 'move':
+        parent, values = _command_option(values, '--parent', required=True)
+        at, values = _command_option(values, '--at')
+        if len(values) != 1:
+            raise QueueError('Usage: queue group move <path> --parent <path|root> [--at N]')
+        group = QUEUE.move_group(values[0], parent=None if parent == 'root' else parent, position=_one_based_position(at))
+        IPrint(f'Moved queue group: {group.name}', visible=visible)
+    elif action == 'remove':
+        flatten, values = _command_flag(values, '--flatten')
+        recursive, values = _command_flag(values, '--recursive')
+        if len(values) != 1 or flatten == recursive:
+            raise QueueError('Usage: queue group remove <path> [--flatten|--recursive]')
+        group = QUEUE.remove_group(values[0], flatten=flatten, recursive=recursive)
+        IPrint(f'Removed queue group: {group.name}', visible=visible)
+    elif action == 'atomic' and len(values) == 2 and values[1].lower() in {'on', 'off'}:
+        group = QUEUE.set_group_atomic(values[0], values[1].lower() == 'on')
+        IPrint(f'Queue group {group.name} is now {"atomic" if group.atomic else "open"}', visible=visible)
+    else:
+        raise QueueError(f'Invalid queue group command: {action}')
+
+
 def queue_command(arguments):
     operation = arguments[0].lower() if arguments else 'list'
     if operation == 'list':
@@ -882,6 +984,10 @@ def queue_command(arguments):
         ]
         IPrint(tbl(rows, headers=('#', '', 'Priority', 'Media'), tablefmt='plain') if rows else '(queue empty)', visible=visible)
         IPrint(f'Queue source: {QUEUE.origin() or "legacy/custom"}', visible=visible)
+    elif operation == 'tree':
+        _print_queue_tree(QUEUE.tree())
+    elif operation == 'group':
+        _queue_group_command(arguments[1:])
     elif operation == 'reset':
         QUEUE.sync_library_defaults(LIBRARY.media_refs(), force=True)
         IPrint(f'Queue reset to {len(QUEUE.items())} library item(s)', visible=visible)
@@ -924,6 +1030,27 @@ def queue_command(arguments):
     elif operation == 'shuffle':
         seed = int(arguments[1]) if len(arguments) > 1 else None
         IPrint(f'Shuffle seed: {QUEUE.shuffle(seed)}', visible=visible)
+    elif operation == 'order':
+        group, values = _command_option(arguments[1:], '--group')
+        seed, values = _command_option(values, '--seed')
+        if len(values) != 1:
+            raise QueueError('Usage: queue order <strategy> [--group <path>] [--seed N]')
+        applied_seed = QUEUE.apply_strategy(
+            QueueStrategy(values[0].lower()),
+            group=group,
+            seed=int(seed) if seed is not None else None,
+            recommender=RECOMMENDER,
+        )
+        IPrint(f'Queue order: {values[0]}' + (f' (seed {applied_seed})' if applied_seed is not None else ''), visible=visible)
+    elif operation == 'priority':
+        if len(arguments) != 3:
+            raise QueueError('Usage: queue priority <path> <integer>')
+        QUEUE.set_priority(arguments[1], int(arguments[2]))
+        IPrint(f'Queue priority set: {arguments[1]} = {arguments[2]}', visible=visible)
+    elif operation == 'dedupe':
+        if len(arguments) != 2:
+            raise QueueError('Usage: queue dedupe identity|uri')
+        IPrint(f'Removed {QUEUE.dedupe(arguments[1].lower())} duplicate queue item(s)', visible=visible)
     elif operation == 'repeat':
         QUEUE.set_repeat(arguments[1].lower())
     elif operation == 'consume':
@@ -939,6 +1066,150 @@ def queue_command(arguments):
         IPrint('Queue restored' if changed else 'No queue history available', visible=visible)
     else:
         raise QueueError(f'Unknown queue operation: {operation}')
+
+
+def _playlist_insertion(value):
+    if value is None:
+        return None, None
+    parts = value.split('.')
+    if not all(part.isdigit() and int(part) > 0 for part in parts):
+        raise PlaylistError('Playlist insertion path must contain positive one-based positions')
+    return ('.'.join(parts[:-1]) or None), int(parts[-1]) - 1
+
+
+def _playlist_import(name, source):
+    if source.lower().startswith(('https://www.youtube.com/', 'https://youtube.com/', 'https://youtu.be/')):
+        from beta.youtube_media import playlist_entries
+
+        result = playlist_entries(
+            source,
+            browser_profile=SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile'),
+        )
+        media = [
+            MediaRef(
+                MediaSource.YOUTUBE,
+                entry['url'],
+                title=entry['title'],
+                artist=entry.get('artist'),
+                duration=entry.get('duration'),
+                resolver_data={
+                    'youtube': True,
+                    'video_id': entry['id'],
+                    'playlist_id': result.get('id'),
+                    'playlist_index': entry['playlist_index'],
+                },
+                provenance='youtube-playlist',
+            )
+            for entry in result['entries']
+        ]
+        return QUEUE.playlists.create(name, description=f"Snapshot of {result['title']}", tree=PlaylistStore.snapshot_from_media(media))
+    return QUEUE.playlists.import_m3u(name, source)
+
+
+def playlist_command(arguments):
+    operation = arguments[0].lower() if arguments else 'list'
+    values = list(arguments[1:])
+    store = QUEUE.playlists
+    if operation == 'list':
+        playlists = store.list()
+        rows = [(item.name, item.revision, len(store.flattened_media(item.tree)), item.description or '') for item in playlists]
+        IPrint(tbl(rows, headers=('Name', 'Revision', 'Tracks', 'Description'), tablefmt='plain') if rows else '(no playlists)', visible=visible)
+    elif operation == 'create':
+        description, values = _command_option(values, '--description')
+        if len(values) != 1:
+            raise PlaylistError('Usage: playlist create "<name>" [--description "<text>"]')
+        playlist = store.create(values[0], description=description)
+        IPrint(f'Created playlist: {playlist.name}', visible=visible)
+    elif operation == 'show':
+        tree, values = _command_flag(values, '--tree')
+        if len(values) != 1:
+            raise PlaylistError('Usage: playlist show "<name>" [--tree]')
+        playlist = store.get(values[0])
+        if tree:
+            _print_queue_tree(store.nodes(playlist.playlist_id), playlist=True)
+        else:
+            rows = [(index + 1, media.artist or '', media.title or media.original_uri) for index, media in enumerate(store.flattened_media(playlist.tree))]
+            IPrint(tbl(rows, headers=('#', 'Artist', 'Media'), tablefmt='plain') if rows else '(empty playlist)', visible=visible)
+    elif operation == 'rename' and len(values) == 2:
+        IPrint(f'Renamed playlist: {store.rename(values[0], values[1]).name}', visible=visible)
+    elif operation == 'delete':
+        yes, values = _command_flag(values, '--yes')
+        if len(values) != 1:
+            raise PlaylistError('Usage: playlist delete "<name>" [--yes]')
+        if not yes and input(f'Delete playlist "{values[0]}"? (y/N): ').strip().casefold() != 'y':
+            IPrint('Playlist deletion cancelled', visible=visible)
+            return
+        IPrint(f'Deleted playlist: {store.delete(values[0]).name}', visible=visible)
+    elif operation == 'clear' and len(values) == 1:
+        store.clear(values[0])
+        IPrint(f'Cleared playlist: {values[0]}', visible=visible)
+    elif operation == 'add':
+        at, values = _command_option(values, '--at')
+        if len(values) != 3:
+            raise PlaylistError('Usage: playlist add "<name>" media|playlist <reference> [--at <path>]')
+        parent, position = _playlist_insertion(at)
+        if values[1].lower() == 'media':
+            playlist = store.add_media(values[0], _media_from_argument(values[2]), parent=parent, position=position)
+        elif values[1].lower() == 'playlist':
+            source = store.get(values[2])
+            playlist = store.add_snapshot(
+                values[0], source.tree, group_name=source.name, parent=parent, position=position,
+                kind='playlist', source_ref=source.playlist_id,
+            )
+        else:
+            raise PlaylistError('Playlist additions must be media, album, or playlist')
+        IPrint(f'Updated playlist: {playlist.name} (revision {playlist.revision})', visible=visible)
+    elif operation == 'remove' and len(values) == 2:
+        playlist = store.remove_node(values[0], values[1])
+        IPrint(f'Updated playlist: {playlist.name} (revision {playlist.revision})', visible=visible)
+    elif operation == 'move':
+        parent, values = _command_option(values, '--parent', required=True)
+        at, values = _command_option(values, '--at')
+        if len(values) != 2:
+            raise PlaylistError('Usage: playlist move "<name>" <path> --parent <path|root> [--at N]')
+        playlist = store.move_node(values[0], values[1], parent=None if parent == 'root' else parent, position=_one_based_position(at))
+        IPrint(f'Updated playlist: {playlist.name} (revision {playlist.revision})', visible=visible)
+    elif operation == 'order':
+        group, values = _command_option(values, '--group')
+        seed, values = _command_option(values, '--seed')
+        if len(values) != 2:
+            raise PlaylistError('Usage: playlist order "<name>" <strategy> [--group <path>] [--seed N]')
+        ranks = None
+        if values[1].lower() == QueueStrategy.SMART.value:
+            media = store.flattened_media(store.get(values[0]).tree)
+            ranks = {
+                recommendation.media.stable_id: index
+                for index, recommendation in enumerate(
+                    RECOMMENDER.recommend([Candidate(item) for item in media], limit=len(media))
+                )
+            }
+        playlist = store.order(values[0], values[1], group=group, seed=int(seed) if seed else None, media_ranks=ranks)
+        IPrint(f'Updated playlist: {playlist.name} (revision {playlist.revision})', visible=visible)
+    elif operation == 'play' and len(values) == 1:
+        playlist = store.get(values[0])
+        QUEUE.restore_snapshot(playlist.tree, origin=f'playlist:{playlist.playlist_id}')
+        item = QUEUE.jump(0) if QUEUE.items() else None
+        if item:
+            _play_queue_item(item)
+        IPrint(f'Loaded playlist: {playlist.name}', visible=visible)
+    elif operation == 'queue':
+        at, values = _command_option(values, '--at')
+        flatten, values = _command_flag(values, '--flatten')
+        if len(values) != 1:
+            raise PlaylistError('Usage: playlist queue "<name>" [--at next|end|N] [--flatten]')
+        playlist = store.get(values[0])
+        imported = QUEUE.import_snapshot(
+            playlist.tree, name=playlist.name, kind='playlist', source_ref=playlist.playlist_id,
+            position=QUEUE.root_insert_position(at), flatten=flatten,
+        )
+        IPrint(f'Queued {len(imported)} playlist item(s)', visible=visible)
+    elif operation == 'import' and len(values) == 2:
+        playlist = _playlist_import(values[0], values[1])
+        IPrint(f'Imported playlist: {playlist.name} ({len(store.flattened_media(playlist.tree))} tracks)', visible=visible)
+    elif operation == 'export' and len(values) == 2:
+        IPrint(f'Exported playlist: {store.export_m3u(values[0], values[1])}', visible=visible)
+    else:
+        raise PlaylistError(f'Invalid playlist command: {operation}')
 
 
 def library_command(arguments):
@@ -1741,7 +2012,7 @@ def recycle_library_media(arguments):
 
 HELP_GROUPS = (
     ('Playback', 'ls, <number>, .rand, pause, stop, next, prev, seek, progress, now, autonext'),
-    ('Queue', 'queue add/list/reset/next/previous/move/remove/shuffle/repeat/save/load'),
+    ('Queue', 'queue list/tree/group/order, playlist list/create/show/play/queue/import/export'),
     ('Online', '/ys, /yl, station, radio, podcast, rss, download-ya, download-yv, download-ml'),
     ('Library', 'library status/scan/info, find, rfind, lfind, reload, rename short'),
     ('Details', 'media info/probe/fingerprint/identify, lyrics, replaygain status'),
@@ -2964,7 +3235,11 @@ def process(command):
     global current_media_type, DEFAULT_EDITOR, YOUTUBE_PLAY_TYPE, lyrics_saved_for_song
 
     command = normalize_command(command)
-    commandslist = command.strip().split()
+    try:
+        commandslist = split_command(command.strip())
+    except CommandSyntaxError as error:
+        SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+        return None
 
     try:
         if vas.controller.snapshot().state == PlaybackState.IDLE and isplaying:
@@ -4497,6 +4772,12 @@ def process(command):
             try:
                 queue_command(commandslist[1:])
             except (QueueError, MediaFailure, ValueError, IndexError) as error:
+                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+
+        elif commandslist[0].lower() == 'playlist':
+            try:
+                playlist_command(commandslist[1:])
+            except (PlaylistError, QueueError, MediaFailure, ValueError, IndexError) as error:
                 SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
 
         elif commandslist[0].lower() == 'radio':

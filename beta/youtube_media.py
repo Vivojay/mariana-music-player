@@ -180,6 +180,52 @@ def search(
     ]
 
 
+def playlist_entries(
+    url: str,
+    *,
+    browser_profile: str | None = None,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """Return a canonical, metadata-only snapshot of a YouTube playlist."""
+
+    if limit is not None and limit < 1:
+        raise YouTubeError("YouTube playlist limit must be positive")
+    options: dict[str, Any] = {
+        "noplaylist": False,
+        "extract_flat": "in_playlist",
+        "browser_profile": browser_profile,
+    }
+    if limit is not None:
+        options["playlistend"] = limit
+    result = _extract(url, **options)
+    entries = []
+    for index, entry in enumerate(result.get("entries") or [], 1):
+        if not isinstance(entry, Mapping):
+            continue
+        canonical_url = _webpage_url(entry)
+        video_id = str(entry.get("id") or "").strip()
+        if not video_id or not canonical_url.startswith(("https://www.youtube.com/", "https://youtu.be/")):
+            continue
+        entries.append(
+            {
+                "id": video_id,
+                "title": str(entry.get("title") or "[Untitled YouTube media]"),
+                "url": canonical_url,
+                "duration": entry.get("duration"),
+                "artist": entry.get("artist") or entry.get("uploader"),
+                "playlist_index": entry.get("playlist_index") or index,
+            }
+        )
+    if not entries:
+        raise YouTubeError("The YouTube playlist contains no usable videos")
+    return {
+        "id": result.get("id"),
+        "title": result.get("title") or "Imported YouTube playlist",
+        "url": result.get("webpage_url") or url,
+        "entries": entries,
+    }
+
+
 def media_info(
     url: str,
     detailed: bool = False,

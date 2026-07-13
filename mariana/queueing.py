@@ -7,6 +7,7 @@ import os
 import random
 import time
 import uuid
+from collections import defaultdict, deque
 from collections.abc import Iterable
 from dataclasses import asdict
 from typing import cast
@@ -163,6 +164,154 @@ class PersistentQueue:
         connection.execute("UPDATE queue_items SET position=position+1000000")
         for position, queue_id in enumerate(ordered_ids):
             connection.execute("UPDATE queue_items SET position=? WHERE id=?", (position, queue_id))
+
+    def _node_media(self, connection, node_type: str, node_id: str) -> list[MediaRef]:
+        if node_type == "item":
+            rows = connection.execute(
+                "SELECT q.*,m.source,m.original_uri,m.title,m.artist,m.album,m.duration,m.capabilities_json,"
+                "m.resolver_json,m.chapters_json,m.provenance FROM queue_items q "
+                "JOIN media_items m ON m.stable_id=q.stable_id WHERE q.id=?",
+                (int(node_id),),
+            ).fetchall()
+        else:
+            ids = self._flatten_ids(connection, node_id)
+            if not ids:
+                return []
+            placeholders = ",".join("?" for _ in ids)
+            rows = connection.execute(
+                "SELECT q.*,m.source,m.original_uri,m.title,m.artist,m.album,m.duration,m.capabilities_json,"
+                "m.resolver_json,m.chapters_json,m.provenance FROM queue_items q "
+                "JOIN media_items m ON m.stable_id=q.stable_id "
+                f"WHERE q.id IN ({placeholders}) ORDER BY q.position",
+                tuple(ids),
+            ).fetchall()
+        return [self._media_from_row(row) for row in rows]
+
+    @staticmethod
+    def _node_priority(connection, node_type: str, node_id: str) -> int:
+        if node_type == "group":
+            row = connection.execute(
+                "SELECT priority FROM queue_groups WHERE group_id=?", (node_id,)
+            ).fetchone()
+        else:
+            row = connection.execute("SELECT priority FROM queue_items WHERE id=?", (int(node_id),)).fetchone()
+        return int(row["priority"] if row else 0)
+
+    def _ordered_children(
+        self,
+        connection,
+        parent_id: str | None,
+        strategy: QueueStrategy,
+        seed: int | None,
+        recommender=None,
+        children: list[tuple[str, str]] | None = None,
+    ) -> list[tuple[str, str]]:
+        children = list(children if children is not None else self._children(connection, parent_id))
+        if strategy in {QueueStrategy.CUSTOM, QueueStrategy.SEQUENTIAL} or len(children) < 2:
+            return children
+        if strategy == QueueStrategy.SHUFFLE:
+            random.Random(seed).shuffle(children)
+            return children
+        if strategy == QueueStrategy.PRIORITY:
+            indexed = list(enumerate(children))
+            indexed.sort(
+                key=lambda value: (
+                    -self._node_priority(connection, value[1][0], value[1][1]),
+                    value[0],
+                )
+            )
+            return [node for _, node in indexed]
+        if strategy == QueueStrategy.ARTIST_FAIR:
+            buckets: dict[str, deque[tuple[str, str]]] = defaultdict(deque)
+            order: list[str] = []
+            for index, node in enumerate(children):
+                media = self._node_media(connection, *node)
+                artist = next((item.artist.casefold() for item in media if item.artist), f"unknown:{index}")
+                if artist not in buckets:
+                    order.append(artist)
+                buckets[artist].append(node)
+            result = []
+            while any(buckets.values()):
+                for artist in order:
+                    if buckets[artist]:
+                        result.append(buckets[artist].popleft())
+            return result
+        if strategy == QueueStrategy.SMART:
+            if recommender is None:
+                raise QueueError("Smart queue ordering requires the recommendation engine")
+            from recommendation_engine.engine import Candidate, cosine, features
+
+            rng = random.Random(seed)
+            vectors = {}
+            scores = {}
+            artists = {}
+            blocked_nodes = {}
+            for node in children:
+                media = self._node_media(connection, *node)
+                candidates = [Candidate(item) for item in media]
+                node_vectors = [features(candidate) for candidate in candidates]
+                if not node_vectors:
+                    vector = [0.0] * recommender.ranker.dimensions
+                    score = float("-inf")
+                else:
+                    vector = [sum(values) / len(values) for values in zip(*node_vectors, strict=True)]
+                    score = sum(
+                        recommender.ranker.score(values, explore=False, rng=rng) for values in node_vectors
+                    ) / len(node_vectors)
+                    if all(recommender.blocked(item.stable_id) for item in media):
+                        score = float("-inf")
+                blocked_nodes[node] = bool(media) and all(
+                    recommender.blocked(item.stable_id) for item in media
+                )
+                vectors[node] = vector
+                scores[node] = score
+                artists[node] = next((item.artist.casefold() for item in media if item.artist), "")
+            selected: list[tuple[str, str]] = []
+            remaining = list(children)
+            artist_counts: dict[str, int] = defaultdict(int)
+            while remaining:
+                unblocked = [node for node in remaining if not blocked_nodes[node]]
+                candidate_pool = unblocked or remaining
+                eligible = [
+                    node
+                    for node in candidate_pool
+                    if not artists[node] or artist_counts[artists[node]] < 2
+                ] or candidate_pool
+                chosen = max(
+                    eligible,
+                    key=lambda node: (
+                        0.75 * scores[node]
+                        - 0.25 * max((cosine(vectors[node], vectors[item]) for item in selected), default=0.0),
+                        -children.index(node),
+                    ),
+                )
+                selected.append(chosen)
+                remaining.remove(chosen)
+                if artists[chosen]:
+                    artist_counts[artists[chosen]] += 1
+            return selected
+        raise QueueError(f"Unknown queue strategy: {strategy}")
+
+    def _active_child(self, connection, parent_id: str | None) -> tuple[str, str] | None:
+        current = connection.execute(
+            "SELECT q.id,q.group_id FROM queue_state s "
+            "LEFT JOIN queue_items q ON q.id=s.current_id WHERE s.singleton=1"
+        ).fetchone()
+        if not current or current["id"] is None:
+            return None
+        group_id = current["group_id"]
+        if group_id == parent_id:
+            return ("item", str(current["id"]))
+        while group_id:
+            row = connection.execute(
+                "SELECT parent_id FROM queue_groups WHERE group_id=?", (group_id,)
+            ).fetchone()
+            if not row:
+                return None
+            if row["parent_id"] == parent_id:
+                return ("group", str(group_id))
+            group_id = row["parent_id"]
+        return None
 
     def groups(self) -> list[QueueGroup]:
         return [
@@ -682,6 +831,133 @@ class PersistentQueue:
             self._restore_snapshot(connection, snapshot)
             self._set_origin(connection, origin)
 
+    def import_snapshot(
+        self,
+        snapshot: dict,
+        *,
+        name: str,
+        kind: str,
+        source_ref: str | None = None,
+        position: int | None = None,
+        flatten: bool = False,
+    ) -> list[QueueItem]:
+        if not isinstance(snapshot, dict):
+            raise QueueError("Queue import snapshot must be an object")
+        incoming = PlaylistStore._normalized_tree(snapshot)
+        imported_stable_ids = []
+        with self.database.transaction() as connection:
+            self._set_origin(connection, CUSTOM_ORIGIN)
+            self._record_history(connection)
+            root_children = self._children(connection, None)
+            insert_at = len(root_children) if position is None else max(0, min(position, len(root_children)))
+            if flatten:
+                for media in PlaylistStore.flattened_media(incoming):
+                    self._upsert_media(connection, media)
+                    queue_position = connection.execute("SELECT COUNT(*) AS count FROM queue_items").fetchone()["count"]
+                    cursor = connection.execute(
+                        "INSERT INTO queue_items(stable_id,position,priority,added_at,failure_policy,group_id,"
+                        "sibling_position) VALUES(?,?,?,?, 'skip',NULL,?)",
+                        (media.stable_id, queue_position, 0, time.time(), len(root_children)),
+                    )
+                    root_children.insert(insert_at, ("item", str(cursor.lastrowid)))
+                    insert_at += 1
+                    imported_stable_ids.append(media.stable_id)
+            else:
+                outer_id = uuid.uuid4().hex
+                now = time.time()
+                connection.execute(
+                    "INSERT INTO queue_groups(group_id,parent_id,name,kind,sibling_position,atomic_group,source_ref,"
+                    "metadata_json,created_at,updated_at) VALUES(?,NULL,?,?,?,?,?,?,?,?)",
+                    (outer_id, name, kind, len(root_children), 1, source_ref, "{}", now, now),
+                )
+                root_children.insert(insert_at, ("group", outer_id))
+                mapping = {str(group["group_id"]): uuid.uuid4().hex for group in incoming["groups"]}
+                pending = {str(group["group_id"]): group for group in incoming["groups"]}
+                inserted = set()
+                while pending:
+                    progressed = False
+                    for old_id, group in list(pending.items()):
+                        old_parent = group.get("parent_id")
+                        if old_parent and str(old_parent) not in inserted:
+                            continue
+                        parent_id = mapping.get(str(old_parent), outer_id)
+                        connection.execute(
+                            "INSERT INTO queue_groups(group_id,parent_id,name,kind,sibling_position,strategy,"
+                            "shuffle_seed,priority,atomic_group,source_ref,metadata_json,created_at,updated_at) "
+                            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            (
+                                mapping[old_id],
+                                parent_id,
+                                group.get("name") or "Group",
+                                group.get("kind", "manual"),
+                                int(group.get("sibling_position", 0)),
+                                group.get("strategy", "custom"),
+                                group.get("shuffle_seed"),
+                                int(group.get("priority", 0)),
+                                int(group.get("atomic", True)),
+                                group.get("source_ref"),
+                                json.dumps(group.get("metadata") or {}, ensure_ascii=False),
+                                now,
+                                now,
+                            ),
+                        )
+                        inserted.add(old_id)
+                        del pending[old_id]
+                        progressed = True
+                    if not progressed:
+                        raise QueueError("Imported playlist contains orphaned or cyclic groups")
+                for item in incoming["items"]:
+                    payload = item.get("media")
+                    if not isinstance(payload, dict):
+                        continue
+                    media = MediaRef.from_dict(payload)
+                    self._upsert_media(connection, media)
+                    queue_position = connection.execute("SELECT COUNT(*) AS count FROM queue_items").fetchone()["count"]
+                    connection.execute(
+                        "INSERT INTO queue_items(stable_id,position,priority,added_at,attempts,failure_policy,"
+                        "group_id,sibling_position) VALUES(?,?,?,?,?,?,?,?)",
+                        (
+                            media.stable_id,
+                            queue_position,
+                            int(item.get("priority", 0)),
+                            time.time(),
+                            int(item.get("attempts", 0)),
+                            item.get("failure_policy", "skip"),
+                            mapping.get(str(item.get("group_id")), outer_id),
+                            int(item.get("sibling_position", 0)),
+                        ),
+                    )
+                    imported_stable_ids.append(media.stable_id)
+            self._renumber_children(connection, None, root_children)
+            self._recompile(connection)
+        imported = set(imported_stable_ids)
+        return [item for item in self.items() if item.media.stable_id in imported]
+
+    def root_insert_position(self, location: str | int | None) -> int | None:
+        if location is None or location == "end":
+            return None
+        with self.database.transaction() as connection:
+            root = self._children(connection, None)
+            if location == "next":
+                current = self.current()
+                if not current:
+                    return 0
+                group_id = current.group_id
+                while group_id:
+                    row = connection.execute(
+                        "SELECT parent_id FROM queue_groups WHERE group_id=?", (group_id,)
+                    ).fetchone()
+                    if not row or row["parent_id"] is None:
+                        break
+                    group_id = row["parent_id"]
+                node = ("group", group_id) if group_id else ("item", str(current.queue_id))
+                return root.index(node) + 1
+            try:
+                numeric = int(location)
+            except (TypeError, ValueError) as error:
+                raise QueueError("Queue insertion must be next, end, or a one-based position") from error
+            return max(0, min(numeric - 1, len(root)))
+
     def _renumber(self, connection, ordered_ids: list[int]) -> None:
         connection.execute("UPDATE queue_items SET position = position + 1000000")
         for position, queue_id in enumerate(ordered_ids):
@@ -896,19 +1172,133 @@ class PersistentQueue:
             connection.execute("UPDATE queue_state SET current_id=NULL, updated_at=? WHERE singleton=1", (time.time(),))
 
     def shuffle(self, seed: int | None = None) -> int:
-        items = self.items()
         seed = seed if seed is not None else random.SystemRandom().randrange(2**31)
-        ordered = [cast(int, item.queue_id) for item in items]
-        random.Random(seed).shuffle(ordered)
+        self.apply_strategy(QueueStrategy.SHUFFLE, seed=seed)
+        return seed
+
+    def apply_strategy(
+        self,
+        strategy: QueueStrategy | str,
+        *,
+        group: str | None = None,
+        seed: int | None = None,
+        recommender=None,
+    ) -> int | None:
+        try:
+            strategy = QueueStrategy(strategy)
+        except ValueError as error:
+            raise QueueError(f"Unknown queue strategy: {strategy}") from error
+        if strategy in {QueueStrategy.SHUFFLE, QueueStrategy.SMART} and seed is None:
+            seed = random.SystemRandom().randrange(2**31)
+        parent_id = None
+        if group:
+            node = self.resolve_node(group)
+            if node["type"] != "group":
+                raise QueueError("Queue strategy scope must reference a group")
+            parent_id = node["id"]
         with self.database.transaction() as connection:
             self._set_origin(connection, CUSTOM_ORIGIN)
             self._record_history(connection)
-            self._renumber(connection, ordered)
-            connection.execute(
-                "UPDATE queue_state SET shuffle_seed=?, updated_at=? WHERE singleton=1",
-                (seed, time.time()),
-            )
+            self._apply_strategy(connection, parent_id, strategy, seed, recommender)
+            self._recompile(connection)
         return seed
+
+    def _apply_strategy(self, connection, parent_id, strategy, seed, recommender) -> None:
+        children = self._children(connection, parent_id)
+        active_child = self._active_child(connection, parent_id)
+        if active_child in children:
+            active_index = children.index(active_child)
+            prefix = children[: active_index + 1]
+            upcoming = children[active_index + 1 :]
+        else:
+            prefix, upcoming = [], children
+        children = prefix + self._ordered_children(
+            connection,
+            parent_id,
+            strategy,
+            seed,
+            recommender,
+            upcoming,
+        )
+        self._renumber_children(connection, parent_id, children)
+        if parent_id is None:
+            connection.execute(
+                "UPDATE queue_state SET root_strategy=?,root_seed=?,shuffle_seed=?,updated_at=? WHERE singleton=1",
+                (
+                    strategy.value,
+                    seed,
+                    seed if strategy == QueueStrategy.SHUFFLE else None,
+                    time.time(),
+                ),
+            )
+        else:
+            connection.execute(
+                "UPDATE queue_groups SET strategy=?,shuffle_seed=?,updated_at=? WHERE group_id=?",
+                (strategy.value, seed, time.time(), parent_id),
+            )
+        for node_type, node_id in children:
+            if node_type != "group":
+                continue
+            row = connection.execute(
+                "SELECT atomic_group FROM queue_groups WHERE group_id=?", (node_id,)
+            ).fetchone()
+            if row and not row["atomic_group"]:
+                self._apply_strategy(connection, node_id, strategy, seed, recommender)
+
+    def set_priority(self, reference: str, priority: int) -> None:
+        node = self.resolve_node(reference)
+        with self.database.transaction() as connection:
+            self._set_origin(connection, CUSTOM_ORIGIN)
+            self._record_history(connection)
+            if node["type"] == "group":
+                connection.execute(
+                    "UPDATE queue_groups SET priority=?,updated_at=? WHERE group_id=?",
+                    (priority, time.time(), node["id"]),
+                )
+            else:
+                connection.execute("UPDATE queue_items SET priority=? WHERE id=?", (priority, int(node["id"])))
+
+    def dedupe(self, mode: str = "identity") -> int:
+        if mode not in {"identity", "uri"}:
+            raise QueueError("Queue dedupe mode must be identity or uri")
+        items = self.items()
+        seen: set[str] = set()
+        remove: list[QueueItem] = []
+        replacements: dict[int, int] = {}
+        first_by_key: dict[str, QueueItem] = {}
+        for item in items:
+            if mode == "uri":
+                key = f"{item.media.source.value}:{item.media.original_uri.casefold()}"
+            else:
+                key = str(
+                    item.media.resolver_data.get("recording_mbid")
+                    or item.media.resolver_data.get("fingerprint")
+                    or item.media.stable_id
+                )
+            if key in seen:
+                remove.append(item)
+                replacements[cast(int, item.queue_id)] = cast(int, first_by_key[key].queue_id)
+            else:
+                seen.add(key)
+                first_by_key[key] = item
+        if not remove:
+            return 0
+        remove_ids = {cast(int, item.queue_id) for item in remove}
+        with self.database.transaction() as connection:
+            self._set_origin(connection, CUSTOM_ORIGIN)
+            self._record_history(connection)
+            current = connection.execute("SELECT current_id FROM queue_state WHERE singleton=1").fetchone()
+            placeholders = ",".join("?" for _ in remove_ids)
+            connection.execute(f"DELETE FROM queue_items WHERE id IN ({placeholders})", tuple(remove_ids))
+            for parent_id in {item.group_id for item in remove}:
+                self._renumber_children(connection, parent_id, self._children(connection, parent_id))
+            self._recompile(connection)
+            if current and current["current_id"] in replacements:
+                connection.execute(
+                    "UPDATE queue_state SET current_id=?,updated_at=? WHERE singleton=1",
+                    (replacements[current["current_id"]], time.time()),
+                )
+        return len(remove)
 
     def set_repeat(self, mode: str) -> None:
         if mode not in VALID_REPEAT_MODES:
