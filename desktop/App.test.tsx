@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { trimDisplayCells } from './shared'
 
 vi.mock('./TerminalSurface', () => ({ TerminalSurface: () => <div data-testid="terminal" /> }))
 
@@ -75,6 +76,34 @@ describe('Mariana desktop shell', () => {
     expect(screen.getByText(/-4\.3 dB/)).toBeInTheDocument()
     expect(screen.getByText(/live · opus · ↻2/)).toBeInTheDocument()
     expect(write).not.toHaveBeenCalled()
+  })
+
+  it('renders playback chapters and the next ten station tracks from structured events', () => {
+    render(<App />)
+    act(() => {
+      backendEvent?.({ event: 'playback', payload: { chapter: { title: 'A very long 章 chapter title', start_time: 10, end_time: 20 } }, timestamp: 1 })
+      backendEvent?.({
+        event: 'station',
+        payload: {
+          state: 'ready', scope: 'hybrid', ready_ahead: 10, progress: 'ready 10/10',
+          next: Array.from({ length: 10 }, (_, index) => ({ id: `${index}`, title: `Track ${index + 1}`, artist: 'Artist', reasons: ['similar artist'] })),
+        },
+        timestamp: 2,
+      })
+    })
+    expect(screen.getByTitle('A very long 章 chapter title')).toHaveTextContent('A very long 章 chapter title')
+    fireEvent.click(screen.getByRole('button', { name: 'Station recommendations' }))
+    expect(screen.getByLabelText('Station upcoming tracks')).toBeVisible()
+    expect(screen.getByText('Track 10')).toBeInTheDocument()
+    expect(screen.getAllByText('similar artist')).toHaveLength(10)
+    fireEvent.click(screen.getByRole('button', { name: 'Close station tracks' }))
+    expect(screen.queryByLabelText('Station upcoming tracks')).not.toBeInTheDocument()
+    expect(write).not.toHaveBeenCalled()
+  })
+
+  it('trims Unicode labels by terminal display cells', () => {
+    expect(trimDisplayCells('short', 64)).toBe('short')
+    expect(trimDisplayCells('A界BC', 4)).toBe('A界…')
   })
 
   it('validates persisted appearance settings and routes search and restart controls', () => {

@@ -112,6 +112,8 @@ button { cursor: pointer; }
 .statusbar b { color: var(--accent); }
 .statusbar button { height: 23px; color: var(--muted); }
 .statusbar .update-ready { color: var(--accent); }
+.statusbar button.active { color: var(--accent); }
+.chapter-status { max-width: 42vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-grow { flex: 1; }
 
 .timer-popover {
@@ -132,6 +134,20 @@ button { cursor: pointer; }
 .timer-custom .primary { color: #07100f; font-weight: 700; background: var(--accent); }
 .cancel-timer { width: 100%; margin-top: 8px; color: #ff8da6; }
 
+.station-popover {
+  position: absolute; right: 170px; bottom: 38px; z-index: 10; width: min(560px, calc(100vw - 30px)); max-height: min(600px, calc(100vh - 100px)); padding: 16px;
+  overflow: auto; border: 1px solid var(--border); border-radius: 13px;
+  background: color-mix(in srgb, var(--panel) 96%, #000 4%);
+  box-shadow: 0 24px 80px #000a, 0 0 40px color-mix(in srgb, var(--glow) 16%, transparent); backdrop-filter: blur(30px);
+}
+.station-popover .popover-heading button { border: 0; background: transparent; color: var(--text); font-size: 22px; }
+.station-popover > p { color: var(--muted); font-size: 12px; }
+.station-popover ol { margin: 10px 0 0; padding-left: 30px; }
+.station-popover li { padding: 7px 4px; border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent); }
+.station-popover li strong, .station-popover li span, .station-popover li small { display: block; }
+.station-popover li span { color: var(--muted); }
+.station-popover li small { margin-top: 3px; color: var(--accent); }
+
 @media (max-width: 980px) {
   .search-box { display: none; }
   .title-actions select { width: 120px; }
@@ -140,7 +156,7 @@ button { cursor: pointer; }
   .titlebar { padding-right: 136px; }
   .title-actions button:nth-of-type(1), .title-actions button:nth-of-type(2) { display: none; }
   .terminal-frame { margin: 7px; }
-  .timer-popover { right: 8px; }
+  .timer-popover, .station-popover { right: 8px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }

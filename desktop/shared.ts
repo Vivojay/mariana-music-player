@@ -1,7 +1,27 @@
 export type BackendEvent = {
-  event: 'ready' | 'playback' | 'sleep' | 'broadcast' | 'loudness' | 'theme' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error'
+  event: 'ready' | 'playback' | 'station' | 'sleep' | 'broadcast' | 'loudness' | 'theme' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error'
   payload: Record<string, unknown>
   timestamp: number
+}
+
+function displayCells(value: string): number {
+  return Array.from(value).reduce((total, character) => {
+    if (/\p{Mark}/u.test(character)) return total
+    return total + ((character.codePointAt(0) || 0) > 0xff ? 2 : 1)
+  }, 0)
+}
+
+export function trimDisplayCells(value: string, maximum: number): string {
+  if (displayCells(value) <= maximum) return value
+  let result = ''
+  let cells = 0
+  for (const character of Array.from(value)) {
+    const width = /\p{Mark}/u.test(character) ? 0 : (character.codePointAt(0) || 0) > 0xff ? 2 : 1
+    if (cells + width > maximum - 1) break
+    result += character
+    cells += width
+  }
+  return `${result.trimEnd()}…`
 }
 
 export type UpdateState = {

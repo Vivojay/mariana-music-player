@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { TerminalSurface } from './TerminalSurface'
 import { themes, type ThemeName } from './themes'
-import type { BackendEvent, UpdateState } from './shared'
+import { trimDisplayCells, type BackendEvent, type UpdateState } from './shared'
 
 const TIMER_PRESETS = [15, 30, 45, 60, 90]
 
@@ -39,6 +39,9 @@ export default function App() {
   const [backendState, setBackendState] = useState('starting')
   const [broadcastStatus, setBroadcastStatus] = useState<Record<string, unknown>>({ state: 'idle' })
   const [loudnessStatus, setLoudnessStatus] = useState<Record<string, unknown>>({ replaygain_db: 0, live_leveling: false })
+  const [playbackStatus, setPlaybackStatus] = useState<Record<string, unknown>>({ state: 'idle' })
+  const [stationStatus, setStationStatus] = useState<Record<string, unknown>>({ state: 'stopped', next: [] })
+  const [stationOpen, setStationOpen] = useState(false)
   const theme = themes[themeName] ?? themes.aurora
   const style = useMemo(() => ({
     '--app-bg': theme.chrome.background,
@@ -70,6 +73,8 @@ export default function App() {
       if (event.event === 'sleep') setTimerStatus(event.payload)
       if (event.event === 'broadcast') setBroadcastStatus(event.payload)
       if (event.event === 'loudness') setLoudnessStatus(event.payload)
+      if (event.event === 'playback') setPlaybackStatus(event.payload)
+      if (event.event === 'station') setStationStatus(event.payload)
       if (event.event === 'theme') {
         const name = String(event.payload.name || '')
         if (name in themes) setThemeName(name as ThemeName)
@@ -109,6 +114,12 @@ export default function App() {
     setTabs(remaining)
     if (activeTab === id) setActiveTab(remaining[Math.max(0, index - 1)].id)
   }
+
+  const chapter = playbackStatus.chapter as { title?: unknown; start_time?: unknown; end_time?: unknown } | undefined
+  const chapterTitle = chapter?.title ? String(chapter.title) : ''
+  const stationTracks = Array.isArray(stationStatus.next)
+    ? stationStatus.next as Array<{ id?: string; title?: string; artist?: string; reasons?: string[] }>
+    : []
 
   return (
     <main className={`app theme-${themeName}`} style={style}>
@@ -173,6 +184,19 @@ export default function App() {
         <span><b>PTY</b> {backendState}</span><span>{window.mariana.platform}</span>
         <span title="Program loudness normalization"><b>RG</b> {Number(loudnessStatus.replaygain_db || 0).toFixed(1)} dB{loudnessStatus.live_leveling ? ' · live' : ''}</span>
         <span title={String(broadcastStatus.error || 'Icecast source status')}><b>CAST</b> {String(broadcastStatus.state || 'idle')}{broadcastStatus.codec ? ` · ${String(broadcastStatus.codec)}` : ''}{broadcastStatus.reconnects ? ` · ↻${String(broadcastStatus.reconnects)}` : ''}</span>
+        <button
+          className={String(stationStatus.state) === 'ready' ? 'active' : ''}
+          title="Open the next ten station tracks"
+          aria-label="Station recommendations"
+          onClick={() => setStationOpen((open) => !open)}
+        >
+          <b>STN</b> {String(stationStatus.state || 'stopped')} {Number(stationStatus.ready_ahead || 0)}/10
+        </button>
+        {chapterTitle && (
+          <span className="chapter-status" title={chapterTitle}>
+            <b>CH</b> {trimDisplayCells(chapterTitle, 64)}
+          </span>
+        )}
         <button onClick={() => setReducedMotion((value) => !value)}>{reducedMotion ? 'motion off' : 'motion on'}</button>
         <span className="status-grow" />
         {update.state === 'downloaded' ? (
@@ -195,6 +219,27 @@ export default function App() {
             <button className="primary" onClick={() => startTimer(customTimer)}>Start</button>
           </div>
           <button className="cancel-timer" onClick={() => { sendCommand('sleep cancel'); setTimerOpen(false) }}>Cancel active timer</button>
+        </aside>
+      )}
+      {stationOpen && (
+        <aside className="station-popover" aria-label="Station upcoming tracks">
+          <div className="popover-heading">
+            <strong>Station · next {stationTracks.length}</strong>
+            <button aria-label="Close station tracks" onClick={() => setStationOpen(false)}>×</button>
+          </div>
+          <p>
+            {String(stationStatus.scope || 'hybrid')} · {String(stationStatus.progress || stationStatus.state || 'stopped')}
+          </p>
+          <ol>
+            {stationTracks.map((track, index) => (
+              <li key={track.id || `${track.title}-${index}`}>
+                <strong>{track.title || 'Untitled track'}</strong>
+                {track.artist && <span>{track.artist}</span>}
+                {track.reasons?.length && <small>{track.reasons.join(' · ')}</small>}
+              </li>
+            ))}
+          </ol>
+          {!stationTracks.length && <p>No validated recommendations are ready yet.</p>}
         </aside>
       )}
     </main>
