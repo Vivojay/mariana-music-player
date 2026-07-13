@@ -70,6 +70,7 @@ from collections.abc import Iterable;               _boot_progress(19, 'collecti
 from logger import SAY;                             _boot_progress(20, 'logging')
 from first_boot_welcome_screen import notify;       _boot_progress(21, 'first run')
 from config_manager import load_system_settings, load_user_settings, save_user_settings
+from mariana.albums import AlbumCatalog, AlbumError
 from mariana.broadcast import BroadcastError, BroadcastState, IcecastBroadcaster
 from mariana.commands import (
     DOWNLOAD_TYPOS,
@@ -329,6 +330,11 @@ RECOMMENDER = RecommendationEngine(
     exploration=SETTINGS.get('recommendations', {}).get('exploration', 0.10),
     mmr_lambda=SETTINGS.get('recommendations', {}).get('mmr diversity', 0.75),
     blocked=lambda stable_id: PREFERENCES.get(stable_id) == PreferenceState.BLOCKED,
+)
+ALBUMS = AlbumCatalog(
+    DATABASE,
+    musicbrainz=IDENTITY.musicbrainz,
+    browser_profile=SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile'),
 )
 vas.configure(
     ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'),
@@ -1150,6 +1156,15 @@ def playlist_command(arguments):
         parent, position = _playlist_insertion(at)
         if values[1].lower() == 'media':
             playlist = store.add_media(values[0], _media_from_argument(values[2]), parent=parent, position=position)
+        elif values[1].lower() == 'album':
+            album = ALBUMS.fetch(_album_reference(values[2]))
+            snapshot = PlaylistStore.snapshot_from_media(
+                [track.media for track in album.tracks if track.media is not None]
+            )
+            playlist = store.add_snapshot(
+                values[0], snapshot, group_name=album.title, parent=parent, position=position,
+                kind='album', source_ref=album.album_id,
+            )
         elif values[1].lower() == 'playlist':
             source = store.get(values[2])
             playlist = store.add_snapshot(
@@ -1210,6 +1225,178 @@ def playlist_command(arguments):
         IPrint(f'Exported playlist: {store.export_m3u(values[0], values[1])}', visible=visible)
     else:
         raise PlaylistError(f'Invalid playlist command: {operation}')
+
+
+def _album_reference(value):
+    if value != 'current':
+        return value
+    media = vas.controller.snapshot().media
+    if media is None:
+        raise AlbumError('No media is currently active')
+    reference = media.resolver_data.get('album_id') or media.resolver_data.get('release_mbid')
+    if not reference:
+        raise AlbumError('The active media has no established album context')
+    return str(reference)
+
+
+def _album_snapshot(album, tracks, *, grouped=True):
+    media = [track.media for track in tracks if track.media is not None]
+    snapshot = PlaylistStore.snapshot_from_media(media)
+    if not grouped:
+        return snapshot
+    group_id = f'album-{album.album_id}'
+    snapshot['groups'] = [
+        {
+            'group_id': group_id,
+            'parent_id': None,
+            'name': album.title,
+            'kind': 'album',
+            'sibling_position': 0,
+            'strategy': 'custom',
+            'shuffle_seed': None,
+            'priority': 0,
+            'atomic': True,
+            'source_ref': album.album_id,
+            'metadata': {
+                'release_mbid': album.release_mbid,
+                'album_artist': album.album_artist,
+                'date': album.date,
+            },
+        }
+    ]
+    for item in snapshot['items']:
+        item['group_id'] = group_id
+    return snapshot
+
+
+def _album_tracks(reference, *, selector=None, order='release', seed=None, allow_partial=False):
+    album = ALBUMS.fetch(_album_reference(reference))
+    tracks = ALBUMS.select_tracks(album, selector)
+    if order == 'custom' and not selector:
+        raise AlbumError('Custom album order requires --tracks <selector>')
+    unresolved = [track for track in tracks if track.media is None]
+    if unresolved and not allow_partial:
+        raise AlbumError(
+            f'{len(unresolved)} album track(s) are unresolved; use --allow-partial to continue without them'
+        )
+    ordered, applied_seed = ALBUMS.order_tracks(
+        tracks,
+        order,
+        seed=seed,
+        recommender=RECOMMENDER,
+    )
+    return album, ordered, applied_seed
+
+
+def _print_album(album):
+    edition = ' / '.join(
+        value for value in (album.date, album.country, album.disambiguation) if value
+    ) or 'edition unspecified'
+    IPrint(
+        f'{album.title} — {album.album_artist or "Unknown artist"} ({edition})\n'
+        f'Album ID: {album.album_id}; release MBID: {album.release_mbid or "none"}; '
+        f'tracks: {len(album.tracks)}; unresolved: {len(album.unresolved_tracks)}',
+        visible=visible,
+    )
+
+
+def album_command(arguments):
+    operation = arguments[0].lower() if arguments else 'search'
+    values = list(arguments[1:])
+    if operation == 'search':
+        scope, values = _command_option(values, '--scope')
+        limit, values = _command_option(values, '--limit')
+        query = ' '.join(values).strip()
+        albums = ALBUMS.search(query, scope=scope or 'hybrid', limit=int(limit or 10))
+        rows = [
+            (
+                index,
+                album.album_artist or '',
+                album.title,
+                album.date or '',
+                album.country or '',
+                album.disambiguation or '',
+                'local' if 'local-library' in album.provenance else 'online',
+            )
+            for index, album in enumerate(albums, 1)
+        ]
+        IPrint(
+            tbl(rows, headers=('#', 'Artist', 'Album', 'Date', 'Country', 'Edition', 'Source'), tablefmt='plain')
+            if rows else '(no albums found)',
+            visible=visible,
+        )
+    elif operation == 'show' and len(values) == 1:
+        _print_album(ALBUMS.resolve_reference(_album_reference(values[0])))
+    elif operation == 'tracks' and len(values) == 1:
+        album = ALBUMS.fetch(_album_reference(values[0]))
+        rows = [
+            (
+                f'{track.disc_number}.{track.track_number}',
+                track.artist or '',
+                track.title,
+                round(track.duration) if track.duration is not None else '',
+                track.resolution_status.value,
+            )
+            for track in album.tracks
+        ]
+        IPrint(tbl(rows, headers=('Track', 'Artist', 'Title', 'Seconds', 'Resolution'), tablefmt='plain'), visible=visible)
+    elif operation == 'fetch':
+        refresh, values = _command_flag(values, '--refresh')
+        if len(values) != 1:
+            raise AlbumError('Usage: album fetch <album-ref> [--refresh]')
+        album = ALBUMS.fetch(_album_reference(values[0]), refresh=refresh)
+        _print_album(album)
+    elif operation in {'play', 'queue'}:
+        order, values = _command_option(values, '--order')
+        selector, values = _command_option(values, '--tracks')
+        seed, values = _command_option(values, '--seed')
+        allow_partial, values = _command_flag(values, '--allow-partial')
+        flatten, values = _command_flag(values, '--flatten')
+        at, values = _command_option(values, '--at')
+        if len(values) != 1:
+            raise AlbumError(
+                f'Usage: album {operation} <album-ref> [--order release|shuffle|smart|custom] '
+                '[--tracks <selector>] [--seed N] [--allow-partial]'
+            )
+        if operation == 'play' and (flatten or at is not None):
+            raise AlbumError('Album play does not accept --flatten or --at')
+        album, tracks, applied_seed = _album_tracks(
+            values[0],
+            selector=selector,
+            order=(order or 'release').lower(),
+            seed=int(seed) if seed is not None else None,
+            allow_partial=allow_partial,
+        )
+        snapshot = _album_snapshot(album, tracks, grouped=operation == 'play')
+        if operation == 'play':
+            QUEUE.restore_snapshot(snapshot, origin=f'album:{album.album_id}')
+            item = QUEUE.jump(0) if QUEUE.items() else None
+            if item:
+                _play_queue_item(item)
+        else:
+            QUEUE.import_snapshot(
+                snapshot,
+                name=album.title,
+                kind='album',
+                source_ref=album.album_id,
+                position=QUEUE.root_insert_position(at),
+                flatten=flatten,
+            )
+        IPrint(
+            f'Album {operation}: {album.title} ({len([track for track in tracks if track.media])} track(s))'
+            + (f'; seed {applied_seed}' if applied_seed is not None else ''),
+            visible=visible,
+        )
+    elif operation == 'save' and len(values) == 2:
+        album = ALBUMS.fetch(_album_reference(values[0]))
+        playlist = QUEUE.playlists.create(
+            values[1],
+            description=f'Album snapshot: {album.album_artist or ""} — {album.title}',
+            tree=_album_snapshot(album, album.tracks),
+        )
+        IPrint(f'Saved album as playlist: {playlist.name}', visible=visible)
+    else:
+        raise AlbumError(f'Invalid album command: {operation}')
 
 
 def library_command(arguments):
@@ -2013,7 +2200,7 @@ def recycle_library_media(arguments):
 HELP_GROUPS = (
     ('Playback', 'ls, <number>, .rand, pause, stop, next, prev, seek, progress, now, autonext'),
     ('Queue', 'queue list/tree/group/order, playlist list/create/show/play/queue/import/export'),
-    ('Online', '/ys, /yl, station, radio, podcast, rss, download-ya, download-yv, download-ml'),
+    ('Online', '/ys, /yl, station, album search/play/queue, radio, podcast, rss, download-ya'),
     ('Library', 'library status/scan/info, find, rfind, lfind, reload, rename short'),
     ('Details', 'media info/probe/fingerprint/identify, lyrics, replaygain status'),
     ('App', 'theme, tools status/setup, sleep, history, cls, exit'),
@@ -4778,6 +4965,12 @@ def process(command):
             try:
                 playlist_command(commandslist[1:])
             except (PlaylistError, QueueError, MediaFailure, ValueError, IndexError) as error:
+                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+
+        elif commandslist[0].lower() == 'album':
+            try:
+                album_command(commandslist[1:])
+            except (AlbumError, PlaylistError, QueueError, MediaFailure, ValueError, IndexError) as error:
                 SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
 
         elif commandslist[0].lower() == 'radio':

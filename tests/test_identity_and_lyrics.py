@@ -124,6 +124,18 @@ def test_musicbrainz_retries_with_backoff_and_recovers(monkeypatch):
     assert sleeps == [0.25, 0.5]
 
 
+def test_musicbrainz_release_search_lookup_and_cache():
+    search_payload = {"releases": [{"id": "release", "title": "Album"}, {"title": "missing id"}]}
+    release_payload = {"id": "release", "title": "Album", "media": []}
+    session = Session([Response(search_payload), Response(release_payload)])
+    client = MusicBrainzClient(session=session, minimum_interval=0)
+    assert client.search_releases("Artist Album", limit=5) == [{"id": "release", "title": "Album"}]
+    assert client.search_releases("Artist Album", limit=5) == [{"id": "release", "title": "Album"}]
+    assert client.release("release") == release_payload
+    assert client.release("release") == release_payload
+    assert len(session.calls) == 2
+
+
 def test_lrclib_exact_search_no_lyrics_and_offline():
     identity = TrackIdentity(
         IdentityStatus.IDENTIFIED, title="Song", artist="Artist", album="Album", duration=180, confidence=0.9

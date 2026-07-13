@@ -15,7 +15,7 @@ from typing import Any
 
 from .paths import runtime_paths
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 SCHEMA = """
@@ -104,6 +104,29 @@ CREATE TABLE IF NOT EXISTS playlist_revisions (
 );
 CREATE INDEX IF NOT EXISTS playlist_revisions_playlist_idx
 ON playlist_revisions(playlist_id, revision DESC);
+CREATE TABLE IF NOT EXISTS albums (
+    album_id TEXT PRIMARY KEY,
+    release_mbid TEXT UNIQUE,
+    title TEXT NOT NULL,
+    album_artist TEXT,
+    date TEXT,
+    country TEXT,
+    disambiguation TEXT,
+    album_json TEXT NOT NULL,
+    fetched_at REAL,
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS album_search_results (
+    search_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    album_id TEXT NOT NULL REFERENCES albums(album_id) ON DELETE CASCADE,
+    query TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY(search_id, position)
+);
+CREATE INDEX IF NOT EXISTS album_search_created_idx
+ON album_search_results(created_at DESC);
 CREATE TABLE IF NOT EXISTS track_identities (
     stable_id TEXT PRIMARY KEY,
     identity_json TEXT NOT NULL,

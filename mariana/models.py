@@ -107,6 +107,13 @@ class QueueStrategy(StrEnum):
     CUSTOM = "custom"
 
 
+class AlbumTrackStatus(StrEnum):
+    LOCAL = "local"
+    ONLINE = "online"
+    UNRESOLVED = "unresolved"
+    AMBIGUOUS = "ambiguous"
+
+
 @dataclass(frozen=True, slots=True)
 class MediaChapter:
     title: str
@@ -297,3 +304,71 @@ class Playlist:
     revision: int = 1
     created_at: float = 0.0
     updated_at: float = 0.0
+
+
+@dataclass(slots=True)
+class AlbumTrack:
+    title: str
+    artist: str | None = None
+    disc_number: int = 1
+    track_number: int = 1
+    position: int = 1
+    duration: float | None = None
+    recording_mbid: str | None = None
+    release_mbid: str | None = None
+    resolution_status: AlbumTrackStatus = AlbumTrackStatus.UNRESOLVED
+    media: MediaRef | None = None
+    provenance: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        result = asdict(self)
+        result["resolution_status"] = self.resolution_status.value
+        result["media"] = self.media.to_dict() if self.media else None
+        return result
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> AlbumTrack:
+        data = dict(value)
+        data["resolution_status"] = AlbumTrackStatus(data.get("resolution_status", "unresolved"))
+        if isinstance(data.get("media"), dict):
+            data["media"] = MediaRef.from_dict(data["media"])
+        return cls(**data)
+
+
+@dataclass(slots=True)
+class AlbumRef:
+    album_id: str
+    title: str
+    album_artist: str | None = None
+    release_mbid: str | None = None
+    release_group_mbid: str | None = None
+    date: str | None = None
+    country: str | None = None
+    disambiguation: str | None = None
+    tracks: list[AlbumTrack] = field(default_factory=list)
+    provenance: list[str] = field(default_factory=list)
+    source_ref: str | None = None
+    resolution_scope: str = "hybrid"
+    fetched_at: float | None = None
+
+    @property
+    def resolved_tracks(self) -> list[AlbumTrack]:
+        return [track for track in self.tracks if track.media is not None]
+
+    @property
+    def unresolved_tracks(self) -> list[AlbumTrack]:
+        return [track for track in self.tracks if track.media is None]
+
+    def to_dict(self) -> dict[str, Any]:
+        result = asdict(self)
+        result["tracks"] = [track.to_dict() for track in self.tracks]
+        return result
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> AlbumRef:
+        data = dict(value)
+        data["tracks"] = [
+            item if isinstance(item, AlbumTrack) else AlbumTrack.from_dict(item)
+            for item in data.get("tracks", [])
+        ]
+        return cls(**data)

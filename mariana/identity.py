@@ -172,9 +172,16 @@ class MusicBrainzClient:
         self._lock = threading.Lock()
         self._cache: dict[str, dict[str, Any]] = {}
 
-    def recording(self, mbid: str, refresh: bool = False) -> dict[str, Any] | None:
-        if not refresh and mbid in self._cache:
-            return self._cache[mbid]
+    def _request(
+        self,
+        endpoint: str,
+        *,
+        params: dict[str, Any],
+        cache_key: str,
+        refresh: bool = False,
+    ) -> dict[str, Any] | None:
+        if not refresh and cache_key in self._cache:
+            return self._cache[cache_key]
         with self._lock:
             payload = None
             for attempt in range(self.retries):
@@ -183,8 +190,8 @@ class MusicBrainzClient:
                     time.sleep(delay)
                 try:
                     response = self.session.get(
-                        f"{MUSICBRAINZ_URL}/recording/{mbid}",
-                        params={"fmt": "json", "inc": "artists+releases+work-rels+tags"},
+                        f"{MUSICBRAINZ_URL}/{endpoint.lstrip('/')}",
+                        params=params,
                         headers={"User-Agent": USER_AGENT},
                         timeout=self.timeout,
                     )
@@ -196,9 +203,58 @@ class MusicBrainzClient:
                     if attempt + 1 < self.retries:
                         time.sleep(self.backoff * (2**attempt))
             if payload is None:
-                return self._cache.get(mbid)
-        self._cache[mbid] = payload
+                return self._cache.get(cache_key)
+        if not isinstance(payload, dict):
+            return None
+        self._cache[cache_key] = payload
         return payload
+
+    def recording(self, mbid: str, refresh: bool = False) -> dict[str, Any] | None:
+        return self._request(
+            f"recording/{mbid}",
+            params={"fmt": "json", "inc": "artists+releases+work-rels+tags"},
+            cache_key=mbid,
+            refresh=refresh,
+        )
+
+    def search_releases(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        offset: int = 0,
+        refresh: bool = False,
+    ) -> list[dict[str, Any]]:
+        normalized = query.strip()
+        if not normalized or limit < 1:
+            return []
+        payload = self._request(
+            "release/",
+            params={
+                "fmt": "json",
+                "query": normalized,
+                "limit": min(100, limit),
+                "offset": max(0, offset),
+            },
+            cache_key=f"release-search:{normalized.casefold()}:{limit}:{offset}",
+            refresh=refresh,
+        )
+        return [
+            item
+            for item in (payload or {}).get("releases", [])
+            if isinstance(item, dict) and item.get("id") and item.get("title")
+        ]
+
+    def release(self, mbid: str, refresh: bool = False) -> dict[str, Any] | None:
+        return self._request(
+            f"release/{mbid}",
+            params={
+                "fmt": "json",
+                "inc": "recordings+artist-credits+release-groups+media",
+            },
+            cache_key=f"release:{mbid}",
+            refresh=refresh,
+        )
 
     def enrich(self, identity: TrackIdentity) -> TrackIdentity:
         if identity.status != IdentityStatus.IDENTIFIED or not identity.recording_mbid:
