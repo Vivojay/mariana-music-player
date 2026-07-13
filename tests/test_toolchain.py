@@ -409,4 +409,5 @@ def test_javascript_runtime_absence_is_typed(monkeypatch):
     monkeypatch.setattr(toolchain, "find_managed_executable", lambda _name: None)
     monkeypatch.setattr(toolchain.shutil, "which", lambda _name: None)
     monkeypatch.setattr(toolchain.platform, "system", lambda: "Linux")
+    monkeypatch.delenv("MARIANA_JAVASCRIPT_RUNTIME", raising=False)
     assert toolchain.find_javascript_runtime() is None
