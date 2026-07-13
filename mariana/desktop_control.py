@@ -82,6 +82,11 @@ class DesktopControl:
                         "stream_title": getattr(current, "stream_title", None),
                         "output_device": getattr(current, "output_device", None),
                         "output_backend": getattr(current, "output_backend", None),
+                        "chapter": {
+                            "title": current.current_chapter.title,
+                            "start_time": current.current_chapter.start_time,
+                            "end_time": current.current_chapter.end_time,
+                        } if getattr(current, "current_chapter", None) else None,
                         "media": {
                             "id": media.stable_id,
                             "source": media.source.value,

@@ -302,7 +302,10 @@ class YouTubeResolver(BaseResolver):
             ),
             headers=dict(payload.get("http_headers") or {}),
             expires_at=payload.get("expires_at"),
-            metadata={key: payload.get(key) for key in ("title", "artist", "album", "duration")},
+            metadata={
+                key: payload.get(key)
+                for key in ("title", "artist", "album", "duration", "categories", "track", "chapters")
+            },
         )
 
     def classify_failure(self, error: BaseException, media: MediaRef) -> MediaFailure:

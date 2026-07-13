@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 import main
-from mariana.models import MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
+from mariana.models import MediaChapter, MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
 from mariana.preferences import PreferenceState
 
 REAL_EDIT_CURRENT_LYRICS = main.edit_current_lyrics
@@ -353,7 +353,16 @@ def test_now_and_open_render_every_media_type(cli, monkeypatch, media_type, song
     monkeypatch.setattr(main, "current_media_type", media_type)
     monkeypatch.setattr(main, "currentsong", song)
     monkeypatch.setattr(main, "YOUTUBE_PLAY_TYPE", 0)
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(
+            PlaybackState.PLAYING,
+            current_chapter=MediaChapter("Complete chapter title", 60, 120),
+        ),
+    )
     main.process("now")
+    assert any("Chapter: Complete chapter title (01:00-02:00)" in value for value in cli.printed)
     main.process("now*")
     main.process("open")
 

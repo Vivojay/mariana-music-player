@@ -298,6 +298,7 @@ def test_resolve_stream_normalizes_headers_expiry_and_live_metadata(monkeypatch)
             "title": "Title",
             "uploader": "Uploader",
             "duration": 10,
+            "chapters": [{"title": "Intro", "start_time": 0, "end_time": 10}],
         },
     )
     result = youtube_media.resolve_stream("url", browser_profile="chrome")
@@ -306,7 +307,29 @@ def test_resolve_stream_normalizes_headers_expiry_and_live_metadata(monkeypatch)
     assert result["expires_at"] == 2_000_000_000.0
     assert result["is_live"] is True
     assert result["artist"] == "Uploader"
+    assert result["chapters"] == [{"title": "Intro", "start_time": 0.0, "end_time": 10.0}]
 
     monkeypatch.setattr(youtube_media, "_extract", lambda *_args, **_kwargs: {})
     with pytest.raises(youtube_media.YouTubeError, match="playable stream"):
         youtube_media.resolve_stream("url", audio_only=False)
+
+
+def test_youtube_chapter_normalization_sorts_derives_and_discards_malformed_ranges():
+    chapters = youtube_media.normalize_chapters(
+        [
+            {"title": "Second", "start_time": 10},
+            {"title": "Intro", "start_time": 0, "end_time": 99},
+            {"title": "", "start_time": 2},
+            {"title": "Bad", "start_time": "nope"},
+            {"title": "Reverse", "start_time": 30, "end_time": 29},
+            None,
+        ],
+        40,
+    )
+    assert chapters == [
+        {"title": "Intro", "start_time": 0.0, "end_time": 10.0},
+        {"title": "Second", "start_time": 10.0, "end_time": 30.0},
+    ]
+    assert youtube_media.normalize_chapters("invalid", 10) == []
+    assert youtube_media.normalize_chapters([{"title": "Open", "start_time": 0}], "invalid") == []
+    assert youtube_media.normalize_chapters([{"title": "Open", "start_time": 0}], float("inf")) == []

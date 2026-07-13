@@ -3,6 +3,7 @@ import time
 from types import SimpleNamespace
 
 from mariana.desktop_control import DesktopControl
+from mariana.models import MediaChapter
 
 
 class MemoryStream:
@@ -57,6 +58,7 @@ def test_playback_and_safety_monitors_emit_changes_and_close_cleanly(monkeypatch
         muted=False, error=None, media=SimpleNamespace(
             stable_id="track-1", source=SimpleNamespace(value="local"), title="Track", artist="Artist",
         ),
+        current_chapter=MediaChapter("Verse", 10, 20),
     )
     control.start_playback_monitor(lambda: snapshot, interval=0.001)
     control.start_playback_monitor(lambda: snapshot, interval=0.001)
@@ -64,6 +66,7 @@ def test_playback_and_safety_monitors_emit_changes_and_close_cleanly(monkeypatch
     wait_for(lambda: {event for event, _ in events} >= {"playback", "loudness", "update-safe"})
     playback = next(payload for event, payload in events if event == "playback")
     assert playback["media"]["id"] == "track-1"
+    assert playback["chapter"] == {"title": "Verse", "start_time": 10, "end_time": 20}
     assert next(payload for event, payload in events if event == "loudness")["replaygain_db"] == 0
     assert next(payload for event, payload in events if event == "update-safe")["reasons"] == ["playback"]
     control.close()

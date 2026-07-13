@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import unicodedata
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -29,6 +30,31 @@ def canonical_uri(source: MediaSource, value: str) -> str:
                 return f"https://www.youtube.com/watch?v={video_id}"
         return urlunparse((parsed.scheme.casefold(), host, parsed.path, "", urlencode(query), ""))
     return value
+
+
+def display_width(value: str) -> int:
+    return sum(
+        0 if unicodedata.combining(character) else 2 if unicodedata.east_asian_width(character) in {"W", "F"} else 1
+        for character in value
+    )
+
+
+def truncate_display_cells(value: str, maximum: int) -> str:
+    if maximum <= 0:
+        return ""
+    if display_width(value) <= maximum:
+        return value
+    if maximum == 1:
+        return "…"
+    result = []
+    width = 0
+    for character in value:
+        cells = 0 if unicodedata.combining(character) else 2 if unicodedata.east_asian_width(character) in {"W", "F"} else 1
+        if width + cells > maximum - 1:
+            break
+        result.append(character)
+        width += cells
+    return "".join(result).rstrip() + "…"
 
 
 class PlaybackState(StrEnum):

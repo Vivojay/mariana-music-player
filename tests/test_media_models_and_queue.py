@@ -19,6 +19,8 @@ from mariana.models import (
     StationSession,
     StationState,
     TrackIdentity,
+    display_width,
+    truncate_display_cells,
 )
 from mariana.queueing import CUSTOM_ORIGIN, DEFAULT_LIBRARY_ORIGIN, PersistentQueue, QueueError
 
@@ -43,6 +45,11 @@ def test_media_and_identity_contracts_round_trip():
     assert restored.chapter_at(60) is None
     assert PlaybackSnapshot(PlaybackState.PLAYING, media=restored, current_chapter=restored.chapters[0])
     assert StationSession("session", restored, state=StationState.PAUSED).state == StationState.PAUSED
+    assert display_width("A界") == 3
+    assert truncate_display_cells("A界BC", 4) == "A界…"
+    assert truncate_display_cells("short", 10) == "short"
+    assert truncate_display_cells("anything", 1) == "…"
+    assert truncate_display_cells("anything", 0) == ""
 
     identity = TrackIdentity(
         IdentityStatus.IDENTIFIED,

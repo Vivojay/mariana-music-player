@@ -89,7 +89,14 @@ from mariana.library_service import LibraryProfilerService
 from mariana.loudness import LoudnessError, RSGainAnalyzer
 from mariana.media_details import flattened_details, short_filename
 from mariana.media_removal import MediaRemovalError, MediaRemovalService
-from mariana.models import IdentityStatus, MediaCapabilities, MediaRef, MediaSource, PlaybackState
+from mariana.models import (
+    IdentityStatus,
+    MediaCapabilities,
+    MediaRef,
+    MediaSource,
+    PlaybackState,
+    truncate_display_cells,
+)
 from mariana.output_devices import OutputDeviceError, default_output_device
 from mariana.paths import initialize_runtime_paths
 from mariana.platform import open_path, reveal_path
@@ -3477,6 +3484,12 @@ def process(command):
             else:
                 # currentsong = None
                 IPrint(f"{colored.fg('red')}({colored.fg('aquamarine_1b')}Not Playing{colored.fg('red')}){colored.attr('reset')}", visible=visible)
+            chapter = vas.controller.snapshot().current_chapter
+            if chapter:
+                IPrint(
+                    f'Chapter: {chapter.title} ({_prompt_time(chapter.start_time)}-{_prompt_time(chapter.end_time)})',
+                    visible=visible,
+                )
 
         elif commandslist == ['now*']:
             if currentsong:
@@ -4565,6 +4578,8 @@ def prompt_text():
             PlaybackState.FAILED: 'failed !',
         }.get(snapshot.state, snapshot.state.value)
         status = f'{_prompt_time(snapshot.position)} ━ {_prompt_time(duration)} ━ {percent:>3.0f}% ━ {state}'
+        if snapshot.current_chapter:
+            status += f' ━ {truncate_display_cells(snapshot.current_chapter.title, 36)}'
     else:
         first = colored.fg('light_slate_blue') + '┏━' + colored.fg('navajo_white_1') + ' (Not Playing)'
         status = 'ready'

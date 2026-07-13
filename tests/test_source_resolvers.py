@@ -259,6 +259,9 @@ def test_local_directory_and_youtube_resolution(monkeypatch, tmp_path):
             "artist": "Artist",
             "album": None,
             "duration": None,
+            "categories": ["Music"],
+            "track": "Live",
+            "chapters": [],
         },
     )
     resolved = YouTubeResolver("edge:Default").resolve(
@@ -266,6 +269,7 @@ def test_local_directory_and_youtube_resolution(monkeypatch, tmp_path):
     )
     assert resolved.capabilities.live and not resolved.capabilities.seekable
     assert resolved.metadata["title"] == "Live"
+    assert resolved.metadata["categories"] == ["Music"]
     assert resolved.headers == {"User-Agent": "test"}
 
 

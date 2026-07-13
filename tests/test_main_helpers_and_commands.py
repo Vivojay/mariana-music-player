@@ -8,7 +8,15 @@ from hypothesis import strategies as st
 
 import main
 from mariana import output_devices
-from mariana.models import MediaRef, MediaSource, PlaybackSnapshot, PlaybackState, StationSession, StationState
+from mariana.models import (
+    MediaChapter,
+    MediaRef,
+    MediaSource,
+    PlaybackSnapshot,
+    PlaybackState,
+    StationSession,
+    StationState,
+)
 
 
 def test_ordered_set_flatten_and_search_helpers(monkeypatch):
@@ -853,12 +861,14 @@ def test_rich_prompt_reports_media_progress(monkeypatch):
             media=media,
             position=30,
             duration=120,
+            current_chapter=MediaChapter("A very long 章 chapter title that must be trimmed safely", 20, 40),
         ),
     )
     prompt = main.prompt_text()
     assert "┏━" in prompt and "┗━" in prompt
     assert "[3] Track" in prompt
     assert "00:30" in prompt and "02:00" in prompt and "25%" in prompt
+    assert "A very long 章 chapter title" in prompt and "…" in prompt
 
 
 def test_exit_closes_independent_services_without_serial_waits(monkeypatch):

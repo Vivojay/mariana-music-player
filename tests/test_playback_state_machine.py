@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from mariana import playback
-from mariana.models import MediaCapabilities, MediaRef, MediaSource, PlaybackState
+from mariana.models import MediaCapabilities, MediaChapter, MediaRef, MediaSource, PlaybackState
 
 RealDecoderSession = playback.DecoderSession
 
@@ -615,6 +615,35 @@ def test_remaining_playback_branches(controller, monkeypatch, tmp_path):
     assert controller.prepare(media, probe=False).title == "metadata"
     untitled = MediaRef(MediaSource.LOCAL, "C:/untitled.flac", duration=1)
     assert controller.prepare(untitled, probe=False).title == "Resolved title"
+
+    class ChapterResolvers(Resolvers):
+        def resolve(self, source, **_kwargs):
+            return playback.ResolvedMedia(
+                source,
+                source.original_uri,
+                source.original_uri,
+                source.capabilities,
+                metadata={
+                    "title": "Chaptered",
+                    "artist": "Artist",
+                    "categories": ["Music"],
+                    "track": "Chaptered",
+                    "chapters": [
+                        {"title": "Intro", "start_time": 0, "end_time": 10},
+                        {"title": "Verse", "start_time": 10, "end_time": 20},
+                    ],
+                },
+            )
+
+    controller.resolvers = ChapterResolvers()
+    chaptered = MediaRef(MediaSource.YOUTUBE, "https://youtube.test/watch?v=chaptered", duration=20)
+    controller.prepare(chaptered, probe=False)
+    active = Session(chaptered)
+    controller._active = active
+    active.position = 10
+    snapshot = controller.snapshot()
+    assert snapshot.current_chapter == MediaChapter("Verse", 10, 20)
+    assert chaptered.resolver_data["is_music"] is True
 
     controller._ensure_output()
     existing = controller._stream

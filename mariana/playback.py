@@ -580,6 +580,25 @@ class PlaybackController:
             for field in ("title", "artist", "album", "duration"):
                 if getattr(media, field) is None and resolved.metadata.get(field) is not None:
                     setattr(media, field, resolved.metadata[field])
+            if not media.chapters:
+                from .models import MediaChapter
+
+                media.chapters = [
+                    MediaChapter.from_dict(item)
+                    for item in (resolved.metadata.get("chapters") or [])
+                    if isinstance(item, dict)
+                ]
+            if media.source == MediaSource.YOUTUBE:
+                categories = [str(item) for item in (resolved.metadata.get("categories") or [])]
+                media.resolver_data.update(
+                    {
+                        "youtube": True,
+                        "categories": categories,
+                        "track": resolved.metadata.get("track"),
+                        "is_music": bool(resolved.metadata.get("track") and resolved.metadata.get("artist"))
+                        or any(item.casefold() == "music" for item in categories),
+                    }
+                )
             resolved.capabilities = media.capabilities
             self._stream_metadata = dict(resolved.metadata.get("icy") or {})
             self._prepared = media
@@ -1073,21 +1092,24 @@ class PlaybackController:
         with self._lock:
             active = self._active
             completed = self._completed_media if active is None else None
+            media = active.media if active else completed or self._prepared
+            position = active.position if active else self._completed_position
             return PlaybackSnapshot(
                 state=self._state,
-                position=active.position if active else self._completed_position,
+                position=position,
                 duration=active.media.duration if active else self._completed_duration,
                 buffered_seconds=active.buffered_seconds if active else 0.0,
                 volume=self._volume,
                 muted=self._muted,
                 error=self._error,
-                media=active.media if active else completed or self._prepared,
+                media=media,
                 replaygain_db=getattr(active, "program_gain_db", 0.0) if active else 0.0,
                 live_leveling=bool(active and active.media.capabilities.live and self.live_leveling),
                 stream_title=str(self._stream_metadata.get("title")) if self._stream_metadata.get("title") else None,
                 stream_metadata=dict(self._stream_metadata),
                 output_device=self._output_device.name if self._output_device else None,
                 output_backend=self._output_device.route if self._output_device else None,
+                current_chapter=media.chapter_at(position) if media else None,
             )
 
 

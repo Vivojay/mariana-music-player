@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -116,6 +117,41 @@ def _webpage_url(entry: Mapping[str, Any]) -> str:
     return str(entry.get("url") or "")
 
 
+def normalize_chapters(value: Any, duration: Any = None) -> list[dict[str, Any]]:
+    """Normalize yt-dlp chapters and derive safe, non-overlapping end times."""
+    if not isinstance(value, list):
+        return []
+    parsed: list[tuple[str, float, float | None]] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            continue
+        title = str(item.get("title") or "").strip()
+        try:
+            start = float(cast(Any, item.get("start_time")))
+            end = float(cast(Any, item["end_time"])) if item.get("end_time") is not None else None
+        except (TypeError, ValueError):
+            continue
+        if not title or not math.isfinite(start) or start < 0 or (end is not None and not math.isfinite(end)):
+            continue
+        parsed.append((title, start, end))
+    parsed.sort(key=lambda item: item[1])
+    try:
+        media_end = float(duration) if duration is not None else None
+    except (TypeError, ValueError):
+        media_end = None
+    if media_end is not None and (not math.isfinite(media_end) or media_end <= 0):
+        media_end = None
+    normalized = []
+    for index, (title, start, end) in enumerate(parsed):
+        next_start = parsed[index + 1][1] if index + 1 < len(parsed) else media_end
+        if end is None or (next_start is not None and end > next_start):
+            end = next_start
+        if end is None or end <= start:
+            continue
+        normalized.append({"title": title, "start_time": start, "end_time": end})
+    return normalized
+
+
 def search(
     query: str,
     limit: int = 1,
@@ -173,6 +209,7 @@ def media_info(
                 "album": info.get("album"),
                 "categories": list(info.get("categories") or []),
                 "is_live": bool(info.get("is_live") or info.get("live_status") == "is_live"),
+                "chapters": normalize_chapters(info.get("chapters"), info.get("duration")),
             }
         )
     return normalized
@@ -233,6 +270,9 @@ def resolve_stream(
         "artist": info.get("artist") or info.get("uploader"),
         "album": info.get("album"),
         "duration": info.get("duration"),
+        "categories": list(info.get("categories") or []),
+        "track": info.get("track"),
+        "chapters": normalize_chapters(info.get("chapters"), info.get("duration")),
     }
 
 
