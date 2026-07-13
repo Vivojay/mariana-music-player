@@ -125,11 +125,12 @@ test('packaged YouTube downloads stay in the current PTY session', async () => {
     await writeCommand(page, 'clear')
     await expect(terminal).not.toContainText('Loaded 1/31', { timeout: 10_000 })
     await writeCommand(page, 'download-ya https://www.youtube.com/watch?v=abc12345678')
-    await expect(terminal).toContainText('confirm AUDIO download', { timeout: 10_000 })
-    await writeCommand(page, 'y')
-    await expect(terminal).toContainText('YouTube audio download started in this Mariana session.', {
+    await expect(terminal).toContainText('Download YouTube audio https://www.youtube.com/watch?v=abc12345678 to', {
       timeout: 10_000,
     })
+    await expect(terminal).toContainText('(y/N):')
+    await writeCommand(page, 'y')
+    await expect(terminal).toContainText('Download job queued:', { timeout: 10_000 })
     await page.waitForTimeout(2_000)
     await expect(terminal).not.toContainText('Loaded 1/31')
     await expect(page.locator('.backend-dot.ready')).toBeVisible()
@@ -176,18 +177,24 @@ test('packaged live YouTube audio download completes in the current session', as
     await writeCommand(page, 'clear')
     await expect(terminal).not.toContainText('Loaded 1/31', { timeout: 10_000 })
     await writeCommand(page, `download-ya ${liveUrl}`)
-    await expect(terminal).toContainText('confirm AUDIO download', { timeout: 20_000 })
+    await expect(terminal).toContainText(`Download YouTube audio ${liveUrl} to`, { timeout: 20_000 })
+    await expect(terminal).toContainText('(y/N):')
     await writeCommand(page, 'y')
+    await expect(terminal).toContainText('Download job queued:', { timeout: 10_000 })
     await expect
       .poll(
         async () => {
-          const output = (await terminal.textContent()) ?? ''
-          if (output.includes('YouTube audio download completed.')) return 'completed'
-          if (output.includes('YouTube requires a signed-in browser session')) return 'auth-required'
-          if (output.includes('Secure YouTube connection failed') || output.includes('YouTube download failed')) return 'failed'
+          await writeCommand(page, 'download-ya status')
+          await page.waitForTimeout(500)
+          const output = ((await terminal.textContent()) ?? '').toLowerCase()
+          if (/\bcompleted\b/.test(output)) return 'completed'
+          if (output.includes('sign in') || output.includes('not a bot') || output.includes('cookies-from-browser')) {
+            return 'auth-required'
+          }
+          if (/\bfailed\b/.test(output)) return 'failed'
           return 'pending'
         },
-        { timeout: 180_000 },
+        { timeout: 180_000, intervals: [1_000, 2_000, 3_000] },
       )
       .toBe(expectedResult)
     await expect(terminal).not.toContainText('Loaded 1/31')
