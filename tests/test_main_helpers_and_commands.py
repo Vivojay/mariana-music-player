@@ -7,6 +7,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 import main
+from mariana import output_devices
 from mariana.models import PlaybackSnapshot, PlaybackState
 
 
@@ -587,6 +588,19 @@ def test_mainprompt_clears_busy_state_after_interrupt_and_exit(monkeypatch):
 
 
 def test_banner_version_and_audio_initialization(monkeypatch, tmp_path, capsys):
+    def query_devices_with_outputs(max_output_channels):
+        device = {
+            "name": "Test speakers",
+            "max_output_channels": max_output_channels,
+            "hostapi": 0,
+        }
+
+        def query_devices(_device=None, kind=None):
+            return device if kind == "output" else [device]
+
+        return query_devices
+
+    monkeypatch.setattr(output_devices, "_windows_default_endpoint", lambda: None)
     banner = tmp_path / "banner.banner"
     banner.write_text("one\nlonger", encoding="utf-8")
     rendered = []
@@ -599,7 +613,7 @@ def test_banner_version_and_audio_initialization(monkeypatch, tmp_path, capsys):
     assert len(rendered) == 3
     assert len(rendered[0][0]) == 10
 
-    monkeypatch.setattr(main.sounddevice, "query_devices", lambda: [{"max_output_channels": 2}])
+    monkeypatch.setattr(main.sounddevice, "query_devices", query_devices_with_outputs(2))
     main.initialize_audio_output()
     monkeypatch.setenv("MARIANA_E2E", "1")
     monkeypatch.setattr(
@@ -609,7 +623,7 @@ def test_banner_version_and_audio_initialization(monkeypatch, tmp_path, capsys):
     )
     main.initialize_audio_output()
     monkeypatch.delenv("MARIANA_E2E")
-    monkeypatch.setattr(main.sounddevice, "query_devices", lambda: [{"max_output_channels": 0}])
+    monkeypatch.setattr(main.sounddevice, "query_devices", query_devices_with_outputs(0))
     with pytest.raises(RuntimeError, match="audio output device"):
         main.initialize_audio_output()
 
