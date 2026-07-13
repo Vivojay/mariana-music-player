@@ -239,6 +239,23 @@ before use and are never stored. Optional authenticated YouTube access can
 reference a browser profile through `sources.youtube.browser profile`; Mariana
 does not copy cookies into its database or logs.
 
+Some YouTube media requires a signed-in session or triggers the site's bot
+challenge. In that case, open Mariana's writable `settings/settings.yml` and
+set a browser/profile reference, then restart the app:
+
+```yaml
+sources:
+  youtube:
+    browser profile: edge:Default
+```
+
+`chrome:Default`, another Chromium profile name, or `firefox` are also
+supported by yt-dlp. Mariana asks the browser for cookies at use time; it does
+not copy them into settings, SQLite, logs, or the packaged application. Close
+the browser before retrying if its cookie database is locked. HTTPS uses the
+operating-system trust store, so an office TLS-inspection root certificate must
+be trusted by the host OS; Mariana never disables certificate verification.
+
 The June 2022 testing snapshot was audited semantically rather than merged.
 Historical aliases—including `.`, `.*`, `+`, `-`, the `arand` family,
 `vh`/`volh`/`volumeh`, and `dl-yv`/`dl-ya`—route to current implementations.

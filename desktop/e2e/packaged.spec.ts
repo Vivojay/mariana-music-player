@@ -1,11 +1,13 @@
 import { _electron as electron, expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
 const executable = process.env.MARIANA_PACKAGED_EXE
 const expectedVersion = JSON.parse(await readFile(path.resolve('package.json'), 'utf8')).version as string
+
+test.describe.configure({ timeout: 120_000 })
 
 async function isolatedState(name: string) {
   return mkdtemp(path.join(os.tmpdir(), `mariana-${name}-`))
@@ -22,6 +24,7 @@ async function launchWithSetup(userData: string) {
       PATH: mediaToolPath ? `${mediaToolPath}${path.delimiter}${inheritedPath}` : inheritedPath,
       MARIANA_E2E: '1',
       MARIANA_E2E_FIRST_BOOT: '1',
+      MARIANA_E2E_DATA_DIR: userData,
     },
   })
 }
@@ -30,9 +33,22 @@ async function writeCommand(page: Page, value: string) {
   await page.evaluate((text) => window.mariana.terminal.write(`${text}\r`), value)
 }
 
+async function advancePastToolSetup(page: Page) {
+  const terminal = page.getByLabel('Terminal output')
+  await expect.poll(async () => terminal.textContent(), { timeout: 45_000 }).toMatch(
+    /Automatically download verified recommended tools|Do you have any locally stored\/downloaded music files?/,
+  )
+  if ((await terminal.textContent())?.includes('Automatically download verified recommended tools')) {
+    // Packaged setup behavior is tested without contacting release providers.
+    // The verified automatic-download path has deterministic Python coverage.
+    await writeCommand(page, '3')
+  }
+  await expect(terminal).toContainText('Do you have any locally stored/downloaded music files?', { timeout: 45_000 })
+}
+
 async function completeSetup(page: Page) {
   const terminal = page.getByLabel('Terminal output')
-  await expect(terminal).toContainText('Do you have any locally stored/downloaded music files?', { timeout: 45_000 })
+  await advancePastToolSetup(page)
   await writeCommand(page, 'n')
   await expect(terminal).toContainText('signature collection of 25 sample songs', { timeout: 10_000 })
   await writeCommand(page, 'n')
@@ -75,6 +91,7 @@ test('packaged YouTube downloads stay in the current PTY session', async () => {
       ...process.env,
       PATH: mediaToolPath ? `${mediaToolPath}${path.delimiter}${inheritedPath}` : inheritedPath,
       MARIANA_E2E: '1',
+      MARIANA_E2E_DATA_DIR: userData,
     },
   })
   try {
@@ -93,6 +110,68 @@ test('packaged YouTube downloads stay in the current PTY session', async () => {
     await page.waitForTimeout(2_000)
     await expect(terminal).not.toContainText('Loaded 1/31')
     await expect(page.locator('.backend-dot.ready')).toBeVisible()
+  } finally {
+    await application.close()
+  }
+})
+
+test('packaged live YouTube audio download completes in the current session', async () => {
+  const liveUrl = process.env.MARIANA_LIVE_DOWNLOAD_URL
+  const expectedResult = process.env.MARIANA_LIVE_EXPECT_AUTH_CHALLENGE === '1' ? 'auth-required' : 'completed'
+  test.skip(!executable || !liveUrl, 'set the packaged executable and an explicit live download URL')
+  test.setTimeout(300_000)
+  const userData = await isolatedState('live-download')
+  const runtime = path.join(userData, 'runtime')
+  const downloads = path.join(userData, 'Music')
+  await mkdir(path.join(runtime, 'settings'), { recursive: true })
+  await mkdir(downloads, { recursive: true })
+  const defaults = await readFile(path.resolve('settings', 'settings.yml.default'), 'utf8')
+  const browserProfile = process.env.MARIANA_LIVE_BROWSER_PROFILE
+  const configured = browserProfile
+    ? defaults.replace('browser profile:', `browser profile: ${JSON.stringify(browserProfile)}`)
+    : defaults
+  await writeFile(
+    path.join(runtime, 'settings', 'settings.yml'),
+    configured.replace('downloads folder: ~/Music', `downloads folder: ${downloads.replaceAll('\\', '/')}`),
+    'utf8',
+  )
+  const inheritedPath = process.env.PATH ?? process.env.Path ?? ''
+  const mediaToolPath = process.env.MARIANA_TEST_FFMPEG_BIN
+  const application = await electron.launch({
+    executablePath: executable,
+    env: {
+      ...process.env,
+      PATH: mediaToolPath ? `${mediaToolPath}${path.delimiter}${inheritedPath}` : inheritedPath,
+      MARIANA_E2E: '1',
+      MARIANA_E2E_DATA_DIR: userData,
+    },
+  })
+  try {
+    const page = await application.firstWindow()
+    const terminal = page.getByLabel('Terminal output')
+    await expect(page.locator('.backend-dot.ready')).toBeVisible({ timeout: 45_000 })
+    await writeCommand(page, 'clear')
+    await expect(terminal).not.toContainText('Loaded 1/31', { timeout: 10_000 })
+    await writeCommand(page, `download-ya ${liveUrl}`)
+    await expect(terminal).toContainText('confirm AUDIO download', { timeout: 20_000 })
+    await writeCommand(page, 'y')
+    await expect
+      .poll(
+        async () => {
+          const output = (await terminal.textContent()) ?? ''
+          if (output.includes('YouTube audio download completed.')) return 'completed'
+          if (output.includes('YouTube requires a signed-in browser session')) return 'auth-required'
+          if (output.includes('Secure YouTube connection failed') || output.includes('YouTube download failed')) return 'failed'
+          return 'pending'
+        },
+        { timeout: 180_000 },
+      )
+      .toBe(expectedResult)
+    await expect(terminal).not.toContainText('Loaded 1/31')
+    if (expectedResult === 'completed') {
+      const files = await readdir(path.join(downloads, 'MarianaPlayer'))
+      expect(files.some((file) => file.toLowerCase().endsWith('.mp3'))).toBe(true)
+    }
   } finally {
     await application.close()
   }
@@ -126,10 +205,7 @@ test('interrupted first boot resumes instead of silently restarting', async () =
   const userData = await isolatedState('setup-interrupted')
   const first = await launchWithSetup(userData)
   try {
-    await expect((await first.firstWindow()).getByLabel('Terminal output')).toContainText(
-      'Do you have any locally stored/downloaded music files?',
-      { timeout: 45_000 },
-    )
+    await advancePastToolSetup(await first.firstWindow())
   } finally {
     await first.close()
   }
@@ -151,10 +227,7 @@ test('corrupt first-boot state offers repair and completes safely', async () => 
   const userData = await isolatedState('setup-corrupt')
   const first = await launchWithSetup(userData)
   try {
-    await expect((await first.firstWindow()).getByLabel('Terminal output')).toContainText(
-      'Do you have any locally stored/downloaded music files?',
-      { timeout: 45_000 },
-    )
+    await advancePastToolSetup(await first.firstWindow())
   } finally {
     await first.close()
   }

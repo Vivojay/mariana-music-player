@@ -83,6 +83,10 @@
       {
         "from": "tools/manifest.json",
         "to": "tools/manifest.json"
+      },
+      {
+        "from": "tools/bootstrap-manifest.json",
+        "to": "tools/bootstrap-manifest.json"
       }
     ],
     "publish": {

@@ -10,6 +10,7 @@ datas = [
     (str(root / "user" / "user_data.yml"), "user"),
     (str(root / "res"), "res"),
     (str(root / "tools" / "manifest.json"), "tools"),
+    (str(root / "tools" / "bootstrap-manifest.json"), "tools"),
 ]
 
 a = Analysis(

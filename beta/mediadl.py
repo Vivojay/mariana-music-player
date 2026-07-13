@@ -17,6 +17,36 @@ from logger import SAY
 explicitly-specified-quality ? use_that : use quality mentioned in SETTINGS
 """
 
+
+def _browser_profile(settings):
+    value = ((settings.get("sources") or {}).get("youtube") or {}).get("browser profile")
+    return str(value).strip() if value else None
+
+
+def _download_failure_message(error, browser_profile=None):
+    detail = str(error).lower()
+    if "certificate_verify_failed" in detail or "self-signed certificate" in detail:
+        return (
+            "Secure YouTube connection failed because the certificate is not trusted by Windows. "
+            "Install the trusted root certificate (often supplied by your office/network administrator) "
+            "and restart Mariana; TLS verification was not disabled."
+        )
+    if any(
+        marker in detail
+        for marker in ("sign in to confirm", "not a bot", "cookies-from-browser", "login required")
+    ):
+        if browser_profile:
+            return (
+                f'YouTube rejected browser profile "{browser_profile}". Sign in to YouTube in that '
+                "browser, close the browser if its cookie database is locked, then retry."
+            )
+        return (
+            "YouTube requires a signed-in browser session for this media. Set "
+            '`sources.youtube.browser profile` in Mariana settings (for example "edge:Default" '
+            'or "chrome:Default"), restart Mariana, then retry.'
+        )
+    return "YouTube download failed; check the network, media tools, and the detailed log."
+
 def setup_dl_dir(SETTINGS, SYSTEM_SETTINGS):
     dl_dir_is_valid = False
     dl_dir = None
@@ -133,7 +163,8 @@ def media_DL(SETTINGS,
                                        # (GUI progress bar prolly cuz it'll be non blocking
                                        # + Better looking...)
     }
-    ydl_opts.update(integration_options())
+    browser_profile = _browser_profile(SETTINGS)
+    ydl_opts.update(integration_options(browser_profile))
     ffmpeg_location = (SETTINGS.get('media tools') or {}).get('ffmpeg bin')
     if ffmpeg_location:
         ydl_opts['ffmpeg_location'] = os.path.expanduser(ffmpeg_location)
@@ -158,7 +189,7 @@ def media_DL(SETTINGS,
     except Exception as error:
         SAY(
             visible=True,
-            display_message="YouTube download failed; check the network, FFmpeg, and JavaScript runtime.",
+            display_message=_download_failure_message(error, browser_profile),
             log_message=f"YouTube download failed: {error}",
             log_priority=2,
         )

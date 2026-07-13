@@ -39,6 +39,10 @@ import webbrowser;                                  print("Loaded 14/31", end='\
 import tempfile
 from pathlib import Path
 
+from mariana.tls import enable_system_trust_store
+
+SYSTEM_TRUST_STORE_ENABLED = enable_system_trust_store()
+
 # import concurrent.futures;                          print("Loaded 15/31", end='\r')
 
 import sounddevice;                                 print("Loaded 15/31", end='\r')

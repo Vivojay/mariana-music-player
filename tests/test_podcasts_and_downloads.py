@@ -118,19 +118,27 @@ def test_setup_download_directory_reports_missing_separate_setting(monkeypatch, 
 
 
 def test_media_download_builds_audio_and_video_options(monkeypatch, tmp_path):
-    monkeypatch.setattr(mediadl, "integration_options", lambda: {"socket_timeout": 30})
+    profiles = []
+    monkeypatch.setattr(
+        mediadl,
+        "integration_options",
+        lambda profile=None: profiles.append(profile) or {"socket_timeout": 30},
+    )
     settings = download_settings(tmp_path)
     settings["media tools"] = {"ffmpeg bin": str(tmp_path / "ffmpeg-bin")}
+    settings["sources"] = {"youtube": {"browser profile": "edge:Default"}}
 
     audio = mediadl.media_DL(settings, {}, "url", dry_run=True)
     assert audio["format"] == "bestaudio/best"
     assert audio["postprocessors"][0]["preferredcodec"] == "mp3"
     assert audio["socket_timeout"] == 30
     assert audio["ffmpeg_location"] == str(tmp_path / "ffmpeg-bin")
+    assert profiles == ["edge:Default"]
 
     video = mediadl.media_DL(settings, {}, ["url"], typ=1, quality={"audio": 0, "video": 1}, dry_run=True)
     assert video["format"] == "bestvideo+worstaudio/best"
     assert "postprocessors" not in video
+    assert profiles == ["edge:Default", "edge:Default"]
 
 
 def test_media_download_executes_and_reports_success(monkeypatch, tmp_path):
@@ -171,3 +179,16 @@ def test_media_download_reports_failure_without_raising(monkeypatch, tmp_path):
     monkeypatch.setattr(mediadl, "SAY", lambda **kwargs: messages.append(kwargs))
     assert mediadl.media_DL(download_settings(tmp_path), {}, "url") == 5
     assert "offline" in messages[0]["log_message"]
+    assert "detailed log" in messages[0]["display_message"]
+
+
+@pytest.mark.parametrize(
+    ("error", "profile", "expected"),
+    [
+        (OSError("CERTIFICATE_VERIFY_FAILED: self-signed certificate"), None, "trusted root certificate"),
+        (RuntimeError("Sign in to confirm you're not a bot"), None, "sources.youtube.browser profile"),
+        (RuntimeError("Sign in to confirm you're not a bot"), "edge:Default", "edge:Default"),
+    ],
+)
+def test_media_download_classifies_actionable_failures(error, profile, expected):
+    assert expected in mediadl._download_failure_message(error, profile)

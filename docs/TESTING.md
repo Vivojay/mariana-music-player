@@ -62,6 +62,23 @@ $env:MARIANA_TEST_FFMPEG_BIN = "C:\path\to\ffmpeg\bin"
 npm run test:e2e:packaged
 ```
 
+The live packaged YouTube-download case is opt-in. Use a media URL that the
+test account is authorized to access, and explicitly name a browser profile
+only when credentialed verification is intended:
+
+```powershell
+$env:MARIANA_LIVE_DOWNLOAD_URL = "https://www.youtube.com/watch?v=..."
+$env:MARIANA_LIVE_BROWSER_PROFILE = "edge:Default"
+npm run test:e2e:packaged
+```
+
+Omit `MARIANA_LIVE_BROWSER_PROFILE` for the credential-free probe. A YouTube
+bot/login challenge is an external authentication requirement and must fail
+with actionable terminal guidance rather than be reported as a successful
+download. Set `MARIANA_LIVE_EXPECT_AUTH_CHALLENGE=1` only when deliberately
+verifying that negative path; the test then requires the precise authentication
+guidance and still rejects certificate or generic failures.
+
 The packaged suite proves setup completes once, the same data directory does
 not show the wizard on relaunch, interrupted setup resumes, and corrupt state
 offers repair.

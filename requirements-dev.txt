@@ -216,6 +216,8 @@ tomli-w==1.2.0
     # via pip-audit
 tqdm==4.68.4
     # via -r requirements.in
+truststore==0.10.4
+    # via -r requirements.in
 typing-extensions==4.16.0
     # via
     #   cyclonedx-python-lib

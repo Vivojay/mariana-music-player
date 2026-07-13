@@ -1,5 +1,6 @@
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -11,6 +12,17 @@ from tools.coverage_gate import branch_percentage, evaluate
 from tools.mutation_gate import mutation_score
 from tools.verify_docs import verify
 from tools.verify_text_integrity import inspect
+
+
+def test_packaged_app_contains_both_media_tool_manifests():
+    root = Path(__file__).resolve().parents[1]
+    spec = (root / "mariana-cli.spec").read_text(encoding="utf-8")
+    package = json.loads((root / "package.json").read_text(encoding="utf-8"))
+    resources = {entry["to"] for entry in package["build"]["extraResources"]}
+
+    assert 'tools" / "manifest.json' in spec
+    assert 'tools" / "bootstrap-manifest.json' in spec
+    assert {"tools/manifest.json", "tools/bootstrap-manifest.json"} <= resources
 
 
 def test_branch_percentage_uses_branches_only():
