@@ -58,7 +58,7 @@ jobs:
           --cov-fail-under=90
           --junitxml=junit.xml
       - name: Enforce new-package branch coverage
-        run: python tools/coverage_gate.py coverage.json --minimum 95
+        run: python tools/coverage_gate.py coverage.json --minimum 95 --repository-minimum 90
       - name: Test and build React terminal
         run: |
           npm run lint

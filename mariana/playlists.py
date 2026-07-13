@@ -489,7 +489,11 @@ class PlaylistStore:
             node_key = ("item", node["id"])
         old_children = [child for child in self._children(tree, old_parent) if child != node_key]
         self._renumber(tree, old_parent, old_children)
-        new_children = old_children if old_parent == parent_id else self._children(tree, parent_id)
+        new_children = (
+            old_children
+            if old_parent == parent_id
+            else [child for child in self._children(tree, parent_id) if child != node_key]
+        )
         insert_at = len(new_children) if position is None else max(0, min(position, len(new_children)))
         new_children.insert(insert_at, node_key)
         self._renumber(tree, parent_id, new_children)

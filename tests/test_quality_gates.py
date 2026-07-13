@@ -8,7 +8,7 @@ import tools.coverage_gate as coverage_gate
 import tools.mutation_gate as mutation_gate
 import tools.verify_docs as docs_gate
 import tools.verify_text_integrity as text_gate
-from tools.coverage_gate import branch_percentage, evaluate
+from tools.coverage_gate import branch_percentage, evaluate, evaluate_repository
 from tools.mutation_gate import mutation_score
 from tools.verify_docs import verify
 from tools.verify_text_integrity import inspect
@@ -46,6 +46,20 @@ def test_coverage_gate_is_independent_per_module():
     assert len(failures) == 2
 
 
+def test_repository_coverage_gate_uses_branch_total_only():
+    report = {
+        "totals": {
+            "num_branches": 100,
+            "covered_branches": 90,
+            "percent_covered": 99.9,
+        }
+    }
+    assert evaluate_repository(report, 90) == ("repository: 90.0% branch coverage", None)
+    line, failure = evaluate_repository(report, 91)
+    assert line == "repository: 90.0% branch coverage"
+    assert failure and "requires 91.0%" in failure
+
+
 def test_text_integrity_rejects_invalid_utf8_and_mojibake(tmp_path):
     valid = tmp_path / "valid.md"
     valid.write_text("Electron → PTY; close ×; timer ◷\n", encoding="utf-8")  # noqa: RUF001
@@ -75,7 +89,12 @@ def test_docs_verifier_reports_links_and_command_drift(tmp_path):
 def test_coverage_gate_cli_passes_and_fails_honestly(tmp_path, monkeypatch, capsys):
     report = tmp_path / "coverage.json"
     report.write_text(
-        json.dumps({"files": {"module.py": {"summary": {"num_branches": 20, "covered_branches": 19}}}}),
+        json.dumps(
+            {
+                "totals": {"num_branches": 20, "covered_branches": 18},
+                "files": {"module.py": {"summary": {"num_branches": 20, "covered_branches": 19}}},
+            }
+        ),
         encoding="utf-8",
     )
     monkeypatch.setattr(
@@ -84,6 +103,21 @@ def test_coverage_gate_cli_passes_and_fails_honestly(tmp_path, monkeypatch, caps
     )
     coverage_gate.main()
     assert "95.0%" in capsys.readouterr().out
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "coverage_gate",
+            str(report),
+            "--minimum",
+            "95",
+            "--repository-minimum",
+            "91",
+            "--module",
+            "module.py",
+        ],
+    )
+    with pytest.raises(SystemExit, match=r"repository: 90\.0%"):
+        coverage_gate.main()
     monkeypatch.setattr(
         "sys.argv",
         ["coverage_gate", str(report), "--minimum", "96", "--module", "module.py"],
