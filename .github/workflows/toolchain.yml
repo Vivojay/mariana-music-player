@@ -45,8 +45,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with: { python-version: "3.12" }
       - name: Install native build dependencies
         shell: bash
@@ -98,7 +98,7 @@ jobs:
           upload-artifact: false
       - uses: actions/attest-build-provenance@v2
         with: { subject-path: "tool-output/*.zip" }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: tools-${{ matrix.key }}
           path: tool-output/*
@@ -108,8 +108,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with: { python-version: "3.12" }
       - uses: msys2/setup-msys2@v2
         with:
@@ -159,7 +159,7 @@ jobs:
           upload-artifact: false
       - uses: actions/attest-build-provenance@v2
         with: { subject-path: "tool-output/*.zip" }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: tools-win32-x64
           path: tool-output/*
@@ -169,7 +169,7 @@ jobs:
     needs: [unix, windows]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/download-artifact@v4
         with:
           pattern: tools-*
