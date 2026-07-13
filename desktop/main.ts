@@ -105,8 +105,15 @@ function backendCommand(): { executable: string; args: string[]; cwd: string; re
     const virtualenvPython = process.platform === 'win32'
       ? path.join(repositoryRoot, '.venv', 'Scripts', 'python.exe')
       : path.join(repositoryRoot, '.venv', 'bin', 'python')
+    const runnerRoot = process.env.pythonLocation || process.env.Python_ROOT_DIR
+    const runnerPython = runnerRoot
+      ? (process.platform === 'win32'
+          ? path.join(runnerRoot, 'python.exe')
+          : path.join(runnerRoot, 'bin', 'python'))
+      : ''
     const executable = process.env.MARIANA_PYTHON
-      || (fs.existsSync(virtualenvPython) ? virtualenvPython : 'python')
+      || [virtualenvPython, runnerPython].find((candidate) => candidate && fs.existsSync(candidate))
+      || 'python'
     return { executable, args: ['main.py'], cwd: repositoryRoot, resources: repositoryRoot }
   }
   const backend = path.join(process.resourcesPath, 'backend')
