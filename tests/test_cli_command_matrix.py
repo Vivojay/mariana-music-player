@@ -131,6 +131,7 @@ def cli(monkeypatch, tmp_path):
         "refresh lyrics",
         "vis",
         "play 1",
+        "autonext status",
         "output device",
         "input device",
         "fade in",

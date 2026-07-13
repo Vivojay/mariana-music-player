@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from mariana.models import MediaCapabilities, MediaRef, MediaSource
+from mariana.output_devices import OutputDeviceInfo
 from mariana.playback import BYTES_PER_FRAME, PlaybackController, PlaybackError
 from mariana.sources import FailureCode, MediaFailure
 from mariana.supervisor import PlaybackSupervisor
@@ -164,6 +165,110 @@ def test_output_recovery_failure_cancel_and_close():
     assert cancelled.value.code == FailureCode.CANCELLED
     supervisor.close()
     assert controller.calls[-1][0] == "close"
+
+
+def test_output_monitor_reports_typed_and_generic_poll_failures(monkeypatch):
+    reported = []
+
+    class MonitorController(Controller):
+        active_output_device = OutputDeviceInfo("old", "Old", 1, "Old", "test")
+        output_stream_active = True
+
+        def __init__(self, error):
+            super().__init__([object()])
+            self.error = error
+
+        def default_output_device(self):
+            raise self.error
+
+        def report_output_error(self, message):
+            reported.append(message)
+
+    class OnePoll:
+        def __init__(self):
+            self.calls = 0
+
+        def wait(self, _timeout):
+            self.calls += 1
+            return self.calls > 1
+
+        def clear(self):
+            self.calls = 0
+
+        def set(self):
+            self.calls = 2
+
+        def is_set(self):
+            return self.calls > 0
+
+    class ImmediateMonitor:
+        def __init__(self, target, **_kwargs):
+            self.target = target
+            self.joined = False
+
+        def start(self):
+            self.target()
+
+        def is_alive(self):
+            return False
+
+        def join(self, timeout=None):
+            self.joined = timeout == 1
+
+    monkeypatch.setattr("mariana.supervisor.threading.Thread", ImmediateMonitor)
+    typed = MediaFailure(FailureCode.OUTPUT_DEVICE, MediaSource.LOCAL, "device missing")
+    cancelled = MediaFailure(FailureCode.CANCELLED, MediaSource.LOCAL, "stopping")
+    for error in (typed, ValueError("poll failed"), cancelled):
+        for can_report in (True, False):
+            controller = MonitorController(error)
+            if not can_report:
+                controller.report_output_error = None
+            supervisor = PlaybackSupervisor(controller)
+            supervisor._output_monitor_stop = OnePoll()
+            supervisor._start_output_monitor()
+            monitor = supervisor._output_monitor
+            supervisor._stop_output_monitor()
+            assert monitor.joined
+
+    assert reported == [
+        "device missing",
+        "Audio output monitoring failed: poll failed",
+    ]
+
+
+def test_output_monitor_guard_and_active_none_paths():
+    basic = Controller([object()])
+    supervisor = PlaybackSupervisor(basic)
+    assert not supervisor._sync_output_device()
+    supervisor._start_output_monitor()
+    assert supervisor._output_monitor is None
+
+    device = OutputDeviceInfo("new", "New", 2, "New", "test")
+
+    class NoActiveController(Controller):
+        active_output_device = None
+        output_stream_active = True
+
+        def default_output_device(self):
+            return device
+
+        def recover_output(self, selected=None):
+            self.recoveries += 1
+            self.active_output_device = selected
+
+    controller = NoActiveController([object()])
+    inactive = PlaybackSupervisor(controller)
+    assert inactive._sync_output_device()
+    assert controller.recoveries == 1
+    assert inactive.metrics["output_device_changes"] == 1
+
+    class AliveMonitor:
+        def is_alive(self):
+            return True
+
+    inactive._output_monitor = AliveMonitor()
+    inactive._start_output_monitor()
+    assert isinstance(inactive._output_monitor, AliveMonitor)
 
 
 def test_radio_without_explicit_endpoints_uses_original_uri():

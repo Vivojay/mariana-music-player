@@ -15,6 +15,9 @@ from .sources import sanitized_resolver_data
 
 VALID_REPEAT_MODES = {"off", "one", "all"}
 VALID_FAILURE_POLICIES = {"skip", "retry", "stop"}
+QUEUE_ORIGIN_KEY = "queue_origin"
+DEFAULT_LIBRARY_ORIGIN = "default-library"
+CUSTOM_ORIGIN = "custom"
 
 
 class QueueError(RuntimeError):
@@ -58,6 +61,85 @@ class PersistentQueue:
                 time.time(),
             ),
         )
+
+    @staticmethod
+    def _set_origin(connection, origin: str) -> None:
+        connection.execute(
+            "INSERT INTO app_state(key, value_json, updated_at) VALUES(?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
+            (QUEUE_ORIGIN_KEY, json.dumps(origin), time.time()),
+        )
+
+    def origin(self) -> str | None:
+        value = self.database.get_state(QUEUE_ORIGIN_KEY)
+        return value if value in {DEFAULT_LIBRARY_ORIGIN, CUSTOM_ORIGIN} else None
+
+    def sync_library_defaults(self, media_items: Iterable[MediaRef], *, force: bool = False) -> bool:
+        """Project the ordered library into a fresh/default queue transactionally.
+
+        A pre-existing or explicitly edited queue is classified as custom and
+        never overwritten. ``force`` is used only by the explicit
+        ``queue reset`` command.
+        """
+        media = list(media_items)
+        desired = [item.stable_id for item in media]
+        with self.database.transaction() as connection:
+            origin_row = connection.execute(
+                "SELECT value_json FROM app_state WHERE key=?",
+                (QUEUE_ORIGIN_KEY,),
+            ).fetchone()
+            try:
+                origin = json.loads(origin_row["value_json"]) if origin_row else None
+            except (json.JSONDecodeError, TypeError):
+                origin = None
+            existing = connection.execute(
+                "SELECT id, stable_id FROM queue_items ORDER BY position"
+            ).fetchall()
+            if force:
+                origin = DEFAULT_LIBRARY_ORIGIN
+                self._set_origin(connection, origin)
+            elif origin not in {DEFAULT_LIBRARY_ORIGIN, CUSTOM_ORIGIN}:
+                existing_ids = [row["stable_id"] for row in existing]
+                origin = (
+                    DEFAULT_LIBRARY_ORIGIN
+                    if not existing or existing_ids == desired
+                    else CUSTOM_ORIGIN
+                )
+                self._set_origin(connection, origin)
+            if origin == CUSTOM_ORIGIN:
+                return False
+
+            for item in media:
+                self._upsert_media(connection, item)
+            if [row["stable_id"] for row in existing] == desired:
+                return False
+
+            current = connection.execute(
+                "SELECT q.stable_id FROM queue_state s "
+                "LEFT JOIN queue_items q ON q.id=s.current_id WHERE s.singleton=1"
+            ).fetchone()
+            current_stable_id = (
+                str(current["stable_id"])
+                if current and current["stable_id"] is not None
+                else None
+            )
+            connection.execute("DELETE FROM queue_items")
+            inserted: dict[str, int] = {}
+            for position, item in enumerate(media):
+                cursor = connection.execute(
+                    "INSERT INTO queue_items(stable_id, position, priority, added_at, failure_policy) "
+                    "VALUES(?, ?, 0, ?, 'skip')",
+                    (item.stable_id, position, time.time()),
+                )
+                inserted[item.stable_id] = cast(int, cursor.lastrowid)
+            connection.execute(
+                "UPDATE queue_state SET current_id=?, updated_at=? WHERE singleton=1",
+                (
+                    inserted.get(current_stable_id) if current_stable_id else None,
+                    time.time(),
+                ),
+            )
+        return True
 
     def _snapshot(self, connection) -> dict:
         rows = connection.execute(
@@ -188,6 +270,7 @@ class PersistentQueue:
         if failure_policy not in VALID_FAILURE_POLICIES:
             raise QueueError(f"Unknown failure policy: {failure_policy}")
         with self.database.transaction() as connection:
+            self._set_origin(connection, CUSTOM_ORIGIN)
             self._record_history(connection)
             self._upsert_media(connection, media)
             if not allow_duplicate:
@@ -246,6 +329,7 @@ class PersistentQueue:
             raise QueueError("Queue position is out of range")
         selected = items[position]
         with self.database.transaction() as connection:
+            self._set_origin(connection, CUSTOM_ORIGIN)
             self._record_history(connection)
             connection.execute("DELETE FROM queue_items WHERE id=?", (selected.queue_id,))
             remaining = [cast(int, item.queue_id) for item in items if item.queue_id != selected.queue_id]
@@ -270,6 +354,7 @@ class PersistentQueue:
         selected_ids = {item.queue_id for item in selected}
         remaining = [cast(int, item.queue_id) for item in items if item.queue_id not in selected_ids]
         with self.database.transaction() as connection:
+            self._set_origin(connection, CUSTOM_ORIGIN)
             self._record_history(connection)
             placeholders = ",".join("?" for _ in selected_ids)
             connection.execute(f"DELETE FROM queue_items WHERE id IN ({placeholders})", tuple(selected_ids))
@@ -290,6 +375,7 @@ class PersistentQueue:
         moved = ordered.pop(source)
         ordered.insert(destination, moved)
         with self.database.transaction() as connection:
+            self._set_origin(connection, CUSTOM_ORIGIN)
             self._record_history(connection)
             self._renumber(connection, ordered)
 
@@ -305,6 +391,7 @@ class PersistentQueue:
 
     def clear(self) -> None:
         with self.database.transaction() as connection:
+            self._set_origin(connection, CUSTOM_ORIGIN)
             self._record_history(connection)
             connection.execute("DELETE FROM queue_items")
             connection.execute("UPDATE queue_state SET current_id=NULL, updated_at=? WHERE singleton=1", (time.time(),))
@@ -315,6 +402,7 @@ class PersistentQueue:
         ordered = [cast(int, item.queue_id) for item in items]
         random.Random(seed).shuffle(ordered)
         with self.database.transaction() as connection:
+            self._set_origin(connection, CUSTOM_ORIGIN)
             self._record_history(connection)
             self._renumber(connection, ordered)
             connection.execute(
@@ -457,6 +545,7 @@ class PersistentQueue:
             row = connection.execute("SELECT * FROM queue_history ORDER BY id DESC LIMIT 1").fetchone()
             if not row:
                 return False
+            self._set_origin(connection, CUSTOM_ORIGIN)
             current = self._snapshot(connection)
             redo_row = connection.execute("SELECT value_json FROM app_state WHERE key='queue_redo'").fetchone()
             redo = json.loads(redo_row["value_json"]) if redo_row else []
@@ -476,6 +565,7 @@ class PersistentQueue:
             redo = json.loads(row["value_json"]) if row else []
             if not redo:
                 return False
+            self._set_origin(connection, CUSTOM_ORIGIN)
             current = self._snapshot(connection)
             target = redo.pop()
             connection.execute(

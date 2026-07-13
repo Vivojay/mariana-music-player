@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
+from typing import cast
 
 from .models import MediaRef, MediaSource
+from .output_devices import OutputDeviceInfo
 from .playback import PlaybackController, PlaybackError
 from .sources import FailureCode, MediaFailure, ResolverRegistry
 
@@ -20,6 +22,7 @@ class PlaybackSupervisor:
         *,
         resolvers: ResolverRegistry | None = None,
         wait: Callable[[float], bool] | None = None,
+        output_poll_interval: float = 0.75,
     ) -> None:
         self.controller = controller
         self.resolvers = resolvers or controller.resolvers
@@ -27,12 +30,16 @@ class PlaybackSupervisor:
         self._lock = threading.RLock()
         self._recovering = False
         self._requested: MediaRef | None = None
+        self._output_poll_interval = max(0.1, float(output_poll_interval))
+        self._output_monitor_stop = threading.Event()
+        self._output_monitor: threading.Thread | None = None
         self.on_terminal_failure: Callable[[MediaRef, MediaFailure], None] | None = None
         self.metrics = {
             "retries": 0,
             "resolver_refreshes": 0,
             "endpoint_changes": 0,
             "output_recoveries": 0,
+            "output_device_changes": 0,
             "cancellations": 0,
         }
         self._wait = wait or self._cancel.wait
@@ -88,7 +95,9 @@ class PlaybackSupervisor:
             if attempt and len(candidates) > 1:
                 self.metrics["endpoint_changes"] += 1
             try:
-                return self.controller.play(candidate, start_at=start_at if attempt == 0 else 0, probe=probe)
+                result = self.controller.play(candidate, start_at=start_at if attempt == 0 else 0, probe=probe)
+                self._start_output_monitor()
+                return result
             except Exception as error:
                 last_failure = self._failure(error, candidate)
                 if not last_failure.retryable or attempt + 1 >= attempts:
@@ -122,13 +131,16 @@ class PlaybackSupervisor:
 
         threading.Thread(target=recover, name="mariana-playback-recovery", daemon=True).start()
 
-    def recover_output(self) -> None:
+    def recover_output(self, device: OutputDeviceInfo | None = None) -> None:
         last_error: BaseException | None = None
         for _ in range(3):
             if self._cancel.is_set():
                 raise MediaFailure(FailureCode.CANCELLED, MediaSource.LOCAL, "Output recovery was cancelled")
             try:
-                self.controller.recover_output()
+                if device is None:
+                    self.controller.recover_output()
+                else:
+                    self.controller.recover_output(device)
                 self.metrics["output_recoveries"] += 1
                 return
             except Exception as error:
@@ -141,10 +153,63 @@ class PlaybackSupervisor:
             cause=last_error,
         )
 
+    def _start_output_monitor(self) -> None:
+        provider = getattr(self.controller, "default_output_device", None)
+        if not callable(provider) or not hasattr(self.controller, "active_output_device"):
+            return
+        if self._output_monitor and self._output_monitor.is_alive():
+            return
+        self._output_monitor_stop.clear()
+
+        def monitor() -> None:
+            while not self._output_monitor_stop.wait(self._output_poll_interval):
+                try:
+                    self._sync_output_device()
+                except MediaFailure as error:
+                    if error.code == FailureCode.CANCELLED and self._output_monitor_stop.is_set():
+                        continue
+                    reporter = getattr(self.controller, "report_output_error", None)
+                    if callable(reporter):
+                        reporter(str(error))
+                except Exception as error:
+                    reporter = getattr(self.controller, "report_output_error", None)
+                    if callable(reporter):
+                        reporter(f"Audio output monitoring failed: {error}")
+
+        self._output_monitor = threading.Thread(
+            target=monitor,
+            name="mariana-output-device-monitor",
+            daemon=True,
+        )
+        self._output_monitor.start()
+
+    def _sync_output_device(self) -> bool:
+        provider = getattr(self.controller, "default_output_device", None)
+        if not callable(provider) or not hasattr(self.controller, "active_output_device"):
+            return False
+        desired = cast(OutputDeviceInfo, provider())
+        active = cast(OutputDeviceInfo | None, self.controller.active_output_device)
+        stream_active = bool(getattr(self.controller, "output_stream_active", True))
+        if active is not None and active.key == desired.key and stream_active:
+            return False
+        self.recover_output(desired)
+        if active is None or active.key != desired.key:
+            self.metrics["output_device_changes"] += 1
+        return True
+
+    def _stop_output_monitor(self) -> None:
+        self._output_monitor_stop.set()
+        monitor = self._output_monitor
+        if monitor and monitor is not threading.current_thread():
+            monitor.join(timeout=1)
+        self._output_monitor = None
+
     def stop(self) -> None:
         self._cancel.set()
+        self._stop_output_monitor()
         self.controller.stop()
 
     def close(self) -> None:
         self._cancel.set()
+        self._stop_output_monitor()
         self.controller.close()

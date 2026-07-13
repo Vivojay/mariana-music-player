@@ -1,4 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 from pathlib import Path
 
 root = Path.cwd()
@@ -26,7 +27,7 @@ a = Analysis(
         "beta.IPrint",
         "beta.podcasts",
         "lyrics_provider.get_lyrics",
-    ],
+    ] + (["comtypes", "pycaw.pycaw"] if os.name == "nt" else []),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

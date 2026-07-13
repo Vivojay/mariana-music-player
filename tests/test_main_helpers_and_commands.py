@@ -517,14 +517,22 @@ def test_reload_sounds_uses_index_cache_and_full_scan(monkeypatch, tmp_path):
         paths=lambda: indexed,
         scan=lambda mode: setattr(catalog, "scan_mode", mode),
         roots=lambda: [{"path": str(tmp_path), "available": True}],
+        media_refs=lambda: [main.MediaRef(main.MediaSource.LOCAL, path) for path in indexed],
     )
+    synced = []
     monkeypatch.setattr(main, "LIBRARY", catalog)
     monkeypatch.setattr(main, "SOUND_CACHE_PATH", cache)
     monkeypatch.setattr(main, "RUNTIME_PATHS", SimpleNamespace(library_file=library_file))
     monkeypatch.setattr(main, "FIRST_BOOT", False)
+    monkeypatch.setattr(
+        main.QUEUE,
+        "sync_library_defaults",
+        lambda items: synced.append([item.original_uri for item in items]),
+    )
     main.reload_sounds()
     assert main._sound_files == indexed
     assert main._sound_files_names_only == ["indexed"]
+    assert synced[-1] == indexed
 
     indexed[:] = [str(tmp_path / "rescanned.mp3")]
     main.reload_sounds(quick_load=False, full=True)
@@ -537,12 +545,20 @@ def test_reload_sounds_cache_fallback_and_missing_library(monkeypatch, tmp_path)
     cache.write_text(json.dumps([str(tmp_path / "cached.mp3")]), encoding="utf-8")
     missing_library = tmp_path / "missing.lib"
     messages = []
-    catalog = SimpleNamespace(paths=list, scan=lambda _mode: None, roots=list)
+    catalog = SimpleNamespace(
+        paths=list,
+        scan=lambda _mode: None,
+        roots=list,
+        media_refs=lambda: [
+            main.MediaRef(main.MediaSource.LOCAL, str(tmp_path / "cached.mp3"))
+        ],
+    )
     monkeypatch.setattr(main, "LIBRARY", catalog)
     monkeypatch.setattr(main, "SOUND_CACHE_PATH", cache)
     monkeypatch.setattr(main, "RUNTIME_PATHS", SimpleNamespace(library_file=missing_library))
     monkeypatch.setattr(main, "SAY", lambda **kwargs: messages.append(kwargs))
     monkeypatch.setattr(main, "FIRST_BOOT", False)
+    monkeypatch.setattr(main.QUEUE, "sync_library_defaults", lambda _items: None)
     main.reload_sounds()
     assert main._sound_files_names_only == ["cached"]
     cache.unlink()
@@ -687,8 +703,11 @@ def test_compact_help_autoplay_and_theme_commands_persist(monkeypatch):
     monkeypatch.setattr(main, "DESKTOP_CONTROL", SimpleNamespace(emit=lambda *args: emitted.append(args)))
 
     assert main.process("help") is None
-    assert main.process("autoplay off") is None
+    cleared = []
+    monkeypatch.setattr(main.vas.controller, "clear_prefetch", lambda: cleared.append(True))
+    assert main.process("autonext off") is None
     assert settings["playback"]["autoplay"] is False
+    assert cleared == [True]
     assert main.process("theme gruvbox") is None
     assert settings["appearance"]["terminal theme"] == "gruvbox"
     assert emitted == [("theme", {"name": "gruvbox"})]
@@ -696,7 +715,7 @@ def test_compact_help_autoplay_and_theme_commands_persist(monkeypatch):
     assert any("Playback" in value for value in printed)
 
 
-def test_library_autoplay_advances_only_after_completed_local_media(monkeypatch, tmp_path):
+def test_autonext_requires_the_completed_item_to_belong_to_the_active_queue(monkeypatch, tmp_path):
     first = str(tmp_path / "first.mp3")
     second = str(tmp_path / "second.mp3")
     played = []
@@ -710,9 +729,35 @@ def test_library_autoplay_advances_only_after_completed_local_media(monkeypatch,
         lambda path, _songindex: played.append((path, _songindex)),
     )
     main._on_queue_item_complete(main.MediaRef(main.MediaSource.LOCAL, first))
-    assert played == [(second, 2)]
+    assert played == []
     main._on_queue_item_complete(main.MediaRef(main.MediaSource.URL, "https://example.test/live"))
-    assert played == [(second, 2)]
+    assert played == []
+
+
+def test_disabled_autonext_neither_prefetches_nor_advances_queue(monkeypatch):
+    media = main.MediaRef(main.MediaSource.LOCAL, "C:/music/track.mp3")
+    item = SimpleNamespace(media=media, queue_id=1)
+    monkeypatch.setattr(main, "AUTOPLAY_ENABLED", False)
+    monkeypatch.setattr(main.QUEUE, "items", lambda: [item])
+    monkeypatch.setattr(main.QUEUE, "current", lambda: item)
+    monkeypatch.setattr(
+        main.QUEUE,
+        "next",
+        lambda: (_ for _ in ()).throw(AssertionError("auto-next must be disabled")),
+    )
+    monkeypatch.setattr(
+        main.vas.controller,
+        "prefetch",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not prefetch")),
+    )
+    monkeypatch.setattr(main.RECOMMENDER, "record_event", lambda *_args, **_kwargs: None)
+    retrained = []
+    monkeypatch.setattr(main.RECOMMENDER, "retrain_if_due", lambda: retrained.append(True))
+
+    main._prefetch_after(item)
+    main._on_queue_item_complete(media)
+
+    assert retrained == [True]
 
 
 def test_rich_prompt_reports_media_progress(monkeypatch):

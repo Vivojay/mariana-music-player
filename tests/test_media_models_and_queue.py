@@ -9,7 +9,7 @@ from hypothesis import strategies as st
 
 from mariana.database import SCHEMA_VERSION, MarianaDatabase
 from mariana.models import IdentityStatus, MediaCapabilities, MediaRef, MediaSource, TrackIdentity
-from mariana.queueing import PersistentQueue, QueueError
+from mariana.queueing import CUSTOM_ORIGIN, DEFAULT_LIBRARY_ORIGIN, PersistentQueue, QueueError
 
 
 def media(name: str) -> MediaRef:
@@ -158,6 +158,54 @@ def test_queue_full_lifecycle_and_restart(tmp_path: Path):
     with MarianaDatabase(path) as database:
         queue = PersistentQueue(database)
         assert [item.media.title for item in queue.items()] == ["b", "c", "a"]
+
+
+def test_default_queue_tracks_library_order_until_explicitly_customized(tmp_path: Path):
+    with MarianaDatabase(tmp_path / "default-queue.db") as database:
+        queue = PersistentQueue(database)
+        first, second, third = media("first"), media("second"), media("third")
+
+        assert queue.sync_library_defaults([first, second])
+        assert queue.origin() == DEFAULT_LIBRARY_ORIGIN
+        assert [item.media.title for item in queue.items()] == ["first", "second"]
+        queue.jump(1)
+
+        assert queue.sync_library_defaults([first, second, third])
+        assert queue.current().media.title == "second"
+        assert [item.media.title for item in queue.items()] == ["first", "second", "third"]
+        assert not queue.sync_library_defaults([first, second, third])
+
+        queue.move(2, 0)
+        assert queue.origin() == CUSTOM_ORIGIN
+        assert not queue.sync_library_defaults([first, second])
+        assert [item.media.title for item in queue.items()] == ["third", "first", "second"]
+
+        assert queue.sync_library_defaults([first, second], force=True)
+        assert queue.origin() == DEFAULT_LIBRARY_ORIGIN
+        assert [item.media.title for item in queue.items()] == ["first", "second"]
+
+        queue.clear()
+        assert queue.origin() == CUSTOM_ORIGIN
+        assert not queue.sync_library_defaults([first, second, third])
+        assert queue.items() == []
+
+
+def test_pre_origin_and_corrupt_origin_queues_are_preserved_as_custom(tmp_path: Path):
+    with MarianaDatabase(tmp_path / "legacy-queue.db") as database:
+        queue = PersistentQueue(database)
+        queue.add(media("existing"))
+        with database.transaction() as connection:
+            connection.execute("DELETE FROM app_state WHERE key='queue_origin'")
+        assert not queue.sync_library_defaults([media("replacement")])
+        assert queue.origin() == CUSTOM_ORIGIN
+        assert [item.media.title for item in queue.items()] == ["existing"]
+
+        with database.transaction() as connection:
+            connection.execute(
+                "UPDATE app_state SET value_json='not-json' WHERE key='queue_origin'"
+            )
+        assert not queue.sync_library_defaults([media("replacement")])
+        assert queue.origin() == CUSTOM_ORIGIN
 
 
 def test_queue_deduplication_validation_and_navigation(tmp_path: Path):

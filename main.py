@@ -90,6 +90,7 @@ from mariana.loudness import LoudnessError, RSGainAnalyzer
 from mariana.media_details import flattened_details, short_filename
 from mariana.media_removal import MediaRemovalError, MediaRemovalService
 from mariana.models import IdentityStatus, MediaCapabilities, MediaRef, MediaSource, PlaybackState
+from mariana.output_devices import OutputDeviceError, default_output_device
 from mariana.paths import initialize_runtime_paths
 from mariana.platform import open_path, reveal_path
 from mariana.preferences import MediaPreferences, PreferenceState
@@ -652,6 +653,7 @@ def reload_sounds(quick_load = True, full = False):
     if lib_found:
         _sound_files_names_only = [os.path.splitext(os.path.split(i)[1])[0] for i in _sound_files]
         _sound_files_names_enumerated = [(i+1, j) for i, j in enumerate(_sound_files_names_only)]
+        QUEUE.sync_library_defaults(LIBRARY.media_refs())
 
         if FIRST_BOOT:
             with SOUND_CACHE_PATH.open('w', encoding='utf-8') as fp:
@@ -763,7 +765,7 @@ def _play_queue_item(item):
     )
     try:
         if media.source == MediaSource.LOCAL:
-            play_local_default_player(media.original_uri, _songindex=None)
+            play_local_default_player(media.original_uri, _songindex=None, is_queue=True, media=media)
         else:
             vas.supervisor.play(media)
             _set_current_media_state(media)
@@ -796,6 +798,8 @@ def _set_current_media_state(media):
 
 
 def _prefetch_after(item):
+    if not AUTOPLAY_ENABLED:
+        return
     items = QUEUE.items()
     try:
         position = next(index for index, queued in enumerate(items) if queued.queue_id == item.queue_id)
@@ -817,18 +821,10 @@ def _on_queue_item_complete(media):
     RECOMMENDER.record_event(media, 'completion')
     current = QUEUE.current()
     if current is None or current.media.stable_id != media.stable_id:
-        if AUTOPLAY_ENABLED and media.source == MediaSource.LOCAL:
-            completed_path = os.path.normcase(os.path.abspath(media.original_uri)).casefold()
-            index = next(
-                (
-                    position
-                    for position, path in enumerate(_sound_files)
-                    if os.path.normcase(os.path.abspath(path)).casefold() == completed_path
-                ),
-                None,
-            )
-            if index is not None and index + 1 < len(_sound_files):
-                play_local_default_player(_sound_files[index + 1], _songindex=index + 2)
+        RECOMMENDER.retrain_if_due()
+        return
+    if not AUTOPLAY_ENABLED:
+        RECOMMENDER.retrain_if_due()
         return
     next_item = QUEUE.next()
     if next_item is None and QUEUE.state().get('autofill'):
@@ -863,6 +859,10 @@ def queue_command(arguments):
             for index, item in enumerate(QUEUE.items())
         ]
         IPrint(tbl(rows, headers=('#', '', 'Priority', 'Media'), tablefmt='plain') if rows else '(queue empty)', visible=visible)
+        IPrint(f'Queue source: {QUEUE.origin() or "legacy/custom"}', visible=visible)
+    elif operation == 'reset':
+        QUEUE.sync_library_defaults(LIBRARY.media_refs(), force=True)
+        IPrint(f'Queue reset to {len(QUEUE.items())} library item(s)', visible=visible)
     elif operation in {'add', 'insert'}:
         if operation == 'insert':
             if len(arguments) < 3 or not arguments[1].isdigit():
@@ -1558,8 +1558,8 @@ def recycle_library_media(arguments):
 
 
 HELP_GROUPS = (
-    ('Playback', 'ls, <number>, .rand, pause, stop, next, prev, seek, progress, now, autoplay'),
-    ('Queue', 'queue add/list/next/previous/move/remove/shuffle/repeat/save/load'),
+    ('Playback', 'ls, <number>, .rand, pause, stop, next, prev, seek, progress, now, autonext'),
+    ('Queue', 'queue add/list/reset/next/previous/move/remove/shuffle/repeat/save/load'),
     ('Online', '/ys, /yl, radio, podcast, rss, download-ya, download-yv, download-ml'),
     ('Library', 'library status/scan/info, find, rfind, lfind, reload, rename short'),
     ('Details', 'media info/probe/fingerprint/identify, lyrics, replaygain status'),
@@ -1584,10 +1584,10 @@ def autoplay_command(arguments):
     global AUTOPLAY_ENABLED
     operation = arguments[0].casefold() if arguments else 'status'
     if operation == 'status':
-        IPrint(f'Autoplay: {"on" if AUTOPLAY_ENABLED else "off"} (sequential local-library playback)', visible=visible)
+        IPrint(f'Auto-next: {"on" if AUTOPLAY_ENABLED else "off"} (queue/library order)', visible=visible)
         return AUTOPLAY_ENABLED
     if operation not in {'on', 'off'} or len(arguments) != 1:
-        raise ValueError('Usage: autoplay [on|off|status]')
+        raise ValueError('Usage: autoplay|autonext [on|off|status]')
     previous = AUTOPLAY_ENABLED
     AUTOPLAY_ENABLED = operation == 'on'
     playback_settings = SETTINGS.setdefault('playback', {})
@@ -1598,7 +1598,9 @@ def autoplay_command(arguments):
         AUTOPLAY_ENABLED = previous
         playback_settings['autoplay'] = previous
         raise
-    IPrint(f'Autoplay {operation}', visible=visible)
+    if not AUTOPLAY_ENABLED:
+        vas.controller.clear_prefetch()
+    IPrint(f'Auto-next {operation}', visible=visible)
     return AUTOPLAY_ENABLED
 
 
@@ -1855,12 +1857,35 @@ def exitplayer(sys_exit=False):
 #     with open('', encoding='utf-8') as settingsfile:
 #         settings = yaml.load(settingsfile)
 
-def play_local_default_player(songpath, _songindex, is_queue=False):
+def _queued_local_item(songpath):
+    """Return a queued local occurrence using case-insensitive canonical paths."""
+    path = songpath[0] if isinstance(songpath, list) else songpath
+    canonical = os.path.normcase(os.path.abspath(path)).casefold()
+    return next(
+        (
+            (index, item)
+            for index, item in enumerate(QUEUE.items())
+            if item.media.source == MediaSource.LOCAL
+            and os.path.normcase(os.path.abspath(item.media.original_uri)).casefold() == canonical
+        ),
+        (None, None),
+    )
+
+
+def play_local_default_player(songpath, _songindex, is_queue=False, media=None):
     global isplaying, currentsong, currentsong_length, songindex
     global USER_DATA, current_media_type, SONG_CHANGED
 
     try:
+        queue_position, queue_item = _queued_local_item(songpath)
+        if media is None and queue_item is not None:
+            media = queue_item.media
+        if not is_queue and queue_position is not None:
+            QUEUE.jump(queue_position)
         vas.set_media(_type='local', localpath=songpath)
+        if media is not None:
+            # Preserve the library/queue stable ID through decoder completion.
+            vas.current_media = media
         vas.media_player(action='play')
         vas.player.audio_set_volume(int(cached_volume*100))
 
@@ -1931,6 +1956,9 @@ def play_local_default_player(songpath, _songindex, is_queue=False):
             log_message = currentsong,
             log_priority = 3,
             format_style = 0)
+
+        if not is_queue and queue_item is not None:
+            _prefetch_after(queue_item)
 
     except Exception:
         #raise
@@ -2768,6 +2796,7 @@ def process(command):
             'help': help_command,
             '?': help_command,
             'autoplay': autoplay_command,
+            'autonext': autoplay_command,
             'theme': theme_command,
             'media': media_command,
             'metadata': lambda values: media_command(['metadata', *values]),
@@ -3326,7 +3355,21 @@ def process(command):
                     device_kind = commandslist[0]+'put'
 
                 if device_kind:
-                    if device_name := sounddevice.query_devices(kind = device_kind).get('name'):
+                    if device_kind == 'output':
+                        try:
+                            selected = vas.controller.default_output_device()
+                            active = vas.controller.active_output_device
+                            detail = f' via {selected.route}'
+                            if active and active.key != selected.key:
+                                detail += f'; switching from {active.name}'
+                            IPrint(
+                                f"{colored.fg('navajo_white_1')}output device: "
+                                f"{colored.attr('reset')}{selected.name}{detail}; auto-follow: on",
+                                visible=visible,
+                            )
+                        except OutputDeviceError as error:
+                            IPrint(f'Output device unavailable: {error}', visible=visible)
+                    elif device_name := sounddevice.query_devices(kind = device_kind).get('name'):
                         IPrint(f"{colored.fg('navajo_white_1')}{device_kind} device: {colored.attr('reset')}{device_name}", visible=visible)
 
         if commandslist[:2] in [['fade', 'in'], ['fade', 'out']]:
@@ -4432,9 +4475,7 @@ def initialize_audio_output():
     if os.environ.get('MARIANA_E2E') == '1':
         return
     try:
-        devices = sounddevice.query_devices()
-        if not any(device.get('max_output_channels', 0) > 0 for device in devices):
-            raise RuntimeError('No output device is available')
+        default_output_device()
     except Exception as error:
         raise RuntimeError(
             "Mariana Player could not initialize an audio output device. "

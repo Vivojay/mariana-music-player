@@ -126,6 +126,8 @@ class PlaybackSnapshot:
     live_leveling: bool = False
     stream_title: str | None = None
     stream_metadata: dict[str, Any] = field(default_factory=dict)
+    output_device: str | None = None
+    output_backend: str | None = None
 
 
 @dataclass(slots=True)

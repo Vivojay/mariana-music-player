@@ -19,6 +19,7 @@ DEFAULT_MODULES = (
     "mariana/library_service.py",
     "mariana/loudness.py",
     "mariana/media_removal.py",
+    "mariana/output_devices.py",
     "mariana/paths.py",
     "mariana/playback.py",
     "mariana/preferences.py",

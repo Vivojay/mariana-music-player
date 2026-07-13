@@ -245,6 +245,50 @@ def test_stop_close_recover_fingerprint_and_snapshot(controller):
     assert controller.fingerprint_pcm() == b""
 
 
+def test_natural_completion_retains_end_position_until_next_action(controller):
+    completed = Session(finite("finished", duration=42))
+    completed.position = 41.75
+    controller._active = completed
+    controller._state = PlaybackState.PLAYING
+
+    controller._promote_next(completed)
+
+    snapshot = controller.snapshot()
+    assert snapshot.state == PlaybackState.IDLE
+    assert snapshot.media.title == "finished"
+    assert snapshot.position == snapshot.duration == 42
+
+    controller.stop()
+    snapshot = controller.snapshot()
+    assert snapshot.position == 0
+    assert snapshot.duration is None
+
+
+def test_prefetched_promotion_does_not_retain_previous_end_position(controller):
+    completed = Session(finite("finished", duration=42))
+    upcoming = Session(finite("upcoming", duration=30))
+    upcoming.position = 0.25
+    controller._active = completed
+    controller._next = upcoming
+    controller._state = PlaybackState.PLAYING
+
+    controller._promote_next(completed)
+
+    snapshot = controller.snapshot()
+    assert snapshot.media.title == "upcoming"
+    assert snapshot.position == 0.25
+    assert snapshot.duration == 30
+
+
+def test_clear_prefetch_stops_only_the_upcoming_decoder(controller):
+    active, upcoming = Session(finite()), Session(finite("next"))
+    controller._active, controller._next = active, upcoming
+    controller.clear_prefetch()
+    assert controller._active is active
+    assert controller._next is None
+    assert upcoming.stopped and not active.stopped
+
+
 def test_launch_ffplay_success_and_failure(monkeypatch):
     monkeypatch.setattr(playback, "find_executable", lambda *_args: "ffplay")
     process = object()

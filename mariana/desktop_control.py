@@ -80,6 +80,8 @@ class DesktopControl:
                         "replaygain_db": getattr(current, "replaygain_db", 0.0),
                         "live_leveling": getattr(current, "live_leveling", False),
                         "stream_title": getattr(current, "stream_title", None),
+                        "output_device": getattr(current, "output_device", None),
+                        "output_backend": getattr(current, "output_backend", None),
                         "media": {
                             "id": media.stable_id,
                             "source": media.source.value,

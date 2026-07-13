@@ -19,6 +19,7 @@ import numpy as np
 import sounddevice
 
 from .models import MediaCapabilities, MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
+from .output_devices import OutputDeviceInfo, default_output_device
 from .sources import FailureCode, MediaFailure, ResolvedMedia, ResolverRegistry, redacted_uri
 
 SAMPLE_RATE = 48_000
@@ -480,6 +481,7 @@ class PlaybackController:
         live_target_lufs: float = -18.0,
         live_true_peak_dbtp: float = -1.0,
         live_lra: float = 11.0,
+        output_device_provider: Callable[[], OutputDeviceInfo] | None = None,
     ):
         self.ffmpeg_bin = ffmpeg_bin
         self.ffprobe_bin = ffprobe_bin
@@ -496,10 +498,17 @@ class PlaybackController:
         self.live_target_lufs = float(live_target_lufs)
         self.live_true_peak_dbtp = float(live_true_peak_dbtp)
         self.live_lra = float(live_lra)
+        self.output_device_provider = output_device_provider or (
+            default_output_device
+            if output_factory is None
+            else lambda: OutputDeviceInfo("custom-output", "Custom output", None, "Custom output", "test")
+        )
         self._lock = threading.RLock()
+        self._output_switch_lock = threading.Lock()
         self._active: DecoderSession | None = None
         self._next: DecoderSession | None = None
         self._stream: OutputStream | None = None
+        self._output_device: OutputDeviceInfo | None = None
         self._state = PlaybackState.IDLE
         self._volume = 1.0
         self._automation_gain = 1.0
@@ -507,6 +516,9 @@ class PlaybackController:
         self._error: str | None = None
         self._prepared: MediaRef | None = None
         self._resolved: ResolvedMedia | None = None
+        self._completed_media: MediaRef | None = None
+        self._completed_position = 0.0
+        self._completed_duration: float | None = None
         self.on_complete: Callable[[MediaRef], None] | None = None
         self.on_failure: Callable[[MediaRef, MediaFailure], None] | None = None
         self._watch_stop = threading.Event()
@@ -552,6 +564,9 @@ class PlaybackController:
         with self._lock:
             self._state = PlaybackState.RESOLVING
             self._error = None
+            self._completed_media = None
+            self._completed_position = 0.0
+            self._completed_duration = None
         try:
             resolved = self.resolvers.resolve(media)
             media.capabilities = resolved.capabilities
@@ -598,8 +613,8 @@ class PlaybackController:
                 self._state = PlaybackState.FAILED
                 self._error = error
             raise PlaybackError(error)
+        self._ensure_output()
         with self._lock:
-            self._ensure_output()
             self._state = PlaybackState.PLAYING
             self._watch_stop.clear()
             threading.Thread(target=self._watch_completion, name="mariana-playback-watch", daemon=True).start()
@@ -638,16 +653,67 @@ class PlaybackController:
             self._next = session
         return media
 
+    def clear_prefetch(self) -> None:
+        """Discard a queued decoder without disturbing the active item."""
+        with self._lock:
+            session = self._next
+            self._next = None
+        if session:
+            session.stop()
+
+    @staticmethod
+    def _close_output_stream(stream: OutputStream | None) -> None:
+        if stream is None:
+            return
+        try:
+            stream.stop()
+        finally:
+            stream.close()
+
+    def default_output_device(self) -> OutputDeviceInfo:
+        return self.output_device_provider()
+
+    @property
+    def active_output_device(self) -> OutputDeviceInfo | None:
+        with self._lock:
+            return self._output_device
+
+    @property
+    def output_stream_active(self) -> bool:
+        with self._lock:
+            stream = self._stream
+        return bool(stream is not None and getattr(stream, "active", True))
+
+    def _replace_output(self, device: OutputDeviceInfo, *, force: bool = False) -> None:
+        with self._output_switch_lock:
+            with self._lock:
+                if self._stream is not None and self._output_device == device and not force:
+                    return
+                previous = self._stream
+                self._stream = None
+            self._close_output_stream(previous)
+            stream = None
+            try:
+                stream = self.output_factory(
+                    samplerate=SAMPLE_RATE,
+                    channels=CHANNELS,
+                    dtype="float32",
+                    callback=self._audio_callback,
+                    blocksize=1024,
+                    device=device.index,
+                )
+                stream.start()
+            except Exception:
+                if stream is not None:
+                    self._close_output_stream(stream)
+                raise
+            with self._lock:
+                self._stream = stream
+                self._output_device = device
+                self._error = None
+
     def _ensure_output(self) -> None:
-        if self._stream is None:
-            self._stream = self.output_factory(
-                samplerate=SAMPLE_RATE,
-                channels=CHANNELS,
-                dtype="float32",
-                callback=self._audio_callback,
-                blocksize=1024,
-            )
-            self._stream.start()
+        self._replace_output(self.default_output_device())
 
     def _audio_callback(self, outdata, frames, _time_info, _status) -> None:
         size = frames * BYTES_PER_FRAME
@@ -752,23 +818,32 @@ class PlaybackController:
         with self._lock:
             if self._active is not expected:
                 return
-            completed = self._active
+            completed = expected
             if self._next:
                 self._active = self._next
                 self._next = None
                 self._state = PlaybackState.PLAYING
+                self._completed_media = None
+                self._completed_position = 0.0
+                self._completed_duration = None
             else:
+                self._completed_media = completed.media
+                self._completed_duration = completed.media.duration
+                self._completed_position = (
+                    completed.media.duration
+                    if completed.media.duration is not None
+                    else completed.position
+                )
                 self._active = None
                 self._state = PlaybackState.IDLE
-        if completed:
-            threading.Thread(target=completed.stop, name="mariana-decoder-cleanup", daemon=True).start()
-            if self.on_complete:
-                threading.Thread(
-                    target=self.on_complete,
-                    args=(completed.media,),
-                    name="mariana-playback-complete",
-                    daemon=True,
-                ).start()
+        threading.Thread(target=completed.stop, name="mariana-decoder-cleanup", daemon=True).start()
+        if self.on_complete:
+            threading.Thread(
+                target=self.on_complete,
+                args=(completed.media,),
+                name="mariana-playback-complete",
+                daemon=True,
+            ).start()
 
     def _watch_completion(self) -> None:
         while not self._watch_stop.wait(0.1):
@@ -966,6 +1041,9 @@ class PlaybackController:
             self._next = None
             self._resolved = None
             self._stream_metadata = {}
+            self._completed_media = None
+            self._completed_position = 0.0
+            self._completed_duration = None
             if active or next_session:
                 self._state = PlaybackState.STOPPING
         for session in (active, next_session):
@@ -976,40 +1054,40 @@ class PlaybackController:
 
     def close(self) -> None:
         self.stop()
-        with self._lock:
-            if self._stream:
-                self._stream.stop()
-                self._stream.close()
+        with self._output_switch_lock:
+            with self._lock:
+                stream = self._stream
                 self._stream = None
+                self._output_device = None
+            self._close_output_stream(stream)
 
-    def recover_output(self) -> None:
-        """Recreate the device stream after a Windows output-device loss."""
+    def recover_output(self, device: OutputDeviceInfo | None = None) -> None:
+        """Recreate the stream on the current operating-system default output."""
+        self._replace_output(device or self.default_output_device(), force=True)
+
+    def report_output_error(self, message: str) -> None:
         with self._lock:
-            if self._stream:
-                try:
-                    self._stream.stop()
-                    self._stream.close()
-                finally:
-                    self._stream = None
-            self._ensure_output()
-            self._error = None
+            self._error = message
 
     def snapshot(self) -> PlaybackSnapshot:
         with self._lock:
             active = self._active
+            completed = self._completed_media if active is None else None
             return PlaybackSnapshot(
                 state=self._state,
-                position=active.position if active else 0.0,
-                duration=active.media.duration if active else None,
+                position=active.position if active else self._completed_position,
+                duration=active.media.duration if active else self._completed_duration,
                 buffered_seconds=active.buffered_seconds if active else 0.0,
                 volume=self._volume,
                 muted=self._muted,
                 error=self._error,
-                media=active.media if active else self._prepared,
+                media=active.media if active else completed or self._prepared,
                 replaygain_db=getattr(active, "program_gain_db", 0.0) if active else 0.0,
                 live_leveling=bool(active and active.media.capabilities.live and self.live_leveling),
                 stream_title=str(self._stream_metadata.get("title")) if self._stream_metadata.get("title") else None,
                 stream_metadata=dict(self._stream_metadata),
+                output_device=self._output_device.name if self._output_device else None,
+                output_backend=self._output_device.route if self._output_device else None,
             )
 
 

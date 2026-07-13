@@ -143,3 +143,48 @@ def test_queue_redo_and_validation(queue_cli):
     main.queue_command(["redo"])
     with pytest.raises(QueueError):
         main.queue_command(["unknown"])
+
+
+def test_queue_reset_restores_the_library_projection(queue_cli, monkeypatch):
+    queue, paths = queue_cli
+    library_media = [MediaRef(MediaSource.LOCAL, str(path), title=path.stem) for path in paths]
+    monkeypatch.setattr(main.LIBRARY, "media_refs", lambda: library_media)
+    queue.clear()
+
+    main.queue_command(["reset"])
+
+    assert queue.origin() == "default-library"
+    assert [item.media.title for item in queue.items()] == [path.stem for path in paths]
+
+
+def test_direct_local_media_aligns_with_its_queue_identity(monkeypatch, tmp_path):
+    first = tmp_path / "first.mp3"
+    second = tmp_path / "second.mp3"
+    first.touch()
+    second.touch()
+    with MarianaDatabase(tmp_path / "aligned.db") as database:
+        queue = PersistentQueue(database)
+        media = [
+            MediaRef(MediaSource.LOCAL, str(first), stable_id="library-first"),
+            MediaRef(MediaSource.LOCAL, str(second), stable_id="library-second"),
+        ]
+        queue.sync_library_defaults(media)
+        monkeypatch.setattr(main, "QUEUE", queue)
+        monkeypatch.setattr(main.vas, "set_media", lambda **_kwargs: None)
+        monkeypatch.setattr(main.vas, "current_media", None)
+        monkeypatch.setattr(main.vas, "media_player", lambda **_kwargs: None)
+        monkeypatch.setattr(main.vas.player, "audio_set_volume", lambda _value: None)
+        monkeypatch.setattr(main.vas.player, "get_length", lambda: 1000)
+        monkeypatch.setattr(main.vas, "wait_until_playing", lambda *_args: True)
+        monkeypatch.setattr(main, "save_user_data", lambda: None)
+        monkeypatch.setattr(main, "SAY", lambda **_kwargs: None)
+        monkeypatch.setattr(main, "IPrint", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(main, "_prefetch_after", lambda _item: None)
+        monkeypatch.setattr(main, "USER_DATA", {
+            "default_user_data": {"stats": {"play_count": {"local": 0}}}
+        })
+
+        main.play_local_default_player(str(second), _songindex=2)
+
+        assert queue.current().media.stable_id == "library-second"
+        assert main.vas.current_media.stable_id == "library-second"

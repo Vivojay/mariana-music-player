@@ -60,20 +60,22 @@ async function completeSetup(page: Page) {
 
 test('packaged Electron app launches its bundled CLI backend', async () => {
   test.skip(!executable, 'set MARIANA_PACKAGED_EXE after npm run pack')
-  const application = await electron.launch({
-    executablePath: executable,
-    args: [`--user-data-dir=${path.resolve('temp', 'packaged-electron-state')}`],
-    env: { ...process.env, MARIANA_E2E: '1' },
-  })
+  const userData = await isolatedState('backend-launch')
+  const application = await launchWithSetup(userData)
   try {
     const page = await application.firstWindow()
     page.on('console', (message) => console.log(`[packaged:${message.type()}] ${message.text()}`))
     page.on('pageerror', (error) => console.error(`[packaged:error] ${error.message}`))
     await expect(page).toHaveTitle('Mariana')
     await expect(page.getByLabel('Mariana command terminal')).toBeVisible()
-    await expect(page.locator('.backend-dot.ready')).toBeVisible({ timeout: 45_000 })
+    await completeSetup(page)
+    const terminal = page.locator('.terminal-pane:not([hidden])').getByLabel('Terminal output')
     await page.evaluate(() => window.mariana.terminal.write('sleep status\r'))
-    await expect(page.getByLabel('Terminal output')).toContainText('Sleep timer is inactive', { timeout: 10_000 })
+    await expect(terminal).toContainText('Sleep timer is inactive', { timeout: 10_000 })
+    await writeCommand(page, 'output device')
+    await expect(terminal).toContainText('auto-follow: on', { timeout: 10_000 })
+    await writeCommand(page, 'autonext status')
+    await expect(terminal).toContainText('Auto-next:', { timeout: 10_000 })
     await page.getByLabel('New terminal view').click()
     await expect(page.getByRole('tab', { name: 'View 2' })).toHaveAttribute('aria-selected', 'true')
     await expect(page.locator('.terminal-surface')).toHaveCount(2)
