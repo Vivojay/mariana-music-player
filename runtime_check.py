@@ -10,6 +10,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from mariana.toolchain import find_javascript_runtime
+
 SUPPORTED_PYTHON = (3, 12)
 SUPPORTED_PLATFORMS = {"win32": "Windows", "darwin": "macOS", "linux": "Linux"}
 
@@ -99,7 +101,9 @@ def check_runtime(
         warnings.append("rsgain 3.7 is unavailable; ReplayGain tag ingestion works, but new loudness scans are disabled.")
     if executables["ffmpeg"] and not inspect_ffmpeg(executables["ffmpeg"]):
         errors.append("The configured FFmpeg executable could not be started.")
-    if not any(shutil.which(executable) for executable in ("deno", "node", "qjs")):
+    javascript = find_javascript_runtime()
+    executables["javascript"] = javascript[1] if javascript else None
+    if not javascript:
         warnings.append("No JavaScript runtime was found; install Node 22+ for reliable YouTube extraction.")
     if not has_audio_output():
         warnings.append("No usable output device was detected; playback will remain unavailable until one appears.")

@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 import requests
 
+import mariana.toolchain as toolchain
 from mariana.paths import RuntimePaths
 from mariana.toolchain import ToolArtifact, ToolchainError, ToolchainManager, platform_key
 
@@ -240,3 +241,32 @@ def test_tar_extraction_rejects_links_and_unknown_kinds(tmp_path):
         ToolchainManager._extract(unsafe, destination, "tar.gz")
     with pytest.raises(ToolchainError, match="Unsupported"):
         ToolchainManager._extract(safe, destination, "rar")
+
+
+def test_javascript_runtime_prefers_managed_and_path_tools(monkeypatch):
+    monkeypatch.setattr(toolchain, "find_managed_executable", lambda name: "/managed/deno" if name == "deno" else None)
+    monkeypatch.setattr(toolchain.shutil, "which", lambda _name: None)
+    assert toolchain.find_javascript_runtime() == ("deno", "/managed/deno")
+
+    monkeypatch.setattr(toolchain, "find_managed_executable", lambda _name: None)
+    monkeypatch.setattr(toolchain.shutil, "which", lambda name: "/usr/bin/node" if name == "node" else None)
+    assert toolchain.find_javascript_runtime() == ("node", "/usr/bin/node")
+
+
+def test_javascript_runtime_discovers_portable_windows_apps(monkeypatch, tmp_path):
+    node = tmp_path / "apps" / "node-v25.8.2-win-x64" / "node.exe"
+    node.parent.mkdir(parents=True)
+    node.write_bytes(b"node")
+    monkeypatch.setattr(toolchain, "find_managed_executable", lambda _name: None)
+    monkeypatch.setattr(toolchain.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(toolchain.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(toolchain.Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("PROGRAMFILES", str(tmp_path / "program-files"))
+    assert toolchain.find_javascript_runtime() == ("node", str(node.resolve()))
+
+
+def test_javascript_runtime_absence_is_typed(monkeypatch):
+    monkeypatch.setattr(toolchain, "find_managed_executable", lambda _name: None)
+    monkeypatch.setattr(toolchain.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(toolchain.platform, "system", lambda: "Linux")
+    assert toolchain.find_javascript_runtime() is None

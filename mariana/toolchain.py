@@ -203,3 +203,21 @@ class ToolchainManager:
 
 def find_managed_executable(name: str) -> str | None:
     return ToolchainManager().resolve(name)
+
+
+def find_javascript_runtime() -> tuple[str, str] | None:
+    """Find a yt-dlp JavaScript runtime without assuming one machine layout."""
+    runtimes = (("deno", "deno"), ("node", "node"), ("quickjs", "qjs"))
+    for runtime, executable in runtimes:
+        if candidate := find_managed_executable(executable) or shutil.which(executable):
+            return runtime, candidate
+
+    if platform.system() != "Windows":
+        return None
+
+    node_candidates = [Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "nodejs" / "node.exe"]
+    node_candidates.extend(sorted((Path.home() / "apps").glob("node-*-win-x64/node.exe"), reverse=True))
+    for candidate in node_candidates:
+        if candidate.is_file():
+            return "node", str(candidate.resolve())
+    return None

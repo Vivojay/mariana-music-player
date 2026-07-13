@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 import beta.IPrint as iprint
 import beta.master_volume_control as master_volume
 import beta.redditsessions as reddit
@@ -33,6 +35,13 @@ def test_master_volume_get_set_and_zero(monkeypatch):
     master_volume.set_master_volume(80)
     master_volume.set_master_volume(0)
     assert calls == [(0.8, None), (0.0, None)]
+
+
+def test_legacy_master_volume_import_is_optional(monkeypatch):
+    monkeypatch.setitem(__import__("sys").modules, "pycaw", None)
+    monkeypatch.setitem(__import__("sys").modules, "pycaw.pycaw", None)
+    with pytest.raises(RuntimeError, match="requires pycaw on Windows"):
+        master_volume.device_refresh()
 
 
 def test_main_master_volume_accepts_zero_and_reports_unavailable(monkeypatch):

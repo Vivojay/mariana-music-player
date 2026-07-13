@@ -93,7 +93,7 @@ def test_runtime_report_can_be_fully_supported(monkeypatch):
     monkeypatch.setattr(runtime_check.ctypes, "sizeof", lambda _value: 8)
     monkeypatch.setattr(runtime_check, "_configured_executable", lambda name, _path=None: f"C:/{name}.exe")
     monkeypatch.setattr(runtime_check, "inspect_ffmpeg", lambda _path: "ffmpeg version test")
-    monkeypatch.setattr(runtime_check.shutil, "which", lambda _name: "available")
+    monkeypatch.setattr(runtime_check, "find_javascript_runtime", lambda: ("node", "available"))
     monkeypatch.setattr(runtime_check, "has_audio_output", lambda: True)
     report = runtime_check.check_runtime()
     assert report.supported is True

@@ -1,8 +1,11 @@
-from pycaw.pycaw import AudioUtilities
-
 systemIsMuted = 0
 
+
 def device_refresh():
+    try:
+        from pycaw.pycaw import AudioUtilities
+    except ImportError as error:
+        raise RuntimeError("The legacy master-volume adapter requires pycaw on Windows") from error
     return AudioUtilities.GetSpeakers().EndpointVolume
 
 def get_master_volume():

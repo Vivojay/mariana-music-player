@@ -184,8 +184,7 @@ def test_browser_profile_rejects_unsafe_references(value):
 def test_browser_profile_and_runtime_options(monkeypatch):
     assert youtube_media._browser_profile(None) is None
     assert youtube_media._browser_profile("chrome:Default") == ("chrome", "Default")
-    monkeypatch.setattr(youtube_media, "find_managed_executable", lambda name: f"C:/{name}.exe" if name == "deno" else None)
-    monkeypatch.setattr(youtube_media.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(youtube_media, "find_javascript_runtime", lambda: ("deno", "C:/deno.exe"))
     options = youtube_media.integration_options("chrome:Default")
     assert options["js_runtimes"] == {"deno": {"path": "C:/deno.exe"}}
     assert options["cookiesfrombrowser"] == ("chrome", "Default")

@@ -42,18 +42,14 @@ def test_stream_url_normalizes_direct_media(monkeypatch):
 
 
 def test_youtube_options_discover_node(monkeypatch):
-    monkeypatch.setattr(
-        youtube_media.shutil,
-        "which",
-        lambda executable: "C:/node/node.exe" if executable == "node" else None,
-    )
+    monkeypatch.setattr(youtube_media, "find_javascript_runtime", lambda: ("node", "C:/node/node.exe"))
     options = youtube_media.integration_options()
     assert options["js_runtimes"] == {"node": {"path": "C:/node/node.exe"}}
     assert options["retries"] == 5
 
 
 def test_youtube_browser_profile_is_referenced_not_copied(monkeypatch):
-    monkeypatch.setattr(youtube_media.shutil, "which", lambda _executable: None)
+    monkeypatch.setattr(youtube_media, "find_javascript_runtime", lambda: None)
     options = youtube_media.integration_options("edge:Default")
     assert options["cookiesfrombrowser"] == ("edge", "Default")
     assert not any("cookie" in str(value).lower() for value in options.values() if isinstance(value, str))
