@@ -7,6 +7,8 @@ const state = vi.hoisted(() => ({
   input: undefined as ((value: string) => void) | undefined,
   output: undefined as ((value: string) => void) | undefined,
   search: vi.fn(),
+  searchPrevious: vi.fn(),
+  clearSearch: vi.fn(),
   write: vi.fn(),
   clear: vi.fn(),
   dispose: vi.fn(),
@@ -31,13 +33,19 @@ vi.mock('@xterm/xterm', () => ({
   },
 }))
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit() {} } }))
-vi.mock('@xterm/addon-search', () => ({ SearchAddon: class { findNext = state.search } }))
+vi.mock('@xterm/addon-search', () => ({ SearchAddon: class {
+  findNext = state.search
+  findPrevious = state.searchPrevious
+  clearDecorations = state.clearSearch
+} }))
 vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class {} }))
 vi.mock('@xterm/addon-webgl', () => ({ WebglAddon: class { onContextLoss() {} dispose() {} } }))
 
 beforeEach(() => {
   Object.assign(state, { input: undefined, output: undefined })
   state.search.mockClear()
+  state.searchPrevious.mockClear()
+  state.clearSearch.mockClear()
   state.write.mockClear()
   state.clear.mockClear()
   state.dispose.mockClear()
@@ -50,6 +58,7 @@ beforeEach(() => {
         write: state.write,
         resize: state.resize,
         restart: vi.fn(),
+        history: async () => '',
         onData: (callback: (value: string) => void) => { state.output = callback; return vi.fn() },
         onExit: () => vi.fn(),
       },
@@ -84,6 +93,12 @@ it('bridges PTY input/output, strips ANSI for accessibility, searches, and dispo
   expect(state.write).toHaveBeenCalledWith('clear\r')
   act(() => window.dispatchEvent(new CustomEvent('mariana-search', { detail: 'Error' })))
   expect(state.search).toHaveBeenCalledWith('Error', { incremental: true })
+  act(() => window.dispatchEvent(new CustomEvent('mariana-search', {
+    detail: { query: 'Error', direction: 'previous', tabId: 1 },
+  })))
+  expect(state.searchPrevious).toHaveBeenCalledWith('Error', { incremental: false })
+  act(() => window.dispatchEvent(new CustomEvent('mariana-search', { detail: { query: '', tabId: 1 } })))
+  expect(state.clearSearch).toHaveBeenCalledOnce()
   expect(state.resize).toHaveBeenCalledWith(100, 30)
   cleanup()
   expect(state.dispose).toHaveBeenCalled()

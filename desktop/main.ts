@@ -28,7 +28,8 @@ const controlEndpoint = process.platform === 'win32'
 let mainWindow: BrowserWindow | null = null
 let terminalProcess: pty.IPty | null = null
 let controlServer: net.Server | null = null
-let terminalBuffer = ''
+let terminalHistory = ''
+let terminalControlTail = ''
 let quitting = false
 let playbackState = 'idle'
 let sleepActive = false
@@ -141,11 +142,13 @@ function startTerminal() {
     },
   })
   terminalProcess.onData((data) => {
-    if (!mainWindow || mainWindow.webContents.isLoading()) {
-      terminalBuffer = (terminalBuffer + data).slice(-1_000_000)
-    } else {
-      send('terminal:data', data)
-    }
+    const controlWindow = terminalControlTail + data
+    const clearIndex = Math.max(controlWindow.lastIndexOf('\u001b[2J'), controlWindow.lastIndexOf('\u001b[3J'))
+    terminalHistory = clearIndex >= 0
+      ? controlWindow.slice(clearIndex)
+      : (terminalHistory + data).slice(-1_000_000)
+    terminalControlTail = controlWindow.slice(-4)
+    if (mainWindow && !mainWindow.webContents.isLoading()) send('terminal:data', data)
   })
   terminalProcess.onExit(({ exitCode }) => {
     terminalProcess = null
@@ -188,10 +191,6 @@ async function createWindow() {
     if (!allowed) event.preventDefault()
   })
   mainWindow.webContents.on('did-finish-load', () => {
-    if (terminalBuffer) {
-      send('terminal:data', terminalBuffer)
-      terminalBuffer = ''
-    }
     setUpdateState(updateState)
   })
   if (usesViteRenderer) await mainWindow.loadURL('http://127.0.0.1:5173')
@@ -218,6 +217,10 @@ function registerIpc() {
   ipcMain.handle('terminal:restart', async (event) => {
     if (!validateSender(event)) throw new Error('Invalid IPC sender')
     startTerminal()
+  })
+  ipcMain.handle('terminal:history', async (event) => {
+    if (!validateSender(event)) throw new Error('Invalid IPC sender')
+    return terminalHistory
   })
   ipcMain.handle('shell:open-external', async (event, value: unknown) => {
     if (!validateSender(event) || typeof value !== 'string') throw new Error('Invalid external URL')

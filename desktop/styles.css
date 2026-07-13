@@ -15,7 +15,7 @@ button { cursor: pointer; }
 .app {
   height: 100%;
   display: grid;
-  grid-template-rows: 44px minmax(0, 1fr) 30px;
+  grid-template-rows: 44px 32px minmax(0, 1fr) 30px;
   background:
     radial-gradient(circle at 18% -20%, color-mix(in srgb, var(--glow) 25%, transparent), transparent 40%),
     radial-gradient(circle at 105% 105%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 35%),
@@ -56,10 +56,24 @@ button { cursor: pointer; }
 .title-actions button.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .title-actions select { max-width: 190px; background: var(--panel); }
 .search-box {
-  display: flex; align-items: center; gap: 6px; height: 28px; width: 150px; padding: 0 9px;
+  display: flex; align-items: center; gap: 6px; height: 28px; width: 250px; padding: 0 7px;
   border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--panel) 80%, transparent);
 }
 .search-box input { width: 100%; border: 0; outline: 0; background: transparent; font-size: 12px; }
+.search-box button { width: 20px; height: 22px; padding: 0; border: 0; background: transparent; color: var(--muted); }
+.search-box button:hover { color: var(--accent); }
+
+.tabbar {
+  display: flex; align-items: center; gap: 4px; padding: 3px 12px 0; overflow-x: auto;
+  background: color-mix(in srgb, var(--panel) 72%, transparent); border-bottom: 1px solid var(--border);
+}
+.tabbar > span { margin-left: auto; color: var(--muted); font-size: 10px; white-space: nowrap; }
+.terminal-tab { display: flex; height: 28px; border: 1px solid transparent; border-radius: 7px 7px 0 0; }
+.terminal-tab.active { background: color-mix(in srgb, var(--text) 7%, transparent); border-color: var(--border); border-bottom-color: transparent; }
+.terminal-tab button, .tab-add { border: 0; background: transparent; color: var(--muted); }
+.terminal-tab.active button:first-child { color: var(--text); }
+.terminal-tab .tab-close { width: 24px; padding: 0; }
+.tab-add { width: 28px; height: 26px; font-size: 18px; }
 
 .terminal-frame {
   position: relative; min-height: 0; margin: 12px; overflow: hidden; border: 1px solid var(--border); border-radius: 12px;
@@ -83,6 +97,7 @@ button { cursor: pointer; }
 .terminal-lights i:nth-child(2) { background: #ffd35c; }
 .terminal-lights i:last-child { background: #5fe39b; }
 .terminal-surface { position: absolute; inset: 30px 13px 9px; padding: 0; }
+.terminal-pane { position: absolute; inset: 0; }
 .terminal-surface .xterm { height: 100%; }
 .terminal-surface .xterm-viewport { scrollbar-color: color-mix(in srgb, var(--accent) 35%, transparent) transparent; }
 .sr-output {

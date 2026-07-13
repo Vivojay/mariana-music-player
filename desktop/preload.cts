@@ -12,6 +12,7 @@ const api: MarianaDesktopApi = {
     write: (data) => ipcRenderer.send('terminal:write', data),
     resize: (cols, rows) => ipcRenderer.send('terminal:resize', { cols, rows }),
     restart: () => ipcRenderer.invoke('terminal:restart'),
+    history: () => ipcRenderer.invoke('terminal:history'),
     onData: (callback) => subscribe<string>('terminal:data', callback),
     onExit: (callback) => subscribe<number>('terminal:exit', callback),
   },

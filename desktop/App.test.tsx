@@ -24,7 +24,7 @@ beforeEach(() => {
   Object.defineProperty(window, 'mariana', {
     configurable: true,
     value: {
-      terminal: { write, resize: vi.fn(), restart, onData: () => () => {}, onExit: (callback: typeof exitEvent) => { exitEvent = callback; return () => {} } },
+      terminal: { write, resize: vi.fn(), restart, history: async () => '', onData: () => () => {}, onExit: (callback: typeof exitEvent) => { exitEvent = callback; return () => {} } },
       backend: {
         snapshot: async () => ({ ready: true, playbackState: 'idle', sleepActive: false }),
         onEvent: (callback: typeof backendEvent) => { backendEvent = callback; return () => {} },
@@ -80,13 +80,13 @@ describe('Mariana desktop shell', () => {
   it('validates persisted appearance settings and routes search and restart controls', () => {
     localStorage.setItem('mariana.theme', 'not-a-theme')
     localStorage.setItem('mariana.fontSize', 'not-a-number')
-    const searches: string[] = []
-    window.addEventListener('mariana-search', (event) => searches.push((event as CustomEvent<string>).detail), { once: true })
+    const searches: Array<{ query: string; direction: string; tabId: number }> = []
+    window.addEventListener('mariana-search', (event) => searches.push((event as CustomEvent<{ query: string; direction: string; tabId: number }>).detail), { once: true })
     render(<App />)
     expect(screen.getByLabelText('Terminal theme')).toHaveValue('aurora')
     fireEvent.change(screen.getByLabelText('Search terminal'), { target: { value: 'decoder' } })
     fireEvent.click(screen.getByTitle('Restart Mariana session'))
-    expect(searches).toEqual(['decoder'])
+    expect(searches).toEqual([{ query: 'decoder', direction: 'incremental', tabId: 1 }])
     expect(restart).toHaveBeenCalledOnce()
   })
 
@@ -117,5 +117,15 @@ describe('Mariana desktop shell', () => {
     expect(screen.getByLabelText('Sleep timer')).toBeVisible()
     fireEvent.click(screen.getByText('Cancel active timer'))
     expect(write).toHaveBeenCalledWith('sleep cancel\r')
+  })
+
+  it('adds and closes shared-session terminal views and syncs theme commands', () => {
+    render(<App />)
+    fireEvent.click(screen.getByLabelText('New terminal view'))
+    expect(screen.getByRole('tab', { name: 'View 2' })).toHaveAttribute('aria-selected', 'true')
+    fireEvent.change(screen.getByLabelText('Terminal theme'), { target: { value: 'kitty' } })
+    expect(write).toHaveBeenCalledWith('theme kitty\r')
+    fireEvent.click(screen.getByLabelText('Close View 2'))
+    expect(screen.queryByRole('tab', { name: 'View 2' })).not.toBeInTheDocument()
   })
 })

@@ -33,6 +33,8 @@ export default function App() {
   const [timerAction, setTimerAction] = useState<'pause' | 'stop'>('pause')
   const [timerStatus, setTimerStatus] = useState<Record<string, unknown>>({ active: false })
   const [search, setSearch] = useState('')
+  const [tabs, setTabs] = useState([{ id: 1, title: 'View 1' }])
+  const [activeTab, setActiveTab] = useState(1)
   const [update, setUpdate] = useState<UpdateState>({ state: 'idle' })
   const [backendState, setBackendState] = useState('starting')
   const [broadcastStatus, setBroadcastStatus] = useState<Record<string, unknown>>({ state: 'idle' })
@@ -59,11 +61,19 @@ export default function App() {
       setTimerStatus((current) => ({ ...current, active: snapshot.sleepActive }))
     })
     const backend = window.mariana.backend.onEvent((event: BackendEvent) => {
-      if (event.event === 'ready') setBackendState('ready')
+      if (event.event === 'ready') {
+        setBackendState('ready')
+        const name = String(event.payload.theme || '')
+        if (name in themes) setThemeName(name as ThemeName)
+      }
       if (event.event === 'fatal-error') setBackendState('error')
       if (event.event === 'sleep') setTimerStatus(event.payload)
       if (event.event === 'broadcast') setBroadcastStatus(event.payload)
       if (event.event === 'loudness') setLoudnessStatus(event.payload)
+      if (event.event === 'theme') {
+        const name = String(event.payload.name || '')
+        if (name in themes) setThemeName(name as ThemeName)
+      }
     })
     const updater = window.mariana.updates.onState(setUpdate)
     const exited = window.mariana.terminal.onExit(() => setBackendState('stopped'))
@@ -82,28 +92,52 @@ export default function App() {
     setTimerOpen(false)
   }
 
+  const requestSearch = (direction: 'incremental' | 'next' | 'previous', query = search) => {
+    window.dispatchEvent(new CustomEvent('mariana-search', { detail: { query, direction, tabId: activeTab } }))
+  }
+
+  const addTab = () => {
+    const id = Math.max(0, ...tabs.map((tab) => tab.id)) + 1
+    setTabs((current) => [...current, { id, title: `View ${id}` }])
+    setActiveTab(id)
+  }
+
+  const closeTab = (id: number) => {
+    if (tabs.length === 1) return
+    const index = tabs.findIndex((tab) => tab.id === id)
+    const remaining = tabs.filter((tab) => tab.id !== id)
+    setTabs(remaining)
+    if (activeTab === id) setActiveTab(remaining[Math.max(0, index - 1)].id)
+  }
+
   return (
     <main className={`app theme-${themeName}`} style={style}>
       <header className="titlebar">
         <div className="brand" aria-label="Mariana">
-          <span className="brand-mark">M</span>
-          <span>mariana</span>
+          <span className="brand-mark">M</span><span>mariana</span>
           <span className={`backend-dot ${backendState}`} title={`Backend: ${backendState}`} />
         </div>
         <div className="title-actions">
-          <label className="search-box">
-            <span>⌕</span>
+          <div className="search-box">
+            <span aria-hidden="true">⌕</span>
             <input
               aria-label="Search terminal"
               placeholder="Find output"
               value={search}
-              onChange={(event) => {
-                setSearch(event.target.value)
-                window.dispatchEvent(new CustomEvent('mariana-search', { detail: event.target.value }))
+              onChange={(event) => { setSearch(event.target.value); requestSearch('incremental', event.target.value) }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') requestSearch(event.shiftKey ? 'previous' : 'next')
+                if (event.key === 'Escape') { setSearch(''); requestSearch('incremental', '') }
               }}
             />
-          </label>
-          <select aria-label="Terminal theme" value={themeName} onChange={(event) => setThemeName(event.target.value as ThemeName)}>
+            <button title="Find previous" aria-label="Find previous" onClick={() => requestSearch('previous')}>↑</button>
+            <button title="Find next" aria-label="Find next" onClick={() => requestSearch('next')}>↓</button>
+          </div>
+          <select aria-label="Terminal theme" value={themeName} onChange={(event) => {
+            const value = event.target.value as ThemeName
+            setThemeName(value)
+            sendCommand(`theme ${value}`)
+          }}>
             {Object.entries(themes).map(([id, value]) => <option key={id} value={id}>{value.name}</option>)}
           </select>
           <button title="Decrease font" onClick={() => setFontSize((value) => Math.max(10, value - 1))}>A−</button>
@@ -115,23 +149,30 @@ export default function App() {
         </div>
       </header>
 
+      <nav className="tabbar" aria-label="Terminal views">
+        {tabs.map((tab) => (
+          <div key={tab.id} className={`terminal-tab ${activeTab === tab.id ? 'active' : ''}`}>
+            <button role="tab" aria-selected={activeTab === tab.id} onClick={() => setActiveTab(tab.id)}>{tab.title}</button>
+            {tabs.length > 1 && <button className="tab-close" aria-label={`Close ${tab.title}`} onClick={() => closeTab(tab.id)}>×</button>}
+          </div>
+        ))}
+        <button className="tab-add" aria-label="New terminal view" title="New terminal view" onClick={addTab}>+</button>
+        <span>Shared Mariana session</span>
+      </nav>
+
       <section className="terminal-frame">
         <div className="terminal-lights" aria-hidden="true"><i /><i /><i /></div>
-        <TerminalSurface theme={theme} fontSize={fontSize} reducedMotion={reducedMotion} />
+        {tabs.map((tab) => (
+          <div key={tab.id} className="terminal-pane" hidden={activeTab !== tab.id}>
+            <TerminalSurface theme={theme} fontSize={fontSize} reducedMotion={reducedMotion} tabId={tab.id} />
+          </div>
+        ))}
       </section>
 
       <footer className="statusbar">
-        <span><b>PTY</b> {backendState}</span>
-        <span>{window.mariana.platform}</span>
-        <span title="Program loudness normalization">
-          <b>RG</b> {Number(loudnessStatus.replaygain_db || 0).toFixed(1)} dB
-          {loudnessStatus.live_leveling ? ' · live' : ''}
-        </span>
-        <span title={String(broadcastStatus.error || 'Icecast source status')}>
-          <b>CAST</b> {String(broadcastStatus.state || 'idle')}
-          {broadcastStatus.codec ? ` · ${String(broadcastStatus.codec)}` : ''}
-          {broadcastStatus.reconnects ? ` · ↻${String(broadcastStatus.reconnects)}` : ''}
-        </span>
+        <span><b>PTY</b> {backendState}</span><span>{window.mariana.platform}</span>
+        <span title="Program loudness normalization"><b>RG</b> {Number(loudnessStatus.replaygain_db || 0).toFixed(1)} dB{loudnessStatus.live_leveling ? ' · live' : ''}</span>
+        <span title={String(broadcastStatus.error || 'Icecast source status')}><b>CAST</b> {String(broadcastStatus.state || 'idle')}{broadcastStatus.codec ? ` · ${String(broadcastStatus.codec)}` : ''}{broadcastStatus.reconnects ? ` · ↻${String(broadcastStatus.reconnects)}` : ''}</span>
         <button onClick={() => setReducedMotion((value) => !value)}>{reducedMotion ? 'motion off' : 'motion on'}</button>
         <span className="status-grow" />
         {update.state === 'downloaded' ? (
@@ -139,9 +180,7 @@ export default function App() {
             {update.safeToInstall ? `Install ${update.version}` : 'Update ready when idle'}
           </button>
         ) : (
-          <button onClick={() => void window.mariana.updates.check()}>
-            {update.state === 'downloading' ? `Updating ${Math.round(update.percent || 0)}%` : `Update: ${update.state}`}
-          </button>
+          <button onClick={() => void window.mariana.updates.check()}>{update.state === 'downloading' ? `Updating ${Math.round(update.percent || 0)}%` : `Update: ${update.state}`}</button>
         )}
       </footer>
 
@@ -149,14 +188,10 @@ export default function App() {
         <aside className="timer-popover" aria-label="Sleep timer">
           <div className="popover-heading"><strong>Sleep timer</strong><button onClick={() => setTimerOpen(false)}>×</button></div>
           <p>Fade through the final 10 minutes, then {timerAction}.</p>
-          <div className="preset-grid">
-            {TIMER_PRESETS.map((minutes) => <button key={minutes} onClick={() => startTimer(`${minutes}m`)}>{minutes} min</button>)}
-          </div>
+          <div className="preset-grid">{TIMER_PRESETS.map((minutes) => <button key={minutes} onClick={() => startTimer(`${minutes}m`)}>{minutes} min</button>)}</div>
           <div className="timer-custom">
             <input aria-label="Custom timer duration" value={customTimer} onChange={(event) => setCustomTimer(event.target.value)} />
-            <select aria-label="Timer action" value={timerAction} onChange={(event) => setTimerAction(event.target.value as 'pause' | 'stop')}>
-              <option value="pause">Pause</option><option value="stop">Stop</option>
-            </select>
+            <select aria-label="Timer action" value={timerAction} onChange={(event) => setTimerAction(event.target.value as 'pause' | 'stop')}><option value="pause">Pause</option><option value="stop">Stop</option></select>
             <button className="primary" onClick={() => startTimer(customTimer)}>Start</button>
           </div>
           <button className="cancel-timer" onClick={() => { sendCommand('sleep cancel'); setTimerOpen(false) }}>Cancel active timer</button>

@@ -7,12 +7,13 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import type { MarianaTheme } from './themes'
 
-type Props = { theme: MarianaTheme; fontSize: number; reducedMotion: boolean }
+type Props = { theme: MarianaTheme; fontSize: number; reducedMotion: boolean; tabId?: number }
+type SearchRequest = { query: string; direction?: 'incremental' | 'next' | 'previous'; tabId?: number }
 // Terminal output contains ANSI CSI control sequences by design.
 // eslint-disable-next-line no-control-regex
 const ANSI_ESCAPE = new RegExp('\\u001b\\[[0-?]*[ -/]*[@-~]', 'g')
 
-export function TerminalSurface({ theme, fontSize, reducedMotion }: Props) {
+export function TerminalSurface({ theme, fontSize, reducedMotion, tabId = 1 }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const [accessibleOutput, setAccessibleOutput] = useState('')
 
@@ -37,6 +38,9 @@ export function TerminalSurface({ theme, fontSize, reducedMotion }: Props) {
     terminal.loadAddon(search)
     terminal.loadAddon(new WebLinksAddon((_event, uri) => void window.mariana.openExternal(uri)))
     terminal.open(container.current)
+    void window.mariana.terminal.history().then((history) => {
+      if (history) terminal.write(history)
+    })
     try {
       const webgl = new WebglAddon()
       webgl.onContextLoss(() => webgl.dispose())
@@ -82,7 +86,18 @@ export function TerminalSurface({ theme, fontSize, reducedMotion }: Props) {
       controlSequenceTail = clearsTerminal ? '' : controlWindow.slice(-4)
       setAccessibleOutput((current) => ((clearsTerminal ? '' : current) + text).slice(-8_000))
     })
-    const onSearch = (event: Event) => search.findNext((event as CustomEvent<string>).detail, { incremental: true })
+    const onSearch = (event: Event) => {
+      const raw = (event as CustomEvent<string | SearchRequest>).detail
+      const request: SearchRequest = typeof raw === 'string' ? { query: raw } : raw
+      if (request.tabId && request.tabId !== tabId) return
+      if (!request.query) {
+        search.clearDecorations()
+        return
+      }
+      const options = { incremental: request.direction === 'incremental' || !request.direction }
+      if (request.direction === 'previous') search.findPrevious(request.query, options)
+      else search.findNext(request.query, options)
+    }
     window.addEventListener('mariana-search', onSearch)
     requestAnimationFrame(() => { fitTerminal(); terminal.focus() })
     return () => {
@@ -92,7 +107,7 @@ export function TerminalSurface({ theme, fontSize, reducedMotion }: Props) {
       resize.disconnect()
       terminal.dispose()
     }
-  }, [theme, fontSize, reducedMotion])
+  }, [theme, fontSize, reducedMotion, tabId])
 
   return <>
     <div ref={container} className="terminal-surface" aria-label="Mariana command terminal" />

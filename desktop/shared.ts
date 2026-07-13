@@ -1,5 +1,5 @@
 export type BackendEvent = {
-  event: 'ready' | 'playback' | 'sleep' | 'broadcast' | 'loudness' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error'
+  event: 'ready' | 'playback' | 'sleep' | 'broadcast' | 'loudness' | 'theme' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error'
   payload: Record<string, unknown>
   timestamp: number
 }
@@ -17,6 +17,7 @@ export type MarianaDesktopApi = {
     write(data: string): void
     resize(cols: number, rows: number): void
     restart(): Promise<void>
+    history(): Promise<string>
     onData(callback: (data: string) => void): () => void
     onExit(callback: (code: number) => void): () => void
   }
