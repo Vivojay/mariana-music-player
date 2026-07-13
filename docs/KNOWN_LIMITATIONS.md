@@ -18,9 +18,11 @@
 - ReplayGain analysis and optional recommendation embeddings require separately
   managed tools or optional dependencies. Playback remains available when they
   are absent.
-- Native speaker/device switching, signed packaging, credentialed remote
-  broadcasting, and the eight-hour soak require real target environments.
-  Automated mocks are not substitutes for those release gates.
+- Automatic default-speaker following is implemented and deterministically
+  tested, but native Bluetooth/speaker switching, signed packaging,
+  credentialed remote broadcasting, and the eight-hour soak still require real
+  target environments. Automated mocks are not substitutes for those release
+  gates.
 - The legacy REPL is intentionally preserved for command compatibility. Its
   remaining extraction into smaller command handlers is maintenance work, not
   a condition for using the modern media pipeline.

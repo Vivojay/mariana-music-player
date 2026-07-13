@@ -27,7 +27,7 @@ All searches are fuzzy
 | --- | --- |
 | `queue add <media>` | Add a library index, path, or URL |
 | `queue insert/remove/move/swap/jump` | Mutate queue order transactionally |
-| `queue list/clear/undo/redo` | Inspect or restore queue state |
+| `queue list/clear/reset/undo/redo` | Inspect, customize, or restore the ordered library queue |
 | `queue shuffle [seed]` | Reproducible shuffle |
 | `queue repeat off\|one\|all` | Set repeat mode |
 | `queue save/load <name>` | Persist or restore a named queue |

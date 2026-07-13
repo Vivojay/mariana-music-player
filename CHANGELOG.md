@@ -18,6 +18,17 @@
   and report completion or configuration failures in the originating session.
 - YouTube download commands validate URL structure locally instead of making a
   redundant extraction request before confirmation.
+- Added automatic operating-system default-output following. Windows uses Core
+  Audio endpoint identity, prefers WASAPI, and safely reopens the bounded PCM
+  stream after Bluetooth/default-speaker changes without restarting playback.
+- Added `autonext` as the explicit alias for persisted sequential playback;
+  disabling it now discards prefetch and stops both queue and library playback
+  exactly at the current item's end.
+- Fresh persistent queues now mirror the full indexed library in order, retain
+  custom edits across scans, and can be deliberately restored with
+  `queue reset`. Direct local playback now retains the queue's stable identity,
+  and natural completion keeps an exact end-position snapshot when auto-next
+  is disabled.
 
 ## 0.7.0-dev.2
 

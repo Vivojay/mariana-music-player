@@ -24,10 +24,22 @@ resolver -> FFmpeg decoder -> ReplayGain/live leveling -> crossfade/program mix
          -> broadcast tap -> user volume/mute/sleep gain -> sounddevice
 ```
 
+The output supervisor polls the operating-system default endpoint while audio
+is active. Endpoint identity comes from Windows Core Audio where available,
+then maps to a WASAPI route; a bounded stream replacement follows Bluetooth or
+other default-device changes without restarting the decoder or queue item.
+
 SQLite stores queues, library occurrences, jobs, identities, lyrics, loudness,
 radio health, recommendations, media preferences, removal journals, and migrations. The library profiler uses
 leased resumable stages so discovery, probing, fingerprinting, loudness, and
 optional network enrichment can recover after interruption.
+
+The initial persistent queue is a projection of available library occurrences
+in canonical library order. It continues tracking library scans until an
+explicit queue mutation marks it custom; `queue reset` deliberately recreates
+the projection. Direct local selection reuses the queued library identity, so
+decoder completion advances exactly one authoritative queue rather than a
+separate legacy playlist.
 
 First-run setup is a small state machine in the writable data directory. Its
 atomic state file and PID/creation-time lock make each library/sample/launch

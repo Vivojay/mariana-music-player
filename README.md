@@ -113,7 +113,7 @@ mute, fade, lyrics, next/previous, recent, and download syntax remains. New
 command families include:
 
 ```text
-queue add|insert|remove|move|swap|jump|list|clear
+queue add|insert|remove|move|swap|jump|list|clear|reset
 queue next|previous|shuffle|repeat|consume|save|load|undo|redo|autofill
 radio search|list|play|favorite|refresh|health
 radio add|info|metadata|resync|leveling
@@ -141,6 +141,8 @@ broadcast credentials set|delete|status <profile>
 tools status|setup|install|repair
 help|h|? [playback|queue|online|library|details|app]
 autoplay [on|off|status]
+autonext [on|off|status]
+output device
 media info|probe|metadata [current|library-index|indexed-path]
 media fingerprint [current|library-index|indexed-path] [--full]
 media identify [current|library-index|indexed-path]
@@ -165,9 +167,22 @@ the stored Chromaprint object (use `--full` only when the raw value is needed),
 while `media identify` queries the configured AcoustID/MusicBrainz path and
 returns an explicit unavailable, ambiguous, or no-match status instead of a guess.
 
-Sequential local-library autoplay is enabled by default and stops at the end of
-the library. Persistent queue repeat/autofill policies remain separate and take
-precedence for queued playback.
+Sequential playback (`autoplay` and `autonext` are equivalent) is enabled by
+default. A fresh queue mirrors every indexed library item in library order and
+stays synchronized until it is explicitly edited. `queue reset` restores that
+library projection after custom queue work. Auto-next advances only through the
+active queue; it stops at the final item unless `queue repeat all` is enabled.
+Disabling auto-next discards any prefetch, leaves the queue pointer unchanged,
+and retains the completed item's exact end position in `progress`/`now` until
+another playback or explicit stop action occurs.
+
+`output device` reports the operating system's current default endpoint, not a
+cached PortAudio label. While playback is active Mariana checks that endpoint
+roughly once per second and reopens its bounded PCM output stream when the
+default changes. On Windows, Core Audio supplies the authoritative friendly
+name and endpoint ID; WASAPI is preferred, with the Windows system mapper used
+when a newly connected Bluetooth device has not yet appeared in PortAudio's
+device list.
 
 Sleep timers are session-only. They default to pausing and fade perceptually
 over the final ten minutes (or the whole timer when shorter), without replacing
@@ -357,8 +372,8 @@ RecBole/Implicit challenger research is isolated from the runtime; see
 
 ## Verification
 
-The latest Windows verification run passed 834 deterministic Python tests,
-the 90% repository coverage gate (90.49%), every independent 95%
+The latest Windows verification run passed 856 deterministic Python tests,
+the 90% repository coverage gate (90.78%), every independent 95%
 critical-module branch gate, 9 React unit tests, and 5 freshly packaged
 Electron/backend scenarios with one explicitly opt-in live download skipped.
 The real installed-tool suite added 17 passing FFmpeg, FFprobe, Chromaprint,
@@ -367,6 +382,10 @@ service probes passed earlier on the branch but were not rerun at the recorded
 commit. See
 the [dated verification report](docs/verification/2026-07-13.md) for exact
 versions, metrics, and the release gates that remain pending.
+
+A real silent-device check resolved and opened the current Windows endpoint as
+`Speakers (JBL Flip 5)` through WASAPI. An audible physical hot-switch test is
+still a separate manual release gate.
 
 ```powershell
 python -m pip install -r requirements-dev.txt

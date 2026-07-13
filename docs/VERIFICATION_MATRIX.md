@@ -44,7 +44,7 @@ reachable command family is classified below; none is unreviewed.
 | `refresh`, `refresh all`, `refresh lyrics`, `reload`, `sync media` | Modernized | Incremental library/lyrics refresh paths |
 | `prev`, `next`, `-`, `+`, `.-`, `.+` | Native/compatibility | Queue navigation and historical display/play aliases |
 | `.`, `.*`, `now`, `now*` | Native/compatibility | Current-media display |
-| `output device`, `input device` | Compatibility-only | Host capability response; unsupported control never crashes |
+| `output device`, `input device` | Native | Current OS endpoint reporting; Windows Core Audio/WASAPI mapping; active default-device auto-follow; typed unavailable response |
 | `fade`, `fade in`, `fade out` | Native | PCM gain automation |
 | `m?`, `ism?`, `ispl`, `isplaying?`, `isloaded?` | Compatibility-only | Playback-state inspection |
 | `seek`, `reset`, `t`, `prog`, `progress` | Native | Sample-derived progress; seek only for verified finite sources |
@@ -107,7 +107,7 @@ user-facing behavior disappeared.
 | External testing snapshot prompt/banner | Modernized | Rich two-line prompt ported; banner verified as the same mirrored blue gradient, with no rainbow asset present |
 | `media info/fingerprint/identify` | Native | Indexed/current metadata and conservative Chromaprint identity inspection |
 | `rename short` | Native | Transactional indexed-file rename with collision, extension, rollback, and source-ID safeguards |
-| `autoplay` | Native | Persistent sequential local-library completion policy; queue policies remain authoritative |
+| `autoplay`, `autonext`, `queue reset` | Native | Fresh queues mirror library order; direct selection preserves queue identity; custom queues are not overwritten; disabling discards prefetch and retains the completed end position |
 | Electron tabs and output search | Native | Shared single PTY, bounded replay history, directional search, and synchronized theme presets |
 | `res/lyrics_icon.png`, `res/welcome_banner.png` | Native assets | Retained as immutable resources |
 | `res/lyrics-wallpapers/1.DEFAULT.jpg` through `10.triangular-spiral-dark-purple-staircase.jpg` | Native assets | All ten retained |
