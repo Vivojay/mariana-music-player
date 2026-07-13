@@ -32,6 +32,7 @@ test('preserves PTY controls, history, resize, themes, and session restart', asy
   try {
     const page = await application.firstWindow()
     await expect(page.locator('.backend-dot.ready')).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByLabel('Terminal theme')).toBeVisible()
     for (const theme of ['windows', 'kitty', 'gruvbox', 'aurora']) {
       await page.getByLabel('Terminal theme').selectOption(theme)
       await expect(page.locator('main')).toHaveClass(new RegExp(`theme-${theme}`))

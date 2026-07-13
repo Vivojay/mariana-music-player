@@ -220,7 +220,7 @@ export default function App() {
   const activeDownloads = downloads.filter((job) => ['queued', 'running', 'paused'].includes(job.state)).length
 
   return (
-    <main className={`app theme-${themeName}`} style={style}>
+    <main className={`app platform-${window.mariana.platform} theme-${themeName}`} style={style}>
       <header className="titlebar">
         <div className="brand" aria-label="Mariana">
           <span className="brand-mark">M</span><span>mariana</span>

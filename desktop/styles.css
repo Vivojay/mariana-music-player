@@ -36,6 +36,11 @@ button { cursor: pointer; }
   user-select: none;
 }
 
+/* macOS supplies native traffic lights on the left and no title-bar overlay on
+   the right. Reserving the Windows overlay there can collapse toolbar controls
+   on smaller hosted/native displays. */
+.platform-darwin .titlebar { padding: 0 14px 0 88px; }
+
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 650; letter-spacing: .02em; }
 .brand-mark {
   width: 25px; height: 25px; display: grid; place-items: center; border-radius: 7px;
@@ -186,6 +191,7 @@ button { cursor: pointer; }
 }
 @media (max-width: 760px) {
   .titlebar { padding-right: 136px; }
+  .platform-darwin .titlebar { padding-right: 8px; padding-left: 78px; }
   .title-actions button:nth-of-type(1), .title-actions button:nth-of-type(2) { display: none; }
   .terminal-frame { margin: 7px; }
   .timer-popover, .station-popover, .media-drawer { right: 8px; }

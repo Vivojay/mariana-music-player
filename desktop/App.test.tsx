@@ -41,8 +41,9 @@ afterEach(cleanup)
 
 describe('Mariana desktop shell', () => {
   it('renders the PTY surface and all visual presets', () => {
-    render(<App />)
+    const { container } = render(<App />)
     expect(screen.getByTestId('terminal')).toBeInTheDocument()
+    expect(container.querySelector('main')).toHaveClass('platform-win32')
     const options = screen.getByLabelText('Terminal theme').querySelectorAll('option')
     expect([...options].map((option) => option.textContent)).toEqual([
       'Mariana Aurora', 'Windows Terminal Acrylic', 'Kitty / Catppuccin', 'Gruvbox Dark',
