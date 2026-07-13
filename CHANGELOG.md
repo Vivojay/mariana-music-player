@@ -23,6 +23,8 @@
   in both the terminal prompt and desktop status UI.
 - Updated packaged download acceptance to validate the persistent job prompt,
   status lifecycle, and same-PTY guarantee used by the transactional downloader.
+- Kept the terminal theme and title controls visible on macOS by reserving space
+  for native traffic lights instead of Windows caption buttons.
 
 ## 0.7.0-dev.3
 
