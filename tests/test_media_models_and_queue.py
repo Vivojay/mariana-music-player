@@ -1,6 +1,5 @@
 import sqlite3
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 import pytest
@@ -366,16 +365,21 @@ def test_queue_consume_and_previous_nonwrapping_branches(tmp_path: Path):
         assert queue.next() is None
 
 
-@given(st.permutations((0, 1, 2, 3, 4)))
-@settings(deadline=None)
-def test_queue_move_permutations_preserve_unique_order(permutation):
-    with TemporaryDirectory() as directory, MarianaDatabase(Path(directory) / "property.db") as database:
+def test_queue_move_permutations_preserve_unique_order(tmp_path: Path):
+    with MarianaDatabase(tmp_path / "property.db") as database:
         queue = PersistentQueue(database)
-        for index in range(5):
-            queue.add(media(str(index)))
-        for destination, wanted in enumerate(permutation):
-            current = [int(item.media.title) for item in queue.items()]
-            queue.move(current.index(wanted), destination)
-        items = queue.items()
-        assert [int(item.media.title) for item in items] == list(permutation)
-        assert [item.position for item in items] == list(range(5))
+
+        @given(st.permutations((0, 1, 2, 3, 4)))
+        @settings(deadline=None)
+        def verify_permutation(permutation):
+            queue.clear()
+            for index in range(5):
+                queue.add(media(str(index)))
+            for destination, wanted in enumerate(permutation):
+                current = [int(item.media.title) for item in queue.items()]
+                queue.move(current.index(wanted), destination)
+            items = queue.items()
+            assert [int(item.media.title) for item in items] == list(permutation)
+            assert [item.position for item in items] == list(range(5))
+
+        verify_permutation()
