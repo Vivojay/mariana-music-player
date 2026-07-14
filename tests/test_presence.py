@@ -225,6 +225,21 @@ def test_coordinator_refresh_idempotent_start_and_snapshot_failure_isolation():
     assert publisher.events[-1] == ("close", 1.0)
 
 
+def test_coordinator_deduplicates_identical_projection_deterministically():
+    publisher = Publisher()
+    coordinator = PresenceCoordinator(
+        lambda: snapshot(None, PlaybackState.IDLE),
+        publisher,
+        mode="app",
+    )
+
+    coordinator._publish_current()
+    coordinator._publish_current()
+
+    assert publisher.events == [("publish", PresenceProjection("Using Mariana"))]
+    coordinator.close()
+
+
 class Transport:
     def __init__(self):
         self.updates = []
@@ -394,4 +409,38 @@ def test_transport_failure_is_typed_and_never_escapes_callers(monkeypatch):
     publisher.publish(PresenceProjection("Song"))
     wait_until(lambda: publisher.status().failure_code == DiscordPresenceFailureCode.TRANSPORT_ERROR)
     assert "private diagnostic" not in (publisher.status().message or "")
+    publisher.close()
+
+
+def test_clear_transport_failure_is_typed_without_reconnecting(monkeypatch):
+    class BrokenClearTransport(Transport):
+        def clear(self):
+            raise OSError("private clear diagnostic")
+
+    monkeypatch.setattr(
+        discord_presence.importlib,
+        "import_module",
+        lambda _name: SimpleNamespace(ActivityType=SimpleNamespace(LISTENING="listening")),
+    )
+    transports = []
+
+    def create_transport(_application_id):
+        transport = BrokenClearTransport()
+        transports.append(transport)
+        return transport
+
+    publisher = DiscordPresencePublisher(
+        "public-id",
+        transport_factory=create_transport,
+        minimum_interval=0,
+        retry_delays=(0.01,),
+    )
+    publisher.publish(PresenceProjection("Song"))
+    wait_until(lambda: transports and transports[0].updates)
+    publisher.clear()
+    wait_until(lambda: publisher.status().failure_code == DiscordPresenceFailureCode.TRANSPORT_ERROR)
+
+    time.sleep(0.03)
+    assert len(transports) == 1
+    assert "private clear diagnostic" not in (publisher.status().message or "")
     publisher.close()

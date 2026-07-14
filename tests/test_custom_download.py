@@ -64,6 +64,53 @@ def test_download_uses_extractor_for_soundcloud_pages(tmp_path: Path, monkeypatc
     assert captured["options"]["format"] == "bestaudio/best"
 
 
+def test_extractor_download_honors_ffmpeg_location_and_rejects_missing_output(tmp_path: Path, monkeypatch):
+    captured = {}
+
+    class FakeDownloader:
+        def __init__(self, options):
+            captured.update(options)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def extract_info(self, _url, *, download):
+            assert download is True
+
+    monkeypatch.setattr("mariana.download.YoutubeDL", FakeDownloader)
+
+    with pytest.raises(DownloadError, match="without producing a media file"):
+        download_media(
+            "https://soundcloud.com/artist/track",
+            tmp_path / "song.mp3",
+            ffmpeg_bin=str(tmp_path / "ffmpeg-bin"),
+        )
+
+    assert captured["ffmpeg_location"] == str(tmp_path / "ffmpeg-bin")
+
+
+def test_extractor_download_wraps_library_failure_and_cleans_staging(tmp_path: Path, monkeypatch):
+    class BrokenDownloader:
+        def __init__(self, _options):
+            pass
+
+        def __enter__(self):
+            raise OSError("extractor unavailable")
+
+        def __exit__(self, *_args):
+            return None
+
+    monkeypatch.setattr("mariana.download.YoutubeDL", BrokenDownloader)
+
+    with pytest.raises(DownloadError, match="Media-page download failed: extractor unavailable"):
+        download_media("https://soundcloud.com/artist/track", tmp_path / "song.mp3")
+
+    assert list(tmp_path.glob(".mariana-download-*")) == []
+
+
 def test_download_cleans_partial_on_timeout(tmp_path: Path, monkeypatch):
     def timeout(command, **_kwargs):
         Path(command[-1]).write_bytes(b"partial")
@@ -76,11 +123,12 @@ def test_download_cleans_partial_on_timeout(tmp_path: Path, monkeypatch):
     assert not list(tmp_path.glob("*.partial*"))
 
 
-@pytest.mark.parametrize("failure", ["empty", "process"])
+@pytest.mark.parametrize("failure", ["empty", "process", "process_text"])
 def test_download_rejects_empty_output_and_reports_process_errors(tmp_path: Path, monkeypatch, failure):
     def run(command, **_kwargs):
-        if failure == "process":
-            raise subprocess.CalledProcessError(1, command, stderr=b"server rejected media")
+        if failure.startswith("process"):
+            detail = "server rejected media" if failure == "process_text" else b"server rejected media"
+            raise subprocess.CalledProcessError(1, command, stderr=detail)
         Path(command[-1]).write_bytes(b"")
         return subprocess.CompletedProcess(command, 0)
 

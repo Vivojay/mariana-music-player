@@ -1,7 +1,8 @@
+import subprocess
 from pathlib import Path
 
 from tools.clean_workspace import candidates, clean
-from tools.verify_repository import MAX_TRACKED_BYTES, inspect, tracked_paths
+from tools.verify_repository import MAX_TRACKED_BYTES, ignored_tracked_paths, inspect, tracked_paths
 
 
 def test_repository_guard_accepts_source_and_curated_media(tmp_path: Path):
@@ -35,6 +36,21 @@ def test_repository_guard_rejects_generated_private_legacy_and_large_files(tmp_p
     assert any("legacy artifact" in failure for failure in failures)
     assert any("tracked file is also ignored" in failure for failure in failures)
     assert any("tracked-file limit" in failure for failure in failures)
+
+
+def test_repository_guard_uses_only_repository_owned_ignore_rules(tmp_path: Path):
+    subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)
+    (tmp_path / ".gitignore").write_text("repository-ignored.txt\n", encoding="utf-8")
+    (tmp_path / "repository-ignored.txt").write_text("tracked\n", encoding="utf-8")
+    (tmp_path / "locally-protected.txt").write_text("tracked\n", encoding="utf-8")
+    (tmp_path / ".git" / "info" / "exclude").write_text("locally-protected.txt\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "-f", ".gitignore", "repository-ignored.txt", "locally-protected.txt"],
+        cwd=tmp_path,
+        check=True,
+    )
+
+    assert ignored_tracked_paths(tmp_path) == [Path("repository-ignored.txt")]
 
 
 def test_workspace_cleaner_preserves_dependencies_and_current_package_by_default(tmp_path: Path):

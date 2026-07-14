@@ -108,7 +108,7 @@ def tracked_paths(root: Path) -> list[Path]:
 
 def ignored_tracked_paths(root: Path) -> list[Path]:
     result = subprocess.run(
-        ["git", "ls-files", "-ci", "--exclude-standard", "-z"],
+        ["git", "ls-files", "-ci", "--exclude-per-directory=.gitignore", "-z"],
         cwd=root,
         check=True,
         capture_output=True,
