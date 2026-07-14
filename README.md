@@ -62,7 +62,7 @@ before the production release preflight can pass.
 
 ### Windows installer (development pre-release)
 
-Download `Mariana-0.7.0-dev.3-windows-x64.exe` from the
+The latest currently published installer is `Mariana-0.7.0-dev.3-windows-x64.exe` from the
 [v0.7.0-dev.3 pre-release](https://github.com/Vivojay/mariana-music-player/releases/tag/v0.7.0-dev.3),
 then launch it from Explorer or PowerShell:
 
@@ -95,8 +95,66 @@ npm run dev
 ```
 
 Frontend verification uses `npm run lint`, `npm test`, `npm run build`, and
-`npm run test:e2e`. Production packaging uses `npm run dist` after building the
-platform-native `mariana-cli` backend.
+`npm run test:e2e`.
+
+### Developer desktop builds and delivery
+
+The Electron executable and Python backend are separate build products. Rebuild
+both after backend changes; rerunning only Electron packaging can silently reuse
+an older `mariana-cli` binary. Desktop packaging is validated with Node.js 24;
+do not assume an untested newer major is compatible with Electron Builder.
+
+On Windows, `npm run rebuild:native` additionally requires Visual Studio 2022
+Build Tools with the **Desktop development with C++** workload. A local unpacked
+build may use the locked `node-pty` Windows prebuild when that compiler is not
+installed by omitting only `npm run rebuild:native`, but it must then pass
+`npm run test:e2e:packaged`. The signed release workflow always performs the
+native rebuild on a prepared runner.
+
+On Windows x64, create a clean unpacked development application with:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements-dev.txt
+npm ci
+python -m PyInstaller --clean --noconfirm `
+  --distpath dist-backend/win-x64 mariana-cli.spec
+npm run rebuild:native
+npm run pack
+.\release\win-unpacked\Mariana.exe
+```
+
+`release` is singular. The executable above is the local unpacked application;
+it is not a distributable installer. `npm run dist` creates the native installer
+or archive under `release/`, but a local result is not a production release and
+must not be uploaded as signed software.
+
+Linux and macOS builds use the same order on their native host, changing the
+backend directory to `linux-x64`, `mac-x64`, or `mac-arm64`. The authoritative
+platform matrix and commands live in
+[the signed release workflow](.github/workflows/release.yml).
+
+For an actual release:
+
+1. Update the canonical `version.json`; `python tools/check_version.py` must
+   confirm that Python and Electron metadata match it.
+2. Run the complete verification commands below and package/E2E acceptance on
+   every native target.
+3. Ensure the managed-tool manifest contains every platform artifact and that
+   Windows signing, Apple signing/notarization, and Linux GPG secrets are
+   configured in GitHub Actions.
+4. Create and push the existing stable `vX.Y.Z` tag. Development versions are
+   rejected by `tools/release_preflight.py`.
+5. Manually run **Signed desktop release** for that tag and enter `PUBLISH`.
+   The workflow reruns all gates, builds each backend, tests the unpacked app,
+   signs the deliverables, attests provenance, and uploads them to one GitHub
+   Release. Missing signing credentials or artifacts stop publication.
+
+The desktop updater consumes only those published stable GitHub Releases. It
+does not treat local `release/` output or ordinary branch pushes as updates.
+Before rebuilding, `python tools/clean_workspace.py` previews disposable output;
+add `--apply` to remove it. See the
+[repository hygiene guide](docs/REPOSITORY_HYGIENE.md) for preservation rules.
 
 The Chromaprint installer downloads the official Windows x64 1.6.0 archive and
 rejects it unless SHA-256 equals
@@ -409,16 +467,13 @@ RecBole/Implicit challenger research is isolated from the runtime; see
 
 ## Verification
 
-The latest Windows verification run passed 856 deterministic Python tests,
-the 90% repository coverage gate (90.78%), every independent 95%
-critical-module branch gate, 9 React unit tests, and 5 freshly packaged
-Electron/backend scenarios with one explicitly opt-in live download skipped.
-The real installed-tool suite added 17 passing FFmpeg, FFprobe, Chromaprint,
-ReplayGain, Icecast, and short-soak scenarios. Five credential-free public
-service probes passed earlier on the branch but were not rerun at the recorded
-commit. See
-the [dated verification report](docs/verification/2026-07-13.md) for exact
-versions, metrics, and the release gates that remain pending.
+The latest hosted Windows, Ubuntu, and macOS matrix passed Python branch
+coverage, every independent 95% critical-module branch gate, Ruff, Pyright,
+dependency audits, React tests/builds, and native Electron PTY checks. The most
+recent local full run passed 992 tests with 17 opt-in or unavailable-tool cases
+skipped and 93.95% aggregate coverage. See the
+[dated verification reports](docs/verification/) for exact environments,
+versions, metrics, and release gates that remain pending.
 
 A real silent-device check resolved and opened the current Windows endpoint as
 `Speakers (JBL Flip 5)` through WASAPI. An audible physical hot-switch test is
