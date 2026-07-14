@@ -96,6 +96,31 @@ test('packaged Electron app launches its bundled CLI backend', async () => {
   }
 })
 
+test('packaged backend repairs a zero-byte user-data file before startup', async () => {
+  test.skip(!executable, 'set MARIANA_PACKAGED_EXE after npm run pack')
+  const userData = await isolatedState('empty-user-data')
+  const runtimeUser = path.join(userData, 'runtime', 'user')
+  const userDataFile = path.join(runtimeUser, 'user_data.yml')
+  await mkdir(runtimeUser, { recursive: true })
+  await writeFile(userDataFile, '', 'utf8')
+  const application = await launchWithSetup(userData)
+  try {
+    const page = await application.firstWindow()
+    const terminal = page.getByLabel('Terminal output')
+    await expect(page.locator('.backend-dot.ready')).toBeVisible({ timeout: 45_000 })
+    await expect(terminal).toContainText('Recovered empty or invalid user statistics')
+    await expect(terminal).not.toContainText("'NoneType' object has no attribute 'keys'")
+    expect(await readFile(userDataFile, 'utf8')).toContain('default_user_data:')
+    expect((await readdir(runtimeUser)).filter((name) => name.startsWith('user_data.yml.invalid-'))).toHaveLength(1)
+    await writeCommand(page, 'exit')
+    await expect(terminal).toContainText('Do you want to exit?')
+    await writeCommand(page, 'y')
+    await expect(page.locator('.backend-dot.stopped')).toBeVisible({ timeout: 10_000 })
+  } finally {
+    await application.close()
+  }
+})
+
 test('packaged YouTube downloads stay in the current PTY session', async () => {
   test.skip(!executable, 'set MARIANA_PACKAGED_EXE after npm run pack')
   const userData = await isolatedState('download-session')

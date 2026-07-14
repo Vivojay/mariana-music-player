@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Recovered empty, malformed, or partially written user statistics before
+  startup, retained invalid files for diagnosis, and made future YAML saves
+  atomic with bounded handling for transient Windows file locks.
+
 ## 0.7.0-dev.4
 
 - Added persistent eight-level queue groups, atomic album/playlist nodes,

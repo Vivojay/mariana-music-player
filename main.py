@@ -115,6 +115,7 @@ from mariana.station_discovery import StationDiscovery, StationSeedError
 from mariana.setup import SetupStateError, SetupStateStore
 from mariana.tool_setup import discover_media_tools, persist_media_tools, setup_media_tools
 from mariana.toolchain import ToolchainError, ToolchainManager, find_javascript_runtime
+from mariana.user_state import load_user_data, write_user_data_atomic
 from mariana.version import __version__
 from recommendation_engine import Candidate, RecommendationEngine
 from runtime_check import check_runtime, format_runtime_report
@@ -277,17 +278,15 @@ def first_startup_greet(is_first_boot):
             sys.exit('[ERROR] Critical guide setup-file missing, please consider reinstalling this file or the entire program\nAborting Mariana Player. . .')
 
 try:
-    with RUNTIME_PATHS.user_data.open(encoding='utf-8') as u_data_file:
-        USER_DATA = yaml.load(u_data_file)
-        if (
-            list(USER_DATA.keys()) == ['default_user_data']
-            and not FIRST_BOOT
-            and not ISDEV
-        ):
-            SAY(visible=False,
-                display_message = '',
-                log_message = 'User data found to be empty, reverting to default',
-                log_priority = 3)
+    USER_DATA, invalid_user_data_backup = load_user_data(
+        RUNTIME_PATHS.user_data,
+        RUNTIME_PATHS.resource('user', 'user_data.yml'),
+    )
+    if invalid_user_data_backup is not None:
+        print(
+            '[WARNING] Recovered empty or invalid user statistics; '
+            f'the previous file was retained at {invalid_user_data_backup}'
+        )
 except OSError:
     SAY(visible=True,
         display_message = f'Encountered missing program file @{RUNTIME_PATHS.user_data}',
@@ -2668,8 +2667,7 @@ def save_user_data():
     total_plays = sum(total_plays)
     USER_DATA['default_user_data']['stats']['play_count']['total'] = total_plays
 
-    with RUNTIME_PATHS.user_data.open('w', encoding="utf-8") as u_data_file:
-        yaml.dump(USER_DATA, u_data_file)
+    write_user_data_atomic(RUNTIME_PATHS.user_data, USER_DATA)
 
 def save_song_data():
     global currentsong_length, currentsong

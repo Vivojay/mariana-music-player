@@ -33,6 +33,7 @@ DEFAULT_MODULES = (
     "mariana/station.py",
     "mariana/station_discovery.py",
     "mariana/supervisor.py",
+    "mariana/user_state.py",
 )
 
 
