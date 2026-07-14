@@ -469,11 +469,15 @@ def test_seek_progress_and_status_command_families(monkeypatch):
     )
 
     main.process("seek +10")
+    main.process("seek +30s")
+    main.process("seek 50%")
+    main.process("seek start")
+    main.process("seek end")
     main.process("progress*")
     main.process("ism?")
     main.process("isplaying?")
 
-    assert seeks == ["30"]
+    assert seeks == [30.0, 50.0, 50.0, 0.0, 99.75]
     rendered = "\n".join(map(str, printed))
     assert "Seeking to" in rendered
     assert "progress" in rendered

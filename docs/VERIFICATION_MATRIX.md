@@ -46,9 +46,9 @@ reachable command family is classified below; none is unreviewed.
 | `prev`, `next`, `-`, `+`, `.-`, `.+` | Native/compatibility | Queue navigation and historical display/play aliases |
 | `.`, `.*`, `now`, `now*` | Native/compatibility | Current-media display |
 | `output device`, `input device` | Native | Current OS endpoint reporting; Windows Core Audio/WASAPI mapping; active default-device auto-follow; typed unavailable response |
-| `fade`, `fade in`, `fade out` | Native | PCM gain automation |
+| `fade`, `fade in`, `fade out` | Native | Validated in/out/to/from-to and legacy numeric PCM gain automation |
 | `m?`, `ism?`, `ispl`, `isplaying?`, `isloaded?` | Compatibility-only | Playback-state inspection |
-| `seek`, `reset`, `t`, `prog`, `progress` | Native | Sample-derived progress; seek only for verified finite sources |
+| `seek`, `reset`, `t`, `prog`, `progress` | Native | Sample-derived progress; seconds, clocks, labeled durations, relative units, percentages, and start/end; seek only for verified finite sources |
 | `download-*`, `dl-yv`, `dl-ya`, `download-ml` | Modernized | yt-dlp/FFmpeg downloader; misspellings only suggest a correction |
 | `.rand`, `=rand`, `rand`, `rand*`, `/rand` and all `arand` forms | Native/compatibility | Current library random selection |
 | `clear`, `cls`, `p`, `ph`, `s`, `stop`, `m`, `mute` | Native | PTY-safe terminal and playback controls |

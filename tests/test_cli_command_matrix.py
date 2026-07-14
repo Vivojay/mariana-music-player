@@ -391,10 +391,15 @@ def test_exit_confirmation_paths(cli, monkeypatch):
 @pytest.mark.parametrize(
     ("command", "expected"),
     [
+        ("fade to 35", (0.7, 0.35, 5.0)),
+        ("fade to 35 in 3", (0.7, 0.35, 3.0)),
         ("fade to 30 in 3", (0.7, 0.3, 3.0)),
         ("fade from 20 in 2", (0.2, 0.7, 2.0)),
         ("fade from 20 to 80", (0.2, 0.8, 5.0)),
+        ("fade from 20 to 80 in 6", (0.2, 0.8, 6.0)),
+        ("fade from 20 to 80 in 0", (0.2, 0.8, 0.0)),
         ("fade 10 20 1", (0.1, 0.2, 1.0)),
+        ("fade 10 20 0", (0.1, 0.2, 0.0)),
     ],
 )
 def test_fade_parser_and_dispatch_are_complete(cli, command, expected):
@@ -422,12 +427,41 @@ def test_fade_parser_and_dispatch_are_complete(cli, command, expected):
         "fade to 101",
         "fade from -1 to 50",
         "fade to 50 in -1",
+        "fade to 50 in nan",
+        "fade to 50 in inf",
+        "fade from nan to 50",
         "other to 50",
     ],
 )
 def test_fade_parser_rejects_partial_or_unsafe_values(command):
     with pytest.raises(ValueError):
         main.parse_fade_arguments(command.split(), 0.5)
+
+
+@pytest.mark.parametrize(
+    ("command", "fade_type", "duration"),
+    [
+        ("fade in", 0, None),
+        ("fade in 5", 0, 5.0),
+        ("fade out", 1, None),
+        ("fade out 10", 1, 10.0),
+        ("fade out 0", 1, 0.0),
+    ],
+)
+def test_simple_fade_forms_preserve_defaults_and_accept_finite_durations(cli, command, fade_type, duration):
+    main.process(command)
+    expected = {"fade_type": fade_type}
+    if duration is not None:
+        expected["fade_duration"] = duration
+    assert cli.actions[-1] == ("fade", expected)
+
+
+@pytest.mark.parametrize("command", ["fade in -1", "fade out nan", "fade in inf"])
+def test_simple_fade_forms_reject_unsafe_durations(cli, command):
+    before = list(cli.actions)
+    main.process(command)
+    assert cli.actions == before
+    assert "finite non-negative" in cli.messages[-1]["display_message"]
 
 
 def test_completion_callback_advances_persistent_queue_without_restarting_prefetched_media(monkeypatch):

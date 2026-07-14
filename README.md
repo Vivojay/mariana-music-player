@@ -177,6 +177,11 @@ mute, fade, lyrics, next/previous, recent, and download syntax remains. New
 command families include:
 
 ```text
+seek <seconds|MM:SS|HH:MM:SS|DD:HH:MM:SS|1d 2h 3m 4s|percent|start|end>
+seek +<seconds|duration>|-<seconds|duration>
+fade in|out [seconds]
+fade to <0-100> [in <seconds>]
+fade from <0-100> to <0-100> [in <seconds>]
 queue add|insert|remove|move|swap|jump|list|clear|reset
 queue next|previous|shuffle|repeat|consume|save|load|undo|redo|autofill
 queue tree|group|order|priority|dedupe

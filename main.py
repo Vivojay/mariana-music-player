@@ -16,6 +16,7 @@
 
 # IMPORTS BEGIN #
 
+import math
 import threading
 import time
 
@@ -109,6 +110,7 @@ from mariana.preferences import MediaPreferences, PreferenceState
 from mariana.presence import PresenceCoordinator, PresencePrivacyMode
 from mariana.queueing import PersistentQueue, QueueError
 from mariana.radio import RadioCatalog, RadioError
+from mariana.seek import SeekSyntaxError, parse_seek_target
 from mariana.sleep_timer import SleepAction, SleepTimer, parse_duration
 from mariana.sources import FailureCode, MediaFailure
 from mariana.station import StationError, StationManager
@@ -3332,10 +3334,11 @@ def song_seek(timeval=None, rel_val=None):
 
     if timeval is not None:
         try:
-            vas.player.set_time(int(timeval)*1000)
+            target = float(timeval)
+            vas.player.set_time(int(target * 1000))
             media = vas.controller.snapshot().media
             if media:
-                RECOMMENDER.record_event(media, 'seek', context={'target': int(timeval)})
+                RECOMMENDER.record_event(media, 'seek', context={'target': target})
             return True
         except Exception:
             return None
@@ -3382,6 +3385,17 @@ def isdecimal(value):
         return False
 
 
+def parse_fade_duration(value):
+    """Return one finite, non-negative fade duration in seconds."""
+    try:
+        duration = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError('Fade duration must be a finite non-negative number of seconds') from error
+    if not math.isfinite(duration) or duration < 0:
+        raise ValueError('Fade duration must be a finite non-negative number of seconds')
+    return duration
+
+
 def parse_fade_arguments(arguments, current_volume):
     """Parse the extended fade command without leaving partially initialized values."""
     if not arguments or arguments[0].lower() != 'fade':
@@ -3390,7 +3404,7 @@ def parse_fade_arguments(arguments, current_volume):
     tokens = arguments[1:]
     if len(tokens) in {2, 3} and all(isdecimal(value) for value in tokens):
         initial, final = (float(value) / 100 for value in tokens[:2])
-        duration = float(tokens[2]) if len(tokens) == 3 else 5.0
+        duration = parse_fade_duration(tokens[2]) if len(tokens) == 3 else 5.0
     else:
         initial = float(current_volume)
         final = None
@@ -3410,7 +3424,7 @@ def parse_fade_arguments(arguments, current_volume):
             elif keyword == 'to':
                 final = value / 100
             else:
-                duration = value
+                duration = parse_fade_duration(value)
             position += 2
 
         if final is None:
@@ -3419,10 +3433,9 @@ def parse_fade_arguments(arguments, current_volume):
             else:
                 raise ValueError('Fade command requires a final volume')
 
-    if not 0 <= initial <= 1 or not 0 <= final <= 1:
+    if not all(math.isfinite(value) for value in (initial, final)) or not 0 <= initial <= 1 or not 0 <= final <= 1:
         raise ValueError('Fade volume must be between 0 and 100')
-    if duration < 0:
-        raise ValueError('Fade duration must not be negative')
+    duration = parse_fade_duration(duration)
     return initial, final, duration
 
 def rand_song_index_generate():
@@ -4428,14 +4441,13 @@ def process(command):
                     fade_in_out(fade_type=fade_type)
 
                 elif len(commandslist) == 3:
-                    if isdecimal(commandslist[2]):
-                        fade_duration = float(commandslist[2])
+                    try:
+                        fade_duration = parse_fade_duration(commandslist[2])
                         fade_in_out(fade_type=fade_type, fade_duration=fade_duration)
-
-                    else:
+                    except ValueError as error:
                         SAY(visible=visible,
-                            display_message='Fade duration must be a valid integer',
-                            log_message='Fade duration is not a valid integer',
+                            display_message=str(error),
+                            log_message=str(error),
                             log_priority=2)
 
                 else:
@@ -4489,50 +4501,23 @@ def process(command):
 
         elif commandslist[0].lower() == 'seek':
             if currentsong_length not in (None, 0, -1):
-                if len(commandslist) == 2:
-                    if commandslist[1].startswith('+'):
-                        rawtime = str(int(get_current_progress()) + int(commandslist[1][1:]))
-                    elif commandslist[1].startswith('-'):
-                        rawtime = str(int(get_current_progress()) - int(commandslist[1][1:]))
+                try:
+                    target = parse_seek_target(
+                        commandslist[1:],
+                        position=get_current_progress(),
+                        duration=float(currentsong_length),
+                    )
+                    if song_seek(timeval=target.seconds):
+                        IPrint(f"Seeking to: {target.display}", visible=visible)
                     else:
-                        rawtime = commandslist[1]
-
-                    time_validity = validate_time(rawtime)
-
-                    if not time_validity: # Raw time is valid
-                        # Take a valid raw value for time from the user. Format is defined in the time section of help
-                        timeobj = timeinput_to_timeobj(rawtime)
-                        if timeobj is not ValueError:
-                            if timeobj == (None, None):
-                                SAY(visible=visible,
-                                    display_message = 'Internal Error',
-                                    log_message = 'Invalid time format: Invalid time object',
-                                    log_priority = 2)
-                            else:
-                                _ = song_seek(timeval=timeobj[1])
-                                if _:
-                                    IPrint(f"Seeking to: {timeobj[0]}", visible=visible)
-
-                        # TODO - Make following error messages more meaningful by giving them more
-                        # context depending on if absolute or relative seek was called...
-
-                        # E.g. say "reached beginning" instead of "seek val can't be -ve"
-                        # When using relative seek
-
-                        else:
-                            SAY(visible=visible, display_message="Error: Seek value too large for this audio",
-                                log_message=f'Seek value too large for: {currentsong}', log_priority=2)
-                    elif time_validity == 1:
-                        SAY(visible=visible, display_message="Error: Seek value can't have a decimal point",
-                            log_message=f'Seek value floating point for: {currentsong}', log_priority=2)
-                    elif time_validity == 2:
-                        SAY(visible=visible, display_message="Error: Seek value must be numeric",
-                            log_message=f'Seek value non numeric for: {currentsong}', log_priority=2)
-                    elif time_validity == 3:
-                        SAY(visible=visible, display_message="Error: Seek value can't be negative",
-                            log_message=f'Seek value negative for: {currentsong}', log_priority=2)
-                    else:
-                        pass
+                        raise SeekSyntaxError("The current source rejected the seek operation")
+                except SeekSyntaxError as error:
+                    SAY(
+                        visible=visible,
+                        display_message=f"Error: {error}",
+                        log_message=f"Seek command rejected: {error}",
+                        log_priority=2,
+                    )
             else:
                 if currentsong_length == -1:
                     SAY(visible=visible,
