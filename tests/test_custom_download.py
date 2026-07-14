@@ -30,6 +30,40 @@ def test_download_is_atomic_and_uses_explicit_codec(tmp_path: Path, monkeypatch)
     assert captured["kwargs"]["timeout"] == 3
 
 
+def test_download_uses_extractor_for_soundcloud_pages(tmp_path: Path, monkeypatch):
+    captured = {}
+
+    class FakeDownloader:
+        def __init__(self, options):
+            captured["options"] = options
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def extract_info(self, url, *, download):
+            captured["url"] = url
+            captured["download"] = download
+            staging = Path(captured["options"]["outtmpl"]).parent
+            (staging / "media.mp3").write_bytes(b"audio")
+            return {}
+
+    monkeypatch.setattr("mariana.download.YoutubeDL", FakeDownloader)
+    monkeypatch.setattr("mariana.download.subprocess.run", lambda *_args, **_kwargs: pytest.fail("FFmpeg input path used"))
+    result = download_media(
+        "https://soundcloud.com/francis-karel-1/like-all-my-friends",
+        tmp_path / "song.mp3",
+    )
+
+    assert result == tmp_path / "song.mp3"
+    assert result.read_bytes() == b"audio"
+    assert captured["url"].startswith("https://soundcloud.com/")
+    assert captured["download"] is True
+    assert captured["options"]["format"] == "bestaudio/best"
+
+
 def test_download_cleans_partial_on_timeout(tmp_path: Path, monkeypatch):
     def timeout(command, **_kwargs):
         Path(command[-1]).write_bytes(b"partial")

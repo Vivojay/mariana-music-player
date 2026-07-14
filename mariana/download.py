@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
+import uuid
 from pathlib import Path
+from typing import Any, cast
 from urllib.parse import urlparse
+
+from yt_dlp import YoutubeDL
 
 from .playback import CREATE_NO_WINDOW, find_executable
 
@@ -16,9 +21,64 @@ FORMATS = {
     "opus": ["-vn", "-c:a", "libopus", "-b:a", "160k"],
 }
 
+# These URLs identify a page on an extractor-backed service, not an audio file
+# that FFmpeg can open directly.  yt-dlp resolves the page to its media stream
+# before handing the downloaded audio to FFmpeg for conversion.
+EXTRACTOR_HOSTS = (
+    "soundcloud.com",
+    "youtube.com",
+    "youtu.be",
+    "bandcamp.com",
+    "vimeo.com",
+)
+
 
 class DownloadError(RuntimeError):
     pass
+
+
+def _uses_extractor(url: str) -> bool:
+    host = (urlparse(url).hostname or "").casefold()
+    return any(host == service or host.endswith(f".{service}") for service in EXTRACTOR_HOSTS)
+
+
+def _download_extractor_media(
+    url: str,
+    destination: Path,
+    *,
+    output_format: str,
+    ffmpeg_bin: str | None,
+) -> Path:
+    """Download an extractor page URL into an isolated staging directory."""
+    staging = destination.parent / f".{destination.stem}.extract-{uuid.uuid4().hex}"
+    staging.mkdir(parents=True, exist_ok=False)
+    options = {
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "format": "bestaudio/best",
+        "outtmpl": str(staging / "media.%(ext)s"),
+        "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": output_format}],
+    }
+    if ffmpeg_bin:
+        options["ffmpeg_location"] = str(Path(ffmpeg_bin).expanduser())
+    try:
+        with YoutubeDL(cast(Any, options)) as downloader:
+            downloader.extract_info(url, download=True)
+        output = staging / f"media.{output_format}"
+        if not output.is_file() or output.stat().st_size == 0:
+            raise DownloadError("yt-dlp completed without producing a media file")
+        temporary = destination.with_name(f".{destination.stem}.partial{destination.suffix}")
+        temporary.unlink(missing_ok=True)
+        output.replace(temporary)
+        temporary.replace(destination)
+        return destination
+    except DownloadError:
+        raise
+    except Exception as error:
+        raise DownloadError(f"Media-page download failed: {str(error).strip() or type(error).__name__}") from error
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
 
 def download_media(
@@ -39,6 +99,13 @@ def download_media(
     if destination.suffix.lower() != f".{output_format}":
         destination = destination.with_suffix(f".{output_format}")
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if _uses_extractor(url):
+        return _download_extractor_media(
+            url,
+            destination,
+            output_format=output_format,
+            ffmpeg_bin=ffmpeg_bin,
+        )
     temporary = destination.with_name(f".{destination.stem}.partial{destination.suffix}")
     temporary.unlink(missing_ok=True)
     executable = find_executable("ffmpeg", ffmpeg_bin)
