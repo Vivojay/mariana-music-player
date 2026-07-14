@@ -90,7 +90,9 @@ test('packaged Electron app launches its bundled CLI backend', async () => {
     await expect(page.locator('.terminal-pane:not([hidden])').getByLabel('Terminal output')).toContainText('Do you want to exit?')
     await writeCommand(page, 'y')
     await expect(page.locator('.terminal-pane:not([hidden])').getByLabel('Terminal output')).toContainText('Exiting...')
-    await expect(page.locator('.backend-dot.stopped')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByRole('tab', { name: 'View 2' })).toHaveCount(0, { timeout: 10_000 })
+    await expect(page.getByRole('tab', { name: 'View 1' })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator('.backend-dot.ready')).toBeVisible({ timeout: 45_000 })
   } finally {
     await application.close()
   }
@@ -115,7 +117,7 @@ test('packaged backend repairs a zero-byte user-data file before startup', async
     await writeCommand(page, 'exit')
     await expect(terminal).toContainText('Do you want to exit?')
     await writeCommand(page, 'y')
-    await expect(page.locator('.backend-dot.stopped')).toBeVisible({ timeout: 10_000 })
+    await expect.poll(() => application.windows().length, { timeout: 10_000 }).toBe(0)
   } finally {
     await application.close()
   }

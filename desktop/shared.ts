@@ -32,6 +32,11 @@ export type UpdateState = {
   safeToInstall?: boolean
 }
 
+export type TerminalExit = {
+  code: number
+  intentional: boolean
+}
+
 export type MarianaDesktopApi = {
   terminal: {
     write(data: string): void
@@ -39,7 +44,7 @@ export type MarianaDesktopApi = {
     restart(): Promise<void>
     history(): Promise<string>
     onData(callback: (data: string) => void): () => void
-    onExit(callback: (code: number) => void): () => void
+    onExit(callback: (event: TerminalExit) => void): () => void
   }
   backend: {
     snapshot(): Promise<{ ready: boolean; playbackState: string; sleepActive: boolean }>
@@ -52,6 +57,9 @@ export type MarianaDesktopApi = {
   }
   clipboard: {
     writeText(value: string): Promise<void>
+  }
+  app: {
+    close(): Promise<void>
   }
   openExternal(url: string): Promise<void>
   platform: string

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { TerminalSurface } from './TerminalSurface'
 import { themes, type ThemeName } from './themes'
@@ -100,6 +100,8 @@ export default function App() {
   const [search, setSearch] = useState('')
   const [tabs, setTabs] = useState([{ id: 1, title: 'View 1' }])
   const [activeTab, setActiveTab] = useState(1)
+  const tabsRef = useRef(tabs)
+  const activeTabRef = useRef(activeTab)
   const [update, setUpdate] = useState<UpdateState>({ state: 'idle' })
   const [backendState, setBackendState] = useState('starting')
   const [broadcastStatus, setBroadcastStatus] = useState<Record<string, unknown>>({ state: 'idle' })
@@ -131,6 +133,11 @@ export default function App() {
     localStorage.setItem('mariana.theme', themeName)
     localStorage.setItem('mariana.fontSize', String(fontSize))
   }, [themeName, fontSize])
+
+  useEffect(() => {
+    tabsRef.current = tabs
+    activeTabRef.current = activeTab
+  }, [tabs, activeTab])
 
   useEffect(() => {
     void window.mariana.backend.snapshot().then((snapshot) => {
@@ -178,7 +185,27 @@ export default function App() {
       }
     })
     const updater = window.mariana.updates.onState(setUpdate)
-    const exited = window.mariana.terminal.onExit(() => setBackendState('stopped'))
+    const exited = window.mariana.terminal.onExit((event) => {
+      if (!event.intentional) {
+        setBackendState('stopped')
+        return
+      }
+      const currentTabs = tabsRef.current
+      if (currentTabs.length === 1) {
+        void window.mariana.app.close()
+        return
+      }
+      const exitingId = activeTabRef.current
+      const index = currentTabs.findIndex((tab) => tab.id === exitingId)
+      const remaining = currentTabs.filter((tab) => tab.id !== exitingId)
+      const nextActive = remaining[Math.max(0, index - 1)].id
+      tabsRef.current = remaining
+      activeTabRef.current = nextActive
+      setTabs(remaining)
+      setActiveTab(nextActive)
+      setBackendState('starting')
+      void window.mariana.terminal.restart()
+    })
     const shortcut = (event: KeyboardEvent) => {
       if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'p') {
         event.preventDefault()

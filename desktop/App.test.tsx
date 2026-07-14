@@ -9,9 +9,10 @@ const write = vi.fn()
 const check = vi.fn(async () => undefined)
 const install = vi.fn(async () => undefined)
 const restart = vi.fn(async () => undefined)
+const closeApp = vi.fn(async () => undefined)
 let backendEvent: ((event: { event: string; payload: Record<string, unknown>; timestamp: number }) => void) | undefined
 let updateEvent: ((event: { state: string; version?: string; safeToInstall?: boolean; percent?: number }) => void) | undefined
-let exitEvent: ((code: number) => void) | undefined
+let exitEvent: ((event: { code: number; intentional: boolean }) => void) | undefined
 
 beforeEach(() => {
   localStorage.clear()
@@ -19,6 +20,7 @@ beforeEach(() => {
   check.mockClear()
   install.mockClear()
   restart.mockClear()
+  closeApp.mockClear()
   backendEvent = undefined
   updateEvent = undefined
   exitEvent = undefined
@@ -31,6 +33,7 @@ beforeEach(() => {
         onEvent: (callback: typeof backendEvent) => { backendEvent = callback; return () => {} },
       },
       updates: { check, install, onState: (callback: typeof updateEvent) => { updateEvent = callback; return () => {} } },
+      app: { close: closeApp },
       openExternal: vi.fn(),
       platform: 'win32',
     },
@@ -176,8 +179,9 @@ describe('Mariana desktop shell', () => {
 
     act(() => backendEvent?.({ event: 'fatal-error', payload: {}, timestamp: 2 }))
     expect(document.querySelector('.backend-dot.error')).toBeInTheDocument()
-    act(() => exitEvent?.(1))
+    act(() => exitEvent?.({ code: 1, intentional: false }))
     expect(document.querySelector('.backend-dot.stopped')).toBeInTheDocument()
+    expect(closeApp).not.toHaveBeenCalled()
   })
 
   it('supports keyboard timer toggle and cancellation through the PTY', () => {
@@ -196,5 +200,18 @@ describe('Mariana desktop shell', () => {
     expect(write).toHaveBeenCalledWith('theme kitty\r')
     fireEvent.click(screen.getByLabelText('Close View 2'))
     expect(screen.queryByRole('tab', { name: 'View 2' })).not.toBeInTheDocument()
+  })
+
+  it('closes an exited view, restarts surviving views, and closes the app after the last view exits', () => {
+    render(<App />)
+    fireEvent.click(screen.getByLabelText('New terminal view'))
+    act(() => exitEvent?.({ code: 0, intentional: true }))
+    expect(screen.queryByRole('tab', { name: 'View 2' })).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'View 1' })).toHaveAttribute('aria-selected', 'true')
+    expect(restart).toHaveBeenCalledOnce()
+    expect(closeApp).not.toHaveBeenCalled()
+
+    act(() => exitEvent?.({ code: 0, intentional: true }))
+    expect(closeApp).toHaveBeenCalledOnce()
   })
 })

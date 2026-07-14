@@ -34,6 +34,8 @@ let quitting = false
 let playbackState = 'idle'
 let sleepActive = false
 let backendReady = false
+let backendShutdownAcknowledged = false
+let backendExitClosesView = true
 let backendSafeOverride: boolean | null = null
 let updateState: UpdateState = { state: app.isPackaged ? 'idle' : 'disabled' }
 let updatePreparationTimer: NodeJS.Timeout | null = null
@@ -66,9 +68,11 @@ function handleBackendEvent(event: BackendEvent) {
     }))
   }
   if (event.event === 'fatal-error' || event.event === 'shutdown-ack') backendReady = false
+  if (event.event === 'shutdown-ack') backendShutdownAcknowledged = true
   if (event.event === 'update-prepared' && updateState.state === 'downloaded') {
     if (updatePreparationTimer) clearTimeout(updatePreparationTimer)
     quitting = true
+    backendExitClosesView = false
     terminalProcess?.write('exit y\r')
     setTimeout(() => autoUpdater.quitAndInstall(false, true), 1200)
   }
@@ -124,8 +128,10 @@ function backendCommand(): { executable: string; args: string[]; cwd: string; re
 
 function startTerminal() {
   terminalProcess?.kill()
+  backendShutdownAcknowledged = false
+  backendExitClosesView = true
   const command = backendCommand()
-  terminalProcess = pty.spawn(command.executable, command.args, {
+  const spawnedProcess = pty.spawn(command.executable, command.args, {
     name: 'xterm-256color',
     cols: 120,
     rows: 34,
@@ -141,7 +147,8 @@ function startTerminal() {
       MARIANA_CONTROL_TOKEN: controlToken,
     },
   })
-  terminalProcess.onData((data) => {
+  terminalProcess = spawnedProcess
+  spawnedProcess.onData((data) => {
     const controlWindow = terminalControlTail + data
     const clearIndex = Math.max(controlWindow.lastIndexOf('\u001b[2J'), controlWindow.lastIndexOf('\u001b[3J'))
     terminalHistory = clearIndex >= 0
@@ -150,9 +157,13 @@ function startTerminal() {
     terminalControlTail = controlWindow.slice(-4)
     if (mainWindow && !mainWindow.webContents.isLoading()) send('terminal:data', data)
   })
-  terminalProcess.onExit(({ exitCode }) => {
+  spawnedProcess.onExit(({ exitCode }) => {
+    if (terminalProcess !== spawnedProcess) return
     terminalProcess = null
-    send('terminal:exit', exitCode)
+    send('terminal:exit', {
+      code: exitCode,
+      intentional: backendShutdownAcknowledged && backendExitClosesView,
+    })
   })
 }
 
@@ -227,6 +238,10 @@ function registerIpc() {
       throw new Error('Invalid clipboard text')
     }
     clipboard.writeText(value)
+  })
+  ipcMain.handle('app:close', async (event) => {
+    if (!validateSender(event)) throw new Error('Invalid IPC sender')
+    mainWindow?.close()
   })
   ipcMain.handle('shell:open-external', async (event, value: unknown) => {
     if (!validateSender(event) || typeof value !== 'string') throw new Error('Invalid external URL')

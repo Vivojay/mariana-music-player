@@ -19,6 +19,11 @@ test('hosts the real Mariana PTY in the riced terminal shell', async () => {
     await page.getByText('◷ Sleep').click()
     await expect(page.getByLabel('Sleep timer')).toBeVisible()
     await page.screenshot({ path: path.join('temp', 'electron-smoke.png') })
+    await page.evaluate(() => window.mariana.terminal.write('exit\r'))
+    await expect(page.getByLabel('Terminal output')).toContainText('Do you want to exit?')
+    await page.evaluate(() => window.mariana.terminal.write('y\r'))
+    await expect(page.getByLabel('Terminal output')).toContainText('Exiting...')
+    await expect.poll(() => application.windows().length, { timeout: 10_000 }).toBe(0)
   } finally {
     await application.close()
   }
@@ -85,6 +90,12 @@ test('preserves PTY controls, history, resize, themes, and session restart', asy
     await page.keyboard.press('Control+Shift+P')
     await expect(page.getByLabel('Sleep timer')).toBeVisible()
     await page.getByTitle('Restart Mariana session').click()
+    await expect(page.locator('.backend-dot.ready')).toBeVisible({ timeout: 30_000 })
+    await page.getByLabel('New terminal view').click()
+    await expect(page.getByRole('tab', { name: 'View 2' })).toHaveAttribute('aria-selected', 'true')
+    await page.evaluate(() => window.mariana.terminal.write('exit y\r'))
+    await expect(page.getByRole('tab', { name: 'View 2' })).toHaveCount(0, { timeout: 10_000 })
+    await expect(page.getByRole('tab', { name: 'View 1' })).toHaveAttribute('aria-selected', 'true')
     await expect(page.locator('.backend-dot.ready')).toBeVisible({ timeout: 30_000 })
     await page.screenshot({ path: path.join('test-results', 'terminal-themes-and-restart.png'), fullPage: true })
   } finally {

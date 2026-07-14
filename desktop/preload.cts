@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { BackendEvent, MarianaDesktopApi, UpdateState } from './shared.js'
+import type { BackendEvent, MarianaDesktopApi, TerminalExit, UpdateState } from './shared.js'
 
 const subscribe = <T,>(channel: string, callback: (value: T) => void) => {
   const listener = (_event: Electron.IpcRendererEvent, value: T) => callback(value)
@@ -14,7 +14,7 @@ const api: MarianaDesktopApi = {
     restart: () => ipcRenderer.invoke('terminal:restart'),
     history: () => ipcRenderer.invoke('terminal:history'),
     onData: (callback) => subscribe<string>('terminal:data', callback),
-    onExit: (callback) => subscribe<number>('terminal:exit', callback),
+    onExit: (callback) => subscribe<TerminalExit>('terminal:exit', callback),
   },
   backend: {
     snapshot: () => ipcRenderer.invoke('backend:snapshot'),
@@ -27,6 +27,9 @@ const api: MarianaDesktopApi = {
   },
   clipboard: {
     writeText: (value) => ipcRenderer.invoke('clipboard:write-text', value),
+  },
+  app: {
+    close: () => ipcRenderer.invoke('app:close'),
   },
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
   platform: process.platform,
