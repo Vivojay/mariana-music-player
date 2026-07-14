@@ -63,6 +63,7 @@ def cli(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "set_download_library_inclusion", lambda enabled: actions.append(("downloads-root", enabled)))
     monkeypatch.setattr(main, "edit_current_lyrics", lambda: actions.append(("lyrics-edit",)))
     monkeypatch.setattr(main, "recycle_library_media", lambda args: actions.append(("recycle", args)))
+    monkeypatch.setattr(main, "open_path", lambda path: actions.append(("open-path", path)))
     monkeypatch.setattr(main, "reveal_path", lambda path: actions.append(("reveal", path)))
     monkeypatch.setattr(main.YT_query, "search_youtube", lambda **_kwargs: ("Video", "https://youtube.test/watch?v=1"))
     monkeypatch.setattr(main, "play_vas_media", lambda *args, **kwargs: actions.append(("play-vas", args, kwargs)))
