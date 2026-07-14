@@ -62,17 +62,21 @@ before the production release preflight can pass.
 
 ### Windows installer (development pre-release)
 
-The latest currently published installer is `Mariana-0.7.0-dev.3-windows-x64.exe` from the
-[v0.7.0-dev.3 pre-release](https://github.com/Vivojay/mariana-music-player/releases/tag/v0.7.0-dev.3),
+The latest currently published installer is `Mariana-0.7.0-dev.4-windows-x64.exe` from the
+[v0.7.0-dev.4 pre-release](https://github.com/Vivojay/mariana-music-player/releases/tag/v0.7.0-dev.4),
 then launch it from Explorer or PowerShell:
 
 ```powershell
-.\Mariana-0.7.0-dev.3-windows-x64.exe
+.\Mariana-0.7.0-dev.4-windows-x64.exe
 ```
 
 This development installer is not Authenticode-signed, so Windows may display
-a publisher warning. It is not the stable `0.7.0` release. First boot discovers
-or offers to provision the media toolchain as described above.
+a publisher warning. Verify it against the release's `SHA256SUMS.txt`; the
+installer SHA-256 is
+`C5537C030EBAB7EF9E6B5B4D60EA1538B74DEA86A89E885EFBBD081A392DEB19`.
+It is not the stable `0.7.0` release. First boot discovers or offers to
+provision the media toolchain as described above. Only Windows x64 is published
+for this development version; no macOS or Linux package is claimed.
 
 ### Source and CLI
 
