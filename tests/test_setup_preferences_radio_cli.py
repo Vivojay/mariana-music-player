@@ -104,10 +104,20 @@ def test_preference_listing_download_root_and_recycle_helpers(monkeypatch, tmp_p
         get=lambda _media: PreferenceState.NEUTRAL,
         toggle=lambda _media, state: state,
         set=lambda *_args: True,
-        list=lambda *_args: [PreferenceEntry(media.stable_id, PreferenceState.FAVORITE, "Song", media.original_uri, 1)],
+        list=lambda *_args: [
+            PreferenceEntry(
+                media.stable_id,
+                PreferenceState.FAVORITE,
+                "Song",
+                media.original_uri,
+                1,
+                MediaSource.LOCAL,
+            )
+        ],
     )
     monkeypatch.setattr(main.vas, "controller", controller)
     monkeypatch.setattr(main, "PREFERENCES", preferences)
+    monkeypatch.setattr(main, "_sound_files", [media.original_uri])
     monkeypatch.setattr(main, "IPrint", lambda value, **_kwargs: printed.append(str(value)))
 
     assert main.preference_command([], PreferenceState.FAVORITE) == PreferenceState.NEUTRAL
@@ -120,6 +130,7 @@ def test_preference_listing_download_root_and_recycle_helpers(monkeypatch, tmp_p
     with pytest.raises(ValueError, match="No active"):
         main.preference_command([], PreferenceState.FAVORITE)
     assert main.list_preferences(PreferenceState.FAVORITE, ["1"])[0].label == "Song"
+    assert any("Library #" in value and "Source / reference" in value for value in printed)
     with pytest.raises(ValueError, match="optional numeric"):
         main.list_preferences(PreferenceState.FAVORITE, ["all"])
     with pytest.raises(ValueError, match="optional numeric"):

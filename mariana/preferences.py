@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -12,7 +13,8 @@ from typing import TYPE_CHECKING
 import yaml
 
 from .database import MarianaDatabase
-from .models import MediaRef
+from .models import MediaRef, MediaSource
+from .sources import sanitized_resolver_data
 
 if TYPE_CHECKING:
     from .library import LibraryCatalog
@@ -31,6 +33,7 @@ class PreferenceEntry:
     label: str
     uri: str | None
     updated_at: float
+    source: MediaSource | None = None
 
 
 class MediaPreferences:
@@ -46,15 +49,53 @@ class MediaPreferences:
         stable_id = media_or_id.stable_id if isinstance(media_or_id, MediaRef) else media_or_id
         state = PreferenceState(state)
         previous = self.get(stable_id)
-        if previous == state:
-            return False
         with self.database.transaction() as connection:
-            connection.execute(
-                "INSERT INTO media_preferences(stable_id, state, updated_at) VALUES(?, ?, ?) "
-                "ON CONFLICT(stable_id) DO UPDATE SET state=excluded.state, updated_at=excluded.updated_at",
-                (stable_id, state.value, time.time()),
-            )
-        return True
+            if isinstance(media_or_id, MediaRef):
+                connection.execute(
+                    """
+                    INSERT INTO media_items(
+                        stable_id, source, original_uri, title, artist, album, duration,
+                        capabilities_json, resolver_json, chapters_json, provenance, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(stable_id) DO UPDATE SET
+                        source=excluded.source,
+                        original_uri=excluded.original_uri,
+                        title=COALESCE(excluded.title, media_items.title),
+                        artist=COALESCE(excluded.artist, media_items.artist),
+                        album=COALESCE(excluded.album, media_items.album),
+                        duration=COALESCE(excluded.duration, media_items.duration),
+                        capabilities_json=excluded.capabilities_json,
+                        resolver_json=excluded.resolver_json,
+                        chapters_json=excluded.chapters_json,
+                        provenance=excluded.provenance,
+                        updated_at=excluded.updated_at
+                    """,
+                    (
+                        media_or_id.stable_id,
+                        media_or_id.source.value,
+                        media_or_id.original_uri,
+                        media_or_id.title,
+                        media_or_id.artist,
+                        media_or_id.album,
+                        media_or_id.duration,
+                        media_or_id.capabilities.to_json(),
+                        json.dumps(
+                            sanitized_resolver_data(media_or_id.resolver_data),
+                            ensure_ascii=False,
+                            sort_keys=True,
+                        ),
+                        json.dumps([asdict(chapter) for chapter in media_or_id.chapters], ensure_ascii=False),
+                        media_or_id.provenance,
+                        time.time(),
+                    ),
+                )
+            if previous != state:
+                connection.execute(
+                    "INSERT INTO media_preferences(stable_id, state, updated_at) VALUES(?, ?, ?) "
+                    "ON CONFLICT(stable_id) DO UPDATE SET state=excluded.state, updated_at=excluded.updated_at",
+                    (stable_id, state.value, time.time()),
+                )
+        return previous != state
 
     def toggle(self, media_or_id: MediaRef | str, state: PreferenceState | str) -> PreferenceState:
         state = PreferenceState(state)
@@ -65,7 +106,7 @@ class MediaPreferences:
     def list(self, state: PreferenceState | str, limit: int | None = None) -> list[PreferenceEntry]:
         state = PreferenceState(state)
         sql = (
-            "SELECT p.stable_id, p.state, p.updated_at, m.original_uri, m.title, f.canonical_path "
+            "SELECT p.stable_id, p.state, p.updated_at, m.source, m.original_uri, m.title, f.canonical_path "
             "FROM media_preferences p LEFT JOIN media_items m ON m.stable_id=p.stable_id "
             "LEFT JOIN library_files f ON f.library_id=p.stable_id WHERE p.state=? "
             "ORDER BY p.updated_at DESC"
@@ -78,9 +119,14 @@ class MediaPreferences:
             PreferenceEntry(
                 stable_id=row["stable_id"],
                 state=PreferenceState(row["state"]),
-                label=row["title"] or Path(row["canonical_path"] or row["original_uri"] or row["stable_id"]).stem,
+                label=row["title"] or (
+                    Path(row["canonical_path"] or row["original_uri"]).stem
+                    if row["canonical_path"] or row["original_uri"]
+                    else "Unknown media"
+                ),
                 uri=row["canonical_path"] or row["original_uri"],
                 updated_at=row["updated_at"],
+                source=MediaSource(row["source"]) if row["source"] else None,
             )
             for row in self.database.fetchall(sql, parameters)
         ]

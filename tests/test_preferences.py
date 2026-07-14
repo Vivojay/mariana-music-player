@@ -23,6 +23,43 @@ def test_preferences_are_persistent_idempotent_and_listed(tmp_path: Path):
         assert MediaPreferences(database).get(media) == PreferenceState.BLOCKED
 
 
+def test_preference_persists_unqueued_stream_metadata_and_refreshes_it_idempotently(tmp_path: Path):
+    with MarianaDatabase(tmp_path / "state.db") as database:
+        preferences = MediaPreferences(database)
+        media = MediaRef(
+            MediaSource.YOUTUBE,
+            "https://www.youtube.com/watch?v=abc12345678",
+            title="Darkest Hour",
+            artist="Andrea Russett",
+        )
+        assert preferences.set(media, PreferenceState.FAVORITE)
+        enriched = MediaRef(
+            MediaSource.YOUTUBE,
+            media.original_uri,
+            stable_id=media.stable_id,
+            title="Andrea Russett - Darkest Hour (Official Lyric Video)",
+            artist="Andrea Russett",
+        )
+        assert not preferences.set(enriched, PreferenceState.FAVORITE)
+
+        entry = preferences.list(PreferenceState.FAVORITE)[0]
+        assert entry.label == "Andrea Russett - Darkest Hour (Official Lyric Video)"
+        assert entry.uri == media.original_uri
+        assert entry.source == MediaSource.YOUTUBE
+        row = database.fetchone("SELECT title, original_uri FROM media_items WHERE stable_id=?", (media.stable_id,))
+        assert row and row["title"] == entry.label and row["original_uri"] == media.original_uri
+
+
+def test_orphaned_legacy_preference_labels_internal_id_explicitly(tmp_path: Path):
+    with MarianaDatabase(tmp_path / "state.db") as database:
+        preferences = MediaPreferences(database)
+        preferences.set("54a74697918d2c8d3366484d", PreferenceState.FAVORITE)
+        entry = preferences.list(PreferenceState.FAVORITE)[0]
+        assert entry.label == "Unknown media"
+        assert entry.uri is None
+        assert entry.source is None
+
+
 def test_blocked_preferences_are_excluded_from_recommendations(tmp_path: Path):
     with MarianaDatabase(tmp_path / "state.db") as database:
         blocked = MediaRef(MediaSource.LOCAL, "C:/music/blocked.mp3", title="Blocked")

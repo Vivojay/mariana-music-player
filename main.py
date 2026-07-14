@@ -2369,6 +2369,9 @@ def preference_command(arguments, state):
     operation = arguments[0] if arguments else None
     if operation is None:
         current = PREFERENCES.get(media)
+        # Self-heal preferences created by older builds that retained only the
+        # stable identifier and therefore could not display media metadata.
+        PREFERENCES.set(media, current)
     elif operation == '!':
         current = PREFERENCES.toggle(media, state)
     elif operation in {'+', '-'}:
@@ -2385,10 +2388,35 @@ def list_preferences(state, arguments):
         raise ValueError('Preference list accepts an optional numeric limit')
     limit = int(arguments[0]) if arguments else MAX_RESULT_COUNT
     entries = PREFERENCES.list(state, limit)
+
+    def reference(entry):
+        if not entry.uri:
+            return f'Internal ID · {entry.stable_id}'
+        if entry.source == MediaSource.LOCAL:
+            target = str(Path(entry.uri).expanduser().resolve()).casefold()
+            library_index = next(
+                (
+                    index
+                    for index, path in enumerate(_sound_files, start=1)
+                    if str(Path(path).expanduser().resolve()).casefold() == target
+                ),
+                None,
+            )
+            origin = f'Library #{library_index}' if library_index is not None else 'Local file'
+        elif entry.source == MediaSource.YOUTUBE:
+            origin = 'YouTube'
+        elif entry.source == MediaSource.URL:
+            origin = 'Media link'
+        elif entry.source is not None:
+            origin = entry.source.value.replace('_', ' ').title()
+        else:
+            origin = 'Media'
+        return f'{origin} · {entry.uri}'
+
     IPrint(
         tbl(
-            [(index + 1, entry.label, entry.uri or '') for index, entry in enumerate(entries)],
-            headers=('#', 'Track', 'Location'),
+            [(index + 1, entry.label, reference(entry)) for index, entry in enumerate(entries)],
+            headers=('#', 'Title', 'Source / reference'),
             tablefmt='plain',
         ) if entries else '(none)',
         visible=visible,
