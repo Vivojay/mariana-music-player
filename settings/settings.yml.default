@@ -28,6 +28,11 @@ get related songs: true
 appearance:
   terminal theme: aurora
 
+integrations:
+  discord:
+    presence:
+      mode: off
+
 media tools:
   ffmpeg bin:
   fpcalc bin:

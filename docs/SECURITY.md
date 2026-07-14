@@ -26,6 +26,14 @@
 - Audio and listening history stay local unless an optional integration such as
   ListenBrainz is explicitly enabled.
 
+Discord Rich Presence is off by default and uses only the local Discord desktop
+RPC transport. Projection is derived from `PlaybackSnapshot` on a background
+worker and contains no paths, path-derived filenames, URLs, service IDs,
+credentials, browser profiles, stable media IDs, queue/history contents,
+lyrics, recommendation data, device names, or host/user/network identifiers.
+Control characters and path- or URL-like text are rejected before publication.
+Discord transport failure is isolated from playback and shutdown.
+
 Security regressions are tested for URL redaction, credential persistence,
 subprocess arguments, events, logs, malformed archives, IPC boundaries, and
 failed transactional activation.

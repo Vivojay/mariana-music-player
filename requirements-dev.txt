@@ -152,6 +152,8 @@ pyinstaller-hooks-contrib==2026.6
     # via pyinstaller
 pyparsing==3.3.2
     # via pip-requirements-parser
+pypresence==4.6.2
+    # via -r requirements.in
 pyproject-hooks==1.2.0
     # via
     #   build

@@ -15,6 +15,7 @@ LINK = re.compile(r"(?<!!)\[[^]]+\]\(([^)]+)\)")
 REQUIRED_COMMAND_FAMILIES = {
     "broadcast",
     "download-ml",
+    "discord",
     "library",
     "queue",
     "radio",

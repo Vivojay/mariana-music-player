@@ -106,6 +106,7 @@ from mariana.paths import initialize_runtime_paths
 from mariana.platform import open_path, reveal_path
 from mariana.playlists import PlaylistError, PlaylistStore
 from mariana.preferences import MediaPreferences, PreferenceState
+from mariana.presence import PresenceCoordinator, PresencePrivacyMode
 from mariana.queueing import PersistentQueue, QueueError
 from mariana.radio import RadioCatalog, RadioError
 from mariana.sleep_timer import SleepAction, SleepTimer, parse_duration
@@ -117,6 +118,7 @@ from mariana.tool_setup import discover_media_tools, persist_media_tools, setup_
 from mariana.toolchain import ToolchainError, ToolchainManager, find_javascript_runtime
 from mariana.user_state import load_user_data, write_user_data_atomic
 from mariana.version import __version__
+from mariana.integrations.discord_presence import DiscordPresencePublisher
 from recommendation_engine import Candidate, RecommendationEngine
 from runtime_check import check_runtime, format_runtime_report
 from beta.mediadl import media_DL
@@ -352,6 +354,21 @@ vas.configure(
 )
 get_lyrics.configure(IDENTITY, vas.controller)
 DESKTOP_CONTROL = DesktopControl()
+DISCORD_PRESENCE = DiscordPresencePublisher(
+    os.environ.get('MARIANA_DISCORD_APPLICATION_ID')
+    or SYSTEM_SETTINGS.get('system_settings', {}).get('discord_application_id')
+)
+try:
+    PRESENCE_MODE = PresencePrivacyMode(
+        SETTINGS.get('integrations', {}).get('discord', {}).get('presence', {}).get('mode', 'off')
+    )
+except ValueError:
+    PRESENCE_MODE = PresencePrivacyMode.OFF
+PRESENCE = PresenceCoordinator(
+    vas.controller.snapshot,
+    DISCORD_PRESENCE,
+    mode=PRESENCE_MODE,
+)
 BROADCASTER = IcecastBroadcaster.from_settings(
     SETTINGS.get('broadcast', {}),
     ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'),
@@ -2466,7 +2483,7 @@ HELP_GROUPS = (
     ('Online', '/ys, /yl, station, album search/play/queue, radio, podcast, rss, download-ya'),
     ('Library', 'library status/scan/info, find, rfind, lfind, reload, rename short'),
     ('Details', 'media info/probe/fingerprint/identify, lyrics, replaygain status'),
-    ('App', 'theme, tools status/setup, sleep, history, cls, exit'),
+    ('App', 'theme, discord presence, tools status/setup, sleep, history, cls, exit'),
 )
 
 
@@ -2505,6 +2522,48 @@ def autoplay_command(arguments):
         vas.controller.clear_prefetch()
     IPrint(f'Auto-next {operation}', visible=visible)
     return AUTOPLAY_ENABLED
+
+
+def discord_command(arguments):
+    if not arguments or arguments[0].casefold() != 'presence':
+        raise ValueError('Usage: discord presence off|app|track|session|status|refresh')
+    operation = arguments[1].casefold() if len(arguments) == 2 else None
+    if operation is None or len(arguments) != 2:
+        raise ValueError('Usage: discord presence off|app|track|session|status|refresh')
+    if operation == 'status':
+        status = DISCORD_PRESENCE.status()
+        detail = f'; {status.failure_code.value}: {status.message}' if status.failure_code else ''
+        IPrint(
+            f'Discord presence: mode={PRESENCE.mode.value}; local RPC={status.state.value}{detail}',
+            visible=visible,
+        )
+        return status
+    if operation == 'refresh':
+        if PRESENCE.mode == PresencePrivacyMode.OFF:
+            IPrint('Discord presence is off; choose app, track, or session first.', visible=visible)
+            return DISCORD_PRESENCE.status()
+        PRESENCE.start()
+        PRESENCE.refresh()
+        IPrint('Discord Rich Presence refresh requested.', visible=visible)
+        return DISCORD_PRESENCE.status()
+    try:
+        selected = PresencePrivacyMode(operation)
+    except ValueError as error:
+        raise ValueError('Usage: discord presence off|app|track|session|status|refresh') from error
+
+    presence_settings = SETTINGS.setdefault('integrations', {}).setdefault('discord', {}).setdefault('presence', {})
+    previous = presence_settings.get('mode', 'off')
+    presence_settings['mode'] = selected.value
+    try:
+        save_user_settings(SETTINGS, RUNTIME_PATHS.settings)
+    except Exception:
+        presence_settings['mode'] = previous
+        raise
+    if selected != PresencePrivacyMode.OFF:
+        PRESENCE.start()
+    PRESENCE.set_mode(selected)
+    IPrint(f'Discord presence mode set to {selected.value}.', visible=visible)
+    return selected
 
 
 THEME_PRESETS = {
@@ -2694,6 +2753,7 @@ def exitplayer(sys_exit=False):
     # one slow network encoder, watcher, or device driver from serially delaying exit.
     closures = (
         ('sleep timer', SLEEP_TIMER.close),
+        ('discord presence', PRESENCE.close),
         ('station', STATION.close),
         ('downloads', DOWNLOADS.close),
         ('broadcast', BROADCASTER.close),
@@ -3556,6 +3616,14 @@ def refresh_settings():
     browser_profile = SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile')
     YT_query.configure(browser_profile=browser_profile)
     vas.set_youtube_browser_profile(browser_profile)
+    presence_value = SETTINGS.get('integrations', {}).get('discord', {}).get('presence', {}).get('mode', 'off')
+    try:
+        presence_mode = PresencePrivacyMode(presence_value)
+    except ValueError:
+        presence_mode = PresencePrivacyMode.OFF
+    if presence_mode != PresencePrivacyMode.OFF:
+        PRESENCE.start()
+    PRESENCE.set_mode(presence_mode)
 
     if not loglevel:
         restore_default.restore('loglevel', SETTINGS)
@@ -3753,6 +3821,7 @@ def process(command):
             '?': help_command,
             'autoplay': autoplay_command,
             'autonext': autoplay_command,
+            'discord': discord_command,
             'theme': theme_command,
             'media': media_command,
             'metadata': lambda values: media_command(['metadata', *values]),
@@ -5492,6 +5561,8 @@ def run():
     global enforce_os_requirement, visible, USER_DATA
 
     initialize_audio_output()
+    if PRESENCE.mode != PresencePrivacyMode.OFF:
+        PRESENCE.start()
     DESKTOP_CONTROL.start_playback_monitor(vas.controller.snapshot)
     def update_safety():
         reasons = []

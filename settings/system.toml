@@ -39,3 +39,6 @@ brave_paths = [
 ]
 max_recents_size=10_000_000 # 10 mil
 supported_python_versions = [[3, 12], ]
+# Public application identifier owned by the Mariana project. It is not a
+# credential. Release builds must set this before Discord presence is enabled.
+discord_application_id = ""

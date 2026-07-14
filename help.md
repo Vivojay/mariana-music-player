@@ -60,6 +60,7 @@ All searches are fuzzy
 | `broadcast profiles\|start\|stop\|test\|status` | Control one Icecast source broadcast |
 | `broadcast credentials set\|delete\|status <profile>` | Manage a broadcast password through the OS keychain |
 | `tools status\|setup\|install\|repair` | Inspect, discover/configure, or provision checksum-verified media tools |
+| `discord presence off\|app\|track\|session\|status\|refresh` | Control optional, privacy-scoped Discord desktop Rich Presence over local RPC |
 | `youtube auth status` | Show the browser profile reference used by all YouTube operations |
 | `youtube auth set <browser[:profile]>` | Use a signed-in local browser profile; `firefox` is recommended first |
 | `youtube auth clear` | Return YouTube operations to anonymous access |

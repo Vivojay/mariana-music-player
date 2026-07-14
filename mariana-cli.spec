@@ -23,6 +23,7 @@ a = Analysis(
         "sounddevice",
         "yt_dlp",
         "watchdog.observers",
+        "pypresence",
         "beta.YT_query",
         "beta.IPrint",
         "beta.podcasts",

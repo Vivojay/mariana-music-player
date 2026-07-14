@@ -207,6 +207,7 @@ replaygain off|status|verify|mode|preamp|scan|rescan
 broadcast profiles|status|start|stop|test
 broadcast credentials set|delete|status <profile>
 tools status|setup|install|repair
+discord presence off|app|track|session|status|refresh
 help|h|? [playback|queue|online|library|details|app]
 autoplay [on|off|status]
 autonext [on|off|status]
@@ -408,6 +409,28 @@ youtube auth test https://www.youtube.com/watch?v=...
 Firefox is the recommended first choice. Named Firefox and Chromium profiles
 can use `browser:profile`, for example `firefox:default-release` or
 `edge:Default`. Use `youtube auth clear` to return to anonymous access.
+
+Discord Rich Presence is optional and off by default. It uses the running
+Discord desktop client's local RPC only; it does not use OAuth, account
+linking, tokens, Discord HTTP APIs, rooms, or remote control. Choose the
+privacy level explicitly:
+
+```text
+discord presence app       # Mariana only; no media metadata
+discord presence track     # sanitized title/artist when available
+discord presence session   # track plus safe album/source/timing context
+discord presence status
+discord presence refresh
+discord presence off
+```
+
+Presence never sends paths, path-derived local filenames, URLs, YouTube IDs,
+radio endpoints, credentials, browser profiles, stable IDs, queue/history
+contents, lyrics, recommendations, device names, or machine/user/network
+identifiers. A release must contain Mariana's public Discord application ID;
+users never create an application or supply an ID or token. If the ID, local
+RPC library, or Discord desktop client is unavailable, `status` reports a typed
+local failure and playback continues unchanged.
 
 The equivalent writable setting is:
 
