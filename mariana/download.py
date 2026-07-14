@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 from yt_dlp import YoutubeDL
 
+from .extractor_urls import has_dedicated_extractor
 from .playback import CREATE_NO_WINDOW, find_executable
 
 FORMATS = {
@@ -21,25 +22,12 @@ FORMATS = {
     "opus": ["-vn", "-c:a", "libopus", "-b:a", "160k"],
 }
 
-# These URLs identify a page on an extractor-backed service, not an audio file
-# that FFmpeg can open directly.  yt-dlp resolves the page to its media stream
-# before handing the downloaded audio to FFmpeg for conversion.
-EXTRACTOR_HOSTS = (
-    "soundcloud.com",
-    "youtube.com",
-    "youtu.be",
-    "bandcamp.com",
-    "vimeo.com",
-)
-
-
 class DownloadError(RuntimeError):
     pass
 
 
 def _uses_extractor(url: str) -> bool:
-    host = (urlparse(url).hostname or "").casefold()
-    return any(host == service or host.endswith(f".{service}") for service in EXTRACTOR_HOSTS)
+    return has_dedicated_extractor(url)
 
 
 def _download_extractor_media(

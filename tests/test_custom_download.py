@@ -30,7 +30,14 @@ def test_download_is_atomic_and_uses_explicit_codec(tmp_path: Path, monkeypatch)
     assert captured["kwargs"]["timeout"] == 3
 
 
-def test_download_uses_extractor_for_soundcloud_pages(tmp_path: Path, monkeypatch):
+@pytest.mark.parametrize(
+    "media_url",
+    [
+        "https://soundcloud.com/francis-karel-1/like-all-my-friends",
+        "https://www.dailymotion.com/video/x9abc",
+    ],
+)
+def test_download_uses_installed_extractor_for_media_pages(tmp_path: Path, monkeypatch, media_url):
     captured = {}
 
     class FakeDownloader:
@@ -53,13 +60,13 @@ def test_download_uses_extractor_for_soundcloud_pages(tmp_path: Path, monkeypatc
     monkeypatch.setattr("mariana.download.YoutubeDL", FakeDownloader)
     monkeypatch.setattr("mariana.download.subprocess.run", lambda *_args, **_kwargs: pytest.fail("FFmpeg input path used"))
     result = download_media(
-        "https://soundcloud.com/francis-karel-1/like-all-my-friends",
+        media_url,
         tmp_path / "song.mp3",
     )
 
     assert result == tmp_path / "song.mp3"
     assert result.read_bytes() == b"audio"
-    assert captured["url"].startswith("https://soundcloud.com/")
+    assert captured["url"] == media_url
     assert captured["download"] is True
     assert captured["options"]["format"] == "bestaudio/best"
 

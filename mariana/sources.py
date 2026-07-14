@@ -19,10 +19,10 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import requests
 
+from .extractor_urls import has_dedicated_extractor
 from .models import MediaCapabilities, MediaRef, MediaSource, canonical_uri
 
 ALLOWED_SCHEMES = frozenset({"http", "https"})
-EXTRACTOR_PAGE_DOMAINS = frozenset({"bandcamp.com", "soundcloud.com", "vimeo.com"})
 SENSITIVE_QUERY_KEYS = re.compile(
     r"(?:token|sig(?:nature)?|key|auth|credential|password|expires?|policy|session)",
     re.IGNORECASE,
@@ -30,15 +30,8 @@ SENSITIVE_QUERY_KEYS = re.compile(
 
 
 def is_extractor_page_url(value: str) -> bool:
-    """Return whether *value* is a supported media page rather than a stream."""
-    parsed = urlparse(value.strip())
-    host = (parsed.hostname or "").casefold()
-    return (
-        parsed.scheme.casefold() in ALLOWED_SCHEMES
-        and not parsed.username
-        and not parsed.password
-        and any(host == domain or host.endswith(f".{domain}") for domain in EXTRACTOR_PAGE_DOMAINS)
-    )
+    """Return whether installed yt-dlp has a dedicated extractor for *value*."""
+    return has_dedicated_extractor(value)
 
 
 class FailureCode(StrEnum):
