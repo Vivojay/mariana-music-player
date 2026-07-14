@@ -13,7 +13,9 @@ interaction history, and recommendation models are persisted in SQLite.
 
 The desktop UI is not a command reimplementation. React renders an xterm.js
 terminal connected to the real Mariana process through a native PTY, so ANSI
-output, nested prompts, Ctrl+C, resizing, and every CLI command remain intact.
+output, nested prompts, resizing, and every CLI command remain intact. Ctrl+C
+copies selected terminal text; with no selection, it interrupts the active
+command as usual.
 
 ## Supported environment
 

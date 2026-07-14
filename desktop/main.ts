@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, shell } from 'electron'
 import electronUpdater from 'electron-updater'
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
@@ -221,6 +221,12 @@ function registerIpc() {
   ipcMain.handle('terminal:history', async (event) => {
     if (!validateSender(event)) throw new Error('Invalid IPC sender')
     return terminalHistory
+  })
+  ipcMain.handle('clipboard:write-text', async (event, value: unknown) => {
+    if (!validateSender(event) || typeof value !== 'string' || value.length > 1_000_000) {
+      throw new Error('Invalid clipboard text')
+    }
+    clipboard.writeText(value)
   })
   ipcMain.handle('shell:open-external', async (event, value: unknown) => {
     if (!validateSender(event) || typeof value !== 'string') throw new Error('Invalid external URL')

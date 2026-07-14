@@ -38,6 +38,15 @@ export function TerminalSurface({ theme, fontSize, reducedMotion, tabId = 1 }: P
     terminal.loadAddon(search)
     terminal.loadAddon(new WebLinksAddon((_event, uri) => void window.mariana.openExternal(uri)))
     terminal.open(container.current)
+    terminal.attachCustomKeyEventHandler((event) => {
+      const isCopy = event.type === 'keydown'
+        && (event.ctrlKey || event.metaKey)
+        && event.key.toLowerCase() === 'c'
+      if (!isCopy || !terminal.hasSelection()) return true
+      const selection = terminal.getSelection()
+      if (selection) void window.mariana.clipboard.writeText(selection)
+      return false
+    })
     void window.mariana.terminal.history().then((history) => {
       if (history) terminal.write(history)
     })

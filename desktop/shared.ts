@@ -50,6 +50,9 @@ export type MarianaDesktopApi = {
     install(): Promise<boolean>
     onState(callback: (state: UpdateState) => void): () => void
   }
+  clipboard: {
+    writeText(value: string): Promise<void>
+  }
   openExternal(url: string): Promise<void>
   platform: string
 }

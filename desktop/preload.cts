@@ -25,6 +25,9 @@ const api: MarianaDesktopApi = {
     install: () => ipcRenderer.invoke('updates:install'),
     onState: (callback) => subscribe<UpdateState>('updates:state', callback),
   },
+  clipboard: {
+    writeText: (value) => ipcRenderer.invoke('clipboard:write-text', value),
+  },
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
   platform: process.platform,
 }

@@ -14,6 +14,8 @@ const state = vi.hoisted(() => ({
   dispose: vi.fn(),
   resize: vi.fn(),
   terminalWrite: vi.fn(),
+  keyHandler: undefined as ((event: KeyboardEvent) => boolean) | undefined,
+  selection: '',
 }))
 
 vi.mock('@xterm/xterm', () => ({
@@ -26,6 +28,11 @@ vi.mock('@xterm/xterm', () => ({
     clear = state.clear
     write = state.terminalWrite
     dispose = state.dispose
+    attachCustomKeyEventHandler(callback: (event: KeyboardEvent) => boolean) {
+      state.keyHandler = callback
+    }
+    hasSelection() { return Boolean(state.selection) }
+    getSelection() { return state.selection }
     onData(callback: (value: string) => void) {
       state.input = callback
       return { dispose: vi.fn() }
@@ -42,7 +49,7 @@ vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class {} }))
 vi.mock('@xterm/addon-webgl', () => ({ WebglAddon: class { onContextLoss() {} dispose() {} } }))
 
 beforeEach(() => {
-  Object.assign(state, { input: undefined, output: undefined })
+  Object.assign(state, { input: undefined, output: undefined, keyHandler: undefined, selection: '' })
   state.search.mockClear()
   state.searchPrevious.mockClear()
   state.clearSearch.mockClear()
@@ -62,11 +69,24 @@ beforeEach(() => {
         onData: (callback: (value: string) => void) => { state.output = callback; return vi.fn() },
         onExit: () => vi.fn(),
       },
+      clipboard: { writeText: vi.fn() },
       openExternal: vi.fn(),
     },
   })
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1 })
+})
+
+it('copies selected terminal text while preserving Ctrl+C interrupts without a selection', () => {
+  render(<TerminalSurface theme={themes.aurora} fontSize={14} reducedMotion={false} />)
+  const clipboard = window.mariana.clipboard.writeText as ReturnType<typeof vi.fn>
+  state.selection = 'selected output'
+  expect(state.keyHandler?.(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true }))).toBe(false)
+  expect(clipboard).toHaveBeenCalledWith('selected output')
+
+  state.selection = ''
+  expect(state.keyHandler?.(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true }))).toBe(true)
+  expect(clipboard).toHaveBeenCalledTimes(1)
 })
 
 afterEach(() => {
