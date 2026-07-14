@@ -67,6 +67,11 @@ def test_url_validation_uses_youtube_adapter_without_head(monkeypatch):
     }
 
 
+def test_url_validation_defers_extractor_pages_without_head(monkeypatch):
+    monkeypatch.setattr(url_validate.requests, "head", lambda *_a, **_k: pytest.fail("HEAD should not run"))
+    assert url_validate.url_is_valid("https://soundcloud.com/artist/track?utm_source=clipboard") is True
+
+
 def test_url_validation_returns_false_on_network_error(monkeypatch):
     monkeypatch.setattr(url_validate.requests, "head", lambda *_a, **_k: (_ for _ in ()).throw(OSError("offline")))
     assert url_validate.url_is_valid("https://example.test") is False

@@ -7,6 +7,7 @@ import requests
 from mariana.models import MediaCapabilities, MediaRef, MediaSource
 from mariana.sources import (
     BaseResolver,
+    ExtractorPageResolver,
     FailureCode,
     HttpResolver,
     LocalResolver,
@@ -14,6 +15,7 @@ from mariana.sources import (
     ResolvedMedia,
     ResolverRegistry,
     YouTubeResolver,
+    is_extractor_page_url,
     redacted_uri,
     sanitized_resolver_data,
 )
@@ -273,6 +275,82 @@ def test_local_directory_and_youtube_resolution(monkeypatch, tmp_path):
     assert resolved.headers == {"User-Agent": "test"}
 
 
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://soundcloud.com/artist/track", True),
+        ("https://m.soundcloud.com/artist/track", True),
+        ("https://artist.bandcamp.com/track/song", True),
+        ("https://vimeo.com/123", True),
+        ("https://soundcloud.example/artist/track", False),
+        ("https://cdn.test/audio.mp3", False),
+        ("ftp://soundcloud.com/artist/track", False),
+        ("https://user:password@soundcloud.com/artist/track", False),
+    ],
+)
+def test_extractor_page_url_detection_is_bounded(url, expected):
+    assert is_extractor_page_url(url) is expected
+
+
+def test_extractor_page_resolution_is_transient_and_does_not_forward_youtube_auth(monkeypatch):
+    captured = {}
+
+    def resolve_stream(url, **kwargs):
+        captured.update(url=url, kwargs=kwargs)
+        return {
+            "url": "https://signed.cdn.test/audio?token=secret",
+            "http_headers": {"User-Agent": "extractor"},
+            "is_live": False,
+            "expires_at": time.time() + 60,
+            "title": "Track",
+            "artist": "Artist",
+            "album": "Album",
+            "duration": 123,
+            "categories": ["Music"],
+            "track": "Track",
+            "chapters": [],
+        }
+
+    monkeypatch.setattr("beta.youtube_media.resolve_stream", resolve_stream)
+    original = (
+        "https://soundcloud.com/artist/track?si=share"
+        "&utm_source=clipboard&utm_medium=text&utm_campaign=social_sharing"
+    )
+    media = MediaRef(MediaSource.URL, original)
+    registry = ResolverRegistry(browser_profile="firefox:Default")
+    resolved = registry.resolve(media)
+
+    assert captured == {
+        "url": "https://soundcloud.com/artist/track?si=share",
+        "kwargs": {"audio_only": True},
+    }
+    assert resolved.playback_uri.startswith("https://signed.cdn.test/")
+    assert resolved.canonical_uri == captured["url"]
+    assert resolved.headers == {"User-Agent": "extractor"}
+    assert resolved.metadata["title"] == "Track"
+    assert resolved.capabilities.seekable and resolved.capabilities.downloadable
+    assert media.original_uri == original
+    assert "signed.cdn.test" not in str(media.to_dict())
+
+
+@pytest.mark.parametrize(
+    ("detail", "code", "retryable"),
+    [
+        ("private track, please login", FailureCode.AUTH_REQUIRED, False),
+        ("not available in your country", FailureCode.GEO_BLOCKED, False),
+        ("HTTP Error 429: Too Many Requests", FailureCode.RATE_LIMITED, True),
+        ("request timed out", FailureCode.TIMEOUT, True),
+        ("extractor returned no formats", FailureCode.UNAVAILABLE, False),
+    ],
+)
+def test_extractor_page_failures_are_safe_and_typed(detail, code, retryable):
+    media = MediaRef(MediaSource.URL, "https://soundcloud.com/artist/track?token=secret")
+    failure = ExtractorPageResolver().classify_failure(RuntimeError(detail), media)
+    assert (failure.code, failure.retryable) == (code, retryable)
+    assert "soundcloud.com" not in str(failure)
+    assert "secret" not in str(failure)
+
+
 def test_registry_delegates_all_recommendation_shapes_and_radio_endpoints(monkeypatch, tmp_path):
     song = tmp_path / "song.mp3"
     song.touch()
@@ -294,6 +372,26 @@ def test_registry_delegates_all_recommendation_shapes_and_radio_endpoints(monkey
     assert radio.playback_uri.endswith("backup")
     failure = MediaFailure(FailureCode.DRM, MediaSource.URL, "no")
     assert registry.classify_failure(failure, MediaRef(MediaSource.URL, "https://example.test")) is failure
+
+
+def test_recommendation_soundcloud_page_uses_extractor_resolver(monkeypatch):
+    monkeypatch.setattr(
+        "beta.youtube_media.resolve_stream",
+        lambda *_args, **_kwargs: {
+            "url": "https://cdn.test/audio",
+            "http_headers": {},
+            "is_live": False,
+            "title": "Track",
+            "artist": "Artist",
+            "album": None,
+            "duration": 30,
+            "categories": [],
+            "track": "Track",
+            "chapters": [],
+        },
+    )
+    media = MediaRef(MediaSource.RECOMMENDATION, "https://soundcloud.com/artist/track")
+    assert ResolverRegistry().resolve(media).playback_uri == "https://cdn.test/audio"
 
 
 def test_registry_unknown_source_is_typed():

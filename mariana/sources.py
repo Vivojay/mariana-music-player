@@ -22,10 +22,23 @@ import requests
 from .models import MediaCapabilities, MediaRef, MediaSource, canonical_uri
 
 ALLOWED_SCHEMES = frozenset({"http", "https"})
+EXTRACTOR_PAGE_DOMAINS = frozenset({"bandcamp.com", "soundcloud.com", "vimeo.com"})
 SENSITIVE_QUERY_KEYS = re.compile(
     r"(?:token|sig(?:nature)?|key|auth|credential|password|expires?|policy|session)",
     re.IGNORECASE,
 )
+
+
+def is_extractor_page_url(value: str) -> bool:
+    """Return whether *value* is a supported media page rather than a stream."""
+    parsed = urlparse(value.strip())
+    host = (parsed.hostname or "").casefold()
+    return (
+        parsed.scheme.casefold() in ALLOWED_SCHEMES
+        and not parsed.username
+        and not parsed.password
+        and any(host == domain or host.endswith(f".{domain}") for domain in EXTRACTOR_PAGE_DOMAINS)
+    )
 
 
 class FailureCode(StrEnum):
@@ -276,6 +289,89 @@ class HttpResolver(BaseResolver):
         return resolved
 
 
+class ExtractorPageResolver(BaseResolver):
+    """Resolve supported public media pages through yt-dlp without persisting streams."""
+
+    def resolve(self, media: MediaRef, *, force: bool = False) -> ResolvedMedia:
+        del force
+        if not is_extractor_page_url(media.original_uri):
+            raise MediaFailure(
+                FailureCode.UNSUPPORTED_PROTOCOL,
+                media.source,
+                "This media page is not supported",
+            )
+        from beta.youtube_media import resolve_stream
+
+        source_url = canonical_uri(MediaSource.URL, media.original_uri)
+        try:
+            # Browser authentication is intentionally scoped to YouTube.  Public
+            # extractor pages must never inherit that credential reference.
+            payload = resolve_stream(source_url, audio_only=True)
+        except Exception as error:
+            raise self.classify_failure(error, media) from error
+        is_live = bool(payload.get("is_live"))
+        return ResolvedMedia(
+            media,
+            str(payload["url"]),
+            source_url,
+            MediaCapabilities(
+                finite=not is_live,
+                live=is_live,
+                seekable=not is_live,
+                fingerprintable=True,
+                downloadable=not is_live,
+                metadata_available=True,
+            ),
+            headers=dict(payload.get("http_headers") or {}),
+            expires_at=payload.get("expires_at"),
+            metadata={
+                key: payload.get(key)
+                for key in ("title", "artist", "album", "duration", "categories", "track", "chapters")
+            },
+        )
+
+    def classify_failure(self, error: BaseException, media: MediaRef) -> MediaFailure:
+        text = str(error).casefold()
+        if "drm" in text:
+            return MediaFailure(FailureCode.DRM, media.source, "DRM-protected media is not supported", cause=error)
+        if "geo" in text or "country" in text:
+            return MediaFailure(
+                FailureCode.GEO_BLOCKED,
+                media.source,
+                "This media page is unavailable in the current region",
+                cause=error,
+            )
+        if any(marker in text for marker in ("sign in", "login", "private", "authentication", "authorization")):
+            return MediaFailure(
+                FailureCode.AUTH_REQUIRED,
+                media.source,
+                "This media page requires authorization or is private",
+                cause=error,
+            )
+        if "429" in text or "rate limit" in text or "too many requests" in text:
+            return MediaFailure(
+                FailureCode.RATE_LIMITED,
+                media.source,
+                "The media provider rate-limited Mariana; retry later",
+                retryable=True,
+                cause=error,
+            )
+        if "timed out" in text or "timeout" in text:
+            return MediaFailure(
+                FailureCode.TIMEOUT,
+                media.source,
+                "The media page timed out",
+                retryable=True,
+                cause=error,
+            )
+        return MediaFailure(
+            FailureCode.UNAVAILABLE,
+            media.source,
+            "The media page could not be resolved to a playable audio stream",
+            cause=error,
+        )
+
+
 class YouTubeResolver(BaseResolver):
     def __init__(self, browser_profile: str | None = None) -> None:
         self.browser_profile = browser_profile or None
@@ -361,7 +457,7 @@ class DelegatingResolver(BaseResolver):
             provenance=media.provenance,
             capabilities=media.capabilities,
         )
-        return self.registry.for_source(source).resolve(delegated, force=force)
+        return self.registry.resolve(delegated, force=force)
 
 
 class ResolverRegistry:
@@ -373,6 +469,7 @@ class ResolverRegistry:
         radio_endpoints: Callable[[MediaRef], list[str]] | None = None,
     ) -> None:
         http = HttpResolver(http_session)
+        self._extractor_pages = ExtractorPageResolver()
         self._resolvers: dict[MediaSource, SourceResolver] = {
             MediaSource.LOCAL: LocalResolver(),
             MediaSource.URL: http,
@@ -394,7 +491,7 @@ class ResolverRegistry:
             raise MediaFailure(FailureCode.UNSUPPORTED_PROTOCOL, source, f"Unsupported media source: {source}") from error
 
     def resolve(self, media: MediaRef, *, force: bool = False) -> ResolvedMedia:
-        resolved = self.for_source(media.source).resolve(media, force=force)
+        resolved = self._resolver_for_media(media).resolve(media, force=force)
         if media.source == MediaSource.RADIO and self.radio_endpoints:
             endpoints = self.radio_endpoints(media)
             if endpoints:
@@ -403,4 +500,9 @@ class ResolverRegistry:
         return resolved
 
     def classify_failure(self, error: BaseException, media: MediaRef) -> MediaFailure:
-        return self.for_source(media.source).classify_failure(error, media)
+        return self._resolver_for_media(media).classify_failure(error, media)
+
+    def _resolver_for_media(self, media: MediaRef) -> SourceResolver:
+        if media.source == MediaSource.URL and is_extractor_page_url(media.original_uri):
+            return self._extractor_pages
+        return self.for_source(media.source)

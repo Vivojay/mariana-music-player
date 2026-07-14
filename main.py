@@ -109,7 +109,7 @@ from mariana.preferences import MediaPreferences, PreferenceState
 from mariana.queueing import PersistentQueue, QueueError
 from mariana.radio import RadioCatalog, RadioError
 from mariana.sleep_timer import SleepAction, SleepTimer, parse_duration
-from mariana.sources import MediaFailure
+from mariana.sources import FailureCode, MediaFailure
 from mariana.station import StationError, StationManager
 from mariana.station_discovery import StationDiscovery, StationSeedError
 from mariana.setup import SetupStateError, SetupStateStore
@@ -5260,11 +5260,27 @@ def process(command):
             if len(commandslist) == 2:
                 user_aud_url = commandslist[1]
                 if url_is_valid(user_aud_url):
-                    play_vas_media(media_url = commandslist[1], media_type='general')
+                    try:
+                        play_vas_media(media_url=commandslist[1], media_type='general')
+                    except Exception as error:
+                        stopsong()
+                        if isinstance(error, MediaFailure) and error.code != FailureCode.DECODE:
+                            message = str(error)
+                        else:
+                            message = "The media link could not be decoded or played"
+                        SAY(
+                            visible=visible,
+                            display_message=message,
+                            log_message=(
+                                f"Custom media playback failed "
+                                f"({getattr(error, 'code', type(error).__name__)})"
+                            ),
+                            log_priority=2,
+                        )
                 else:
                     SAY(visible=visible,
-                        display_message = "Invalid media link (too long)",
-                        log_message = "Invalid media link (too long)",
+                        display_message = "Invalid or unreachable media link",
+                        log_message = "Invalid or unreachable media link",
                         log_priority = 2)
             else:
                 SAY(visible=visible,

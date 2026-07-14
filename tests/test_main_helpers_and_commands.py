@@ -17,6 +17,7 @@ from mariana.models import (
     StationSession,
     StationState,
 )
+from mariana.sources import FailureCode, MediaFailure
 
 
 def test_ordered_set_flatten_and_search_helpers(monkeypatch):
@@ -422,6 +423,32 @@ def test_online_command_families_dispatch_without_network(monkeypatch):
     assert played[1]["media_type"] == "general"
     assert played[2] == {"media_url": None, "media_type": "radio", "media_name": "chillout"}
     assert any("Unknown webradio" in item["log_message"] for item in messages)
+
+
+def test_custom_media_failure_is_reported_without_escaping_or_leaking_url(monkeypatch):
+    messages = []
+    stopped = []
+    monkeypatch.setattr(main, "url_is_valid", lambda _url, **_kwargs: True)
+    monkeypatch.setattr(
+        main,
+        "play_vas_media",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            MediaFailure(
+                FailureCode.UNAVAILABLE,
+                MediaSource.URL,
+                "The media page could not be resolved to a playable audio stream",
+            )
+        ),
+    )
+    monkeypatch.setattr(main, "stopsong", lambda: stopped.append(True))
+    monkeypatch.setattr(main, "SAY", lambda **kwargs: messages.append(kwargs))
+
+    main.process("/ml https://soundcloud.com/artist/private?token=secret")
+
+    assert stopped == [True]
+    assert messages[-1]["display_message"] == "The media page could not be resolved to a playable audio stream"
+    assert "soundcloud.com" not in messages[-1]["log_message"]
+    assert "secret" not in messages[-1]["log_message"]
 
 
 def test_seek_progress_and_status_command_families(monkeypatch):

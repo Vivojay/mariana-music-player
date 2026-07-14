@@ -57,6 +57,12 @@ def url_is_valid(url, yt=None, browser_profile=None): # yt param retained for co
                 f'https://www.youtube.com/watch?v={yt}',
                 browser_profile=browser_profile,
             )
+        from mariana.sources import is_extractor_page_url
+
+        if is_extractor_page_url(url):
+            # These are HTML media pages, so a HEAD response does not establish
+            # playability.  The resolver performs one typed yt-dlp extraction.
+            return True
         status_code = requests.head(url, allow_redirects=True, timeout=HTTP_TIMEOUT).status_code
         return status_code < 400
     except Exception:
