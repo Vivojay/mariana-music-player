@@ -2776,6 +2776,62 @@ def _queued_local_item(songpath):
     )
 
 
+def _library_song_index(songpath):
+    """Return the one-based library position for a path, or ``N/A``."""
+    path = songpath[0] if isinstance(songpath, list) else songpath
+    canonical = os.path.normcase(os.path.abspath(path)).casefold()
+    return next(
+        (
+            index
+            for index, candidate in enumerate(_sound_files, start=1)
+            if os.path.normcase(os.path.abspath(candidate)).casefold() == canonical
+        ),
+        'N/A',
+    )
+
+
+def _navigate_active_queue(command, offset):
+    """Preview or play a queue-relative item when queue and playback agree."""
+    current = QUEUE.current()
+    snapshot = vas.controller.snapshot()
+    if current is None or snapshot.media is None or current.media.stable_id != snapshot.media.stable_id:
+        return False
+    items = QUEUE.items()
+    try:
+        current_position = next(index for index, item in enumerate(items) if item.queue_id == current.queue_id)
+    except StopIteration:
+        return False
+    state = QUEUE.state()
+    if state.get('repeat_mode') == 'one':
+        target_position = current_position
+    else:
+        target_position = current_position + offset
+        if state.get('repeat_mode') == 'all' and items:
+            target_position %= len(items)
+    if target_position not in range(len(items)):
+        direction = 'forward' if offset > 0 else 'backward'
+        SAY(
+            visible=visible,
+            display_message=f'Cannot skip {direction}; the queue boundary has been reached',
+            log_message=f'Reached queue boundary while skipping {direction}',
+            log_priority=2,
+        )
+        return True
+    target = items[target_position]
+    if command.startswith('.'):
+        _play_queue_item(QUEUE.jump(target_position))
+        return True
+    library_index = _library_song_index(target.media.original_uri)
+    position_label = library_index if library_index != 'N/A' else f'queue {target_position + 1}'
+    title = target.media.title or Path(target.media.original_uri).stem or target.media.original_uri
+    IPrint(
+        f'@{command[0]} {colored.fg("light_red")}{position_label}'
+        f'{colored.fg("aquamarine_3")} | {title}{colored.attr("reset")}',
+        visible=visible,
+    )
+    return True
+
+
 def play_local_default_player(songpath, _songindex, is_queue=False, media=None):
     global isplaying, currentsong, currentsong_length, songindex
     global USER_DATA, current_media_type, SONG_CHANGED
@@ -2795,20 +2851,12 @@ def play_local_default_player(songpath, _songindex, is_queue=False, media=None):
 
         isplaying = True
         currentsong = songpath[0] if isinstance(songpath, list) else songpath
+        songindex = _library_song_index(currentsong)
 
         if _songindex:
             IPrint(colored.fg('dark_olive_green_2') + \
                   f':: {_sound_files_names_only[int(_songindex)-1]}' + \
                   colored.attr('reset'), visible=visible)
-
-            # The user is unreliable and may enter the
-            # audio path with weird inhumanly erratic and random
-            # mix of upper and lower case characters.
-            # Hence, we need to convert everything to lowercase...
-            try:
-                songindex = [i.lower() for i in _sound_files].index(songpath.lower())+1
-            except ValueError:
-                songindex = 'N/A'
 
             recents_queue_save((songindex, currentsong))
 
@@ -4178,6 +4226,8 @@ def process(command):
 
                     if offset:
                         if commandslist[0] in ['prev', '.prev']: offset *= -1
+                        if _navigate_active_queue(commandslist[0], offset):
+                            return None
                         offsetted_index = songindex + offset
                         if offsetted_index in range(1, len(_sound_files)+1): # is audio found at offsetted index?
                             if commandslist[0][0] == '.':

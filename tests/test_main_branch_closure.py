@@ -247,6 +247,7 @@ def test_local_player_success_queue_timeout_and_failure_paths(monkeypatch, tmp_p
 
     monkeypatch.setattr(main, "_queued_local_item", lambda _path: (None, None))
     main.play_local_default_player(str(song), None, is_queue=True, media=queue_media)
+    assert main.songindex == 1
     main.play_local_default_player(str(tmp_path / "outside.mp3"), 1)
 
     monkeypatch.setattr(main.vas, "set_media", lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("decoder")))

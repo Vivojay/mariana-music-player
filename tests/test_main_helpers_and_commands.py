@@ -900,6 +900,44 @@ def test_disabled_autonext_neither_prefetches_nor_advances_queue(monkeypatch):
     assert retrained == [True]
 
 
+def test_autonext_queue_cursor_drives_navigation_when_legacy_index_is_stale(monkeypatch, tmp_path):
+    paths = [str(tmp_path / name) for name in ("Alpha.mp3", "Leadley.mp3", "Actual Next.mp3")]
+    media = [
+        main.MediaRef(main.MediaSource.LOCAL, path, stable_id=f"track-{index}", title=Path(path).stem)
+        for index, path in enumerate(paths)
+    ]
+    items = [SimpleNamespace(queue_id=index + 1, media=value) for index, value in enumerate(media)]
+    printed = []
+    played = []
+    jumps = []
+
+    monkeypatch.setattr(main, "_sound_files", paths)
+    monkeypatch.setattr(main, "_sound_files_names_only", [Path(path).stem for path in paths])
+    monkeypatch.setattr(main, "songindex", 1)  # Reproduces the stale pre-auto-next index.
+    monkeypatch.setattr(main, "current_media_type", None)
+    monkeypatch.setattr(main, "isplaying", True)
+    monkeypatch.setattr(main, "visible", True)
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
+    monkeypatch.setattr(main.QUEUE, "items", lambda: items)
+    monkeypatch.setattr(main.QUEUE, "current", lambda: items[1])
+    monkeypatch.setattr(main.QUEUE, "state", lambda: {"repeat_mode": "off"})
+    monkeypatch.setattr(main.QUEUE, "jump", lambda position: jumps.append(position) or items[position])
+    monkeypatch.setattr(main, "_play_queue_item", lambda item: played.append(item))
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=media[1]),
+    )
+
+    main.process("+")
+    assert any("Actual Next" in line and "3" in line for line in printed)
+    assert not any("Leadley" in line for line in printed)
+
+    main.process(".+")
+    assert jumps == [2]
+    assert played == [items[2]]
+
+
 def test_rich_prompt_reports_media_progress(monkeypatch):
     media = main.MediaRef(main.MediaSource.LOCAL, "C:/music/track.mp3", title="Track")
     monkeypatch.setattr(main, "songindex", 3)
