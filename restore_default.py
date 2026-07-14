@@ -1,21 +1,25 @@
+"""Restore individual settings from the packaged defaults."""
+
+from pathlib import Path
+
 from ruamel.yaml import YAML
 
+from config_manager import save_user_settings
 from mariana.paths import runtime_paths
 
-yaml = YAML(typ='safe')  # Allows for safe YAML loading
+yaml = YAML(typ="safe")
 
-APP_DIR = runtime_paths().data
+with runtime_paths().settings_defaults.open("r", encoding="utf-8") as stream:
+    DEFAULT_SETTINGS = yaml.load(stream)
 
-with runtime_paths().settings_defaults.open('r', encoding='utf-8') as f:
-    DEFAULT_SETTINGS = yaml.load(f)
 
-def restore(changed_setting_location, SETTINGS):
-    changed_setting_location = changed_setting_location.split('/')
-    _ = DEFAULT_SETTINGS[changed_setting_location[0]]
-    for i in changed_setting_location[1:]:
-        _ = _[i]
-
-    exec(f"""SETTINGS["{'"]["'.join(changed_setting_location)}"] = DEFAULT_SETTINGS["{'"]["'.join(changed_setting_location)}"]""")
-
-    with (APP_DIR / 'settings' / 'settings.yml').open('w', encoding='utf-8') as f:
-        yaml.dump(SETTINGS, f)
+def restore(changed_setting_location, settings, settings_path: Path | None = None):
+    """Restore one default value and persist the complete settings atomically."""
+    keys = changed_setting_location.split("/")
+    default_parent = DEFAULT_SETTINGS
+    current_parent = settings
+    for key in keys[:-1]:
+        default_parent = default_parent[key]
+        current_parent = current_parent[key]
+    current_parent[keys[-1]] = default_parent[keys[-1]]
+    save_user_settings(settings, settings_path or runtime_paths().settings)

@@ -122,14 +122,32 @@ def test_first_boot_validates_answers_saves_library_and_runs_download(monkeypatc
 
 def test_restore_default_updates_nested_setting_and_persists(monkeypatch, tmp_path):
     yaml = YAML(typ="safe")
-    settings_dir = tmp_path / "settings"
-    settings_dir.mkdir()
-    monkeypatch.setattr(restore_default, "APP_DIR", tmp_path)
+    settings_path = tmp_path / "settings" / "settings.yml"
     monkeypatch.setattr(restore_default, "DEFAULT_SETTINGS", {"audio": {"volume": 80}})
     current = {"audio": {"volume": 10, "muted": False}}
 
-    restore_default.restore("audio/volume", current)
+    restore_default.restore("audio/volume", current, settings_path)
 
     assert current["audio"]["volume"] == 80
-    with (settings_dir / "settings.yml").open(encoding="utf-8") as stream:
+    with settings_path.open(encoding="utf-8") as stream:
         assert yaml.load(stream)["audio"] == {"volume": 80, "muted": False}
+
+
+def test_restore_default_writes_wrapped_multiword_keys_as_valid_yaml(monkeypatch, tmp_path):
+    settings_path = tmp_path / "settings.yml"
+    defaults = {
+        "media tools": {
+            "ffmpeg bin": None,
+            "fpcalc bin": None,
+            "javascript bin": None,
+            "rsgain bin": None,
+        },
+        "playback": {"autoplay": True},
+    }
+    current = {**defaults, "playback": {"autoplay": False}}
+    monkeypatch.setattr(restore_default, "DEFAULT_SETTINGS", defaults)
+
+    restore_default.restore("playback/autoplay", current, settings_path)
+
+    with settings_path.open(encoding="utf-8") as stream:
+        assert YAML(typ="safe").load(stream) == defaults
