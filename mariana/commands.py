@@ -32,6 +32,7 @@ ALIAS_COMPATIBILITY = (
     AliasCompatibility(("vh", "volh", "volumeh"), "volume", "token", "compatibility-only"),
     AliasCompatibility(("dl-yv",), "download-yv", "token", "compatibility-only"),
     AliasCompatibility(("dl-ya",), "download-ya", "token", "compatibility-only"),
+    AliasCompatibility(("dl-ml",), "download-ml", "token", "compatibility-only"),
     AliasCompatibility(
         ("/reddit-session", "/reddit-sessions", "/rpan"),
         "/rs",

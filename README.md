@@ -457,7 +457,7 @@ than hidden or treated as an invalid command.
 
 The June 2022 testing snapshot was audited semantically rather than merged.
 Historical aliases—including `.`, `.*`, `+`, `-`, the `arand` family,
-`vh`/`volh`/`volumeh`, and `dl-yv`/`dl-ya`—route to current implementations.
+`vh`/`volh`/`volumeh`, and `dl-yv`/`dl-ya`/`dl-ml`—route to current implementations.
 Advanced `find`/`rfind`/`lfind`, history, managed-download inclusion, persistent
 favorites/blocks, local lyric editing, and trash-only `rm`/`del` are retained.
 RPAN aliases remain recognized but report service retirement. VLC, pygame,

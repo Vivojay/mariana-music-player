@@ -98,7 +98,7 @@ route through the same modern implementations:
 | `.arand`, `=arand`, `arand`, `arand*`, `/arand` | Historical random-media forms |
 | `mute` | Mute/unmute (`m`) |
 | `vh`, `volh`, `volumeh` | Player-volume compatibility forms |
-| `download-yv` / `dl-yv`, `download-ya` / `dl-ya` | Download YouTube video/audio in the current session; omit the URL to use the active item |
+| `download-yv` / `dl-yv`, `download-ya` / `dl-ya`, `download-ml` / `dl-ml` | Download YouTube video/audio or a yt-dlp-supported media link in the current session; omit the URL for YouTube commands to use the active item |
 | `/reddit-session`, `/reddit-sessions`, `/rpan` | Recognized retired RPAN forms; no network action |
 
 `all*`, advanced `find`/`rfind`/`lfind` searches, dotted/slashed search

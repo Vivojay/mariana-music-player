@@ -748,11 +748,13 @@ def test_like_without_active_media_and_update_failure_are_reported(cli, monkeypa
 
 def test_legacy_aliases_route_to_modern_handlers(cli):
     main.process("mute")
+    main.process("dl-ml https://example.test/audio mp3")
     main.process("include downloads")
     main.process("exclude downloads")
     main.process("lyrics edit")
     main.process("/rpan")
     assert any(action[0] == "mute" for action in cli.actions)
+    assert any(action[0] == "download-media" for action in cli.actions)
     assert ("downloads-root", True) in cli.actions
     assert ("downloads-root", False) in cli.actions
     assert ("lyrics-edit",) in cli.actions
