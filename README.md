@@ -492,7 +492,7 @@ python -m compileall -q main.py mariana beta lyrics_provider recommendation_engi
 python -m ruff check .
 pyright
 python -m pytest -q --cov --cov-branch --cov-report=json:coverage.json --cov-fail-under=90
-python tools/coverage_gate.py coverage.json --minimum 95
+python tools/coverage_gate.py coverage.json --minimum 95 --repository-minimum 90
 python -m pip_audit -r requirements.txt
 ```
 
