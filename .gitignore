@@ -1,20 +1,30 @@
 # Python bytecode
 __pycache__/
 *.py[cod]
+*.egg-info/
+.eggs/
 
 # Virtual environments
 .virtenv/
 .venv/
 venv/
+.python-version
+
+# Python tooling caches
+/.audit-tmp/
+/.mypy_cache/
+/.nox/
+/.pyright/
+/.ruff_cache/
+/.tox/
 
 # Runtime-generated files
 /temp/
 /logs/
-/data/snd_files.json
-/data/related_songs.yml
-/data/mariana.db*
-/data/models/
-/user/*.pre-mariana-0.7.bak
+/data/
+/settings/settings.yml
+/user/*.bak
+/user/*.invalid-*.bak
 /res/style.css
 
 # Test and coverage artifacts
@@ -28,9 +38,13 @@ venv/
 /.pytest_cache/
 /pytest-cache-files-*/
 /.test-*/
+/mutants/
 
 # React/Electron build artifacts
 /node_modules/
+/.npm/
+/.pnpm-store/
+/.vite/
 /dist/
 /dist-electron/
 /dist-backend/
@@ -40,8 +54,33 @@ venv/
 /playwright-report/
 /critical-coverage.json
 /playback-coverage.json
-/mutants/
+*.blockmap
+builder-debug.yml
+builder-effective-config.yaml
+latest*.yml
 
 # Locally installed external media tools
 /.tools/
 /.chromaprint-download.zip
+
+# IDE and operating-system metadata
+/.idea/
+/.vscode/
+.DS_Store
+Desktop.ini
+Thumbs.db
+
+# Local archives, executables, and signing material
+/*.7z
+/*.AppImage
+/*.dmg
+/*.exe
+/*.msi
+/*.tar
+/*.tar.gz
+/*.zip
+/.env
+/*.key
+/*.p12
+/*.pem
+/*.pfx

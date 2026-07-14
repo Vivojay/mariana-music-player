@@ -426,6 +426,7 @@ still a separate manual release gate.
 
 ```powershell
 python -m pip install -r requirements-dev.txt
+python tools/verify_repository.py
 python tools/verify_text_integrity.py
 python tools/verify_docs.py
 python -m compileall -q main.py mariana beta lyrics_provider recommendation_engine tools
@@ -463,6 +464,7 @@ must not be inferred from unit tests.
 - [Architecture](docs/ARCHITECTURE.md)
 - [Security and privacy](docs/SECURITY.md)
 - [Known limitations](docs/KNOWN_LIMITATIONS.md)
+- [Repository hygiene and source map](docs/REPOSITORY_HYGIENE.md)
 - [Testing and release gates](docs/TESTING.md)
 - [Verification matrix](docs/VERIFICATION_MATRIX.md)
 - [Changelog](CHANGELOG.md)

@@ -5,6 +5,10 @@
 - Recovered empty, malformed, or partially written user statistics before
   startup, retained invalid files for diagnosis, and made future YAML saves
   atomic with bounded handling for transient Windows file locks.
+- Removed audited dead snapshots, expired URL/credential samples, stale
+  source-tree runtime state, duplicate release outputs, and unused font weights;
+  added a safe workspace cleaner plus CI enforcement against generated,
+  private, oversized, or retired tracked artifacts.
 
 ## 0.7.0-dev.4
 

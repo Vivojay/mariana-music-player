@@ -38,6 +38,7 @@ jobs:
       - name: Verify versions and dependencies
         run: |
           python tools/check_version.py
+          python tools/verify_repository.py
           python tools/verify_text_integrity.py
           python tools/verify_docs.py
           python -m pip check

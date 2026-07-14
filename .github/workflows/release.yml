@@ -66,6 +66,7 @@ jobs:
       - name: Run release verification gates
         run: |
           python tools/check_version.py
+          python tools/verify_repository.py
           python tools/verify_text_integrity.py
           python tools/verify_docs.py
           python -m compileall -q main.py mariana beta lyrics_provider recommendation_engine tools
