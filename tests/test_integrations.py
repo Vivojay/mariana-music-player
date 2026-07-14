@@ -4,7 +4,6 @@ from pathlib import Path
 import requests
 
 import beta.podcasts as podcasts
-import beta.redditsessions as reddit
 import beta.youtube_media as youtube_media
 import beta.YT_query as yt_query
 from beta.mediadl import media_DL
@@ -114,8 +113,3 @@ def test_downloader_dry_run_preserves_quality_settings(tmp_path: Path):
         dry_run=True,
     )
     assert "[video]" in video_options["outtmpl"]
-
-
-def test_reddit_commands_have_a_graceful_retirement_contract():
-    assert "retired" in reddit.RETIRED_MESSAGE.lower()
-    assert reddit.get_redditsessions() == []

@@ -82,25 +82,26 @@ user-facing behavior disappeared.
 |---|---|---|
 | `Future Ideas and Issues to Address.md` | Preserved | Separate user-owned edit; never staged by this integration |
 | `README.md`, `help.md` | Modernized | Current architecture, commands, setup, security, and evidence |
-| `help_future.md`, `downgrade.txt` | Demonstrably dead | Stale planning/obsolete downgrade instructions not shipped |
+| `help_future.md`, `downgrade.txt` | Removed | Stale planning and obsolete dependency downgrade instructions deleted |
 | `main.py` | Modernized | Existing command syntax routed into current services |
 | `first_boot_setup.py`, `first_boot_welcome_screen.py` | Modernized | Transactional writable setup state and idempotent steps |
 | `logger.py`, `restore_default.py`, `url_validate.py` | Modernized | Writable paths, fixed failures, unified resolver validation |
 | `meta_getter.py` | Excluded | Replaced by persistent incremental library profiler |
 | `requirements.txt` | Modernized | Resolver-generated Python 3.12 locks |
-| `settings/settings.yml`, `settings/settings.yml.default`, `settings/system.toml` | Modernized | Additive schema; no mutable packaged first-boot flag |
+| `settings/settings.yml` | Removed | Stale mutable source-tree instance replaced by the runtime data directory |
+| `settings/settings.yml.default`, `settings/system.toml` | Modernized | Packaged defaults use an additive schema and no mutable first-boot flag |
 | `user/user_data.yml` | Modernized | Migrated additively into user data |
-| `user/reddit_credentials.json` | Excluded | PRAW/RPAN retired; credentials are never imported |
+| `user/reddit_credentials.json` | Removed | Plaintext PRAW credential sample deleted after RPAN retirement |
 | `beta/IPrint.py` | Modernized | Current terminal-color compatibility layer |
 | `beta/YT_query.py` | Modernized | yt-dlp search adapter |
 | `beta/master_volume_control.py` | Modernized | Cross-platform master-volume adapters |
 | `beta/mediadl.py` | Modernized | yt-dlp/FFmpeg downloads and managed root |
 | `beta/podcasts.py` | Modernized | Feedparser implementation with cache/failure handling |
-| `beta/redditsessions.py` | Retired | Single explicit RPAN retirement response |
+| `beta/redditsessions.py` | Removed | Historical module deleted; command-registry aliases retain one explicit RPAN retirement response |
 | `beta/radio_weblinks.yml` | Excluded | Binary Google Drive collection was not a radio catalog |
 | `beta/vlc-async-stream.py` | Excluded | VLC replaced by supervised FFmpeg PCM playback |
 | `beta/widget_display.py` | Demonstrably dead | Unused Tk experiment not part of the CLI |
-| `beta/yt_urls.yml` | Excluded | Expiring URLs are resolved at playback and never persisted |
+| `beta/yt_urls.yml` | Removed | Expired snapshot deleted; URLs are resolved at playback and never persisted |
 | `lyrics_provider/detect_song.py`, `lyrics_provider/get_lyrics.py` | Modernized | Chromaprint/AcoustID/MusicBrainz/LRCLIB pipeline |
 | `lyrics_provider/get_related_music.py` | Excluded | Shazam related writer replaced by recommendation engine |
 | `lyrics_provider/lyrics_window_spawn.py` | Modernized | Writable generated CSS and current lyrics data |
@@ -116,8 +117,8 @@ user-facing behavior disappeared.
 | `res/lyrics_icon.png`, `res/welcome_banner.png` | Native assets | Retained as immutable resources |
 | `res/lyrics-wallpapers/1.DEFAULT.jpg` through `10.triangular-spiral-dark-purple-staircase.jpg` | Native assets | All ten retained |
 | `res/font-faces/Elsie/Elsie-Regular.ttf`, `res/font-faces/Elsie/SIL Open Font License.txt` | Native assets | Font and license retained |
-| `res/font-faces/Fira_Code/FiraCode-VariableFont_wght.ttf`, `OFL.txt`, `README.txt` | Native assets | Font and notices retained |
-| `res/font-faces/Fira_Code/static/FiraCode-Bold.ttf`, `FiraCode-Light.ttf`, `FiraCode-Medium.ttf`, `FiraCode-Regular.ttf`, `FiraCode-SemiBold.ttf` | Native assets | Static fonts retained |
+| `res/font-faces/Fira_Code/OFL.txt`, `static/FiraCode-Medium.ttf` | Native assets | The CSS-referenced font and upstream license retained |
+| Other bundled Fira Code weights | Removed | Unreferenced duplicate variable/static files deleted |
 | Three `my-directory-list.txt` files | Excluded | Generated binary directory listings, not source/assets |
 | `res/style.css` | Excluded as mutable state | Generated lyrics CSS now lives under writable runtime data |
 

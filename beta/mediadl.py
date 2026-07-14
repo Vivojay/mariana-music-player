@@ -89,7 +89,7 @@ def media_DL(SETTINGS,
             ):
 
     """
-    SETTINGS: dict (settings/settings.yml) (User's personal settings)
+    SETTINGS: dict loaded from Mariana's writable runtime settings
     media_url: audio/video url for downloading...
     typ: (download_type)
         0: audio only

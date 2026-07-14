@@ -4,7 +4,6 @@ import pytest
 
 import beta.IPrint as iprint
 import beta.master_volume_control as master_volume
-import beta.redditsessions as reddit
 import first_boot_welcome_screen as welcome
 import lyrics_provider.lyrics_window_spawn as lyrics_window
 import main
@@ -58,15 +57,6 @@ def test_main_master_volume_accepts_zero_and_reports_unavailable(monkeypatch):
     monkeypatch.setattr(main, "comtypes_load_error", True)
     main.setmastervolume(50)
     assert "unavailable" in messages[-1]["display_message"].lower()
-
-
-def test_reddit_retirement_shim_is_stable():
-    assert reddit.get_redditsessions() == []
-    rows, headers = reddit.display_seshs_as_table([{"ignored": True}])
-    assert rows == []
-    assert headers == ("title", "upvotes", "downvotes")
-    assert reddit.WARNING == reddit.RETIRED_MESSAGE
-
 
 class FakeWidget:
     def __init__(self, *_args, **kwargs):
