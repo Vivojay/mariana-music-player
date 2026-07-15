@@ -197,6 +197,8 @@ fade from <0-100> to <0-100> [in <seconds>]
 queue add|insert|remove|move|swap|jump|list|clear|reset
 queue next|previous|shuffle|repeat|consume|save|load|undo|redo|autofill
 queue tree|group|order|priority|dedupe
+queue ys|youtube "<query>" [result-count]
+/ysq "<query>" [result-count]
 playlist list|create|show|rename|delete|clear
 playlist add|remove|move|order|play|queue|import|export
 album search|show|tracks|fetch|play|queue|save
@@ -259,6 +261,7 @@ now
 
 # Build and navigate the persistent queue
 queue add 4
+queue ys "artist title" 5
 queue list
 autonext on
 queue next
@@ -277,6 +280,12 @@ library verify
 discord presence track
 discord presence off
 ```
+
+`queue ys`/`queue youtube` and `/ysq` store only a canonical YouTube watch URL
+and stable resolver hint, then resolve the stream when playback reaches that
+queue item. They never interrupt the active item. Mariana has no SoundCloud
+catalog-search command, so `queue sc` and `/scq` are intentionally unavailable;
+known public SoundCloud URLs can still use `/ml` or `download-ml`.
 
 Omit the URL from `download-yv` or `download-ya` to download the active
 YouTube item. After confirmation, the download runs in the current Mariana

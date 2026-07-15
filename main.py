@@ -100,6 +100,7 @@ from mariana.models import (
     MediaSource,
     PlaybackState,
     QueueStrategy,
+    canonical_uri,
     truncate_display_cells,
 )
 from mariana.output_devices import OutputDeviceError, default_output_device
@@ -1087,6 +1088,73 @@ def _queue_group_command(arguments):
         raise QueueError(f'Invalid queue group command: {action}')
 
 
+def _youtube_queue_request(arguments):
+    values = list(arguments)
+    result_count = 1
+    if len(values) > 1 and values[-1].isdigit():
+        result_count = int(values.pop())
+    query = ' '.join(values).strip()
+    if not query:
+        raise QueueError('Usage: queue ys|youtube "<query>" [result-count]')
+    if result_count < 1:
+        raise QueueError('YouTube result count must be greater than zero')
+    if result_count > max_yt_search_results_threshold:
+        raise QueueError(f'YouTube result count must not exceed {max_yt_search_results_threshold}')
+    return query, result_count
+
+
+def _select_youtube_queue_result(choices):
+    if len(choices) == 1:
+        _, title, url = choices[0]
+        return title, url
+    selected = input(f'Choose video number between 1 and {len(choices)} (leave blank to cancel): ').strip()
+    if not selected:
+        IPrint('YouTube queue selection cancelled', visible=visible)
+        return None
+    if not selected.isdigit() or int(selected) not in range(1, len(choices) + 1):
+        raise QueueError(f'YouTube selection must be a number between 1 and {len(choices)}')
+    _, title, url = choices[int(selected) - 1]
+    return title, url
+
+
+def _queue_youtube_search(arguments):
+    query, result_count = _youtube_queue_request(arguments)
+    try:
+        result = YT_query.search_youtube(search=query, rescount=result_count)
+    except (OSError, YouTubeError) as error:
+        if 'no youtube results found' in str(error).casefold():
+            raise QueueError('YouTube search returned no results; no item was queued') from error
+        browser_profile = SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile')
+        message = youtube_error_message(error, browser_profile)
+        raise QueueError(message or 'YouTube search failed; no item was queued') from error
+
+    choices = [(1, result[0], result[1])] if result_count == 1 else list(result)
+    if not choices:
+        raise QueueError('YouTube search returned no results; no item was queued')
+    selected = _select_youtube_queue_result(choices)
+    if selected is None:
+        return None
+    title, result_url = selected
+    durable_url = canonical_uri(MediaSource.YOUTUBE, result_url)
+    if not id_if_url_is_of_yt_format(durable_url):
+        raise QueueError('YouTube search returned an invalid canonical media reference')
+    media = MediaRef(
+        MediaSource.YOUTUBE,
+        durable_url,
+        title=title,
+        resolver_data={'youtube': True},
+        provenance='youtube-search',
+    )
+    item = QUEUE.add(media)
+    RECOMMENDER.record_event(media, 'manual_queue', candidate=Candidate(media))
+    IPrint(f'Queued YouTube result: {title}', visible=visible)
+    snapshot = vas.controller.snapshot()
+    if snapshot.media is None or snapshot.state in {PlaybackState.IDLE, PlaybackState.FAILED}:
+        position = next(index for index, queued in enumerate(QUEUE.items(), 1) if queued.queue_id == item.queue_id)
+        IPrint(f"No media is playing; use 'queue jump {position}' to start this item.", visible=visible)
+    return item
+
+
 def queue_command(arguments):
     operation = arguments[0].lower() if arguments else 'list'
     if operation == 'list':
@@ -1103,6 +1171,8 @@ def queue_command(arguments):
     elif operation == 'reset':
         QUEUE.sync_library_defaults(LIBRARY.media_refs(), force=True)
         IPrint(f'Queue reset to {len(QUEUE.items())} library item(s)', visible=visible)
+    elif operation in {'ys', 'youtube'}:
+        _queue_youtube_search(arguments[1:])
     elif operation in {'add', 'insert'}:
         if operation == 'insert':
             if len(arguments) < 3 or not arguments[1].isdigit():
@@ -2511,7 +2581,7 @@ HELP_GROUPS = (
     ('Getting started', 'help <topic>, all, ls, <number>, now, progress'),
     ('Playback', 'play <number>, pause, stop, next, prev, mute, volume, autonext'),
     ('Seek and fade', 'seek <time>, fade in/out, fade to <volume>, fade from <v1> to <v2>'),
-    ('Queue', 'queue list/tree/add/insert/remove/move/jump/order/repeat/reset'),
+    ('Queue', 'queue list/tree/add/insert/remove/move/jump/order/repeat/reset, queue ys|youtube'),
     ('Search and online sources', 'find/rfind/lfind, /ys, /yl, /ml, album, station, pod/pods, /rss'),
     ('Downloads', 'download-yv|dl-yv, download-ya|dl-ya, download-ml|dl-ml'),
     ('Library', 'library roots/status/scan/info/verify, reload, include/exclude downloads, rename short'),
@@ -2528,7 +2598,7 @@ HELP_EXAMPLES = {
     'Getting started': ('all', '1', 'now', 'help playback'),
     'Playback': ('play 4', 'p', '+', 'autonext on'),
     'Seek and fade': ('seek +30s', 'seek 50%', 'fade out 10', 'fade from 20 to 80 in 6'),
-    'Queue': ('queue add 4', 'queue list', 'queue next', 'queue repeat all'),
+    'Queue': ('queue add 4', 'queue ys "artist title" 5', '/ysq "artist title"', 'queue next'),
     'Search and online sources': ('find artist title 10', '/ys artist title 5', '/yl <YouTube URL>', '/ml <URL>'),
     'Downloads': ('download-ya current --yes', 'download-ml <URL> mp3', 'download-ya status'),
     'Library': ('library status', 'library scan changed', 'library info 4', 'include downloads'),

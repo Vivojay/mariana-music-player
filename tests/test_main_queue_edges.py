@@ -173,6 +173,123 @@ def test_queue_reset_restores_the_library_projection(queue_cli, monkeypatch):
     assert [item.media.title for item in queue.items()] == [path.stem for path in paths]
 
 
+def test_youtube_search_queues_durable_reference_without_interrupting_playback(queue_cli, monkeypatch):
+    queue, _paths = queue_cli
+    active = queue.current()
+    played = []
+    printed = []
+    monkeypatch.setattr(
+        main.YT_query,
+        "search_youtube",
+        lambda **_kwargs: (
+            "Queued Track",
+            "https://www.youtube.com/watch?v=abc12345678&utm_source=search&token=temporary",
+        ),
+    )
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
+    monkeypatch.setattr(main.vas.supervisor, "play", lambda media: played.append(media))
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=active.media),
+    )
+
+    main.queue_command(["youtube", "Queued", "Track"])
+
+    queued = queue.items()[-1].media
+    assert queued.source == MediaSource.YOUTUBE
+    assert queued.original_uri == "https://www.youtube.com/watch?v=abc12345678"
+    assert queued.resolver_data == {"youtube": True}
+    assert queued.provenance == "youtube-search"
+    assert queue.current().queue_id == active.queue_id
+    assert not played
+    assert printed == ["Queued YouTube result: Queued Track"]
+
+
+def test_youtube_queue_selector_alias_and_idle_guidance(queue_cli, monkeypatch):
+    queue, _paths = queue_cli
+    printed = []
+    searches = []
+    monkeypatch.setattr(
+        main.YT_query,
+        "search_youtube",
+        lambda **kwargs: searches.append(kwargs) or [
+            (1, "First", "https://www.youtube.com/watch?v=abc12345678"),
+            (2, "Second", "https://www.youtube.com/watch?v=def12345678"),
+        ],
+    )
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "2")
+
+    main.process('/ysq "artist title" 2')
+
+    queued = queue.items()[-1]
+    assert queued.media.title == "Second"
+    assert searches == [{"search": "artist title", "rescount": 2}]
+    assert printed[-2] == "Queued YouTube result: Second"
+    assert printed[-1] == f"No media is playing; use 'queue jump {len(queue.items())}' to start this item."
+
+
+def test_youtube_queue_search_rejects_empty_limits_and_no_results(queue_cli, monkeypatch):
+    with pytest.raises(QueueError, match="Usage: queue ys"):
+        main.queue_command(["ys"])
+    with pytest.raises(QueueError, match="greater than zero"):
+        main.queue_command(["ys", "query", "0"])
+    with pytest.raises(QueueError, match="must not exceed"):
+        main.queue_command(["ys", "query", str(main.max_yt_search_results_threshold + 1)])
+
+    monkeypatch.setattr(
+        main.YT_query,
+        "search_youtube",
+        lambda **_kwargs: (_ for _ in ()).throw(OSError("No YouTube results found")),
+    )
+    with pytest.raises(QueueError, match="returned no results"):
+        main.queue_command(["ys", "missing"])
+
+
+def test_youtube_queue_search_handles_selection_and_provider_failures(queue_cli, monkeypatch):
+    queue, _paths = queue_cli
+    original_count = len(queue.items())
+    choices = [
+        (1, "First", "https://www.youtube.com/watch?v=abc12345678"),
+        (2, "Second", "https://www.youtube.com/watch?v=def12345678"),
+    ]
+    printed = []
+    monkeypatch.setattr(main.YT_query, "search_youtube", lambda **_kwargs: choices)
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "")
+
+    main.queue_command(["ys", "cancelled", "2"])
+
+    assert len(queue.items()) == original_count
+    assert printed == ["YouTube queue selection cancelled"]
+
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "third")
+    with pytest.raises(QueueError, match="number between 1 and 2"):
+        main.queue_command(["ys", "invalid", "2"])
+
+    monkeypatch.setattr(main.YT_query, "search_youtube", lambda **_kwargs: [])
+    with pytest.raises(QueueError, match="returned no results"):
+        main.queue_command(["ys", "empty", "2"])
+
+    monkeypatch.setattr(
+        main.YT_query,
+        "search_youtube",
+        lambda **_kwargs: (_ for _ in ()).throw(OSError("provider unavailable")),
+    )
+    monkeypatch.setattr(main, "youtube_error_message", lambda *_args: "YouTube provider is unavailable")
+    with pytest.raises(QueueError, match="provider is unavailable"):
+        main.queue_command(["ys", "provider"])
+
+    monkeypatch.setattr(
+        main.YT_query,
+        "search_youtube",
+        lambda **_kwargs: ("Invalid", "https://example.test/transient"),
+    )
+    with pytest.raises(QueueError, match="invalid canonical media reference"):
+        main.queue_command(["ys", "invalid-result"])
+
+
 def test_direct_local_media_aligns_with_its_queue_identity(monkeypatch, tmp_path):
     first = tmp_path / "first.mp3"
     second = tmp_path / "second.mp3"

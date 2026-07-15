@@ -18,6 +18,7 @@ def test_legacy_aliases_normalize_without_changing_arguments():
     assert normalize_command("mute") == "m"
     assert normalize_command("DL-YV https://example.test/a") == "download-yv https://example.test/a"
     assert normalize_command("DL-ML https://example.test/a") == "download-ml https://example.test/a"
+    assert normalize_command('/ysq "artist title" 5') == 'queue ys "artist title" 5'
     assert normalize_command("/rpan 2") == "/rs 2"
     assert normalize_command(". C:/Music/a song.mp3") == ". C:/Music/a song.mp3"
 

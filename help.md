@@ -76,6 +76,8 @@ in library order and can contain nested groups up to eight levels deep.
 | --- | --- |
 | `queue list`, `queue tree` | Show the flat queue or hierarchical groups |
 | `queue add <media>` | Add a library number, indexed path, or supported URL |
+| `queue ys "<query>" [count]`, `queue youtube "<query>" [count]` | Search YouTube, select a result when needed, and append its canonical reference without interrupting playback |
+| `/ysq "<query>" [count]` | Short alias for `queue ys` |
 | `queue insert <position> <media>` | Insert media at a one-based position |
 | `queue remove <position>` | Remove an occurrence from the queue |
 | `queue move <from> <to>`, `queue swap <a> <b>` | Reorder occurrences |
@@ -103,6 +105,7 @@ Group paths are one-based, such as `2.3.1`; durable node IDs are also accepted.
 | `rfind <terms> [count]`, `rf <terms> [count]` | Match terms while treating numbers literally |
 | `lfind <terms> [count]`, `lf <terms> [count]` | Match any normalized term |
 | `/ys <query> [count]` | Search YouTube and play the selected result |
+| `queue ys "<query>" [count]`, `/ysq "<query>" [count]` | Search YouTube and queue the selected result without playing it |
 | `/yl <YouTube URL>` | Play a YouTube URL |
 | `/ml <URL>` | Resolve and play a public yt-dlp-supported media page or direct media URL |
 | `pod <vendor>`, `pods <vendor>` | Browse configured podcast vendors |
@@ -118,6 +121,10 @@ availability, authentication, rate limits, geographic restrictions, DRM, or
 provider changes. Mariana reports these failures and does not bypass service
 protections. `/ml` supports sources that yt-dlp and FFmpeg can access; it is not
 a universal authenticated or DRM playback command.
+
+Mariana does not currently provide SoundCloud catalog search, so `queue sc`
+and `/scq` are not commands. Known public SoundCloud URLs remain supported by
+the extractor-backed `/ml` playback and `download-ml` commands.
 
 YouTube operations share one optional browser-profile reference:
 
@@ -322,6 +329,7 @@ Build and navigate a queue:
 ```text
 queue add 4
 queue add 9
+queue ys "artist title" 5
 queue list
 autonext on
 queue next
@@ -389,6 +397,7 @@ These testing-snapshot aliases remain recognized and route to modern behavior:
 | `mute` | Alias for `m` |
 | `vh`, `volh`, `volumeh` | Player-volume compatibility forms |
 | `dl-yv`, `dl-ya`, `dl-ml` | Download command aliases |
+| `/ysq` | Queue the selected YouTube search result without starting playback |
 | `/reddit-session`, `/reddit-sessions`, `/rpan` | Recognized retired RPAN forms; no network action occurs |
 
 `beta [on|off]` remains recognized and explains that formerly gated features

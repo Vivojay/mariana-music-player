@@ -33,6 +33,7 @@ ALIAS_COMPATIBILITY = (
     AliasCompatibility(("dl-yv",), "download-yv", "token", "compatibility-only"),
     AliasCompatibility(("dl-ya",), "download-ya", "token", "compatibility-only"),
     AliasCompatibility(("dl-ml",), "download-ml", "token", "compatibility-only"),
+    AliasCompatibility(("/ysq",), "queue ys", "token", "native"),
     AliasCompatibility(
         ("/reddit-session", "/reddit-sessions", "/rpan"),
         "/rs",

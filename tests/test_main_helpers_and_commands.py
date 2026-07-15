@@ -795,6 +795,10 @@ def test_help_covers_user_topics_examples_and_legacy_topic_names(monkeypatch):
     assert any("seek +30s" in value and "fade out 10" in value for value in printed)
     assert main.help_command(["discord", "presence"])[0][0] == "Discord Presence"
 
+    printed.clear()
+    assert main.help_command(["queue"])[0][0] == "Queue"
+    assert any('queue ys "artist title" 5' in value and "/ysq" in value for value in printed)
+
     assert main.help_command(["online"])[0][0] == "Search and online sources"
     assert main.help_command(["details"])[0][0] == "Diagnostics"
     assert main.help_command(["app"])[0][0] == "Settings"
