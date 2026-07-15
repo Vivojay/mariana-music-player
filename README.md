@@ -4,7 +4,7 @@ Mariana is a local-first command-line and Electron terminal media player for
 64-bit Windows, macOS, and Linux. The 0.7 development platform decodes audio
 with FFmpeg into a bounded PCM pipeline,
 plays it through `sounddevice`, and uses FFplay only as an external diagnostic
-or video fallback. The working version is `0.7.0-dev.4`; the stable release remains 0.6.2 until every
+or video fallback. The working source version is `0.7.0-dev.5`; the stable release remains 0.6.2 until every
 release gate—including manual speaker and soak acceptance—has passed.
 
 Supported sources include local audio, YouTube, podcasts, custom HTTP media,
@@ -71,6 +71,10 @@ then launch it from Explorer or PowerShell:
 ```powershell
 .\Mariana-0.7.0-dev.4-windows-x64.exe
 ```
+
+The `0.7.0-dev.5` source is currently a release candidate only. No dev.5
+binary has been published, and the dev.4 installer does not contain the dev.5
+changes recorded in `CHANGELOG.md`.
 
 This development installer is not Authenticode-signed, so Windows may display
 a publisher warning. Verify it against the release's `SHA256SUMS.txt`; the

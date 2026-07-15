@@ -5,11 +5,11 @@
 
 ## Document purpose
 
-This document records the verified engineering state of Mariana at commit
-`a053dbb4eebf85285b426f0cd5e38592d5b5862c`. Release-independent subsystem
+This document records the verified source state of Mariana through release-candidate
+base commit `3c55e16bc7e5b125ed83a0c67fdcdeb7dd5a5432`. Release-independent subsystem
 design is documented in [ARCHITECTURE_STATE.md](ARCHITECTURE_STATE.md).
 Detailed test evidence remains in
-[docs/verification/2026-07-14.md](docs/verification/2026-07-14.md).
+[docs/verification/2026-07-15.md](docs/verification/2026-07-15.md).
 
 ## Project overview
 
@@ -31,23 +31,24 @@ recommendations.
 |---|---|
 | Repository | `https://github.com/Vivojay/mariana-music-player` |
 | Flagship branch | `dev-6` |
-| HEAD | `a053dbb4eebf85285b426f0cd5e38592d5b5862c` |
-| Remote state | Local `dev-6` and `origin/dev-6` matched |
-| Development version | `0.7.0-dev.4` |
+| Release-candidate base | `3c55e16bc7e5b125ed83a0c67fdcdeb7dd5a5432` |
+| Remote state at candidate base | Local `dev-6` and `origin/dev-6` matched |
+| Development version | `0.7.0-dev.5` (unpublished release candidate) |
 | Canonical version file | `version.json` |
 | Python target | CPython 3.12 |
 | Desktop build target | Node.js 24 and Electron 43.1.0 |
 | Database schema | Version 8 |
 
-`version.json`, `package.json`, Python version reporting, CLI display, and the
-packaged executable were synchronized at this snapshot.
+`version.json`, `package.json`, Python version reporting, and CLI display are
+synchronized for the candidate. Existing `dist-backend/`, `release/`, and the
+published dev.4 assets predate this candidate and are not presented as current.
 
 ## Verification evidence
 
 ### Final HEAD CI
 
-[GitHub Actions run 29329927424](https://github.com/Vivojay/mariana-music-player/actions/runs/29329927424)
-completed successfully for `a053dbb` on:
+[GitHub Actions run 29388760239](https://github.com/Vivojay/mariana-music-player/actions/runs/29388760239)
+completed successfully for candidate base `3c55e16` on:
 
 - Windows.
 - Ubuntu.
@@ -62,13 +63,13 @@ dependency audits, and artifact collection.
 
 The latest full recorded verification includes:
 
-- 992 deterministic Python tests passed.
+- 1,119 deterministic Python tests passed locally for the candidate base.
 - 17 opt-in or environment-dependent scenarios explicitly skipped.
 - 93.95% aggregate statement/branch coverage.
-- 90.1% repository-wide branch coverage.
+- 90.0% repository-wide branch coverage.
 - At least 95% branch coverage independently for every module enforced by
   `tools/coverage_gate.py`.
-- 12 Vitest tests passed.
+- 14 Vitest tests passed.
 - Two native development PTY scenarios passed.
 - Six Windows packaged Electron scenarios passed.
 - 17 real-process media tests passed.
@@ -81,11 +82,12 @@ resume, corrupt setup repair, and recovery from an empty user-state file.
 
 ## Current release status
 
-The current public development release is
+The current public development release remains
 [v0.7.0-dev.4](https://github.com/Vivojay/mariana-music-player/releases/tag/v0.7.0-dev.4).
 It is a public, non-draft prerelease targeting commit
-`53330305e4187f3bdcba31b1df11c884532e97e4`. Commits between that tag and the
-verified project snapshot contain documentation changes only.
+`53330305e4187f3bdcba31b1df11c884532e97e4`. The dev.5 candidate includes
+subsequent behavior, reliability, testing, and documentation changes and has
+not been published.
 
 Published assets:
 
@@ -109,8 +111,8 @@ The verified unpacked application identities are:
 | Bundled `mariana-cli.exe` | `EE05BC3DE09F797D9FAE15D4B35299D189A18C3B5B7E64FDD066AC5B04DFA49F` |
 | `app.asar` | `4A848DBBD702D5BBA8AEAD2F153F63C6FD9542F3F2A89D37403C51A9A423161B` |
 
-The stable release remains `0.6.2`. Version `0.7.0-dev.4` must not be presented
-as stable.
+The stable release remains `0.6.2`. Neither the published dev.4 prerelease nor
+the unpublished dev.5 candidate may be presented as stable.
 
 ## Remaining release blockers
 
@@ -418,6 +420,7 @@ current `release/win-unpacked` application.
 | `0.7.0-dev.2` | FFmpeg PCM platform, SQLite services, React/Electron host, first-run state, ReplayGain, Icecast, and testing-snapshot compatibility |
 | `0.7.0-dev.3` | Rich prompt/help/themes, managed tools, media details/rename, same-session downloads, output-device following, autoplay, and multi-view terminal |
 | `0.7.0-dev.4` | Hierarchical queues, playlists, albums, persistent album downloads, track-seeded stations, YouTube chapters, and expanded release verification |
+| `0.7.0-dev.5` | Release candidate with Discord Rich Presence, seek/fade polish, extractor-backed source hardening, preference metadata repair, terminal lifecycle fixes, and restored repository coverage |
 
 `CHANGELOG.md` is the authoritative concise change history. Dated evidence under
 `docs/verification/` records what was actually executed for each development

@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## 0.7.0-dev.5 - Release candidate
+
+- Added opt-in Discord Rich Presence with `off`, `app`, `track`, and `session`
+  privacy modes, sanitized playback projections, throttled local RPC updates,
+  and best-effort shutdown clearing isolated from playback.
+- Added human-friendly seek units, percentages, start/end aliases, four-field
+  day clocks, labeled durations, relative clamping, and safe end margins;
+  tightened fade command validation while preserving every legacy form.
+- Centralized extractor-page detection on yt-dlp's installed dedicated
+  extractor registry, hardened extractor-backed playback and downloads, and
+  restored the `dl-ml` compatibility alias.
+- Preserved sanitized title, source, and URI metadata for favorite and blocked
+  media so preference listings remain useful after restart or legacy repair.
+- Closed exited Electron terminal views cleanly while preserving intentional
+  restart behavior, and retained selected-text Ctrl+C semantics.
+- Corrected auto-next navigation to follow the authoritative active queue.
+- Added permanent architecture/project-state documentation and the Mariana
+  product roadmap without incorporating the author's private scratchpad.
+- Restored the independent 90% repository branch-coverage gate with meaningful
+  seek parser contract tests; critical modules remain independently gated at
+  95% branch coverage.
+
 - Recovered empty, malformed, or partially written user statistics before
   startup, retained invalid files for diagnosis, and made future YAML saves
   atomic with bounded handling for transient Windows file locks.
