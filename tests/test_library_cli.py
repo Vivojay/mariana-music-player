@@ -51,7 +51,10 @@ class Service:
         self.actions.append("resume")
 
 
-@pytest.mark.parametrize("command", ["roots", "status", "pause", "resume", "errors", "verify", "clean --missing", "info 1"])
+@pytest.mark.parametrize(
+    "command",
+    ["roots", "status", "pause", "resume", "errors", "verify", "clean --missing --yes", "info 1"],
+)
 def test_library_commands_are_stable(monkeypatch, command):
     library, service, printed = Library(), Service(), []
     monkeypatch.setattr(main, "LIBRARY", library)
@@ -77,3 +80,25 @@ def test_scan_refreshes_compatibility_projection_and_retry_resolves_item(monkeyp
         main.library_command(["info", "missing"])
     with pytest.raises(LibraryError):
         main.library_command(["clean"])
+
+
+@pytest.mark.parametrize("token", ["y", "yes", "--yes"])
+def test_library_clean_confirmation_bypass_tokens(monkeypatch, token):
+    library = Library()
+    monkeypatch.setattr(main, "LIBRARY", library)
+    monkeypatch.setattr(main, "IPrint", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda *_args: pytest.fail("library-clean confirmation bypass prompted"),
+    )
+    main.library_command(["clean", "--missing", token])
+    assert library.actions == [("clean",)]
+
+
+def test_library_clean_rejection_preserves_tombstones(monkeypatch):
+    library = Library()
+    monkeypatch.setattr(main, "LIBRARY", library)
+    monkeypatch.setattr(main, "IPrint", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("builtins.input", lambda *_args: "n")
+    main.library_command(["clean", "--missing"])
+    assert library.actions == []

@@ -99,6 +99,24 @@ def test_plain_download_is_current_track_only(monkeypatch, tmp_path: Path, downl
     assert any("queued" in value for value in printed)
 
 
+@pytest.mark.parametrize("token", ["y", "yes", "--yes"])
+def test_audio_download_confirmation_bypass_tokens(monkeypatch, tmp_path: Path, download_cli, token):
+    manager, _album, _printed = download_cli
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=yt("current", "Current")),
+    )
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda *_args: pytest.fail("audio download confirmation bypass prompted"),
+    )
+
+    job = main.download_audio_command(["--to", str(tmp_path), token])
+
+    assert manager.items(job.job_id)[0].media.title == "Current"
+
+
 def test_explicit_track_does_not_expand_playlist(monkeypatch, tmp_path: Path, download_cli):
     manager, _album, _printed = download_cli
     monkeypatch.setattr(
@@ -149,6 +167,23 @@ def test_album_selector_can_reference_nonplaying_album(tmp_path: Path, download_
     manager, _album, _printed = download_cli
     job = main.download_audio_command(
         ["--album", "1", "--tracks", "2", "--to", str(tmp_path), "--yes"]
+    )
+    assert manager.items(job.job_id)[0].media.title == "Online"
+
+
+def test_album_reference_named_yes_is_not_consumed(monkeypatch, tmp_path: Path, download_cli):
+    manager, album, _printed = download_cli
+
+    class Albums:
+        def fetch(self, reference):
+            assert reference == "yes"
+            return album
+
+        select_tracks = staticmethod(AlbumCatalog.select_tracks)
+
+    monkeypatch.setattr(main, "ALBUMS", Albums())
+    job = main.download_audio_command(
+        ["--album", "yes", "--allow-partial", "--to", str(tmp_path), "--yes"]
     )
     assert manager.items(job.job_id)[0].media.title == "Online"
 

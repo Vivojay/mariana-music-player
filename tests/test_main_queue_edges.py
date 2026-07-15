@@ -122,7 +122,7 @@ def queue_cli(monkeypatch, tmp_path):
         ["jump", "2"],
         ["next"],
         ["previous"],
-        ["clear"],
+        ["clear", "--yes"],
         ["shuffle", "42"],
         ["repeat", "all"],
         ["consume", "on"],
@@ -143,6 +143,27 @@ def test_queue_redo_and_validation(queue_cli):
     main.queue_command(["redo"])
     with pytest.raises(QueueError):
         main.queue_command(["unknown"])
+
+
+@pytest.mark.parametrize("token", ["y", "yes", "--yes"])
+def test_queue_clear_confirmation_bypass_tokens(queue_cli, monkeypatch, token):
+    queue, _paths = queue_cli
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda *_args: pytest.fail("queue clear confirmation bypass prompted"),
+    )
+    main.queue_command(["clear", token])
+    assert queue.items() == []
+
+
+def test_queue_clear_prompt_rejection_preserves_items(queue_cli, monkeypatch):
+    queue, _paths = queue_cli
+    original = [item.queue_id for item in queue.items()]
+    monkeypatch.setattr("builtins.input", lambda *_args: "n")
+    main.queue_command(["clear"])
+    assert [item.queue_id for item in queue.items()] == original
+    with pytest.raises(QueueError, match="Usage"):
+        main.queue_command(["clear", "unexpected"])
 
 
 def test_queue_next_marks_the_station_item_played(queue_cli, monkeypatch):

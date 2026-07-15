@@ -117,3 +117,29 @@ def test_broadcast_cli_uses_keychain_and_supervisor_contract(monkeypatch):
     assert ("set", "home", "not-persisted") in broadcaster.credentials.calls
     assert ("start", "home") in broadcaster.calls
     assert ("test", "home") in broadcaster.calls
+
+
+@pytest.mark.parametrize("token", ["y", "yes", "--yes"])
+def test_broadcast_credential_delete_confirmation_bypass_tokens(monkeypatch, token):
+    broadcaster = Broadcaster()
+    monkeypatch.setattr(main, "BROADCASTER", broadcaster)
+    monkeypatch.setattr(main, "IPrint", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda *_args: pytest.fail("broadcast credential confirmation bypass prompted"),
+    )
+    main.broadcast_command(["credentials", "delete", "home", token])
+    assert ("delete", "home") in broadcaster.credentials.calls
+
+
+def test_broadcast_credential_delete_rejection_and_usage(monkeypatch):
+    broadcaster = Broadcaster()
+    printed = []
+    monkeypatch.setattr(main, "BROADCASTER", broadcaster)
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
+    monkeypatch.setattr("builtins.input", lambda *_args: "n")
+    main.broadcast_command(["credentials", "delete", "home"])
+    assert not any(call[0] == "delete" for call in broadcaster.credentials.calls)
+    assert printed[-1] == "Broadcast credential deletion cancelled"
+    with pytest.raises(main.BroadcastError, match="Usage"):
+        main.broadcast_command(["credentials", "delete", "home", "extra"])

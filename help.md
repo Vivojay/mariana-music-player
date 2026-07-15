@@ -89,7 +89,7 @@ in library order and can contain nested groups up to eight levels deep.
 | `queue save <name>`, `queue load <name>` | Save or restore a compatible queue snapshot |
 | `queue undo`, `queue redo` | Restore a prior queue mutation |
 | `queue reset` | Rebuild the queue from current library order |
-| `queue clear` | Remove all queue occurrences; media files are not deleted |
+| `queue clear [y|yes|--yes]` | Confirm and remove all queue occurrences; media files are not deleted |
 | `queue group create|rename|move|remove|atomic ...` | Manage nested groups |
 | `queue order sequential|shuffle|priority|artist-fair|smart|custom [--group <path>] [--seed N]` | Order upcoming nodes without restarting the active item |
 | `queue priority <path> <integer>` | Assign stable priority |
@@ -143,9 +143,9 @@ does not persist cookie data.
 
 | Command | Purpose |
 | --- | --- |
-| `download-yv [YouTube URL]`, `dl-yv [YouTube URL]` | Download YouTube video; omit the URL to use the active YouTube item |
-| `download-ya [current|YouTube URL] [--track] [--quality best|worst] [--to <directory>]`, `dl-ya ...` | Download one audio item |
-| `download-ya --album [current|album-ref|YouTube-playlist-URL] [--tracks <selector>] [--missing-only] [--allow-partial] [--quality best|worst] [--to <directory>] [--yes]` | Create an explicit album download job |
+| `download-yv [YouTube URL] [y|yes|--yes]`, `dl-yv ...` | Download YouTube video; omit the URL to use the active YouTube item |
+| `download-ya [current|YouTube URL] [--track] [--quality best|worst] [--to <directory>] [y|yes|--yes]`, `dl-ya ...` | Download one audio item |
+| `download-ya --album [current|album-ref|YouTube-playlist-URL] [--tracks <selector>] [--missing-only] [--allow-partial] [--quality best|worst] [--to <directory>] [y|yes|--yes]` | Create an explicit album download job |
 | `download-ya status [job-id]` | Inspect persistent download work |
 | `download-ya pause|resume|cancel <job-id>` | Control a download job |
 | `download-ml <URL> [mp3|flac|wav|m4a|opus] [output path]`, `dl-ml ...` | Download a public extractor-backed media page or direct media URL |
@@ -171,10 +171,10 @@ database.
 | `library retry [file|all]` | Retry failed profiling stages |
 | `library verify` | Check database health and unavailable paths |
 | `library info <index|path>` | Show indexed metadata and profiler state |
-| `library clean --missing` | Remove missing-file tombstones only; never delete media |
+| `library clean --missing [y|yes|--yes]` | Confirm and remove missing-file tombstones only; never delete media |
 | `reload` | Refresh the legacy library projection from the current index |
 | `include downloads`, `exclude downloads` | Add or remove Mariana's managed download root without editing user roots |
-| `rename short [current|index|path] [--dry-run|--yes]` | Rename indexed local media from trusted metadata and provenance |
+| `rename short [current|index|path] [--dry-run] [y|yes|--yes]` | Rename indexed local media from trusted metadata and provenance |
 | `replaygain scan [changed|full]`, `replaygain rescan <index|path>` | Queue non-destructive loudness analysis |
 | `fav [!|+|-]`, `bl [!|+|-]` | Inspect, toggle, set, or clear favorite/blocked state for active media |
 | `like`, `dislike` | Set the active item to favorite or blocked |
@@ -191,8 +191,8 @@ tombstones until explicitly cleaned.
 | `playlist create <name> [--description <text>]` | Create a playlist |
 | `playlist show <name> [--tree]` | Show tracks or nested structure |
 | `playlist rename <old> <new>` | Rename a playlist |
-| `playlist delete <name> [--yes]` | Delete the playlist record after confirmation unless `--yes` is supplied |
-| `playlist clear <name>` | Remove all playlist contents |
+| `playlist delete <name> [y|yes|--yes]` | Delete the playlist record after confirmation unless a bypass token is supplied |
+| `playlist clear <name> [y|yes|--yes]` | Confirm and remove all playlist contents |
 | `playlist add <name> media|album|playlist <reference> [--at <path>]` | Add media or an atomic snapshot |
 | `playlist remove <name> <path>` | Remove a node |
 | `playlist move <name> <path> --parent <path|root> [--at N]` | Move a node |
@@ -207,7 +207,7 @@ tombstones until explicitly cleaned.
 | Command | Purpose |
 | --- | --- |
 | `lyrics`, `lyr` | Display lyrics for the active item |
-| `lyrics edit`, `lyr edit` | Edit an adjacent `.lrc`, confirming before cached lyrics create one |
+| `lyrics edit [y|yes|--yes]`, `lyr edit ...` | Edit an adjacent `.lrc`, confirming before cached lyrics create one |
 | `open lyrics`, `open lyr` | Open the current lyrics file in the configured editor |
 
 Resolution prefers embedded or adjacent local lyrics, then cached or provider
@@ -228,9 +228,11 @@ result; Mariana does not fabricate lyric text.
 | `radio favorite <station> [off]` | Set or clear favorite state |
 | `radio health [station]`, `radio refresh [station]` | Probe cached or freshly resolved endpoints |
 | `radio leveling on|off|status` | Control optional live loudness leveling |
-| `radio credentials set|delete|status <station> [username]` | Manage private-stream credentials in the OS keychain |
+| `radio credentials set|status <station> [username]` | Store or inspect private-stream credentials in the OS keychain |
+| `radio credentials delete <station> [y|yes|--yes]` | Confirm and delete a private-stream credential |
 | `broadcast profiles|start|stop|test|status` | Control one configured Icecast source broadcast |
-| `broadcast credentials set|delete|status <profile>` | Manage broadcast credentials in the OS keychain |
+| `broadcast credentials set|status <profile>` | Store or inspect broadcast credentials in the OS keychain |
+| `broadcast credentials delete <profile> [y|yes|--yes]` | Confirm and delete a broadcast credential |
 
 Station availability is external and cannot be guaranteed. Endpoint failure
 does not silently become success; Mariana reports health and failover state.
@@ -296,14 +298,21 @@ There is no consolidated `doctor` command yet. Use `tools status`,
 
 | Command | Effect and safeguard |
 | --- | --- |
-| `rm <index|path>`, `del <index|path>` | Confirms, then sends indexed local media to the OS trash; it refuses URLs, directories, and paths outside the indexed library |
-| `playlist delete <name> [--yes]` | Deletes a playlist record, not media files; prompts unless `--yes` is supplied |
-| `playlist clear <name>` | Clears playlist contents without deleting media |
-| `queue clear` | Clears queue occurrences without deleting media |
-| `library clean --missing` | Permanently removes missing-file tombstone records, never media files |
-| `setup restart` | Resets setup progress while preserving settings, media, history, library data, and preferences |
-| `rename short ... --yes` | Renames an indexed media file without prompting; use `--dry-run` first |
-| `exit y`, `quit y` | Bypasses only the normal exit confirmation |
+| `rm <index|path> [y|yes|--yes]`, `del ...` | Confirms, then sends indexed local media to the OS trash; it refuses URLs, directories, and paths outside the indexed library |
+| `playlist delete <name> [y|yes|--yes]` | Deletes a playlist record, not media files; prompts unless a bypass token is supplied |
+| `playlist clear <name> [y|yes|--yes]` | Confirms before clearing playlist contents without deleting media |
+| `queue clear [y|yes|--yes]` | Confirms before clearing queue occurrences without deleting media |
+| `library clean --missing [y|yes|--yes]` | Confirms before permanently removing missing-file tombstone records, never media files |
+| `setup restart [y|yes|--yes]` | Confirms before resetting setup progress while preserving settings, media, history, library data, and preferences |
+| `rename short ... [y|yes|--yes]` | Renames an indexed media file without prompting when bypassed; use `--dry-run` first |
+| `refresh all [y|yes|--yes]` | Confirms before refreshing library metadata and related state |
+| `lyrics edit [y|yes|--yes]` | Bypasses only creation of a missing adjacent `.lrc`; editing an existing sidecar needs no prompt |
+| `exit|quit [y|yes|--yes]` | Bypasses only the normal exit confirmation |
+
+Confirmation tokens are command-scoped; Mariana never strips a trailing `y` or
+`yes` globally. Bare forms are recognized only as a final, unambiguous argument.
+If a playlist, album reference, or indexed path is literally named `y` or `yes`,
+leave it in the normal positional slot and use `--yes` as the bypass flag.
 
 ## Common workflows
 

@@ -61,7 +61,7 @@ def cli(monkeypatch, tmp_path):
     monkeypatch.setattr(main.PREFERENCES, "toggle", lambda _media, state: state)
     monkeypatch.setattr(main.PREFERENCES, "list", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(main, "set_download_library_inclusion", lambda enabled: actions.append(("downloads-root", enabled)))
-    monkeypatch.setattr(main, "edit_current_lyrics", lambda: actions.append(("lyrics-edit",)))
+    monkeypatch.setattr(main, "edit_current_lyrics", lambda **_kwargs: actions.append(("lyrics-edit",)))
     monkeypatch.setattr(main, "recycle_library_media", lambda args: actions.append(("recycle", args)))
     monkeypatch.setattr(main, "open_path", lambda path: actions.append(("open-path", path)))
     monkeypatch.setattr(main, "reveal_path", lambda path: actions.append(("reveal", path)))
@@ -385,7 +385,17 @@ def test_now_and_open_render_every_media_type(cli, monkeypatch, media_type, song
 def test_exit_confirmation_paths(cli, monkeypatch):
     monkeypatch.setattr("builtins.input", lambda *_args: "y")
     assert main.process("exit") is False
-    assert main.process("quit y") is False
+    for command in ("quit y", "exit yes", "quit --yes"):
+        monkeypatch.setattr(
+            "builtins.input",
+            lambda *_args: pytest.fail("confirmation bypass prompted"),
+        )
+        assert main.process(command) is False
+
+    monkeypatch.setattr("builtins.input", lambda *_args: "n")
+    assert main.process("exit") is None
+    main.process("exit --yes yes")
+    assert any("only one confirmation" in message.get("display_message", "") for message in cli.messages)
 
 
 @pytest.mark.parametrize(
@@ -528,6 +538,14 @@ def test_refresh_all_confirmation_reprompts_and_can_cancel(cli, monkeypatch):
     main.process("refresh all")
     assert cli.actions == before
 
+    for token in ("y", "yes", "--yes"):
+        monkeypatch.setattr(
+            "builtins.input",
+            lambda *_args: pytest.fail("refresh confirmation bypass prompted"),
+        )
+        main.process(f"refresh all {token}")
+    assert cli.actions.count(("refresh-settings",)) == 4
+
 
 def test_navigation_covers_play_print_and_unavailable_states(cli, monkeypatch):
     main.process("next")
@@ -570,6 +588,20 @@ def test_download_confirmation_and_rejection_paths(cli, monkeypatch):
     main.process("download-yv")
     main.process("download-ya")
     assert any("stored locally" in message.get("display_message", "") for message in cli.messages)
+
+
+@pytest.mark.parametrize("token", ["y", "yes", "--yes"])
+def test_video_download_confirmation_bypass_tokens(cli, monkeypatch, token):
+    monkeypatch.setattr(main, "current_media_type", 0)
+    monkeypatch.setattr(main, "currentsong", ("Video", "https://youtube.test/watch?v=1"))
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda *_args: pytest.fail("video download confirmation bypass prompted"),
+    )
+
+    main.process(f"download-yv {token}")
+
+    assert any(action[0] == "download-job" and action[1]["typ"] == 1 for action in cli.actions)
 
 
 def test_youtube_download_worker_never_spawns_another_mariana(monkeypatch):
@@ -761,6 +793,12 @@ def test_legacy_aliases_route_to_modern_handlers(cli):
     assert main.REDDIT_RETIRED_MESSAGE in cli.printed
 
 
+@pytest.mark.parametrize("token", ["y", "yes", "--yes"])
+def test_lyrics_edit_confirmation_bypass_tokens(cli, token):
+    main.process(f"lyrics edit {token}")
+    assert ("lyrics-edit",) in cli.actions
+
+
 def test_stale_snapshot_shortcuts_are_explicitly_retired(cli):
     main.process("weblinks")
     main.process("vivojay fav")
@@ -793,3 +831,17 @@ def test_durable_lyrics_edit_creates_sidecar_only_after_confirmation(cli, monkey
     monkeypatch.setattr("builtins.input", lambda *_args: "y")
     assert REAL_EDIT_CURRENT_LYRICS() == song.with_suffix(".lrc")
     assert song.with_suffix(".lrc").read_text(encoding="utf-8") == "[00:01.00]Line\n"
+
+    bypassed = cli.tmp_path / "bypassed.mp3"
+    bypassed.write_bytes(b"audio")
+    bypassed_media = MediaRef(MediaSource.LOCAL, str(bypassed))
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=bypassed_media),
+    )
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda *_args: pytest.fail("lyrics-sidecar confirmation bypass prompted"),
+    )
+    assert REAL_EDIT_CURRENT_LYRICS(assume_yes=True) == bypassed.with_suffix(".lrc")

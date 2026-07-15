@@ -49,7 +49,7 @@ def test_setup_command_status_repair_resume_restart_and_errors(monkeypatch):
     store.state = SetupState(status="complete")
     assert main.setup_command(["resume"]).status == "complete"
     store.state = SetupState(status="complete")
-    assert main.setup_command(["restart"]).status == "complete"
+    assert main.setup_command(["restart", "--yes"]).status == "complete"
     assert store.reset_count == 1
     assert reloads == [{"quick_load": False}, {"quick_load": False}]
     with pytest.raises(ValueError, match="Usage"):
@@ -58,6 +58,37 @@ def test_setup_command_status_repair_resume_restart_and_errors(monkeypatch):
     monkeypatch.setattr(store, "load", lambda: (_ for _ in ()).throw(SetupStateError("corrupt")))
     assert main.setup_command(["status"]) is None
     assert "corrupt" in printed[-1]
+
+
+@pytest.mark.parametrize("token", ["y", "yes", "--yes"])
+def test_setup_restart_confirmation_bypass_tokens(monkeypatch, token):
+    store = SetupStore()
+    monkeypatch.setattr(main, "SETUP_STORE", store)
+    monkeypatch.setattr(main, "IPrint", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "reload_sounds", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda *_args: pytest.fail("setup restart confirmation bypass prompted"),
+    )
+
+    def finish_setup(*_args):
+        store.state = SetupState(status="complete")
+        return True
+
+    monkeypatch.setattr(first_boot_setup, "fbs", finish_setup)
+    assert main.setup_command(["restart", token]).status == "complete"
+    assert store.reset_count == 1
+
+
+def test_setup_restart_rejection_preserves_state(monkeypatch):
+    store = SetupStore()
+    monkeypatch.setattr(main, "SETUP_STORE", store)
+    monkeypatch.setattr(main, "IPrint", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("builtins.input", lambda *_args: "n")
+    assert main.setup_command(["restart"]).status == "complete"
+    assert store.reset_count == 0
+    with pytest.raises(ValueError, match="Usage"):
+        main.setup_command(["restart", "unexpected"])
 
 
 def test_tools_command_reports_resolved_versions_and_runs_setup_or_install(monkeypatch, tmp_path):
@@ -157,6 +188,19 @@ def test_preference_listing_download_root_and_recycle_helpers(monkeypatch, tmp_p
     assert main.recycle_library_media(["1"]) is None
     monkeypatch.setattr("builtins.input", lambda *_args: "yes")
     assert main.recycle_library_media(["1"]) == target
+
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda *_args: pytest.fail("media-removal confirmation bypass prompted"),
+    )
+    for token in ("y", "yes", "--yes"):
+        assert main.recycle_library_media(["1", token]) == target
+
+    resolved = []
+    monkeypatch.setattr(main.MEDIA_REMOVAL, "resolve", lambda value: resolved.append(value) or target)
+    monkeypatch.setattr("builtins.input", lambda *_args: "n")
+    assert main.recycle_library_media(["yes"]) is None
+    assert resolved[-1] == "yes"
 
 
 class RadioCatalog:
@@ -267,7 +311,7 @@ def test_radio_command_all_operations_and_validation(monkeypatch):
         ["leveling", "off"],
         ["leveling", "status"],
         ["credentials", "set", "station", "dj"],
-        ["credentials", "delete", "station"],
+        ["credentials", "delete", "station", "--yes"],
         ["credentials", "status", "station"],
         ["favorite", "station", "off"],
         ["health"],
@@ -290,3 +334,31 @@ def test_radio_command_all_operations_and_validation(monkeypatch):
         main.radio_command(["credentials", "invalid", "station"])
     with pytest.raises(RadioError, match="Unknown"):
         main.radio_command(["unknown"])
+
+
+@pytest.mark.parametrize("token", ["y", "yes", "--yes"])
+def test_radio_credential_delete_confirmation_bypass_tokens(monkeypatch, token):
+    credentials = CredentialFixture()
+    monkeypatch.setattr(main, "RADIO", RadioCatalog())
+    monkeypatch.setattr(main, "CredentialStore", lambda: credentials)
+    monkeypatch.setattr(main, "IPrint", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda *_args: pytest.fail("radio credential confirmation bypass prompted"),
+    )
+    main.radio_command(["credentials", "delete", "station", token])
+    assert credentials.calls == [("delete", "radio:station-id")]
+
+
+def test_radio_credential_delete_rejection_and_usage(monkeypatch):
+    credentials = CredentialFixture()
+    printed = []
+    monkeypatch.setattr(main, "RADIO", RadioCatalog())
+    monkeypatch.setattr(main, "CredentialStore", lambda: credentials)
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
+    monkeypatch.setattr("builtins.input", lambda *_args: "n")
+    main.radio_command(["credentials", "delete", "station"])
+    assert credentials.calls == []
+    assert printed[-1] == "Radio credential deletion cancelled"
+    with pytest.raises(RadioError, match="Usage"):
+        main.radio_command(["credentials", "delete", "station", "extra"])

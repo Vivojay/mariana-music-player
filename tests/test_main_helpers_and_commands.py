@@ -802,6 +802,9 @@ def test_help_covers_user_topics_examples_and_legacy_topic_names(monkeypatch):
     assert main.help_command(["online"])[0][0] == "Search and online sources"
     assert main.help_command(["details"])[0][0] == "Diagnostics"
     assert main.help_command(["app"])[0][0] == "Settings"
+    printed.clear()
+    assert main.help_command(["dangerous"])[0][0] == "Dangerous/destructive commands"
+    assert any("[y|yes|--yes]" in value for value in printed)
 
 
 def test_station_command_parses_options_prints_upcoming_and_controls(monkeypatch):
@@ -1177,7 +1180,12 @@ def test_short_rename_preview_cancel_and_apply(monkeypatch, tmp_path):
     monkeypatch.setattr("builtins.input", lambda _prompt="": "n")
     assert main.rename_command(["short"]) is None
     assert "Rename cancelled" in printed[-1]
-    assert main.rename_command(["short", "--yes"]) == renamed
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda *_args: pytest.fail("rename confirmation bypass prompted"),
+    )
+    for token in ("y", "yes", "--yes"):
+        assert main.rename_command(["short", "current", token]) == renamed
     assert "stop" in events and main.currentsong == str(renamed)
     assert any(isinstance(event, tuple) and event[0] == "reload" for event in events)
     with pytest.raises(ValueError, match="Usage: rename"):
@@ -1185,6 +1193,23 @@ def test_short_rename_preview_cancel_and_apply(monkeypatch, tmp_path):
     info["state"] = "missing"
     with pytest.raises(ValueError, match="available"):
         main.rename_command(["short", "--yes"])
+
+
+@pytest.mark.parametrize("token", ["y", "yes", "--yes"])
+def test_confirmation_bypass_parser_accepts_one_scoped_token(token):
+    assert main._confirmation_bypass(["target", token]) == (True, ["target"])
+
+
+def test_confirmation_bypass_parser_preserves_values_and_rejects_duplicates():
+    assert main._confirmation_bypass(["yes"], preserve_single_bare=True) == (False, ["yes"])
+    assert main._confirmation_bypass(["yes", "--yes"], preserve_single_bare=True) == (
+        True,
+        ["yes"],
+    )
+    with pytest.raises(ValueError, match="only one confirmation"):
+        main._confirmation_bypass(["target", "--yes", "yes"])
+    with pytest.raises(ValueError, match="only one confirmation"):
+        main._confirmation_bypass(["--yes", "--yes"])
 
 
 def test_managed_tool_migration_handles_complete_declined_success_and_failure(monkeypatch):

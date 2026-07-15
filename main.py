@@ -930,6 +930,32 @@ def _command_flag(arguments, name):
     return enabled, values
 
 
+def _confirmation_bypass(arguments, *, preserve_single_bare=False):
+    """Remove one command-scoped confirmation token without consuming data."""
+    values = list(arguments)
+    long_flags = [index for index, value in enumerate(values) if value.casefold() == '--yes']
+    trailing_bare = bool(
+        values
+        and values[-1].casefold() in {'y', 'yes'}
+        and not (preserve_single_bare and len(values) == 1)
+    )
+    if len(long_flags) > 1 or (long_flags and trailing_bare):
+        raise ValueError('Use only one confirmation bypass token: y, yes, or --yes')
+    if long_flags:
+        del values[long_flags[0]]
+        return True, values
+    if trailing_bare:
+        values.pop()
+        return True, values
+    return False, values
+
+
+def _confirm_action(message, *, assume_yes=False):
+    if assume_yes:
+        return True
+    return input(f'{message} (y/N): ').strip().casefold() in {'y', 'yes'}
+
+
 def _one_based_position(value):
     if value is None:
         return None
@@ -1208,6 +1234,12 @@ def queue_command(arguments):
         else:
             IPrint('(end of queue)', visible=visible)
     elif operation == 'clear':
+        yes, values = _confirmation_bypass(arguments[1:])
+        if values:
+            raise QueueError('Usage: queue clear [y|yes|--yes]')
+        if not _confirm_action('Clear every item from the queue?', assume_yes=yes):
+            IPrint('Queue clear cancelled', visible=visible)
+            return
         QUEUE.clear()
     elif operation == 'shuffle':
         seed = int(arguments[1]) if len(arguments) > 1 else None
@@ -1316,14 +1348,20 @@ def playlist_command(arguments):
     elif operation == 'rename' and len(values) == 2:
         IPrint(f'Renamed playlist: {store.rename(values[0], values[1]).name}', visible=visible)
     elif operation == 'delete':
-        yes, values = _command_flag(values, '--yes')
+        yes, values = _confirmation_bypass(values, preserve_single_bare=True)
         if len(values) != 1:
-            raise PlaylistError('Usage: playlist delete "<name>" [--yes]')
-        if not yes and input(f'Delete playlist "{values[0]}"? (y/N): ').strip().casefold() != 'y':
+            raise PlaylistError('Usage: playlist delete "<name>" [y|yes|--yes]')
+        if not _confirm_action(f'Delete playlist "{values[0]}"?', assume_yes=yes):
             IPrint('Playlist deletion cancelled', visible=visible)
             return
         IPrint(f'Deleted playlist: {store.delete(values[0]).name}', visible=visible)
-    elif operation == 'clear' and len(values) == 1:
+    elif operation == 'clear':
+        yes, values = _confirmation_bypass(values, preserve_single_bare=True)
+        if len(values) != 1:
+            raise PlaylistError('Usage: playlist clear "<name>" [y|yes|--yes]')
+        if not _confirm_action(f'Clear every item from playlist "{values[0]}"?', assume_yes=yes):
+            IPrint('Playlist clear cancelled', visible=visible)
+            return
         store.clear(values[0])
         IPrint(f'Cleared playlist: {values[0]}', visible=visible)
     elif operation == 'add':
@@ -1611,10 +1649,7 @@ def _current_youtube_media():
 
 
 def _confirm_download(message, *, assume_yes=False):
-    if assume_yes:
-        return True
-    answer = input(f'{message} (y/N): ').strip().casefold()
-    return answer in {'y', 'yes'}
+    return _confirm_action(message, assume_yes=assume_yes)
 
 
 def _download_album_job(reference, values, *, quality, destination, yes):
@@ -1707,7 +1742,7 @@ def download_audio_command(arguments):
     track_mode, values = _command_flag(values, '--track')
     quality, values = _command_option(values, '--quality')
     destination_value, values = _command_option(values, '--to')
-    yes, values = _command_flag(values, '--yes')
+    yes, values = _confirmation_bypass(values, preserve_single_bare=album_mode)
     quality = (quality or 'best').lower()
     destination = _download_destination(destination_value)
     if quality not in {'best', 'worst'}:
@@ -1814,7 +1849,13 @@ def library_command(arguments):
     elif operation == 'verify':
         result = LIBRARY.verify()
         IPrint(f"Database: {result['database']}; unavailable indexed paths: {len(result['unavailable_paths'])}", visible=visible)
-    elif operation == 'clean' and arguments[1:] == ['--missing']:
+    elif operation == 'clean':
+        yes, values = _confirmation_bypass(arguments[1:])
+        if values != ['--missing']:
+            raise LibraryError('Usage: library clean --missing [y|yes|--yes]')
+        if not _confirm_action('Permanently remove every missing-file tombstone?', assume_yes=yes):
+            IPrint('Library cleanup cancelled', visible=visible)
+            return None
         IPrint(f'Removed {LIBRARY.clean_missing()} missing library records; media files were not deleted', visible=visible)
     elif operation == 'info' and len(arguments) > 1:
         result = LIBRARY.info(' '.join(arguments[1:]))
@@ -1952,7 +1993,17 @@ def broadcast_command(arguments):
         ]
         IPrint(tbl(rows, headers=('Profile', 'Codec', 'Bitrate', 'Station'), tablefmt='plain') if rows else '(no broadcast profiles)', visible=visible)
     elif operation == 'credentials' and len(arguments) >= 3:
-        action, name = arguments[1].lower(), arguments[2]
+        action = arguments[1].lower()
+        values = list(arguments[2:])
+        yes = False
+        if action == 'delete':
+            yes, values = _confirmation_bypass(values, preserve_single_bare=True)
+        if len(values) != 1:
+            raise BroadcastError(
+                'Usage: broadcast credentials set|status <profile> | '
+                'broadcast credentials delete <profile> [y|yes|--yes]'
+            )
+        name = values[0]
         if name not in BROADCASTER.profiles:
             raise BroadcastError(f'Unknown broadcast profile: {name}')
         reference = BROADCASTER.profiles[name].reference
@@ -1960,6 +2011,9 @@ def broadcast_command(arguments):
             BROADCASTER.credentials.set(reference, getpass(f'Icecast password for {name}: '))
             IPrint(f'Credential stored in the operating-system keychain for {name}', visible=visible)
         elif action == 'delete':
+            if not _confirm_action(f'Delete the stored broadcast credential for "{name}"?', assume_yes=yes):
+                IPrint('Broadcast credential deletion cancelled', visible=visible)
+                return None
             deleted = BROADCASTER.credentials.delete(reference)
             IPrint('Credential deleted' if deleted else 'No keychain credential was stored', visible=visible)
         elif action == 'status':
@@ -2133,6 +2187,12 @@ def setup_command(arguments):
         IPrint(f'Setup state repaired; backup={backup or "none"}. Run "setup resume".', visible=visible)
         return SETUP_STORE.load()
     if operation == 'restart':
+        yes, values = _confirmation_bypass(arguments[1:])
+        if values:
+            raise ValueError('Usage: setup restart [y|yes|--yes]')
+        if not _confirm_action('Restart first-run setup progress?', assume_yes=yes):
+            IPrint('Setup restart cancelled', visible=visible)
+            return SETUP_STORE.load()
         SETUP_STORE.reset()
     elif operation != 'resume':
         raise ValueError('Usage: setup status|resume|restart|repair')
@@ -2219,15 +2279,30 @@ def radio_command(arguments):
             visible=visible,
         )
     elif operation == 'credentials' and len(arguments) >= 3:
-        action, station_name = arguments[1].lower(), arguments[2]
+        action = arguments[1].lower()
+        values = list(arguments[2:])
+        yes = False
+        if action == 'delete':
+            yes, values = _confirmation_bypass(values, preserve_single_bare=True)
+        expected = {1, 2} if action == 'set' else {1}
+        if len(values) not in expected:
+            raise RadioError(
+                'Usage: radio credentials set <station> [username] | '
+                'radio credentials status <station> | '
+                'radio credentials delete <station> [y|yes|--yes]'
+            )
+        station_name = values[0]
         station = RADIO.get(station_name)
         reference = f'radio:{station.station_id}'
         if action == 'set':
-            username = arguments[3] if len(arguments) > 3 else 'source'
+            username = values[1] if len(values) > 1 else 'source'
             CredentialStore().set(reference, getpass(f'Private-stream password for {station.name}: '))
             RADIO.set_credential(station.station_id, reference, username)
             IPrint(f'Private-stream credential stored for {station.name}', visible=visible)
         elif action == 'delete':
+            if not _confirm_action(f'Delete the stored radio credential for "{station.name}"?', assume_yes=yes):
+                IPrint('Radio credential deletion cancelled', visible=visible)
+                return None
             deleted = CredentialStore().delete(reference)
             IPrint('Credential deleted' if deleted else 'No keychain credential was stored', visible=visible)
         elif action == 'status':
@@ -2527,7 +2602,7 @@ def advanced_search_command(tokens):
     return results
 
 
-def edit_current_lyrics():
+def edit_current_lyrics(*, assume_yes=False):
     global DEFAULT_EDITOR
     media = _preference_media(vas.controller.snapshot().media)
     if not media or media.source != MediaSource.LOCAL:
@@ -2542,8 +2617,7 @@ def edit_current_lyrics():
         content = result.synced or result.plain
         if not content:
             raise ValueError('No lyrics are available to create an LRC sidecar')
-        permission = input(f'Create adjacent lyrics file "{sidecar}"? (y/n): ').casefold().strip()
-        if permission not in {'y', 'yes'}:
+        if not _confirm_action(f'Create adjacent lyrics file "{sidecar}"?', assume_yes=assume_yes):
             IPrint('Lyrics edit cancelled', visible=visible)
             return None
         descriptor, temporary_name = tempfile.mkstemp(prefix=f'.{sidecar.name}.', dir=sidecar.parent)
@@ -2565,10 +2639,15 @@ def edit_current_lyrics():
 
 def recycle_library_media(arguments):
     if not arguments:
-        raise MediaRemovalError('Usage: rm|del <library-index|indexed-path>')
-    target = MEDIA_REMOVAL.resolve(' '.join(arguments))
-    permission = input(f'Move "{target.path}" to the operating-system trash? (y/n): ').casefold().strip()
-    if permission not in {'y', 'yes'}:
+        raise MediaRemovalError('Usage: rm|del <library-index|indexed-path> [y|yes|--yes]')
+    yes, values = _confirmation_bypass(arguments, preserve_single_bare=True)
+    if not values:
+        raise MediaRemovalError('Usage: rm|del <library-index|indexed-path> [y|yes|--yes]')
+    target = MEDIA_REMOVAL.resolve(' '.join(values))
+    if not _confirm_action(
+        f'Move "{target.path}" to the operating-system trash?',
+        assume_yes=yes,
+    ):
         IPrint('Media removal cancelled', visible=visible)
         return None
     removed = MEDIA_REMOVAL.remove(target)
@@ -2591,7 +2670,10 @@ HELP_GROUPS = (
     ('Discord Presence', 'discord presence off/app/track/session/status/refresh'),
     ('Settings', 'theme, autoplay|autonext, sleep, youtube auth, replaygain, output device'),
     ('Diagnostics', 'now, progress, media info/probe/fingerprint/identify, tools/setup/library status, check_dev'),
-    ('Dangerous/destructive commands', 'rm|del, playlist delete/clear, queue clear, library clean, setup restart, exit y'),
+    (
+        'Dangerous/destructive commands',
+        'rm|del, playlist delete/clear, queue clear, library clean, setup restart [y|yes|--yes]',
+    ),
 )
 
 HELP_EXAMPLES = {
@@ -2822,9 +2904,18 @@ def media_command(arguments):
 def rename_command(arguments):
     global currentsong
     if not arguments or arguments[0].casefold() != 'short':
-        raise ValueError('Usage: rename short [current|library-index|indexed-path] [--dry-run|--yes]')
-    flags = {value for value in arguments[1:] if value.startswith('--')}
-    target = ' '.join(value for value in arguments[1:] if not value.startswith('--')) or 'current'
+        raise ValueError(
+            'Usage: rename short [current|library-index|indexed-path] [--dry-run] [y|yes|--yes]'
+        )
+    yes, values = _confirmation_bypass(arguments[1:], preserve_single_bare=True)
+    dry_run, values = _command_flag(values, '--dry-run')
+    if any(value.startswith('--') for value in values):
+        raise ValueError(
+            'Usage: rename short [current|library-index|indexed-path] [--dry-run] [y|yes|--yes]'
+        )
+    if dry_run and yes:
+        raise ValueError('Rename dry-run does not accept a confirmation bypass token')
+    target = ' '.join(values) or 'current'
     media, info = _media_info([target])
     if media.source != MediaSource.LOCAL or info.get('state') != 'available':
         raise ValueError('Only an available, indexed local media file can be renamed')
@@ -2832,13 +2923,11 @@ def rename_command(arguments):
     filename = short_filename(source, info.get('metadata') or {})
     destination = source.with_name(filename)
     IPrint(f'Rename preview:\n  {source.name}\n  -> {destination.name}', visible=visible)
-    if '--dry-run' in flags:
+    if dry_run:
         return destination
-    if '--yes' not in flags:
-        permission = input('Apply this rename? (y/n): ').casefold().strip()
-        if permission not in {'y', 'yes'}:
-            IPrint('Rename cancelled', visible=visible)
-            return None
+    if not _confirm_action('Apply this rename?', assume_yes=yes):
+        IPrint('Rename cancelled', visible=visible)
+        return None
     snapshot = vas.controller.snapshot()
     if snapshot.media and snapshot.media.stable_id == media.stable_id:
         stopsong()
@@ -4002,15 +4091,26 @@ def process(command):
     if commandslist != []:  # Atleast 1 word
 
         # Quitting the player
-        if commandslist in [['exit'], ['quit']]:
+        if commandslist[0].casefold() in {'exit', 'quit'}:
+            try:
+                yes, values = _confirmation_bypass(commandslist[1:])
+            except ValueError as error:
+                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                return None
+            if values:
+                SAY(
+                    visible=visible,
+                    display_message='Usage: exit|quit [y|yes|--yes]',
+                    log_message='Invalid exit confirmation bypass',
+                    log_priority=2,
+                )
+                return None
+            if yes:
+                return False
             perm = input(colored.fg('light_red')+'Do you want to exit? [Y]es, [N]o (default = N): '+colored.fg('magenta_3c'))
             print(colored.attr('reset'), end = '')
-            if perm.strip().lower() == 'y':
+            if perm.strip().lower() in {'y', 'yes'}:
                 return False
-
-        # Quitting the player w/o conf
-        elif commandslist in [['exit', 'y'], ['quit', 'y']]:
-            return False
 
         if commandslist in (['all'], ['all*']):
             rescount = MAX_RESULT_COUNT
@@ -4367,9 +4467,24 @@ def process(command):
             IPrint(f"Loaded {len(_sound_files)}", visible=visible)
             IPrint('Done', visible=visible)
 
-        elif commandslist in [['refresh'], ['refresh', 'all']]:
-            if commandslist == ['refresh', 'all']:
-                confirm_refresh = input("Confirm refresh all? (This will refresh data of your library files) (y/n): ").lower().strip()
+        elif commandslist[0] == 'refresh' and (len(commandslist) == 1 or commandslist[1] == 'all'):
+            if len(commandslist) > 1:
+                try:
+                    yes, values = _confirmation_bypass(commandslist[2:])
+                except ValueError as error:
+                    SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                    return None
+                if values:
+                    SAY(
+                        visible=visible,
+                        display_message='Usage: refresh all [y|yes|--yes]',
+                        log_message='Invalid refresh-all confirmation bypass',
+                        log_priority=2,
+                    )
+                    return None
+                confirm_refresh = 'yes' if yes else input(
+                    "Confirm refresh all? (This will refresh data of your library files) (y/n): "
+                ).lower().strip()
                 while confirm_refresh not in ['y', 'n', 'yes', 'no']:
                     confirm_refresh = input("[INVALID RESPONSE] Do you wish to confirm refresh? (y/n): ").lower().strip()
 
@@ -4713,6 +4828,20 @@ def process(command):
             continue_dl = False
             confirm_dl = False
             url = None
+            try:
+                assume_yes, download_values = _confirmation_bypass(commandslist[1:])
+            except ValueError as error:
+                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                return None
+            if len(download_values) > 1:
+                SAY(
+                    visible=visible,
+                    display_message='Usage: download-yv [YouTube URL] [y|yes|--yes]',
+                    log_message='Invalid video-download confirmation bypass',
+                    log_priority=2,
+                )
+                return None
+            commandslist = [commandslist[0], *download_values]
 
             if len(commandslist) == 1: # Download current/custom YouTube media
                 if current_media_type is None:
@@ -4754,7 +4883,9 @@ def process(command):
                 }
 
                 if continue_dl:
-                    confirm_dl = input("Do you want to confirm VIDEO download? (y/n): ").lower().strip()
+                    confirm_dl = 'yes' if assume_yes else input(
+                        "Do you want to confirm VIDEO download? (y/n): "
+                    ).lower().strip()
                     while confirm_dl not in ['y', 'n', 'yes', 'no']:
                         confirm_dl = input("[INVALID RESPONSE] Do you want to confirm VIDEO download? (y/n): ").lower().strip()
 
@@ -5233,13 +5364,21 @@ def process(command):
         elif commandslist[0] in {'lyr', 'lyrics'}:
             if len(commandslist) == 1:
                 lyrics_ops(show_window = True)
-            elif commandslist[1:] == ['edit']:
+            elif commandslist[1] == 'edit':
                 try:
-                    edit_current_lyrics()
+                    yes, values = _confirmation_bypass(commandslist[2:])
+                    if values:
+                        raise ValueError('Usage: lyrics edit [y|yes|--yes]')
+                    edit_current_lyrics(assume_yes=True) if yes else edit_current_lyrics()
                 except ValueError as error:
                     SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
             else:
-                SAY(visible=visible, display_message='Usage: lyrics [edit]', log_message='Invalid lyrics command', log_priority=2)
+                SAY(
+                    visible=visible,
+                    display_message='Usage: lyrics [edit [y|yes|--yes]]',
+                    log_message='Invalid lyrics command',
+                    log_priority=2,
+                )
 
         elif commandslist[0].lower() in ['v', 'vol', 'volume']:
             try:

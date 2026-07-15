@@ -195,18 +195,21 @@ fade in|out [seconds]
 fade to <0-100> [in <seconds>]
 fade from <0-100> to <0-100> [in <seconds>]
 queue add|insert|remove|move|swap|jump|list|clear|reset
+queue clear [y|yes|--yes]
 queue next|previous|shuffle|repeat|consume|save|load|undo|redo|autofill
 queue tree|group|order|priority|dedupe
 queue ys|youtube "<query>" [result-count]
 /ysq "<query>" [result-count]
 playlist list|create|show|rename|delete|clear
+playlist delete|clear "<name>" [y|yes|--yes]
 playlist add|remove|move|order|play|queue|import|export
 album search|show|tracks|fetch|play|queue|save
 radio search|list|play|favorite|refresh|health
 radio add|info|metadata|resync|leveling
-radio credentials set|delete|status <station> [username]
+radio credentials set|status <station> [username]
+radio credentials delete <station> [y|yes|--yes]
 library roots|scan|status|pause|resume|errors|retry|verify|info
-library clean --missing
+library clean --missing [y|yes|--yes]
 recommend [count]
 recommend autofill [count]
 recommend related [count]
@@ -216,15 +219,17 @@ favs|blacklist [count]
 like|dislike
 hist|history [count]
 include|exclude downloads
-lyrics|lyr edit
-rm|del <library-index|indexed-path>
-setup status|resume|restart|repair
+lyrics|lyr edit [y|yes|--yes]
+rm|del <library-index|indexed-path> [y|yes|--yes]
+setup status|resume|repair
+setup restart [y|yes|--yes]
 sleep <duration> [pause|stop] [fade <duration>]
 sleep status|cancel
 replaygain on [track|album|auto]
 replaygain off|status|verify|mode|preamp|scan|rescan
 broadcast profiles|status|start|stop|test
-broadcast credentials set|delete|status <profile>
+broadcast credentials set|status <profile>
+broadcast credentials delete <profile> [y|yes|--yes]
 tools status|setup|install|repair
 discord presence off|app|track|session|status|refresh
 help|h|? [getting started|playback|seek and fade|queue|search and online sources|downloads]
@@ -235,14 +240,16 @@ output device
 media info|probe|metadata [current|library-index|indexed-path]
 media fingerprint [current|library-index|indexed-path] [--full]
 media identify [current|library-index|indexed-path]
-rename short [current|library-index|indexed-path] [--dry-run|--yes]
+rename short [current|library-index|indexed-path] [--dry-run] [y|yes|--yes]
 theme aurora|windows|kitty|gruvbox|list|current
 youtube auth status|set <browser[:profile]>|clear|test <YouTube URL>
-download-yv [YouTube URL]
-download-ya [current|YouTube URL] [--track] [--quality best|worst] [--to <directory>]
-download-ya --album [current|album-ref|YouTube-playlist-URL] [--tracks <selector>]
+download-yv [YouTube URL] [y|yes|--yes]
+download-ya [current|YouTube URL] [--track] [--quality best|worst] [--to <directory>] [y|yes|--yes]
+download-ya --album [current|album-ref|YouTube-playlist-URL] [--tracks <selector>] [y|yes|--yes]
 download-ya status [job-id]|pause|resume|cancel <job-id>
 download-ml <URL> [mp3|flac|wav|m4a|opus] [output path]
+refresh all [y|yes|--yes]
+exit|quit [y|yes|--yes]
 ```
 
 ### Common workflows
@@ -286,6 +293,13 @@ and stable resolver hint, then resolve the stream when playback reaches that
 queue item. They never interrupt the active item. Mariana has no SoundCloud
 catalog-search command, so `queue sc` and `/scq` are intentionally unavailable;
 known public SoundCloud URLs can still use `/ml` or `download-ml`.
+
+Commands that protect a destructive or persistent action accept one scoped
+confirmation token: `y`, `yes`, or `--yes`. Bare `y`/`yes` must be the final,
+unambiguous argument. For a playlist, album, or indexed path literally named
+`y` or `yes`, keep the value as the positional argument and use `--yes` to
+bypass the prompt. Search and selection commands never consume these tokens
+globally.
 
 Omit the URL from `download-yv` or `download-ya` to download the active
 YouTube item. After confirmation, the download runs in the current Mariana

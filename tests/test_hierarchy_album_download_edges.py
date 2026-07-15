@@ -767,7 +767,7 @@ def test_playlist_command_covers_crud_tree_import_and_queue_paths(monkeypatch, t
         source.write_text("#EXTM3U\nhttps://example.test/song.mp3\n", encoding="utf-8")
         main.playlist_command(["import", "Imported", str(source)])
         main.playlist_command(["export", "Imported", str(tmp_path / "out.m3u8")])
-        main.playlist_command(["clear", "Imported"])
+        main.playlist_command(["clear", "Imported", "--yes"])
 
         monkeypatch.setattr("builtins.input", lambda _prompt="": "n")
         main.playlist_command(["delete", "Imported"])
@@ -780,3 +780,57 @@ def test_playlist_command_covers_crud_tree_import_and_queue_paths(monkeypatch, t
         with pytest.raises(PlaylistError, match="Usage"):
             main.playlist_command(["show"])
         assert any("Created playlist" in value for value in output)
+
+
+@pytest.mark.parametrize("token", ["y", "yes", "--yes"])
+def test_playlist_delete_and_clear_confirmation_bypass_tokens(monkeypatch, tmp_path: Path, token):
+    with MarianaDatabase(tmp_path / "playlist-confirmation.db") as database:
+        queue = PersistentQueue(database)
+        monkeypatch.setattr(main, "QUEUE", queue)
+        monkeypatch.setattr(main, "IPrint", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(
+            "builtins.input",
+            lambda *_args: pytest.fail("playlist confirmation bypass prompted"),
+        )
+        queue.playlists.create(
+            "Clear me",
+            tree=PlaylistStore.snapshot_from_media([media("clear")]),
+        )
+        main.playlist_command(["clear", "Clear me", token])
+        assert queue.playlists.flattened_media(queue.playlists.get("Clear me").tree) == []
+
+        queue.playlists.create("Delete me")
+        main.playlist_command(["delete", "Delete me", token])
+        with pytest.raises(PlaylistError, match="Unknown playlist"):
+            queue.playlists.get("Delete me")
+
+
+def test_playlist_name_yes_is_not_consumed_as_confirmation(monkeypatch, tmp_path: Path):
+    with MarianaDatabase(tmp_path / "playlist-name-yes.db") as database:
+        queue = PersistentQueue(database)
+        queue.playlists.create("yes")
+        monkeypatch.setattr(main, "QUEUE", queue)
+        monkeypatch.setattr(main, "IPrint", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("builtins.input", lambda *_args: "n")
+        main.playlist_command(["delete", "yes"])
+        assert queue.playlists.get("yes").name == "yes"
+
+        main.playlist_command(["delete", "yes", "--yes"])
+        with pytest.raises(PlaylistError, match="Unknown playlist"):
+            queue.playlists.get("yes")
+
+
+def test_playlist_clear_rejection_preserves_contents_and_validates_usage(monkeypatch, tmp_path: Path):
+    with MarianaDatabase(tmp_path / "playlist-clear-rejection.db") as database:
+        queue = PersistentQueue(database)
+        queue.playlists.create(
+            "Keep me",
+            tree=PlaylistStore.snapshot_from_media([media("kept")]),
+        )
+        monkeypatch.setattr(main, "QUEUE", queue)
+        monkeypatch.setattr(main, "IPrint", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("builtins.input", lambda *_args: "n")
+        main.playlist_command(["clear", "Keep me"])
+        assert len(queue.playlists.flattened_media(queue.playlists.get("Keep me").tree)) == 1
+        with pytest.raises(PlaylistError, match="Usage"):
+            main.playlist_command(["clear"])

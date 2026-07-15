@@ -472,7 +472,7 @@ def test_queue_command_and_group_dispatch_cover_every_operation(monkeypatch, tmp
         main.queue_command(["consume", "on"])
         main.queue_command(["autofill", "off"])
         main.queue_command(["save", "Saved"])
-        main.queue_command(["clear"])
+        main.queue_command(["clear", "--yes"])
         main.queue_command(["load", "Saved"])
         main.queue_command(["undo"])
         main.queue_command(["redo"])
@@ -819,7 +819,7 @@ def test_replaygain_broadcast_youtube_and_library_command_edges(monkeypatch):
     main.broadcast_command(["profiles"])
     with pytest.raises(main.BroadcastError, match="Unknown"):
         main.broadcast_command(["credentials", "status", "missing"])
-    main.broadcast_command(["credentials", "delete", "live"])
+    main.broadcast_command(["credentials", "delete", "live", "--yes"])
     main.broadcast_command(["credentials", "status", "live"])
     with pytest.raises(main.BroadcastError, match="Usage"):
         main.broadcast_command(["credentials", "invalid", "live"])
