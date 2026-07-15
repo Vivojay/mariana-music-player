@@ -1328,6 +1328,24 @@ class PersistentQueue:
         row = self.database.fetchone("SELECT * FROM queue_state WHERE singleton=1")
         return dict(row) if row else {}
 
+    def playback_position(self, stable_id: str | None) -> tuple[int | None, int]:
+        """Return the active one-based queue position and total without mutating the queue."""
+        row = self.database.fetchone(
+            "SELECT q.stable_id,q.position,(SELECT COUNT(*) FROM queue_items) AS queue_count "
+            "FROM queue_state s LEFT JOIN queue_items q ON q.id=s.current_id WHERE s.singleton=1"
+        )
+        if row is None:
+            return None, 0
+        count = int(row["queue_count"] or 0)
+        position = (
+            int(row["position"]) + 1
+            if stable_id is not None
+            and row["stable_id"] == stable_id
+            and row["position"] is not None
+            else None
+        )
+        return position, count
+
     def jump(self, position: int) -> QueueItem:
         items = self.items()
         if position not in range(len(items)):
