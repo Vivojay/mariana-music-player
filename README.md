@@ -180,6 +180,14 @@ Existing local, URL, YouTube, podcast, pause, stop, seek, progress, volume,
 mute, fade, lyrics, next/previous, recent, and download syntax remains. New
 command families include:
 
+### Finding commands
+
+Run `help`, `h`, or `?` for a compact categorized command map. Narrow it with
+`help <topic>`, for example `help playback`, `help seek and fade`, `help
+downloads`, or `help diagnostics`. The complete command reference and common
+workflows are in [help.md](help.md). Legacy help topics `online`, `details`, and
+`app` remain accepted.
+
 ```text
 seek <seconds|MM:SS|HH:MM:SS|DD:HH:MM:SS|1d 2h 3m 4s|percent|start|end>
 seek +<seconds|duration>|-<seconds|duration>
@@ -217,7 +225,8 @@ broadcast profiles|status|start|stop|test
 broadcast credentials set|delete|status <profile>
 tools status|setup|install|repair
 discord presence off|app|track|session|status|refresh
-help|h|? [playback|queue|online|library|details|app]
+help|h|? [getting started|playback|seek and fade|queue|search and online sources|downloads]
+help|h|? [library|playlists|lyrics|radio|discord presence|settings|diagnostics|dangerous]
 autoplay [on|off|status]
 autonext [on|off|status]
 output device
@@ -232,6 +241,41 @@ download-ya [current|YouTube URL] [--track] [--quality best|worst] [--to <direct
 download-ya --album [current|album-ref|YouTube-playlist-URL] [--tracks <selector>]
 download-ya status [job-id]|pause|resume|cancel <job-id>
 download-ml <URL> [mp3|flac|wav|m4a|opus] [output path]
+```
+
+### Common workflows
+
+```text
+# Play local media and inspect it
+library status
+all
+1
+now
+
+# Search or play online media
+/ys artist title 5
+/yl https://www.youtube.com/watch?v=...
+/ml https://soundcloud.com/artist/track
+
+# Build and navigate the persistent queue
+queue add 4
+queue list
+autonext on
+queue next
+
+# Download in the current Mariana session
+download-ya current --yes
+download-ml https://soundcloud.com/artist/track mp3
+
+# Seek, fade, and inspect runtime health
+seek +30s
+fade to 35 in 3
+tools status
+library verify
+
+# Publish privacy-scoped Discord presence, then disable it
+discord presence track
+discord presence off
 ```
 
 Omit the URL from `download-yv` or `download-ya` to download the active

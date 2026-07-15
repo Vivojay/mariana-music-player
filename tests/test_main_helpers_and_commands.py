@@ -768,6 +768,38 @@ def test_compact_help_autoplay_and_theme_commands_persist(monkeypatch):
     assert any("Playback" in value for value in printed)
 
 
+def test_help_covers_user_topics_examples_and_legacy_topic_names(monkeypatch):
+    printed = []
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
+
+    expected_topics = {
+        "Getting started",
+        "Playback",
+        "Seek and fade",
+        "Queue",
+        "Search and online sources",
+        "Downloads",
+        "Library",
+        "Playlists",
+        "Lyrics",
+        "Radio",
+        "Discord Presence",
+        "Settings",
+        "Diagnostics",
+        "Dangerous/destructive commands",
+    }
+    assert {name for name, _commands in main.help_command([])} == expected_topics
+
+    printed.clear()
+    assert main.help_command(["seek", "and", "fade"])[0][0] == "Seek and fade"
+    assert any("seek +30s" in value and "fade out 10" in value for value in printed)
+    assert main.help_command(["discord", "presence"])[0][0] == "Discord Presence"
+
+    assert main.help_command(["online"])[0][0] == "Search and online sources"
+    assert main.help_command(["details"])[0][0] == "Diagnostics"
+    assert main.help_command(["app"])[0][0] == "Settings"
+
+
 def test_station_command_parses_options_prints_upcoming_and_controls(monkeypatch):
     seed = MediaRef(
         MediaSource.YOUTUBE,

@@ -2508,25 +2508,62 @@ def recycle_library_media(arguments):
 
 
 HELP_GROUPS = (
-    ('Playback', 'ls, <number>, .rand, pause, stop, next, prev, seek, progress, now, autonext'),
-    ('Queue', 'queue list/tree/group/order, playlist list/create/show/play/queue/import/export'),
-    ('Online', '/ys, /yl, station, album search/play/queue, radio, podcast, rss, download-ya'),
-    ('Library', 'library status/scan/info, find, rfind, lfind, reload, rename short'),
-    ('Details', 'media info/probe/fingerprint/identify, lyrics, replaygain status'),
-    ('App', 'theme, discord presence, tools status/setup, sleep, history, cls, exit'),
+    ('Getting started', 'help <topic>, all, ls, <number>, now, progress'),
+    ('Playback', 'play <number>, pause, stop, next, prev, mute, volume, autonext'),
+    ('Seek and fade', 'seek <time>, fade in/out, fade to <volume>, fade from <v1> to <v2>'),
+    ('Queue', 'queue list/tree/add/insert/remove/move/jump/order/repeat/reset'),
+    ('Search and online sources', 'find/rfind/lfind, /ys, /yl, /ml, album, station, pod/pods, /rss'),
+    ('Downloads', 'download-yv|dl-yv, download-ya|dl-ya, download-ml|dl-ml'),
+    ('Library', 'library roots/status/scan/info/verify, reload, include/exclude downloads, rename short'),
+    ('Playlists', 'playlist list/create/show/add/remove/move/order/play/queue/import/export'),
+    ('Lyrics', 'lyrics|lyr, lyrics edit|lyr edit, open lyrics'),
+    ('Radio', 'radio search/list/play/add/info/metadata/resync/health/leveling'),
+    ('Discord Presence', 'discord presence off/app/track/session/status/refresh'),
+    ('Settings', 'theme, autoplay|autonext, sleep, youtube auth, replaygain, output device'),
+    ('Diagnostics', 'now, progress, media info/probe/fingerprint/identify, tools/setup/library status, check_dev'),
+    ('Dangerous/destructive commands', 'rm|del, playlist delete/clear, queue clear, library clean, setup restart, exit y'),
 )
+
+HELP_EXAMPLES = {
+    'Getting started': ('all', '1', 'now', 'help playback'),
+    'Playback': ('play 4', 'p', '+', 'autonext on'),
+    'Seek and fade': ('seek +30s', 'seek 50%', 'fade out 10', 'fade from 20 to 80 in 6'),
+    'Queue': ('queue add 4', 'queue list', 'queue next', 'queue repeat all'),
+    'Search and online sources': ('find artist title 10', '/ys artist title 5', '/yl <YouTube URL>', '/ml <URL>'),
+    'Downloads': ('download-ya current --yes', 'download-ml <URL> mp3', 'download-ya status'),
+    'Library': ('library status', 'library scan changed', 'library info 4', 'include downloads'),
+    'Playlists': ('playlist list', 'playlist create "Road trip"', 'playlist add "Road trip" media 4'),
+    'Lyrics': ('lyrics', 'lyrics edit', 'open lyrics'),
+    'Radio': ('radio search jazz', 'radio list', 'radio play 1', 'radio metadata'),
+    'Discord Presence': ('discord presence status', 'discord presence track', 'discord presence off'),
+    'Settings': ('theme list', 'autonext status', 'sleep 30m pause fade 5m', 'replaygain status'),
+    'Diagnostics': ('now', 'tools status', 'library verify', 'media probe current'),
+    'Dangerous/destructive commands': ('rm 4', 'playlist delete "Road trip" --yes', 'exit y'),
+}
+
+HELP_TOPIC_ALIASES = {
+    'online': 'Search and online sources',
+    'details': 'Diagnostics',
+    'app': 'Settings',
+}
 
 
 def help_command(arguments):
-    """Display a deliberately short command map; detailed docs remain one command away."""
-    topic = arguments[0].casefold() if arguments else None
+    """Display the command map, optionally narrowed to one documented category."""
+    topic = ' '.join(arguments).casefold().strip() if arguments else None
     rows = HELP_GROUPS
     if topic and topic not in {'all', 'full'}:
-        rows = tuple(row for row in HELP_GROUPS if row[0].casefold().startswith(topic))
+        aliased_topic = HELP_TOPIC_ALIASES.get(topic, topic)
+        exact_rows = tuple(row for row in HELP_GROUPS if row[0].casefold() == aliased_topic.casefold())
+        rows = exact_rows or tuple(row for row in HELP_GROUPS if row[0].casefold().startswith(aliased_topic))
         if not rows:
             raise ValueError(f'Unknown help topic: {topic}')
     IPrint(tbl(rows, headers=('Commands', 'Common forms'), tablefmt='plain'), visible=visible)
-    IPrint("Use 'help <group>' to narrow this list; README.md documents every command family.", visible=visible)
+    if len(rows) == 1:
+        examples = ', '.join(HELP_EXAMPLES.get(rows[0][0], ()))
+        if examples:
+            IPrint(f'Examples: {examples}', visible=visible)
+    IPrint("Use 'help <topic>' to narrow this list; help.md and README.md document every command family.", visible=visible)
     return rows
 
 
