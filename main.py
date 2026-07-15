@@ -107,6 +107,7 @@ from mariana.output_devices import OutputDeviceError, default_output_device
 from mariana.paths import initialize_runtime_paths
 from mariana.platform import open_path, reveal_path
 from mariana.playlists import PlaylistError, PlaylistStore
+from mariana.playback_status import PlaybackStatusProjection, project_playback_status
 from mariana.preferences import MediaPreferences, PreferenceState
 from mariana.presence import PresenceCoordinator, PresencePrivacyMode
 from mariana.queueing import PersistentQueue, QueueError
@@ -2943,6 +2944,128 @@ def rename_command(arguments):
 def get_current_progress():
     return vas.player.get_time() / 1000
 
+
+def _playback_status_projection() -> PlaybackStatusProjection:
+    """Return the safe, authoritative playback projection used by CLI surfaces."""
+    snapshot = vas.controller.snapshot()
+    stable_id = snapshot.media.stable_id if snapshot.media else None
+    queue_position, queue_count = QUEUE.playback_position(stable_id)
+    return project_playback_status(
+        snapshot,
+        queue_position=queue_position,
+        queue_count=queue_count,
+    )
+
+
+def _status_time(seconds: float | int | None) -> str:
+    total = max(0, int(seconds or 0))
+    hours, remainder = divmod(total, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f'{hours:02d}:{minutes:02d}:{seconds:02d}' if hours else f'{minutes:02d}:{seconds:02d}'
+
+
+def _status_media_label(status: PlaybackStatusProjection) -> str:
+    title = status.title or 'Playback'
+    return f'{status.artist} — {title}' if status.artist else title
+
+
+def _status_source_label(status: PlaybackStatusProjection) -> str:
+    return status.source.replace('_', ' ').title() if status.source else 'Unknown source'
+
+
+def _status_progress_bar(percent: float | None, width: int = 20) -> str | None:
+    if percent is None:
+        return None
+    completed = max(0, min(width, round(width * percent / 100)))
+    return f"[{'#' * completed}{'-' * (width - completed)}]"
+
+
+def _status_summary(status: PlaybackStatusProjection, *, detailed: bool = False) -> str:
+    """Format status without exposing transport or resolver details."""
+    parts = []
+    if status.live:
+        parts.extend(('LIVE', f'{_status_time(status.position_seconds)} elapsed'))
+    elif status.duration_seconds is not None:
+        bar = _status_progress_bar(status.percent)
+        if bar:
+            parts.append(bar)
+        parts.append(
+            f'{_status_time(status.position_seconds)} / {_status_time(status.duration_seconds)}'
+        )
+        if status.percent is not None:
+            parts.append(f'{status.percent:.0f}%')
+    elif status.media_id is not None:
+        parts.extend((f'{_status_time(status.position_seconds)} elapsed', 'duration unknown'))
+
+    parts.append(status.display_state)
+    if status.queue_position is not None:
+        parts.append(f'queue {status.queue_position}/{status.queue_count}')
+    if detailed or status.live or status.duration_seconds is None:
+        parts.append('seekable' if status.seekable else 'nonseekable')
+    if status.safe_error:
+        parts.append(f'Error: {status.safe_error}')
+    return ' | '.join(parts)
+
+
+def _playback_status_lines(
+    status: PlaybackStatusProjection,
+    *,
+    detailed: bool = False,
+    now: bool = False,
+) -> list[str]:
+    """Build synchronous CLI lines for now/progress commands."""
+    stopped = status.display_state == 'Stopped'
+    if stopped or (status.media_id is None and status.display_state != 'Failed'):
+        return ['Not playing | Stopped']
+
+    label = _status_media_label(status)
+    source = _status_source_label(status)
+    summary = _status_summary(status, detailed=detailed)
+    if not detailed:
+        prefix = 'Now' if now else 'Progress'
+        if now:
+            lines = [f'{prefix}: {label} [{source}]', f'Status: {summary}']
+            if status.chapter:
+                lines.append(
+                    f'Chapter: {status.chapter.title} '
+                    f'({_status_time(status.chapter.start_time)}-{_status_time(status.chapter.end_time)})'
+                )
+            return lines
+        return [f'{label} [{source}] | {summary}']
+
+    lines = [f'Title: {label}', f'Source: {source}', f'State: {status.display_state}']
+    if status.live:
+        lines.append(f'Progress: LIVE | {_status_time(status.position_seconds)} elapsed')
+    elif status.duration_seconds is not None:
+        bar = _status_progress_bar(status.percent)
+        percent = f'{status.percent:.0f}%' if status.percent is not None else 'unknown'
+        lines.append(
+            f'Progress: {bar} {_status_time(status.position_seconds)} / '
+            f'{_status_time(status.duration_seconds)} ({percent})'
+        )
+    else:
+        lines.append(f'Progress: {_status_time(status.position_seconds)} elapsed | duration unknown')
+    lines.append(f'Seekable: {"yes" if status.seekable else "no"}')
+    if status.queue_position is not None:
+        lines.append(f'Queue: {status.queue_position}/{status.queue_count}')
+    if status.chapter:
+        lines.append(
+            f'Chapter: {status.chapter.title} '
+            f'({_status_time(status.chapter.start_time)}-{_status_time(status.chapter.end_time)})'
+        )
+    if status.safe_error:
+        lines.append(f'Error: {status.safe_error}')
+    return lines
+
+
+def _print_playback_status(*, detailed: bool = False, now: bool = False) -> None:
+    for line in _playback_status_lines(
+        _playback_status_projection(),
+        detailed=detailed,
+        now=now,
+    ):
+        IPrint(line, visible=visible)
+
 def save_user_data():
     global USER_DATA
 
@@ -4599,56 +4722,10 @@ def process(command):
                             log_priority = 2)
 
         elif commandslist == ['now']:
-            if currentsong:
-                if current_media_type is not None: # Online media
-                    if current_media_type == 0:
-                        if YOUTUBE_PLAY_TYPE == 0:
-                            IPrint(f"@yl: {currentsong[0]}", visible=visible)
-                        elif YOUTUBE_PLAY_TYPE == 1:
-                            IPrint(f"@ys: {currentsong[0]}", visible=visible)
-                    elif current_media_type == 1:
-                        IPrint(f"@ml: {currentsong}", visible=visible)
-                    elif current_media_type == 2:
-                        IPrint(f"@wra: {currentsong}", visible=visible)
-                    elif current_media_type == 3:
-                        IPrint(f"@rs: {currentsong[0]}", visible=visible)
-                else: # Local media
-                    cur_song = os.path.splitext(os.path.split(currentsong)[1])[0]
-                    IPrint(f":: {colored.fg('plum_1')}{songindex}{colored.fg('deep_pink_4c')} | {colored.fg('navajo_white_1')}{cur_song}{colored.attr('reset')}", visible=visible)
-            else:
-                # currentsong = None
-                IPrint(f"{colored.fg('red')}({colored.fg('aquamarine_1b')}Not Playing{colored.fg('red')}){colored.attr('reset')}", visible=visible)
-            chapter = vas.controller.snapshot().current_chapter
-            if chapter:
-                IPrint(
-                    f'Chapter: {chapter.title} ({_prompt_time(chapter.start_time)}-{_prompt_time(chapter.end_time)})',
-                    visible=visible,
-                )
+            _print_playback_status(now=True)
 
         elif commandslist == ['now*']:
-            if currentsong:
-                if current_media_type is not None: # Online media
-                    if current_media_type == 0:
-                        if YOUTUBE_PLAY_TYPE == 0:
-                            IPrint(f"{colored.fg('red')}@youtube-link: {colored.fg('aquamarine_3')}Title | {currentsong[0]}", visible=visible)
-                            IPrint(f"               {colored.fg('navajo_white_1')}Link  | {currentsong[1]}{colored.attr('reset')}", visible=visible)
-                        elif YOUTUBE_PLAY_TYPE == 1:
-                            IPrint(f"{colored.fg('red')}@youtube-search: {colored.fg('aquamarine_3')}Title | {currentsong[0]}", visible=visible)
-                            IPrint(f"                 {colored.fg('navajo_white_1')}Link  | {currentsong[1]}{colored.attr('reset')}", visible=visible)
-                    elif current_media_type == 1:
-                        IPrint(f"{colored.fg('hot_pink_1a')}@media-link: {colored.fg('aquamarine_3')}{currentsong}{colored.attr('reset')}", visible=visible)
-                    elif current_media_type == 2:
-                        IPrint(f"{colored.fg('light_slate_blue')}@webradio/{colored.fg('navajo_white_1')}{currentsong}{colored.attr('reset')}", visible=visible)
-                    elif current_media_type == 3:
-                        IPrint(f"{colored.fg('orange_1')}@redditsession: {colored.fg('aquamarine_3')}Session | {currentsong[0]}{colored.attr('reset')}", visible=visible)
-                        IPrint(f"                {colored.fg('navajo_white_1')}Link    | {currentsong[1]}{colored.attr('reset')}", visible=visible)
-
-                else: # Local media
-                    IPrint(f":: {colored.fg('plum_1')}{songindex}{colored.attr('reset')} | {currentsong}", visible=visible)
-
-            else:
-                # currentsong = None
-                IPrint(f"{colored.fg('red')}({colored.fg('aquamarine_1b')}Not Playing{colored.fg('red')}){colored.attr('reset')}", visible=visible)
+            _print_playback_status(detailed=True, now=True)
 
         elif commandslist[0].lower() == 'play':
             local_play_commands(commandslist=commandslist)
@@ -4781,33 +4858,7 @@ def process(command):
                         log_priority=2)
 
         elif commandslist in [['prog'], ['progress'], ['prog*'], ['progress*']]:
-            if currentsong:
-                if currentsong_length:
-                    cur_len = currentsong_length
-                else:
-                    cur_len = get_currentsong_length()
-
-                if cur_len != -1:
-                    cur_prog = get_current_progress()
-
-                    prog_sep = f"{colored.fg('green_1')}|{colored.attr('reset')}"
-                    prog_div = f"{colored.fg('navajo_white_1')}\u2014{colored.attr('reset')}"
-
-                    if commandslist[0].endswith('*'):
-                        IPrint(f"elapsed: {colored.fg('deep_pink_1a')}{convert(round(cur_prog))} {prog_div} {colored.fg('deep_pink_1a')}{convert(round(cur_len))}"
-                               f" {prog_sep} {colored.attr('reset')}remaining: {colored.fg('orange_1')}{convert(round(cur_len-cur_prog))}"
-                               f" {prog_sep} {colored.attr('reset')}progress: {colored.fg('light_goldenrod_1')}{round(cur_prog/cur_len*100)}%", visible=visible)
-                    else:
-                        # IPrint(f"{colored.fg('deep_pink_1a')}{convert(round(cur_prog))}/{convert(round(cur_len))}", visible=visible)
-                        IPrint(f"{colored.fg('deep_pink_1a')}{round(cur_prog)} {prog_div} {colored.fg('deep_pink_1a')}{round(cur_len)}"
-                               f" {prog_sep} {colored.fg('orange_1')}{round(cur_len-cur_prog)}"
-                               f" {prog_sep} {colored.fg('light_goldenrod_1')}{round(cur_prog/cur_len*100)}%", visible=visible)
-
-                else:
-                    SAY(visible=visible,
-                        display_message = "Progress cannot be displayed for audio of unknown length",
-                        log_message = 'Progress undefined for audio of unknown length',
-                        log_priority = 2) # Log fatal crash
+            _print_playback_status(detailed=commandslist[0].endswith('*'))
 
         elif commandslist[0].lower().split('-', 1)[0] in DOWNLOAD_TYPOS:
             IPrint('Unknown command. Did you mean "download"?', visible=visible)
@@ -5711,33 +5762,46 @@ def process(command):
 
 
 
-def _prompt_time(seconds):
-    seconds = max(0, int(seconds or 0))
-    return f'{seconds // 60:02d}:{seconds % 60:02d}'
-
-
 def prompt_text():
     """Build the testing snapshot's richer two-line prompt from live state."""
-    snapshot = vas.controller.snapshot()
-    media = snapshot.media
-    if media:
-        title = media.title or Path(media.original_uri).stem or media.original_uri
+    status_projection = _playback_status_projection()
+    has_active_label = status_projection.media_id is not None and status_projection.display_state != 'Stopped'
+    if has_active_label:
+        title = _status_media_label(status_projection)
         prefix = f'[{songindex}] ' if isinstance(songindex, int) and songindex > 0 else ''
         first = (
             colored.fg('light_slate_blue') + '┏━' +
-            colored.fg('navajo_white_1') + f' {prefix}{text_overflow_prettify(str(title), 72)}'
+            colored.fg('navajo_white_1') +
+            f' {prefix}{text_overflow_prettify(str(title), 64)} '
+            f'[{_status_source_label(status_projection).lower()}]'
         )
-        duration = snapshot.duration or media.duration or 0
-        percent = (snapshot.position / duration * 100) if duration else 0
         state = {
-            PlaybackState.PLAYING: 'playing ▶',
-            PlaybackState.PAUSED: 'paused Ⅱ',
-            PlaybackState.BUFFERING: 'buffering …',
-            PlaybackState.FAILED: 'failed !',
-        }.get(snapshot.state, snapshot.state.value)
-        status = f'{_prompt_time(snapshot.position)} ━ {_prompt_time(duration)} ━ {percent:>3.0f}% ━ {state}'
-        if snapshot.current_chapter:
-            status += f' ━ {truncate_display_cells(snapshot.current_chapter.title, 36)}'
+            'Playing': 'playing ▶',
+            'Paused': 'paused Ⅱ',
+            'Buffering': 'buffering …',
+            'Resolving': 'resolving …',
+            'Seeking': 'seeking …',
+            'Crossfading': 'crossfading',
+            'Failed': 'failed !',
+            'Stopping': 'stopping …',
+            'Finished': 'finished',
+        }.get(status_projection.display_state, status_projection.display_state.lower())
+        if status_projection.live:
+            status = f'LIVE ━ {_status_time(status_projection.position_seconds)} ━ {state}'
+        elif status_projection.duration_seconds is not None:
+            status = (
+                f'{_status_time(status_projection.position_seconds)} ━ '
+                f'{_status_time(status_projection.duration_seconds)} ━ '
+                f'{status_projection.percent:>3.0f}% ━ {state}'
+            )
+        else:
+            status = f'{_status_time(status_projection.position_seconds)} ━ duration ? ━ {state}'
+        if status_projection.queue_position is not None:
+            status += f' ━ Q {status_projection.queue_position}/{status_projection.queue_count}'
+        if status_projection.chapter:
+            status += f' ━ {truncate_display_cells(status_projection.chapter.title, 36)}'
+        if status_projection.safe_error:
+            status += f' ━ {truncate_display_cells(status_projection.safe_error, 48)}'
     else:
         first = colored.fg('light_slate_blue') + '┏━' + colored.fg('navajo_white_1') + ' (Not Playing)'
         status = 'ready'

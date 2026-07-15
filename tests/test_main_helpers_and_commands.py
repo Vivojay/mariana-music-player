@@ -462,11 +462,13 @@ def test_seek_progress_and_status_command_families(monkeypatch):
     monkeypatch.setattr(main, "ismuted", False)
     monkeypatch.setattr(main, "get_current_progress", lambda: 20)
     monkeypatch.setattr(main, "song_seek", lambda timeval=None, **_kwargs: seeks.append(timeval) or True)
+    status_media = main.MediaRef(main.MediaSource.LOCAL, "track.mp3", title="Track")
     monkeypatch.setattr(
         main.vas.controller,
         "snapshot",
-        lambda: PlaybackSnapshot(PlaybackState.PLAYING),
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=status_media, position=20, duration=100),
     )
+    monkeypatch.setattr(main.QUEUE, "playback_position", lambda _stable_id: (None, 0))
 
     main.process("seek +10")
     main.process("seek +30s")
@@ -480,7 +482,7 @@ def test_seek_progress_and_status_command_families(monkeypatch):
     assert seeks == [30.0, 50.0, 50.0, 0.0, 99.75]
     rendered = "\n".join(map(str, printed))
     assert "Seeking to" in rendered
-    assert "progress" in rendered
+    assert "Progress" in rendered
 
 
 def test_create_files_save_user_data_and_run_lifecycle(monkeypatch, tmp_path):
@@ -1011,6 +1013,7 @@ def test_autonext_queue_cursor_drives_navigation_when_legacy_index_is_stale(monk
 def test_rich_prompt_reports_media_progress(monkeypatch):
     media = main.MediaRef(main.MediaSource.LOCAL, "C:/music/track.mp3", title="Track")
     monkeypatch.setattr(main, "songindex", 3)
+    monkeypatch.setattr(main.QUEUE, "playback_position", lambda _stable_id: (3, 8))
     monkeypatch.setattr(
         main.vas.controller,
         "snapshot",
@@ -1026,6 +1029,7 @@ def test_rich_prompt_reports_media_progress(monkeypatch):
     assert "┏━" in prompt and "┗━" in prompt
     assert "[3] Track" in prompt
     assert "00:30" in prompt and "02:00" in prompt and "25%" in prompt
+    assert "Q 3/8" in prompt
     assert "A very long 章 chapter title" in prompt and "…" in prompt
 
 

@@ -368,11 +368,26 @@ def test_now_and_open_render_every_media_type(cli, monkeypatch, media_type, song
     monkeypatch.setattr(main, "current_media_type", media_type)
     monkeypatch.setattr(main, "currentsong", song)
     monkeypatch.setattr(main, "YOUTUBE_PLAY_TYPE", 0)
+    source = {
+        None: MediaSource.LOCAL,
+        0: MediaSource.YOUTUBE,
+        1: MediaSource.URL,
+        2: MediaSource.RADIO,
+        3: MediaSource.URL,
+    }[media_type]
+    title = song if isinstance(song, str) and not song.startswith("https://") else "Safe title"
+    if isinstance(song, tuple):
+        title = song[0]
+    media = MediaRef(source, str(song), title=title)
+    monkeypatch.setattr(main.QUEUE, "playback_position", lambda _stable_id: (None, 0))
     monkeypatch.setattr(
         main.vas.controller,
         "snapshot",
         lambda: PlaybackSnapshot(
             PlaybackState.PLAYING,
+            media=media,
+            position=75,
+            duration=180,
             current_chapter=MediaChapter("Complete chapter title", 60, 120),
         ),
     )
@@ -567,8 +582,15 @@ def test_seek_and_progress_failure_states_are_typed(cli, monkeypatch):
     monkeypatch.setattr(main, "currentsong", "stream")
     monkeypatch.setattr(main, "currentsong_length", None)
     monkeypatch.setattr(main, "get_currentsong_length", lambda: -1)
+    media = MediaRef(MediaSource.URL, "https://example.test/stream", title="Stream")
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=media, position=12, duration=None),
+    )
+    monkeypatch.setattr(main.QUEUE, "playback_position", lambda _stable_id: (None, 0))
     main.process("progress")
-    assert any("could not be loaded" in message.get("display_message", "") for message in cli.messages)
+    assert any("duration unknown" in line for line in cli.printed)
     assert any("No audio to seek" in message.get("display_message", "") for message in cli.messages)
 
 

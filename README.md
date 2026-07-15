@@ -260,6 +260,8 @@ library status
 all
 1
 now
+progress
+progress*
 
 # Search or play online media
 /ys artist title 5
@@ -353,6 +355,13 @@ active queue; it stops at the final item unless `queue repeat all` is enabled.
 Disabling auto-next discards any prefetch, leaves the queue pointer unchanged,
 and retains the completed item's exact end position in `progress`/`now` until
 another playback or explicit stop action occurs.
+
+`progress` prints one synchronous status line; `progress*` expands it into
+source, playback state, seekability, queue position, and chapter details.
+Finite media shows elapsed time, duration, and percentage. Live streams show
+`LIVE` with elapsed session time, while unknown-duration media reports the
+duration as unknown instead of inventing a percentage. `now` uses the same safe
+status projection and never prints a transient playback URL.
 
 `output device` reports the operating system's current default endpoint, not a
 cached PortAudio label. While playback is active Mariana checks that endpoint

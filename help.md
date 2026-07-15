@@ -16,8 +16,9 @@ contain spaces.
 | `all`, `all*` | List the first configured number of library items, or all items |
 | `ls [count]` | List library items |
 | `<number>`, `play <number>` | Play a library item by its one-based number |
-| `now` | Show the active media, playback state, progress, and chapter when available |
-| `progress`, `prog` | Show elapsed time, duration, and completion percentage |
+| `now`, `now*` | Show safe active-media metadata and status; `now*` adds source, queue, seekability, and chapter detail |
+| `progress`, `prog` | Show one concise playback-status line with progress and queue position when available |
+| `progress*`, `prog*` | Show detailed progress, source, state, seekability, queue position, and chapter |
 | `cls`, `clear` | Clear the terminal display |
 | `exit`, `quit` | Confirm and close Mariana |
 
