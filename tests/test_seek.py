@@ -66,5 +66,23 @@ def test_duration_dependent_seek_forms_require_a_known_duration():
         parse_seek_target(["end"], position=20)
 
 
+def test_duration_independent_seek_forms_work_without_known_duration():
+    assert parse_seek_target(["90"]).seconds == 90
+    assert parse_seek_target(["+30"], position=20).seconds == 50
+    assert parse_seek_target(["2m"]).seconds == 120
+
+
+@pytest.mark.parametrize("duration", [0, -1, float("nan"), float("inf")])
+def test_seek_rejects_invalid_known_durations(duration):
+    with pytest.raises(SeekSyntaxError, match="duration is unavailable"):
+        parse_seek_target(["end"], duration=duration)
+
+
+@pytest.mark.parametrize("position", [float("nan"), float("inf"), float("-inf")])
+def test_relative_seek_rejects_nonfinite_playback_positions(position):
+    with pytest.raises(SeekSyntaxError, match="position is unavailable"):
+        parse_seek_target(["+30s"], position=position, duration=200)
+
+
 def test_seek_position_display_handles_four_field_targets():
     assert format_seek_position(93_784) == "1d 02:03:04"
