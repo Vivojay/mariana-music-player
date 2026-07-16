@@ -121,4 +121,7 @@ def test_real_broadcast_encodes_decodable_normalized_program_mix(tmp_path, codec
     spectrum = np.abs(np.fft.rfft(left))
     frequencies = np.fft.rfftfreq(len(left), 1 / 48_000)
     dominant = frequencies[int(np.argmax(spectrum[1:]) + 1)]
-    assert dominant == pytest.approx(440, abs=5)
+    # MP3 frame padding and platform FFmpeg/libmp3lame differences can move the
+    # whole-capture FFT peak slightly; keep the stable Opus path tighter.
+    frequency_tolerance = 6 if codec == "mp3" else 5
+    assert dominant == pytest.approx(440, abs=frequency_tolerance)
