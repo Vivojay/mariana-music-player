@@ -131,3 +131,134 @@ def test_local_copy_hint_prints_safe_terminal_message(monkeypatch, local_match_c
     assert "youtube.com" not in joined
     assert "fingerprint" not in joined
     assert "credential" not in joined
+
+
+def test_local_copy_hint_is_emitted_once_per_media_id(monkeypatch, local_match_cli):
+    output, media = local_match_cli
+    calls = []
+    monkeypatch.setattr(main, "_LOCAL_COPY_HINTED_MEDIA_IDS", set())
+    monkeypatch.setattr(
+        main,
+        "LOCAL_MATCHER",
+        SimpleNamespace(match=lambda candidate: calls.append(candidate) or _result(LocalMatchStatus.MATCHED)),
+    )
+
+    main._show_local_copy_hint(media)
+    main._show_local_copy_hint(media)
+
+    assert len(calls) == 1
+    assert output == [
+        'Local copy available: library item 7. Run "media local-match current".'
+    ]
+
+
+@pytest.mark.parametrize(
+    "status",
+    [LocalMatchStatus.NO_MATCH, LocalMatchStatus.AMBIGUOUS, LocalMatchStatus.UNSUPPORTED],
+)
+def test_local_copy_hint_suppresses_nonselected_results(monkeypatch, local_match_cli, status):
+    output, media = local_match_cli
+    monkeypatch.setattr(main, "_LOCAL_COPY_HINTED_MEDIA_IDS", set())
+    monkeypatch.setattr(main, "LOCAL_MATCHER", SimpleNamespace(match=lambda _media: _result(status)))
+
+    assert main._show_local_copy_hint(media).status == status
+    assert output == []
+
+
+def test_local_copy_hint_suppresses_missing_item_and_matcher_failure(monkeypatch, local_match_cli):
+    output, media = local_match_cli
+    monkeypatch.setattr(main, "_LOCAL_COPY_HINTED_MEDIA_IDS", set())
+    assert main._show_local_copy_hint(None) is None
+    monkeypatch.setattr(
+        main,
+        "LOCAL_MATCHER",
+        SimpleNamespace(match=lambda _media: (_ for _ in ()).throw(RuntimeError("database unavailable"))),
+    )
+    assert main._show_local_copy_hint(media) is None
+    assert output == []
+
+
+@pytest.mark.parametrize(
+    "media",
+    [
+        MediaRef(MediaSource.LOCAL, "C:/music/track.mp3", duration=120),
+        MediaRef(
+            MediaSource.RADIO,
+            "https://radio.example/live",
+            duration=120,
+            capabilities=MediaCapabilities(finite=False, live=True, seekable=False),
+        ),
+        MediaRef(
+            MediaSource.URL,
+            "https://media.example/unknown",
+            capabilities=MediaCapabilities(finite=True, live=False),
+        ),
+    ],
+)
+def test_local_copy_hint_suppresses_unsupported_media(monkeypatch, local_match_cli, media):
+    output, _current = local_match_cli
+    monkeypatch.setattr(main, "_LOCAL_COPY_HINTED_MEDIA_IDS", set())
+    monkeypatch.setattr(
+        main,
+        "LOCAL_MATCHER",
+        SimpleNamespace(match=lambda _media: pytest.fail("unsupported media reached matcher")),
+    )
+
+    assert main._show_local_copy_hint(media).status == LocalMatchStatus.UNSUPPORTED
+    assert output == []
+
+
+def test_queue_online_playback_requests_hint_after_start(monkeypatch, local_match_cli):
+    _output, media = local_match_cli
+    item = SimpleNamespace(media=media, queue_id="queue-item")
+    order = []
+    monkeypatch.setattr(main.QUEUE, "items", lambda: [item])
+    monkeypatch.setattr(main.LIBRARY.loudness, "get", lambda _media_id: None)
+    monkeypatch.setattr(main.vas.supervisor, "play", lambda candidate: order.append(("play", candidate)))
+    monkeypatch.setattr(main, "_set_current_media_state", lambda candidate: order.append(("state", candidate)))
+    monkeypatch.setattr(main, "_show_local_copy_hint", lambda candidate: order.append(("hint", candidate)))
+    monkeypatch.setattr(main.RECOMMENDER, "record_event", lambda candidate, event: order.append((event, candidate)))
+    monkeypatch.setattr(main, "_prefetch_after", lambda queued: order.append(("prefetch", queued)))
+
+    main._play_queue_item(item)
+
+    assert [entry[0] for entry in order] == ["play", "state", "hint", "start", "prefetch"]
+    assert all(entry[1] is media or entry[1] is item for entry in order)
+
+
+def test_legacy_online_playback_requests_hint_after_start(monkeypatch, local_match_cli):
+    _output, media = local_match_cli
+    hinted = []
+
+    def set_media(**_kwargs):
+        main.vas.current_media = media
+        return media.original_uri
+
+    monkeypatch.setattr(main, "stopsong", lambda: None)
+    monkeypatch.setattr(main.vas, "current_media", None)
+    monkeypatch.setattr(main.vas, "set_media", set_media)
+    monkeypatch.setattr(main.vas, "media_player", lambda **_kwargs: None)
+    monkeypatch.setattr(main.vas, "wait_until_playing", lambda _timeout: True)
+    monkeypatch.setattr(
+        main.vas,
+        "player",
+        SimpleNamespace(audio_set_volume=lambda _value: None, get_length=lambda: 120_000),
+    )
+    monkeypatch.setattr(main, "_show_local_copy_hint", lambda candidate: hinted.append(candidate))
+    monkeypatch.setattr(main, "recents_queue_save", lambda _value: None)
+    monkeypatch.setattr(main, "save_user_data", lambda: None)
+    monkeypatch.setattr(main, "SAY", lambda **_kwargs: None)
+    monkeypatch.setattr(main, "IPrint", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        main,
+        "USER_DATA",
+        {"default_user_data": {"stats": {"play_count": {"youtube": 0, "total": 0}}}},
+    )
+    monkeypatch.setattr(main, "isplaying", False)
+    monkeypatch.setattr(main, "currentsong", None)
+    monkeypatch.setattr(main, "currentsong_length", None)
+    monkeypatch.setattr(main, "current_media_type", None)
+
+    main.play_vas_media(media.original_uri, media_name="Track", media_type="video")
+
+    assert hinted == [media]
