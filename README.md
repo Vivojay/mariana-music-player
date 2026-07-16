@@ -240,6 +240,7 @@ output device
 media info|probe|metadata [current|library-index|indexed-path]
 media fingerprint [current|library-index|indexed-path] [--full]
 media identify [current|library-index|indexed-path]
+media local-match current
 rename short [current|library-index|indexed-path] [--dry-run] [y|yes|--yes]
 theme aurora|windows|kitty|gruvbox|list|current
 youtube auth status|set <browser[:profile]>|clear|test <YouTube URL>
@@ -346,6 +347,10 @@ codec/container details, and saved analysis state. `media fingerprint` reports
 the stored Chromaprint object (use `--full` only when the raw value is needed),
 while `media identify` queries the configured AcoustID/MusicBrainz path and
 returns an explicit unavailable, ambiguous, or no-match status instead of a guess.
+`media local-match current` performs a read-only, offline check against available
+indexed library items. It reports a result only when exactly one strong source,
+cached fingerprint, confirmed recording, or corroborated metadata match survives;
+it does not print a path by default or substitute local playback automatically.
 
 Sequential playback (`autoplay` and `autonext` are equivalent) is enabled by
 default. A fresh queue mirrors every indexed library item in library order and

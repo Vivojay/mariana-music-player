@@ -90,6 +90,7 @@ from mariana.download_jobs import DownloadJobError, DownloadManager
 from mariana.identity import AcoustIDClient, IdentificationService, LRCLIBClient, MusicBrainzClient
 from mariana.library import LibraryCatalog, LibraryError
 from mariana.library_service import LibraryProfilerService
+from mariana.local_match import LocalMatchStatus, LocalMediaMatcher
 from mariana.loudness import LoudnessError, RSGainAnalyzer
 from mariana.media_details import flattened_details, short_filename
 from mariana.media_removal import MediaRemovalError, MediaRemovalService
@@ -313,6 +314,7 @@ AUTOPLAY_ENABLED = bool(SETTINGS.get('playback', {}).get('autoplay', True))
 TOOLCHAIN = ToolchainManager(RUNTIME_PATHS)
 DATABASE = MarianaDatabase(RUNTIME_PATHS.database)
 DATABASE.migrate_legacy_play_counts(RUNTIME_PATHS.user_data)
+LOCAL_MATCHER = LocalMediaMatcher(DATABASE)
 PREFERENCES = MediaPreferences(DATABASE)
 REPLAYGAIN_SETTINGS = {
     **SETTINGS.get('replaygain', {}),
@@ -2670,7 +2672,10 @@ HELP_GROUPS = (
     ('Radio', 'radio search/list/play/add/info/metadata/resync/health/leveling'),
     ('Discord Presence', 'discord presence off/app/track/session/status/refresh'),
     ('Settings', 'theme, autoplay|autonext, sleep, youtube auth, replaygain, output device'),
-    ('Diagnostics', 'now, progress, media info/probe/fingerprint/identify, tools/setup/library status, check_dev'),
+    (
+        'Diagnostics',
+        'now, progress, media info/probe/fingerprint/identify/local-match, tools/setup/library status, check_dev',
+    ),
     (
         'Dangerous/destructive commands',
         'rm|del, playlist delete/clear, queue clear, library clean, setup restart [y|yes|--yes]',
@@ -2690,7 +2695,7 @@ HELP_EXAMPLES = {
     'Radio': ('radio search jazz', 'radio list', 'radio play 1', 'radio metadata'),
     'Discord Presence': ('discord presence status', 'discord presence track', 'discord presence off'),
     'Settings': ('theme list', 'autonext status', 'sleep 30m pause fade 5m', 'replaygain status'),
-    'Diagnostics': ('now', 'tools status', 'library verify', 'media probe current'),
+    'Diagnostics': ('now', 'tools status', 'library verify', 'media probe current', 'media local-match current'),
     'Dangerous/destructive commands': ('rm 4', 'playlist delete "Road trip" --yes', 'exit y'),
 }
 
@@ -2862,6 +2867,32 @@ def _media_info(arguments):
 
 def media_command(arguments):
     operation = arguments[0].casefold() if arguments else 'info'
+    if operation == 'local-match':
+        if len(arguments) != 2 or arguments[1].casefold() != 'current':
+            raise ValueError('Usage: media local-match current')
+        snapshot = vas.controller.snapshot()
+        media = snapshot.media
+        if media is not None and media.duration is None and snapshot.duration is not None:
+            payload = media.to_dict()
+            payload['duration'] = snapshot.duration
+            media = MediaRef.from_dict(payload)
+        result = LOCAL_MATCHER.match(media)
+        if result.status == LocalMatchStatus.MATCHED:
+            label = ' - '.join(value for value in (result.artist, result.title) if value)
+            IPrint(
+                f'Local copy found: library item {result.library_index} - {label or "Local media"}',
+                visible=visible,
+            )
+            confidence = result.confidence.value if result.confidence else 'Strong match'
+            IPrint(f'Confidence: {confidence}', visible=visible)
+            IPrint(f'Use "path {result.library_index}" to reveal its local path.', visible=visible)
+        elif result.status == LocalMatchStatus.AMBIGUOUS:
+            IPrint('Multiple strong local candidates exist; no match was selected.', visible=visible)
+        elif result.status == LocalMatchStatus.UNSUPPORTED:
+            IPrint('Local matching requires finite online media.', visible=visible)
+        else:
+            IPrint('No strong indexed local match was found.', visible=visible)
+        return result
     target_arguments = [value for value in arguments[1:] if value != '--full']
     media, info = _media_info(target_arguments)
     if operation in {'info', 'probe', 'metadata'}:
@@ -2899,7 +2930,10 @@ def media_command(arguments):
         if identity.status != IdentityStatus.IDENTIFIED:
             IPrint('No confident identity was guessed; the reported status is intentional.', visible=visible)
         return identity
-    raise ValueError('Usage: media [info|probe|metadata|fingerprint|identify] [current|index|path] [--full]')
+    raise ValueError(
+        'Usage: media [info|probe|metadata|fingerprint|identify] [current|index|path] [--full] '
+        '| media local-match current'
+    )
 
 
 def rename_command(arguments):

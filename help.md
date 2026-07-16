@@ -282,6 +282,7 @@ Mariana's writable user settings file.
 | `media info|probe|metadata [current|index|path]` | Show catalog and FFprobe metadata |
 | `media fingerprint [current|index|path] [--full]` | Show or calculate a Chromaprint fingerprint |
 | `media identify [current|index|path]` | Resolve a conservative AcoustID/MusicBrainz identity |
+| `media local-match current` | Check for exactly one strong indexed local copy without network lookup or playback substitution |
 | `tools status` | Show FFmpeg, FFprobe, FFplay, fpcalc, rsgain, and JavaScript-runtime status |
 | `tools setup`, `tools install`, `tools repair` | Configure or provision managed media tools |
 | `setup status`, `setup resume`, `setup repair` | Inspect or recover transactional first-run setup |
