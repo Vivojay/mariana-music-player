@@ -12,6 +12,7 @@ from mariana.integrations.discord_presence import (
     DiscordPresenceFailureCode,
     DiscordPresencePublisher,
     DiscordPresenceSdkUnavailable,
+    DiscordPresenceStatus,
     is_valid_discord_application_id,
 )
 from mariana.models import MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
@@ -405,6 +406,31 @@ def test_discord_publisher_coalesces_latest_pending_update(monkeypatch):
     publisher.close()
 
 
+def test_newer_projection_interrupts_throttle_wait(monkeypatch):
+    transport = Transport()
+    monkeypatch.setattr(
+        discord_presence.importlib,
+        "import_module",
+        lambda _name: SimpleNamespace(ActivityType=SimpleNamespace(LISTENING="listening")),
+    )
+    publisher = DiscordPresencePublisher(
+        TEST_APPLICATION_ID,
+        transport_factory=lambda _application_id: transport,
+        minimum_interval=0.15,
+        health_check_interval=10,
+    )
+    publisher.publish(PresenceProjection("First"))
+    wait_until(lambda: len(transport.updates) == 1)
+    publisher.publish(PresenceProjection("Superseded"))
+    time.sleep(0.03)
+
+    publisher.publish(PresenceProjection("Latest"))
+
+    wait_until(lambda: len(transport.updates) == 2)
+    assert [update["details"] for update in transport.updates] == ["First", "Latest"]
+    publisher.close()
+
+
 def test_transport_failure_is_typed_and_never_escapes_callers(monkeypatch):
     class BrokenTransport(Transport):
         def update(self, **values):
@@ -541,6 +567,53 @@ def test_configuration_change_wakes_dormant_projection(monkeypatch):
     publisher.close()
 
 
+def test_configuration_replacement_disconnects_old_application_and_dormant_invalid_id():
+    class BrokenCloseTransport(Transport):
+        def close(self):
+            super().close()
+            raise OSError("private close diagnostic")
+
+    transport = BrokenCloseTransport()
+    publisher = DiscordPresencePublisher(
+        TEST_APPLICATION_ID,
+        transport_factory=lambda _value: transport,
+        minimum_interval=0,
+    )
+    publisher.publish(PresenceProjection("Using Mariana"))
+    wait_until(lambda: transport.updates)
+
+    publisher.configure_application_id("malformed")
+    publisher.publish(PresenceProjection("Still private"))
+
+    assert transport.closed == 1
+    assert publisher.status().failure_code == DiscordPresenceFailureCode.NOT_CONFIGURED
+    assert publisher._pending is False
+    publisher.close()
+
+
+def test_configuration_noop_and_valid_id_without_projection_do_not_start_worker():
+    publisher = DiscordPresencePublisher(TEST_APPLICATION_ID)
+
+    publisher.configure_application_id(TEST_APPLICATION_ID)
+    publisher.configure_application_id("987654321098765432")
+
+    assert publisher._thread is None
+    assert publisher.status() == DiscordPresenceStatus(DiscordConnectionState.DISCONNECTED)
+    publisher.close()
+
+
+def test_explicit_refresh_rechecks_invalid_application_id_once():
+    publisher = DiscordPresencePublisher(None, retry_delays=(0.01,))
+    publisher.publish(PresenceProjection("Using Mariana"))
+    assert publisher._thread is None
+
+    publisher.refresh()
+
+    wait_until(lambda: publisher._dormant)
+    assert publisher.status().failure_code == DiscordPresenceFailureCode.NOT_CONFIGURED
+    publisher.close()
+
+
 def test_discord_unavailable_at_startup_connects_when_client_appears(monkeypatch):
     transport = Transport()
     monkeypatch.setattr(
@@ -567,6 +640,37 @@ def test_discord_unavailable_at_startup_connects_when_client_appears(monkeypatch
     wait_until(lambda: len(transport.updates) == 1)
     assert len(attempts) == 2
     assert publisher.status().state == DiscordConnectionState.CONNECTED
+    publisher.close()
+
+
+def test_disabling_presence_cancels_pending_client_retry():
+    attempts = []
+
+    def unavailable(_application_id):
+        attempts.append(True)
+        raise OSError("Discord is not running")
+
+    publisher = DiscordPresencePublisher(
+        TEST_APPLICATION_ID,
+        transport_factory=unavailable,
+        minimum_interval=0,
+        retry_delays=(1,),
+    )
+    publisher.publish(PresenceProjection("Using Mariana"))
+    wait_until(lambda: publisher.status().failure_code == DiscordPresenceFailureCode.CLIENT_UNAVAILABLE)
+
+    publisher.clear(disconnect=True)
+    time.sleep(0.04)
+
+    assert attempts == [True]
+    assert publisher._projection is None
+    publisher.close()
+
+
+def test_disconnect_is_idempotent_without_transport():
+    publisher = DiscordPresencePublisher(TEST_APPLICATION_ID)
+    publisher._disconnect()
+    assert publisher.status().state == DiscordConnectionState.DISCONNECTED
     publisher.close()
 
 
