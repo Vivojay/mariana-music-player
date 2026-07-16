@@ -100,7 +100,7 @@ jobs:
           format: spdx-json
           output-file: tool-output/mariana-tools-${{ matrix.key }}.spdx.json
           upload-artifact: false
-      - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with: { subject-path: "tool-output/*.zip" }
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
@@ -167,7 +167,7 @@ jobs:
           format: spdx-json
           output-file: tool-output/mariana-tools-win32-x64.spdx.json
           upload-artifact: false
-      - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with: { subject-path: "tool-output/*.zip" }
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
