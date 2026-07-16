@@ -1,6 +1,6 @@
 # Verification matrix
 
-Latest recorded run: [2026-07-14](verification/2026-07-14.md).
+Latest recorded run: [2026-07-17](verification/2026-07-17.md).
 
 ## Current capability evidence
 

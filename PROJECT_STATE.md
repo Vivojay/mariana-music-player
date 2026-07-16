@@ -6,10 +6,10 @@
 ## Document purpose
 
 This document records the verified source state of Mariana through release-candidate
-base commit `3c55e16bc7e5b125ed83a0c67fdcdeb7dd5a5432`. Release-independent subsystem
+feature base commit `8e0aad630e783fedf47ceb32700c02826a3b52c9`. Release-independent subsystem
 design is documented in [ARCHITECTURE_STATE.md](ARCHITECTURE_STATE.md).
 Detailed test evidence remains in
-[docs/verification/2026-07-15.md](docs/verification/2026-07-15.md).
+[docs/verification/2026-07-17.md](docs/verification/2026-07-17.md).
 
 ## Project overview
 
@@ -31,24 +31,25 @@ recommendations.
 |---|---|
 | Repository | `https://github.com/Vivojay/mariana-music-player` |
 | Flagship branch | `dev-6` |
-| Release-candidate base | `3c55e16bc7e5b125ed83a0c67fdcdeb7dd5a5432` |
+| Release-candidate feature base | `8e0aad630e783fedf47ceb32700c02826a3b52c9` |
 | Remote state at candidate base | Local `dev-6` and `origin/dev-6` matched |
-| Development version | `0.7.0-dev.5` (unpublished release candidate) |
+| Development version | `0.7.0-dev.6` (unpublished release candidate) |
 | Canonical version file | `version.json` |
 | Python target | CPython 3.12 |
 | Desktop build target | Node.js 24 and Electron 43.1.0 |
 | Database schema | Version 8 |
 
 `version.json`, `package.json`, Python version reporting, and CLI display are
-synchronized for the candidate. Existing `dist-backend/`, `release/`, and the
-published dev.4 assets predate this candidate and are not presented as current.
+synchronized for the candidate. Existing local `dist-backend/` and `release/`
+outputs contain dev.5-era artifacts and must be cleaned and rebuilt before any
+dev.6 packaging claim. The published dev.5 assets remain historical.
 
 ## Verification evidence
 
 ### Final HEAD CI
 
-[GitHub Actions run 29388760239](https://github.com/Vivojay/mariana-music-player/actions/runs/29388760239)
-completed successfully for candidate base `3c55e16` on:
+[GitHub Actions run 29533372178](https://github.com/Vivojay/mariana-music-player/actions/runs/29533372178)
+completed successfully for candidate feature base `8e0aad6` on:
 
 - Windows.
 - Ubuntu.
@@ -63,9 +64,9 @@ dependency audits, and artifact collection.
 
 The latest full recorded verification includes:
 
-- 1,119 deterministic Python tests passed locally for the candidate base.
+- 1,252 deterministic Python tests passed locally for the candidate feature base.
 - 17 opt-in or environment-dependent scenarios explicitly skipped.
-- 93.95% aggregate statement/branch coverage.
+- 93.94% aggregate statement/branch coverage.
 - 90.0% repository-wide branch coverage.
 - At least 95% branch coverage independently for every module enforced by
   `tools/coverage_gate.py`.
@@ -83,16 +84,16 @@ resume, corrupt setup repair, and recovery from an empty user-state file.
 ## Current release status
 
 The current public development release remains
-[v0.7.0-dev.4](https://github.com/Vivojay/mariana-music-player/releases/tag/v0.7.0-dev.4).
+[v0.7.0-dev.5](https://github.com/Vivojay/mariana-music-player/releases/tag/v0.7.0-dev.5).
 It is a public, non-draft prerelease targeting commit
-`53330305e4187f3bdcba31b1df11c884532e97e4`. The dev.5 candidate includes
-subsequent behavior, reliability, testing, and documentation changes and has
-not been published.
+`ed828b2d72a6ba3646bef33718ce142dd84d8a7a`. The dev.6 candidate includes
+subsequent behavior, reliability, workflow, testing, and documentation changes
+and has not been packaged or published.
 
 Published assets:
 
-- `Mariana-0.7.0-dev.4-windows-x64.exe`
-- `Mariana-0.7.0-dev.4-windows-x64.exe.blockmap`
+- `Mariana-0.7.0-dev.5-windows-x64.exe`
+- `Mariana-0.7.0-dev.5-windows-x64.exe.blockmap`
 - `latest.yml`
 - `SHA256SUMS.txt`
 
@@ -100,19 +101,13 @@ The installer is Windows x64 only and is not Authenticode-signed. Its SHA-256
 is:
 
 ```text
-C5537C030EBAB7EF9E6B5B4D60EA1538B74DEA86A89E885EFBBD081A392DEB19
+236F6E6D27994BA5729854585CD26CFA324C46F6E1BA14411DBCBD7E11E2BF90
 ```
 
-The verified unpacked application identities are:
-
-| Artifact | SHA-256 |
-|---|---|
-| `release/win-unpacked/Mariana.exe` | `01FF00B1AE55C5B222B5F5F1AB4FC542E672ABC101CC88D4EF805CE5BB46BAF5` |
-| Bundled `mariana-cli.exe` | `EE05BC3DE09F797D9FAE15D4B35299D189A18C3B5B7E64FDD066AC5B04DFA49F` |
-| `app.asar` | `4A848DBBD702D5BBA8AEAD2F153F63C6FD9542F3F2A89D37403C51A9A423161B` |
-
-The stable release remains `0.6.2`. Neither the published dev.4 prerelease nor
-the unpublished dev.5 candidate may be presented as stable.
+The stable release remains `0.6.2`. Neither the published dev.5 prerelease nor
+the unpublished dev.6 candidate may be presented as stable. Dev.6 is planned
+as another unsigned Windows x64-only prerelease; no macOS, Linux, Windows ARM,
+signed, notarized, or stable package is claimed.
 
 ## Remaining release blockers
 
@@ -384,6 +379,10 @@ current `release/win-unpacked` application.
 
 - `.github/workflows/ci.yml` runs on pushes and pull requests across Windows,
   Ubuntu, and macOS with Python 3.12 and Node.js 24.
+- `.github/workflows/codeql.yml` analyzes Python and JavaScript/TypeScript on
+  relevant pushes, pull requests, and its schedule.
+- `.github/workflows/workflow-security.yml` runs actionlint and zizmor when
+  workflow or Dependabot configuration changes.
 - `.github/workflows/reliability.yml` runs scheduled mutation and public-live
   gates.
 - `.github/workflows/toolchain.yml` builds and attests pinned native media tools
@@ -421,6 +420,7 @@ current `release/win-unpacked` application.
 | `0.7.0-dev.3` | Rich prompt/help/themes, managed tools, media details/rename, same-session downloads, output-device following, autoplay, and multi-view terminal |
 | `0.7.0-dev.4` | Hierarchical queues, playlists, albums, persistent album downloads, track-seeded stations, YouTube chapters, and expanded release verification |
 | `0.7.0-dev.5` | Release candidate with Discord Rich Presence, seek/fade polish, extractor-backed source hardening, preference metadata repair, terminal lifecycle fixes, and restored repository coverage |
+| `0.7.0-dev.6` | Candidate with canonical CLI/desktop playback status, online search queueing, confirmation flags, workflow security hardening, and conservative indexed local-copy hints |
 
 `CHANGELOG.md` is the authoritative concise change history. Dated evidence under
 `docs/verification/` records what was actually executed for each development

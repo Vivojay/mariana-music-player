@@ -4,7 +4,7 @@ Mariana is a local-first command-line and Electron terminal media player for
 64-bit Windows, macOS, and Linux. The 0.7 development platform decodes audio
 with FFmpeg into a bounded PCM pipeline,
 plays it through `sounddevice`, and uses FFplay only as an external diagnostic
-or video fallback. The working source version is `0.7.0-dev.5`; the stable release remains 0.6.2 until every
+or video fallback. The working source version is `0.7.0-dev.6`; the stable release remains 0.6.2 until every
 release gate—including manual speaker and soak acceptance—has passed.
 
 Supported sources include local audio, YouTube, podcasts, custom HTTP media,
@@ -64,22 +64,24 @@ before the production release preflight can pass.
 
 ### Windows installer (development pre-release)
 
-The latest currently published installer is `Mariana-0.7.0-dev.4-windows-x64.exe` from the
-[v0.7.0-dev.4 pre-release](https://github.com/Vivojay/mariana-music-player/releases/tag/v0.7.0-dev.4),
+The latest currently published installer is `Mariana-0.7.0-dev.5-windows-x64.exe` from the
+[v0.7.0-dev.5 pre-release](https://github.com/Vivojay/mariana-music-player/releases/tag/v0.7.0-dev.5),
 then launch it from Explorer or PowerShell:
 
 ```powershell
-.\Mariana-0.7.0-dev.4-windows-x64.exe
+.\Mariana-0.7.0-dev.5-windows-x64.exe
 ```
 
-The `0.7.0-dev.5` source is currently a release candidate only. No dev.5
-binary has been published, and the dev.4 installer does not contain the dev.5
-changes recorded in `CHANGELOG.md`.
+The `0.7.0-dev.6` source is currently a release candidate only. No dev.6
+binary has been published, and the dev.5 installer does not contain the dev.6
+changes recorded in `CHANGELOG.md`. Existing local `dist-backend/` and
+`release/` output is dev.5-era build output and must be cleaned and rebuilt
+from the final dev.6 source before any dev.6 packaging claim.
 
 This development installer is not Authenticode-signed, so Windows may display
 a publisher warning. Verify it against the release's `SHA256SUMS.txt`; the
 installer SHA-256 is
-`C5537C030EBAB7EF9E6B5B4D60EA1538B74DEA86A89E885EFBBD081A392DEB19`.
+`236F6E6D27994BA5729854585CD26CFA324C46F6E1BA14411DBCBD7E11E2BF90`.
 It is not the stable `0.7.0` release. First boot discovers or offers to
 provision the media toolchain as described above. Only Windows x64 is published
 for this development version; no macOS or Linux package is claimed.
@@ -589,8 +591,8 @@ RecBole/Implicit challenger research is isolated from the runtime; see
 The latest hosted Windows, Ubuntu, and macOS matrix passed Python branch
 coverage, every independent 95% critical-module branch gate, Ruff, Pyright,
 dependency audits, React tests/builds, and native Electron PTY checks. The most
-recent local full run passed 992 tests with 17 opt-in or unavailable-tool cases
-skipped and 93.95% aggregate coverage. See the
+recent local full run passed 1,252 tests with 17 opt-in or unavailable-tool cases
+skipped and 93.94% aggregate coverage. See the
 [dated verification reports](docs/verification/) for exact environments,
 versions, metrics, and release gates that remain pending.
 
