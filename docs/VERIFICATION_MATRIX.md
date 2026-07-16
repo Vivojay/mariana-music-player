@@ -2,6 +2,9 @@
 
 Latest recorded run: [2026-07-17](verification/2026-07-17.md).
 
+The verified [v0.7.0-dev.6 prerelease](https://github.com/Vivojay/mariana-music-player/releases/tag/v0.7.0-dev.6)
+is unsigned Windows x64 only. It is not the stable release.
+
 ## Current capability evidence
 
 | Area | Deterministic evidence | Live/native evidence | Release state |

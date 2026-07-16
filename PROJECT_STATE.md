@@ -33,16 +33,15 @@ recommendations.
 | Flagship branch | `dev-6` |
 | Release-candidate feature base | `8e0aad630e783fedf47ceb32700c02826a3b52c9` |
 | Remote state at candidate base | Local `dev-6` and `origin/dev-6` matched |
-| Development version | `0.7.0-dev.6` (unpublished release candidate) |
+| Development version | `0.7.0-dev.6` (published prerelease) |
 | Canonical version file | `version.json` |
 | Python target | CPython 3.12 |
 | Desktop build target | Node.js 24 and Electron 43.1.0 |
 | Database schema | Version 8 |
 
 `version.json`, `package.json`, Python version reporting, and CLI display are
-synchronized for the candidate. Existing local `dist-backend/` and `release/`
-outputs contain dev.5-era artifacts and must be cleaned and rebuilt before any
-dev.6 packaging claim. The published dev.5 assets remain historical.
+synchronized for the prerelease. Dev.6 Windows x64 artifacts were rebuilt from
+the verified source and published; the earlier dev.5 assets remain historical.
 
 ## Verification evidence
 
@@ -83,17 +82,16 @@ resume, corrupt setup repair, and recovery from an empty user-state file.
 
 ## Current release status
 
-The current public development release remains
-[v0.7.0-dev.5](https://github.com/Vivojay/mariana-music-player/releases/tag/v0.7.0-dev.5).
+The current public development release is
+[v0.7.0-dev.6](https://github.com/Vivojay/mariana-music-player/releases/tag/v0.7.0-dev.6).
 It is a public, non-draft prerelease targeting commit
-`ed828b2d72a6ba3646bef33718ce142dd84d8a7a`. The dev.6 candidate includes
-subsequent behavior, reliability, workflow, testing, and documentation changes
-and has not been packaged or published.
+`e27524585b87e00c74ba57fd79a95eb05869b942`. It is Windows x64 only and was
+packaged as an unsigned prerelease.
 
 Published assets:
 
-- `Mariana-0.7.0-dev.5-windows-x64.exe`
-- `Mariana-0.7.0-dev.5-windows-x64.exe.blockmap`
+- `Mariana-0.7.0-dev.6-windows-x64.exe` (154,321,048 bytes)
+- `Mariana-0.7.0-dev.6-windows-x64.exe.blockmap` (163,379 bytes)
 - `latest.yml`
 - `SHA256SUMS.txt`
 
@@ -101,12 +99,11 @@ The installer is Windows x64 only and is not Authenticode-signed. Its SHA-256
 is:
 
 ```text
-236F6E6D27994BA5729854585CD26CFA324C46F6E1BA14411DBCBD7E11E2BF90
+1232EE20FD4C8359D8846708CD96D583C5795571B15781D5668BEA58AC3A29D9
 ```
 
-The stable release remains `0.6.2`. Neither the published dev.5 prerelease nor
-the unpublished dev.6 candidate may be presented as stable. Dev.6 is planned
-as another unsigned Windows x64-only prerelease; no macOS, Linux, Windows ARM,
+The stable release remains `0.6.2`. Dev.6 must not be presented as stable. It
+is an unsigned Windows x64-only prerelease; no macOS, Linux, Windows ARM,
 signed, notarized, or stable package is claimed.
 
 ## Remaining release blockers
