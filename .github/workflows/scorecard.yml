@@ -1,0 +1,35 @@
+name: OpenSSF Scorecard
+
+on:
+  schedule:
+    - cron: "41 4 * * 6"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scorecard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      # Advisory initially: retain the report without blocking normal development.
+      - name: Analyze repository security posture
+        id: scorecard
+        continue-on-error: true
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
+        with:
+          results_file: scorecard.json
+          results_format: json
+          publish_results: false
+      - name: Upload advisory report
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: openssf-scorecard
+          path: scorecard.json
+          if-no-files-found: warn
+          retention-days: 14

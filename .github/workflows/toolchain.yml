@@ -8,13 +8,15 @@ on:
         required: true
 
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
 
 jobs:
   unix:
     if: inputs.confirmation == 'PUBLISH-TOOLS'
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
       matrix:
         include:
@@ -45,8 +47,10 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with: { python-version: "3.12" }
       - name: Install native build dependencies
         shell: bash
@@ -90,28 +94,34 @@ jobs:
           --deno deno/deno
           --rsgain-dir "$(dirname "$(find rsgain -type f -name rsgain | head -1)")"
           --output tool-output
-      - uses: anchore/sbom-action@v0
+      - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           path: tool-output/staging
           format: spdx-json
           output-file: tool-output/mariana-tools-${{ matrix.key }}.spdx.json
           upload-artifact: false
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
         with: { subject-path: "tool-output/*.zip" }
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: tools-${{ matrix.key }}
           path: tool-output/*
 
   windows:
     if: inputs.confirmation == 'PUBLISH-TOOLS'
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     runs-on: windows-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with: { python-version: "3.12" }
-      - uses: msys2/setup-msys2@v2
+      - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2
         with:
           msystem: UCRT64
           update: true
@@ -151,15 +161,15 @@ jobs:
           --deno deno/deno.exe
           --rsgain-dir (Get-ChildItem rsgain -Recurse -Filter rsgain.exe | Select-Object -First 1).Directory.FullName
           --output tool-output
-      - uses: anchore/sbom-action@v0
+      - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           path: tool-output/staging
           format: spdx-json
           output-file: tool-output/mariana-tools-win32-x64.spdx.json
           upload-artifact: false
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
         with: { subject-path: "tool-output/*.zip" }
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: tools-win32-x64
           path: tool-output/*
@@ -168,9 +178,13 @@ jobs:
     if: inputs.confirmation == 'PUBLISH-TOOLS'
     needs: [unix, windows]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: tools-*
           path: assembled
@@ -181,7 +195,7 @@ jobs:
           gpg --batch --yes --armor --detach-sign assembled/manifest.json
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: 0.7.0-tools.2
           name: Mariana managed tools 0.7.0-tools.2
