@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 0.7.0-dev.6 - Release candidate
+
+- Added canonical safe playback-status projection across CLI and Electron,
+  improved `now`/`progress` output, and added a read-only desktop status bar
+  with finite, live, unknown-duration, queue, and failure states.
+- Added online search-to-queue commands and standardized command-scoped
+  `y`/`yes`/`--yes` confirmation bypasses without changing playback authority.
+- Added conservative indexed-library local-copy matching, the
+  `media local-match` command, and a one-time terminal-only availability hint;
+  matching never substitutes playback or exposes paths to remote surfaces.
+- Modernized categorized command help and kept tracked scratchpad and legacy
+  line-ending handling consistent with repository hygiene rules.
+- Added CodeQL, dependency review, actionlint, zizmor, OpenSSF Scorecard, and
+  Dependabot workflow hardening with minimal permissions and public-repository
+  sustainable tooling.
+- Stabilized the lossy MP3 broadcast frequency assertion using a
+  codec-appropriate cross-platform tolerance while retaining strict decodability
+  and expected-program checks.
+
 ## 0.7.0-dev.5 - Release candidate
 
 - Added opt-in Discord Rich Presence with `off`, `app`, `track`, and `session`
