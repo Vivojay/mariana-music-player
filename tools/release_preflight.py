@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from mariana.version import __version__  # noqa: E402
+from tools.check_version import validate_discord_application  # noqa: E402
 
 
 def require(*names: str) -> None:
@@ -20,6 +21,7 @@ def require(*names: str) -> None:
 
 
 def main() -> None:
+    validate_discord_application(ROOT)
     expected_tag = os.environ.get("MARIANA_RELEASE_TAG", "")
     if "dev" in __version__ or expected_tag != f"v{__version__}":
         raise SystemExit(f"Release tag/version mismatch: tag={expected_tag}, version={__version__}")

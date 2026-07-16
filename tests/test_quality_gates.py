@@ -8,6 +8,8 @@ import tools.coverage_gate as coverage_gate
 import tools.mutation_gate as mutation_gate
 import tools.verify_docs as docs_gate
 import tools.verify_text_integrity as text_gate
+from mariana.integrations.discord_presence import is_valid_discord_application_id
+from tools.check_version import configured_discord_application_id, validate_discord_application
 from tools.coverage_gate import branch_percentage, evaluate, evaluate_repository
 from tools.mutation_gate import mutation_score
 from tools.verify_docs import verify
@@ -23,6 +25,37 @@ def test_packaged_app_contains_both_media_tool_manifests():
     assert 'tools" / "manifest.json' in spec
     assert 'tools" / "bootstrap-manifest.json' in spec
     assert {"tools/manifest.json", "tools/bootstrap-manifest.json"} <= resources
+
+
+def test_packaged_app_contains_public_discord_presence_contract():
+    root = Path(__file__).resolve().parents[1]
+    spec = (root / "mariana-cli.spec").read_text(encoding="utf-8")
+    requirements_in = (root / "requirements.in").read_text(encoding="utf-8")
+    requirements_lock = (root / "requirements.txt").read_text(encoding="utf-8")
+    application_id = configured_discord_application_id(root)
+
+    assert application_id == "1527444149962277014"
+    assert is_valid_discord_application_id(application_id)
+    assert 'settings" / "system.toml' in spec
+    assert '"pypresence"' in spec
+    assert "pypresence==4.6.2" in requirements_in
+    assert "pypresence==4.6.2" in requirements_lock
+
+
+def test_discord_application_release_check_rejects_invalid_configuration(tmp_path):
+    settings = tmp_path / "settings"
+    settings.mkdir()
+    system = settings / "system.toml"
+    system.write_text('[system_settings]\ndiscord_application_id = "placeholder"\n', encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="missing, malformed, or a placeholder"):
+        validate_discord_application(tmp_path)
+
+    system.write_text(
+        '[system_settings]\ndiscord_application_id = "1527444149962277014"\n',
+        encoding="utf-8",
+    )
+    assert validate_discord_application(tmp_path) == "1527444149962277014"
 
 
 def test_branch_percentage_uses_branches_only():
