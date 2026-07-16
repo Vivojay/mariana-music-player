@@ -114,3 +114,20 @@ def test_media_local_match_has_no_command_side_effects(monkeypatch, local_match_
     main.media_command(["local-match", "current"])
 
     assert calls == []
+
+
+def test_local_copy_hint_prints_safe_terminal_message(monkeypatch, local_match_cli):
+    output, media = local_match_cli
+    monkeypatch.setattr(main, "_LOCAL_COPY_HINTED_MEDIA_IDS", set())
+    monkeypatch.setattr(main, "LOCAL_MATCHER", SimpleNamespace(match=lambda _media: _result(LocalMatchStatus.MATCHED)))
+
+    result = main._show_local_copy_hint(media)
+
+    assert result is not None and result.status == LocalMatchStatus.MATCHED
+    assert output == [
+        'Local copy available: library item 7. Run "media local-match current".'
+    ]
+    joined = " ".join(output).casefold()
+    assert "youtube.com" not in joined
+    assert "fingerprint" not in joined
+    assert "credential" not in joined

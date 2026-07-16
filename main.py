@@ -90,7 +90,7 @@ from mariana.download_jobs import DownloadJobError, DownloadManager
 from mariana.identity import AcoustIDClient, IdentificationService, LRCLIBClient, MusicBrainzClient
 from mariana.library import LibraryCatalog, LibraryError
 from mariana.library_service import LibraryProfilerService
-from mariana.local_match import LocalMatchStatus, LocalMediaMatcher
+from mariana.local_match import LocalMatchResult, LocalMatchStatus, LocalMediaMatcher
 from mariana.loudness import LoudnessError, RSGainAnalyzer
 from mariana.media_details import flattened_details, short_filename
 from mariana.media_removal import MediaRemovalError, MediaRemovalService
@@ -315,6 +315,8 @@ TOOLCHAIN = ToolchainManager(RUNTIME_PATHS)
 DATABASE = MarianaDatabase(RUNTIME_PATHS.database)
 DATABASE.migrate_legacy_play_counts(RUNTIME_PATHS.user_data)
 LOCAL_MATCHER = LocalMediaMatcher(DATABASE)
+_LOCAL_COPY_HINTED_MEDIA_IDS: set[str] = set()
+_LOCAL_COPY_HINT_LOCK = threading.Lock()
 PREFERENCES = MediaPreferences(DATABASE)
 REPLAYGAIN_SETTINGS = {
     **SETTINGS.get('replaygain', {}),
@@ -805,6 +807,63 @@ def _preference_media(media):
     return media
 
 
+def _media_for_local_match(media):
+    """Copy the active media only when playback supplied its finite duration."""
+    if media is None or media.duration is not None:
+        return media
+    snapshot = vas.controller.snapshot()
+    if snapshot.media is None or snapshot.media.stable_id != media.stable_id or snapshot.duration is None:
+        return media
+    payload = media.to_dict()
+    payload['duration'] = snapshot.duration
+    return MediaRef.from_dict(payload)
+
+
+def _show_local_copy_hint(media):
+    """Print one path-free hint per matched online item for this process."""
+    if media is None:
+        return None
+    candidate = _media_for_local_match(media)
+    try:
+        duration = float(candidate.duration)
+    except (TypeError, ValueError, OverflowError):
+        duration = 0
+    if (
+        candidate.source
+        not in {
+            MediaSource.YOUTUBE,
+            MediaSource.URL,
+            MediaSource.PODCAST,
+            MediaSource.RECOMMENDATION,
+        }
+        or not candidate.capabilities.finite
+        or candidate.capabilities.live
+        or not math.isfinite(duration)
+        or duration <= 0
+    ):
+        return LocalMatchResult(LocalMatchStatus.UNSUPPORTED)
+    media_id = media.stable_id
+    with _LOCAL_COPY_HINT_LOCK:
+        if media_id in _LOCAL_COPY_HINTED_MEDIA_IDS:
+            return None
+    try:
+        result = LOCAL_MATCHER.match(candidate)
+    except Exception:
+        return None
+    if result.status != LocalMatchStatus.MATCHED or result.library_index is None:
+        return result
+    with _LOCAL_COPY_HINT_LOCK:
+        if media_id in _LOCAL_COPY_HINTED_MEDIA_IDS:
+            return result
+        _LOCAL_COPY_HINTED_MEDIA_IDS.add(media_id)
+    IPrint(
+        f'Local copy available: library item {result.library_index}. '
+        'Run "media local-match current".',
+        visible=visible,
+    )
+    return result
+
+
 def _play_queue_item(item):
     global currentsong, current_media_type, isplaying, currentsong_length
     media = item.media
@@ -828,6 +887,7 @@ def _play_queue_item(item):
         else:
             vas.supervisor.play(media)
             _set_current_media_state(media)
+            _show_local_copy_hint(media)
     except Exception:
         RECOMMENDER.record_event(media, 'failure')
         action = QUEUE.mark_failure(item.queue_id)
@@ -2871,12 +2931,7 @@ def media_command(arguments):
         if len(arguments) != 2 or arguments[1].casefold() != 'current':
             raise ValueError('Usage: media local-match current')
         snapshot = vas.controller.snapshot()
-        media = snapshot.media
-        if media is not None and media.duration is None and snapshot.duration is not None:
-            payload = media.to_dict()
-            payload['duration'] = snapshot.duration
-            media = MediaRef.from_dict(payload)
-        result = LOCAL_MATCHER.match(media)
+        result = LOCAL_MATCHER.match(_media_for_local_match(snapshot.media))
         if result.status == LocalMatchStatus.MATCHED:
             label = ' - '.join(value for value in (result.artist, result.title) if value)
             IPrint(
@@ -3853,12 +3908,16 @@ def play_vas_media(media_url, single_video = None, media_name = None,
     global isplaying, visible, currentsong, cached_volume
     global currentsong_length, current_media_type
 
+    prepared_media = None
+    previous_media = vas.current_media
+
     # Stop prev audios b4 loading VAS Media...
     stopsong()
 
     # VAS Media Load/Set
     if media_type == 'video':
         YT_aud_url = vas.set_media(_type='yt_video', vidurl=media_url)
+        prepared_media = vas.current_media if vas.current_media is not previous_media else None
         current_media_type = 0
 
         if not media_name:
@@ -3884,6 +3943,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
 
     elif media_type == 'general':
         vas.set_media(_type='audio', audurl=media_url)
+        prepared_media = vas.current_media if vas.current_media is not previous_media else None
 
         current_media_type = 1
         currentsong = media_url
@@ -3893,6 +3953,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
     elif media_type == 'radio':
         # Here `media_name` is actually the radio name
         vas.set_media(_type=f'radio/{media_name}') # No need for an explicit `audurl` here... (as per definition of vas.set_media)
+        prepared_media = vas.current_media if vas.current_media is not previous_media else None
 
         current_media_type = 2
         currentsong = media_name
@@ -3901,6 +3962,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
 
     elif media_type == 'redditsession':
         vas.set_media(_type='audio', audurl=media_url)
+        prepared_media = vas.current_media if vas.current_media is not previous_media else None
 
         current_media_type = 3
         currentsong = (media_name, media_url)
@@ -3955,6 +4017,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
             display_message = "",
             log_priority=3)
     isplaying = True
+    _show_local_copy_hint(prepared_media)
 
 
 def choose_media_url(media_url_choices: list, yt: bool = True):

@@ -210,8 +210,29 @@ def test_missing_rows_are_excluded_and_result_model_is_safe(matcher):
     assert database._connection.total_changes == before
     payload = asdict(result)
     assert result.status == LocalMatchStatus.MATCHED
-    assert result.title == "Local media" and result.artist is None
+    assert result.title == "Track" and result.artist == "Artist"
     assert not {"path", "url", "uri", "fingerprint", "credential"}.intersection(payload)
+
+
+def test_safe_display_prefers_current_metadata_then_indexed_metadata(matcher):
+    database, service, root = matcher
+    _library_row(
+        database,
+        root,
+        "available",
+        metadata={
+            "youtube_id": "dQw4w9WgXcQ",
+            "title": "Indexed Track",
+            "artist": "Indexed Artist",
+        },
+    )
+    current = service.match(_online(title="Current Track", artist="Current Artist"))
+    assert (current.title, current.artist) == ("Current Track", "Current Artist")
+
+    safe_indexed = service.match(
+        _online(title="C:/private/track.mp3", artist="https://private.example/artist")
+    )
+    assert (safe_indexed.title, safe_indexed.artist) == ("Indexed Track", "Indexed Artist")
 
 
 @pytest.mark.parametrize(

@@ -265,8 +265,9 @@ class LocalMediaMatcher:
             LocalMatchStatus.MATCHED,
             library_id=library_id,
             library_index=index,
-            title=_safe_display(metadata.get("title"), fallback="Local media"),
-            artist=_safe_display(metadata.get("artist")),
+            title=_safe_display(media.title)
+            or _safe_display(metadata.get("title"), fallback="Local media"),
+            artist=_safe_display(media.artist) or _safe_display(metadata.get("artist")),
             confidence=strongest.confidence,
             evidence=strongest.label,
         )
