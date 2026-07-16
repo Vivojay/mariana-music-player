@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
-import { trimDisplayCells } from './shared'
+import { trimDisplayCells, type BackendEvent, type BackendSnapshot, type PlaybackStatus } from './shared'
 
 vi.mock('./TerminalSurface', () => ({ TerminalSurface: () => <div data-testid="terminal" /> }))
 
@@ -10,9 +10,34 @@ const check = vi.fn(async () => undefined)
 const install = vi.fn(async () => undefined)
 const restart = vi.fn(async () => undefined)
 const closeApp = vi.fn(async () => undefined)
-let backendEvent: ((event: { event: string; payload: Record<string, unknown>; timestamp: number }) => void) | undefined
+let backendEvent: ((event: BackendEvent) => void) | undefined
 let updateEvent: ((event: { state: string; version?: string; safeToInstall?: boolean; percent?: number }) => void) | undefined
 let exitEvent: ((event: { code: number; intentional: boolean }) => void) | undefined
+let backendSnapshot: BackendSnapshot
+
+const playbackStatus = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus => ({
+  schema_version: 1,
+  state: 'playing',
+  display_state: 'Playing',
+  media_id: 'track-1',
+  title: 'Track',
+  artist: 'Artist',
+  source: 'local',
+  position_seconds: 10,
+  duration_seconds: 100,
+  percent: 10,
+  buffered_seconds: 2,
+  finite: true,
+  live: false,
+  seekable: true,
+  queue_position: 1,
+  queue_count: 3,
+  chapter: null,
+  replaygain_db: 0,
+  live_leveling: false,
+  safe_error: null,
+  ...overrides,
+})
 
 beforeEach(() => {
   localStorage.clear()
@@ -24,12 +49,13 @@ beforeEach(() => {
   backendEvent = undefined
   updateEvent = undefined
   exitEvent = undefined
+  backendSnapshot = { ready: true, playbackState: 'idle', sleepActive: false, playback: null }
   Object.defineProperty(window, 'mariana', {
     configurable: true,
     value: {
       terminal: { write, resize: vi.fn(), restart, history: async () => '', onData: () => () => {}, onExit: (callback: typeof exitEvent) => { exitEvent = callback; return () => {} } },
       backend: {
-        snapshot: async () => ({ ready: true, playbackState: 'idle', sleepActive: false }),
+        snapshot: async () => backendSnapshot,
         onEvent: (callback: typeof backendEvent) => { backendEvent = callback; return () => {} },
       },
       updates: { check, install, onState: (callback: typeof updateEvent) => { updateEvent = callback; return () => {} } },
@@ -85,7 +111,7 @@ describe('Mariana desktop shell', () => {
   it('renders playback chapters and the next ten station tracks from structured events', () => {
     render(<App />)
     act(() => {
-      backendEvent?.({ event: 'playback', payload: { chapter: { title: 'A very long 章 chapter title', start_time: 10, end_time: 20 } }, timestamp: 1 })
+      backendEvent?.({ event: 'playback', payload: playbackStatus({ chapter: { title: 'A very long 章 chapter title', start_time: 10, end_time: 20 } }), timestamp: 1 })
       backendEvent?.({
         event: 'station',
         payload: {
@@ -102,6 +128,22 @@ describe('Mariana desktop shell', () => {
     expect(screen.getAllByText('similar artist')).toHaveLength(10)
     fireEvent.click(screen.getByRole('button', { name: 'Close station tracks' }))
     expect(screen.queryByLabelText('Station upcoming tracks')).not.toBeInTheDocument()
+    expect(write).not.toHaveBeenCalled()
+  })
+
+  it('restores the latest playback projection from the backend snapshot', async () => {
+    backendSnapshot = {
+      ready: true,
+      playbackState: 'paused',
+      sleepActive: false,
+      playback: playbackStatus({
+        state: 'paused',
+        display_state: 'Paused',
+        chapter: { title: 'Restored chapter', start_time: 20, end_time: 40 },
+      }),
+    }
+    render(<App />)
+    expect(await screen.findByTitle('Restored chapter')).toHaveTextContent('Restored chapter')
     expect(write).not.toHaveBeenCalled()
   })
 

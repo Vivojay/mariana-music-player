@@ -6,7 +6,7 @@ import net from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as pty from 'node-pty'
-import type { BackendEvent, UpdateState } from './shared.js'
+import type { BackendEvent, PlaybackStatus, UpdateState } from './shared.js'
 
 const { autoUpdater } = electronUpdater
 
@@ -32,6 +32,7 @@ let terminalHistory = ''
 let terminalControlTail = ''
 let quitting = false
 let playbackState = 'idle'
+let playbackStatus: PlaybackStatus | null = null
 let sleepActive = false
 let backendReady = false
 let backendShutdownAcknowledged = false
@@ -58,7 +59,10 @@ function validateSender(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEve
 }
 
 function handleBackendEvent(event: BackendEvent) {
-  if (event.event === 'playback') playbackState = String(event.payload.state ?? 'idle')
+  if (event.event === 'playback') {
+    playbackState = event.payload.state
+    playbackStatus = event.payload
+  }
   if (event.event === 'sleep') sleepActive = Boolean(event.payload.active)
   if (event.event === 'update-safe') backendSafeOverride = Boolean(event.payload.safe)
   if (event.event === 'ready') {
@@ -128,6 +132,8 @@ function backendCommand(): { executable: string; args: string[]; cwd: string; re
 
 function startTerminal() {
   terminalProcess?.kill()
+  playbackState = 'idle'
+  playbackStatus = null
   backendShutdownAcknowledged = false
   backendExitClosesView = true
   const command = backendCommand()
@@ -212,7 +218,7 @@ async function createWindow() {
 function registerIpc() {
   ipcMain.handle('backend:snapshot', async (event) => {
     if (!validateSender(event)) throw new Error('Invalid IPC sender')
-    return { ready: backendReady, playbackState, sleepActive }
+    return { ready: backendReady, playbackState, sleepActive, playback: playbackStatus }
   })
   ipcMain.on('terminal:write', (event, data: unknown) => {
     if (validateSender(event) && typeof data === 'string' && data.length <= 1_000_000) terminalProcess?.write(data)

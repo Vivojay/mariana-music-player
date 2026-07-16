@@ -1,9 +1,16 @@
 import json
 import time
-from types import SimpleNamespace
 
 from mariana.desktop_control import DesktopControl
-from mariana.models import MediaChapter
+from mariana.models import (
+    MediaCapabilities,
+    MediaChapter,
+    MediaRef,
+    MediaSource,
+    PlaybackSnapshot,
+    PlaybackState,
+)
+from mariana.playback_status import project_playback_status
 
 
 class MemoryStream:
@@ -30,6 +37,42 @@ def wait_for(predicate, timeout=1.0):
     raise AssertionError("event monitor did not report before its deadline")
 
 
+def projected_status(
+    *,
+    source=MediaSource.LOCAL,
+    state=PlaybackState.PLAYING,
+    title="Track",
+    position=3.0,
+    duration=10.0,
+    finite=True,
+    live=False,
+    seekable=True,
+    error=None,
+    queue_position=None,
+    queue_count=0,
+):
+    media = None if state == PlaybackState.IDLE and title is None else MediaRef(
+        source,
+        "C:/private/track.flac" if source == MediaSource.LOCAL else "https://signed.example/media?token=secret",
+        title=title,
+        artist="Artist",
+        stable_id="track-1",
+        capabilities=MediaCapabilities(finite=finite, live=live, seekable=seekable),
+    )
+    return project_playback_status(
+        PlaybackSnapshot(
+            state,
+            position=position,
+            duration=duration,
+            error=error,
+            media=media,
+            current_chapter=MediaChapter("Verse", 1, 5) if media else None,
+        ),
+        queue_position=queue_position,
+        queue_count=queue_count,
+    )
+
+
 def test_desktop_events_are_authenticated_and_reconnect_once(monkeypatch):
     control = DesktopControl()
     assert not control.enabled
@@ -53,25 +96,82 @@ def test_playback_and_safety_monitors_emit_changes_and_close_cleanly(monkeypatch
     control = DesktopControl("pipe", "secret")
     events = []
     monkeypatch.setattr(control, "emit", lambda event, payload=None: events.append((event, payload)) or True)
-    snapshot = SimpleNamespace(
-        state=SimpleNamespace(value="playing"), position=3.0, duration=10.0, volume=0.5,
-        muted=False, error=None, media=SimpleNamespace(
-            stable_id="track-1", source=SimpleNamespace(value="local"), title="Track", artist="Artist",
-        ),
-        current_chapter=MediaChapter("Verse", 10, 20),
-    )
-    control.start_playback_monitor(lambda: snapshot, interval=0.001)
-    control.start_playback_monitor(lambda: snapshot, interval=0.001)
+    status = projected_status(queue_position=2, queue_count=4)
+    control.start_playback_monitor(lambda: status, interval=0.001)
+    control.start_playback_monitor(lambda: status, interval=0.001)
     control.start_safety_monitor(lambda: (False, ["playback"]), interval=0.001)
     wait_for(lambda: {event for event, _ in events} >= {"playback", "loudness", "update-safe"})
     playback = next(payload for event, payload in events if event == "playback")
-    assert playback["media"]["id"] == "track-1"
-    assert playback["chapter"] == {"title": "Verse", "start_time": 10, "end_time": 20}
+    assert playback == status.to_dict()
+    assert playback["media_id"] == "track-1"
+    assert playback["position_seconds"] == 3
+    assert playback["duration_seconds"] == 10
+    assert playback["percent"] == 30
+    assert playback["queue_position"] == 2
+    assert playback["queue_count"] == 4
+    assert playback["chapter"] == {"title": "Verse", "start_time": 1, "end_time": 5}
     assert next(payload for event, payload in events if event == "loudness")["replaygain_db"] == 0
     assert next(payload for event, payload in events if event == "update-safe")["reasons"] == ["playback"]
     control.close()
     assert control._monitor is None
     assert control._safety_monitor is None
+
+
+def test_playback_monitor_emits_safe_live_unknown_and_idle_projections(monkeypatch):
+    cases = [
+        projected_status(
+            source=MediaSource.RADIO,
+            title="Station",
+            position=12,
+            duration=999,
+            finite=False,
+            live=True,
+            seekable=False,
+        ),
+        projected_status(duration=None),
+        projected_status(state=PlaybackState.IDLE, title=None, position=0, duration=None),
+    ]
+
+    for status in cases:
+        events = []
+        control = DesktopControl("pipe", "secret")
+        monkeypatch.setattr(
+            control,
+            "emit",
+            lambda event, payload=None, events=events: events.append((event, payload)) or True,
+        )
+        control.start_playback_monitor(lambda status=status: status, interval=0.001)
+        wait_for(lambda events=events: any(event == "playback" for event, _ in events))
+        payload = next(payload for event, payload in events if event == "playback")
+        assert payload == status.to_dict()
+        control.close()
+
+    assert cases[0].live and cases[0].percent is None and not cases[0].seekable
+    assert cases[1].duration_seconds is None and cases[1].percent is None
+    assert cases[2].state == "idle" and cases[2].media_id is None and cases[2].title is None
+
+
+def test_playback_monitor_never_emits_raw_resolver_or_private_fields(monkeypatch):
+    status = projected_status(
+        source=MediaSource.URL,
+        title="https://private.example/song",
+        state=PlaybackState.FAILED,
+        error="ffmpeg -i https://signed.example/audio --header Cookie=secret",
+    )
+    events = []
+    control = DesktopControl("pipe", "secret")
+    monkeypatch.setattr(control, "emit", lambda event, payload=None: events.append((event, payload)) or True)
+    control.start_playback_monitor(lambda: status, interval=0.001)
+    wait_for(lambda: any(event == "playback" for event, _ in events))
+    payload = next(payload for event, payload in events if event == "playback")
+    serialized = json.dumps(payload)
+    assert payload["title"] == "Online media"
+    assert payload["safe_error"] == "Playback failed; see logs for details"
+    assert not {"media", "position", "duration", "error", "output_device", "output_backend"} & payload.keys()
+    assert "private.example" not in serialized
+    assert "signed.example" not in serialized
+    assert "Cookie" not in serialized
+    control.close()
 
 
 def test_monitor_failures_are_reported_without_escaping(monkeypatch):

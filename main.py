@@ -5886,7 +5886,7 @@ def run():
     initialize_audio_output()
     if PRESENCE.mode != PresencePrivacyMode.OFF:
         PRESENCE.start()
-    DESKTOP_CONTROL.start_playback_monitor(vas.controller.snapshot)
+    DESKTOP_CONTROL.start_playback_monitor(_playback_status_projection)
     def update_safety():
         reasons = []
         if COMMAND_BUSY.is_set():

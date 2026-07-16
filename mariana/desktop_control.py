@@ -11,6 +11,8 @@ from collections.abc import Callable
 from contextlib import suppress
 from typing import Any, BinaryIO
 
+from .playback_status import PlaybackStatusProjection
+
 
 class DesktopControl:
     def __init__(self, endpoint: str | None = None, token: str | None = None) -> None:
@@ -59,7 +61,11 @@ class DesktopControl:
                     self._close_stream()
         return False
 
-    def start_playback_monitor(self, snapshot: Callable[[], Any], interval: float = 1.0) -> None:
+    def start_playback_monitor(
+        self,
+        status: Callable[[], PlaybackStatusProjection],
+        interval: float = 1.0,
+    ) -> None:
         if not self.enabled or (self._monitor and self._monitor.is_alive()):
             return
         self._monitor_stop.clear()
@@ -68,38 +74,14 @@ class DesktopControl:
             previous: dict[str, Any] | None = None
             while not self._monitor_stop.wait(interval):
                 try:
-                    current = snapshot()
-                    media = current.media
-                    payload = {
-                        "state": current.state.value,
-                        "position": current.position,
-                        "duration": current.duration,
-                        "volume": current.volume,
-                        "muted": current.muted,
-                        "error": current.error,
-                        "replaygain_db": getattr(current, "replaygain_db", 0.0),
-                        "live_leveling": getattr(current, "live_leveling", False),
-                        "stream_title": getattr(current, "stream_title", None),
-                        "output_device": getattr(current, "output_device", None),
-                        "output_backend": getattr(current, "output_backend", None),
-                        "chapter": {
-                            "title": current.current_chapter.title,
-                            "start_time": current.current_chapter.start_time,
-                            "end_time": current.current_chapter.end_time,
-                        } if getattr(current, "current_chapter", None) else None,
-                        "media": {
-                            "id": media.stable_id,
-                            "source": media.source.value,
-                            "title": media.title,
-                            "artist": media.artist,
-                        } if media else None,
-                    }
+                    current = status()
+                    payload = current.to_dict()
                     if payload != previous:
                         self.emit("playback", payload)
                         self.emit("loudness", {
-                            "replaygain_db": getattr(current, "replaygain_db", 0.0),
-                            "live_leveling": getattr(current, "live_leveling", False),
-                            "stream_title": getattr(current, "stream_title", None),
+                            "replaygain_db": current.replaygain_db,
+                            "live_leveling": current.live_leveling,
+                            "stream_title": current.title if current.live else None,
                         })
                         previous = payload
                 except Exception as error:

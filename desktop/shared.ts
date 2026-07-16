@@ -1,7 +1,43 @@
+export type PlaybackStatus = {
+  schema_version: number
+  state: string
+  display_state: string
+  media_id: string | null
+  title: string | null
+  artist: string | null
+  source: string | null
+  position_seconds: number
+  duration_seconds: number | null
+  percent: number | null
+  buffered_seconds: number
+  finite: boolean
+  live: boolean
+  seekable: boolean
+  queue_position: number | null
+  queue_count: number
+  chapter: { title: string; start_time: number; end_time: number } | null
+  replaygain_db: number
+  live_leveling: boolean
+  safe_error: string | null
+}
+
+type BackendEventName = 'ready' | 'playback' | 'station' | 'sleep' | 'broadcast' | 'loudness' | 'queue' | 'playlist' | 'album' | 'download' | 'theme' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error'
+
 export type BackendEvent = {
-  event: 'ready' | 'playback' | 'station' | 'sleep' | 'broadcast' | 'loudness' | 'queue' | 'playlist' | 'album' | 'download' | 'theme' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error'
+  event: Exclude<BackendEventName, 'playback'>
   payload: Record<string, unknown>
   timestamp: number
+} | {
+  event: 'playback'
+  payload: PlaybackStatus
+  timestamp: number
+}
+
+export type BackendSnapshot = {
+  ready: boolean
+  playbackState: string
+  sleepActive: boolean
+  playback: PlaybackStatus | null
 }
 
 function displayCells(value: string): number {
@@ -47,7 +83,7 @@ export type MarianaDesktopApi = {
     onExit(callback: (event: TerminalExit) => void): () => void
   }
   backend: {
-    snapshot(): Promise<{ ready: boolean; playbackState: string; sleepActive: boolean }>
+    snapshot(): Promise<BackendSnapshot>
     onEvent(callback: (event: BackendEvent) => void): () => void
   }
   updates: {

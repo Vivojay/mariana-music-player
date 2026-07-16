@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { TerminalSurface } from './TerminalSurface'
 import { themes, type ThemeName } from './themes'
-import { trimDisplayCells, type BackendEvent, type UpdateState } from './shared'
+import { trimDisplayCells, type BackendEvent, type PlaybackStatus, type UpdateState } from './shared'
 
 const TIMER_PRESETS = [15, 30, 45, 60, 90]
 
@@ -106,7 +106,7 @@ export default function App() {
   const [backendState, setBackendState] = useState('starting')
   const [broadcastStatus, setBroadcastStatus] = useState<Record<string, unknown>>({ state: 'idle' })
   const [loudnessStatus, setLoudnessStatus] = useState<Record<string, unknown>>({ replaygain_db: 0, live_leveling: false })
-  const [playbackStatus, setPlaybackStatus] = useState<Record<string, unknown>>({ state: 'idle' })
+  const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus | null>(null)
   const [stationStatus, setStationStatus] = useState<Record<string, unknown>>({ state: 'stopped', next: [] })
   const [stationOpen, setStationOpen] = useState(false)
   const [mediaOpen, setMediaOpen] = useState(false)
@@ -143,6 +143,7 @@ export default function App() {
     void window.mariana.backend.snapshot().then((snapshot) => {
       if (snapshot.ready) setBackendState('ready')
       setTimerStatus((current) => ({ ...current, active: snapshot.sleepActive }))
+      setPlaybackStatus(snapshot.playback)
     })
     const backend = window.mariana.backend.onEvent((event: BackendEvent) => {
       if (event.event === 'ready') {
@@ -239,8 +240,7 @@ export default function App() {
     if (activeTab === id) setActiveTab(remaining[Math.max(0, index - 1)].id)
   }
 
-  const chapter = playbackStatus.chapter as { title?: unknown; start_time?: unknown; end_time?: unknown } | undefined
-  const chapterTitle = chapter?.title ? String(chapter.title) : ''
+  const chapterTitle = playbackStatus?.chapter?.title ?? ''
   const stationTracks = Array.isArray(stationStatus.next)
     ? stationStatus.next as Array<{ id?: string; title?: string; artist?: string; reasons?: string[] }>
     : []

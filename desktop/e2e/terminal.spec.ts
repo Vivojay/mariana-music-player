@@ -13,6 +13,16 @@ test('hosts the real Mariana PTY in the riced terminal shell', async () => {
     await expect(page).toHaveTitle('Mariana')
     await expect(page.getByLabel('Mariana command terminal')).toBeVisible({ timeout: 30_000 })
     await expect(page.locator('.backend-dot.ready')).toBeVisible({ timeout: 30_000 })
+    await expect.poll(
+      () => page.evaluate(async () => (await window.mariana.backend.snapshot()).playback?.schema_version),
+      { timeout: 10_000 },
+    ).toBe(1)
+    const backendSnapshot = await page.evaluate(() => window.mariana.backend.snapshot())
+    expect(backendSnapshot.playback).toMatchObject({
+      state: 'idle',
+      queue_position: null,
+      queue_count: expect.any(Number),
+    })
     await expect(page.getByLabel('Terminal theme')).toHaveValue('aurora')
     await page.evaluate(() => window.mariana.terminal.write('sleep status\r'))
     await expect(page.getByLabel('Terminal output')).toContainText('Sleep timer is inactive', { timeout: 10_000 })

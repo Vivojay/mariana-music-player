@@ -959,6 +959,7 @@ def test_run_safety_callback_reports_every_busy_reason(monkeypatch):
     main.COMMAND_BUSY.set()
     try:
         main.run()
+        assert captured["playback"] is main._playback_status_projection
         safe, reasons = captured["safety"]()
         assert not safe
         assert set(reasons) == {
