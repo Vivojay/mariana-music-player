@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Hardened opt-in Discord Rich Presence with automatic recovery after Discord
+  Desktop starts or restarts, bounded non-blocking shutdown, dormant permanent
+  configuration failures, sanitized status text, and single-republish refresh.
+- Added Mariana's public Discord Application ID to release-controlled
+  configuration and release preflight validation; no Discord secret, token,
+  OAuth credential, or account credential is used or stored.
+
 ## 0.7.0-dev.6 - Release candidate
 
 - Added canonical safe playback-status projection across CLI and Electron,

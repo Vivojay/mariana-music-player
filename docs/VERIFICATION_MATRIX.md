@@ -19,6 +19,7 @@ is unsigned Windows x64 only. It is not the stable release.
 | ReplayGain | Tag parsing, album grouping, clipping, executable verification, immutable-media assertion | Audible A/B and rsgain tool check | Audible A/B pending |
 | Icecast broadcast | Authentication tunnel, redaction, Opus/MP3 decode, reconnect | Configured remote server | Credentials pending |
 | Recommendations | Ranking, negatives, diversity, persistence, explanations | Long-session taste review | Manual pending |
+| Discord Rich Presence | Four privacy modes, projection redaction, embedded-path rejection, dormant permanent failures, startup/restart recovery, coalescing, refresh, and bounded shutdown; public Application ID and packaged dependency contracts | Live Discord Desktop visibility, Activity Privacy behavior, and packaged lifecycle acceptance | Source deterministic passed; live/package pending |
 | Setup | Atomic state/lock, interruption, corruption, tool discovery/provisioning, optional-step failure, existing-install migration, relaunch | Four Windows packaged first-run/recovery scenarios plus native verified-tool bootstrap | Cross-platform package pending |
 | Preferences/removal | Tri-state migration/idempotence, recommendation filtering, trash-only failure/recovery | Native recycle-bin restoration | Native restore pending |
 | Electron/PTTY | 12 Vitest tests and 2 development PTY scenarios | 6 Windows packaged scenarios; native PTY passed on Windows, macOS ARM64, and Linux; signed multi-OS package pending | Source-native and Windows unpacked passed; signing pending |

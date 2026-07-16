@@ -32,6 +32,11 @@ worker and contains no paths, path-derived filenames, URLs, service IDs,
 credentials, browser profiles, stable media IDs, queue/history contents,
 lyrics, recommendation data, device names, or host/user/network identifiers.
 Control characters and path- or URL-like text are rejected before publication.
+The committed Discord Application ID is public release metadata, not a
+credential. Client secrets, user tokens, OAuth credentials, and Discord account
+credentials are prohibited. Missing configuration or RPC dependencies become
+dormant typed failures; transient desktop/transport loss retries independently.
+Third-party exception text is replaced with fixed sanitized status text, and
 Discord transport failure is isolated from playback and shutdown.
 
 Security regressions are tested for URL redaction, credential persistence,

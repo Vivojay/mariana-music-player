@@ -5,8 +5,9 @@
 
 ## Document purpose
 
-This document records the verified source state of Mariana through release-candidate
-feature base commit `8e0aad630e783fedf47ceb32700c02826a3b52c9`. Release-independent subsystem
+This document records the published dev.6 release state and the post-release
+Discord Rich Presence source milestone through commit
+`b1ff51cecacdf674c258d679139b32f7d16fed91`. Release-independent subsystem
 design is documented in [ARCHITECTURE_STATE.md](ARCHITECTURE_STATE.md).
 Detailed test evidence remains in
 [docs/verification/2026-07-17.md](docs/verification/2026-07-17.md).
@@ -32,7 +33,8 @@ recommendations.
 | Repository | `https://github.com/Vivojay/mariana-music-player` |
 | Flagship branch | `dev-6` |
 | Release-candidate feature base | `8e0aad630e783fedf47ceb32700c02826a3b52c9` |
-| Remote state at candidate base | Local `dev-6` and `origin/dev-6` matched |
+| Published dev.6 target | `e27524585b87e00c74ba57fd79a95eb05869b942` |
+| Post-release Discord source/test base | `b1ff51cecacdf674c258d679139b32f7d16fed91` |
 | Development version | `0.7.0-dev.6` (published prerelease) |
 | Canonical version file | `version.json` |
 | Python target | CPython 3.12 |
@@ -61,14 +63,16 @@ dependency audits, and artifact collection.
 
 ### Recorded deterministic and integration evidence
 
-The latest full recorded verification includes:
+The latest full local deterministic verification, including the post-release
+Discord source milestone, includes:
 
-- 1,252 deterministic Python tests passed locally for the candidate feature base.
+- 1,283 deterministic Python tests passed locally.
 - 17 opt-in or environment-dependent scenarios explicitly skipped.
-- 93.94% aggregate statement/branch coverage.
-- 90.0% repository-wide branch coverage.
+- 93.99% aggregate statement/branch coverage.
+- 90.1% repository-wide branch coverage.
 - At least 95% branch coverage independently for every module enforced by
-  `tools/coverage_gate.py`.
+  `tools/coverage_gate.py`, including 95.0% for the Discord publisher and
+  100.0% for the provider-neutral presence projection.
 - 14 Vitest tests passed.
 - Two native development PTY scenarios passed.
 - Six Windows packaged Electron scenarios passed.
@@ -106,6 +110,10 @@ The stable release remains `0.6.2`. Dev.6 must not be presented as stable. It
 is an unsigned Windows x64-only prerelease; no macOS, Linux, Windows ARM,
 signed, notarized, or stable package is claimed.
 
+The published dev.6 package predates the post-release Discord lifecycle and
+official-Application-ID commits. A future package must rebuild both backend and
+Electron from the then-current verified source before claiming those changes.
+
 ## Remaining release blockers
 
 Stable `0.7.0` remains blocked on evidence for:
@@ -125,6 +133,11 @@ Stable `0.7.0` remains blocked on evidence for:
   `tools/manifest.json`.
 - Native recycle-bin restoration acceptance.
 - Long-session recommendation quality review.
+- Live Discord Desktop acceptance for `off`, `app`, `track`, and `session`,
+  including startup-absent recovery, desktop restart recovery, Activity Privacy
+  behavior, and shutdown clearing.
+- Packaged acceptance of the official public Discord Application ID and bundled
+  local RPC dependency from the post-dev.6 source milestone.
 - macOS and Linux packaged-application acceptance.
 
 Pending gates must remain explicitly pending in release notes and verification

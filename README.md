@@ -518,12 +518,29 @@ discord presence off
 Presence never sends paths, path-derived local filenames, URLs, YouTube IDs,
 radio endpoints, credentials, browser profiles, stable IDs, queue/history
 contents, lyrics, recommendations, device names, or machine/user/network
-identifiers. A release must contain Mariana's public Discord application ID;
-users never create an application or supply an ID or token. If the ID, local
-RPC library, or Discord desktop client is unavailable, `status` reports a typed
-local failure and playback continues unchanged.
+identifiers. Release-controlled configuration contains Mariana's public Discord
+Application ID `1527444149962277014`; this is a public identifier, not a secret.
+Users never create an application or supply an ID, secret, or token. An
+environment override remains available only for maintainer development and
+testing.
 
-The equivalent writable setting is:
+`discord presence status` distinguishes configuration missing or malformed,
+the packaged local RPC dependency being unavailable, Discord Desktop not
+running, and a lost transport that is retrying. If local RPC succeeds but the
+activity remains hidden, check Discord's Activity Privacy setting. The
+publisher retries transient client/transport loss, becomes dormant for
+permanent local configuration failures until refresh or configuration change,
+and never forwards raw third-party exception text. Presence failure never
+changes playback or startup.
+
+Release maintainers must retain the public ID in `settings/system.toml`, keep
+`pypresence` in both dependency locks and the PyInstaller specification, and
+run `python tools/release_preflight.py` before packaging. Never add a Discord
+client secret, user token, OAuth credential, or account credential. Before
+claiming live acceptance, test all four privacy modes with Discord Desktop and
+confirm that shutdown clears the activity.
+
+The equivalent writable YouTube setting is:
 
 ```yaml
 sources:

@@ -254,7 +254,12 @@ It does not use OAuth or require an end-user token.
 
 Paths, URLs, filenames derived only from paths, cookies, tokens, browser
 profiles, queue contents, device names, and host identity are never published.
-Discord absence or failure never affects playback or startup.
+Mariana packages its public Discord Application ID; users do not configure an
+application, secret, token, or account. `status` distinguishes not configured,
+the local RPC dependency being unavailable, Discord Desktop being absent, and
+a lost transport that is retrying. If it reports connected but no activity is
+visible, check Discord's Activity Privacy setting. Discord absence or failure
+never affects playback or startup.
 
 ## Settings
 
