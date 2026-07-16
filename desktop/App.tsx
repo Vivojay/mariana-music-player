@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
+import { PlaybackStatusBar } from './PlaybackStatusBar'
 import { TerminalSurface } from './TerminalSurface'
 import { themes, type ThemeName } from './themes'
 import { trimDisplayCells, type BackendEvent, type PlaybackStatus, type UpdateState } from './shared'
@@ -307,39 +308,42 @@ export default function App() {
       </section>
 
       <footer className="statusbar">
-        <span><b>PTY</b> {backendState}</span><span>{window.mariana.platform}</span>
-        <span title="Program loudness normalization"><b>RG</b> {Number(loudnessStatus.replaygain_db || 0).toFixed(1)} dB{loudnessStatus.live_leveling ? ' · live' : ''}</span>
-        <span title={String(broadcastStatus.error || 'Icecast source status')}><b>CAST</b> {String(broadcastStatus.state || 'idle')}{broadcastStatus.codec ? ` · ${String(broadcastStatus.codec)}` : ''}{broadcastStatus.reconnects ? ` · ↻${String(broadcastStatus.reconnects)}` : ''}</span>
-        <button
-          className={String(stationStatus.state) === 'ready' ? 'active' : ''}
-          title="Open the next ten station tracks"
-          aria-label="Station recommendations"
-          onClick={() => setStationOpen((open) => !open)}
-        >
-          <b>STN</b> {String(stationStatus.state || 'stopped')} {Number(stationStatus.ready_ahead || 0)}/10
-        </button>
-        <button aria-label="Open queue tree" onClick={() => { setMediaView('queue'); setMediaOpen(true) }}>
-          <b>Q</b> {queueCount}
-        </button>
-        {activeDownloads > 0 && (
-          <button className="active" aria-label="Open downloads" onClick={() => { setMediaView('downloads'); setMediaOpen(true) }}>
-            <b>DL</b> {activeDownloads}
+        <PlaybackStatusBar status={playbackStatus} />
+        <div className="statusbar-operations" aria-label="Desktop operational status">
+          <span><b>PTY</b> {backendState}</span><span>{window.mariana.platform}</span>
+          <span title="Program loudness normalization"><b>RG</b> {Number(loudnessStatus.replaygain_db || 0).toFixed(1)} dB{loudnessStatus.live_leveling ? ' · live' : ''}</span>
+          <span title={String(broadcastStatus.error || 'Icecast source status')}><b>CAST</b> {String(broadcastStatus.state || 'idle')}{broadcastStatus.codec ? ` · ${String(broadcastStatus.codec)}` : ''}{broadcastStatus.reconnects ? ` · ↻${String(broadcastStatus.reconnects)}` : ''}</span>
+          <button
+            className={String(stationStatus.state) === 'ready' ? 'active' : ''}
+            title="Open the next ten station tracks"
+            aria-label="Station recommendations"
+            onClick={() => setStationOpen((open) => !open)}
+          >
+            <b>STN</b> {String(stationStatus.state || 'stopped')} {Number(stationStatus.ready_ahead || 0)}/10
           </button>
-        )}
-        {chapterTitle && (
-          <span className="chapter-status" title={chapterTitle}>
-            <b>CH</b> {trimDisplayCells(chapterTitle, 64)}
-          </span>
-        )}
-        <button onClick={() => setReducedMotion((value) => !value)}>{reducedMotion ? 'motion off' : 'motion on'}</button>
-        <span className="status-grow" />
-        {update.state === 'downloaded' ? (
-          <button className="update-ready" disabled={!update.safeToInstall} onClick={() => void window.mariana.updates.install()}>
-            {update.safeToInstall ? `Install ${update.version}` : 'Update ready when idle'}
+          <button aria-label="Open queue tree" onClick={() => { setMediaView('queue'); setMediaOpen(true) }}>
+            <b>Q</b> {queueCount}
           </button>
-        ) : (
-          <button onClick={() => void window.mariana.updates.check()}>{update.state === 'downloading' ? `Updating ${Math.round(update.percent || 0)}%` : `Update: ${update.state}`}</button>
-        )}
+          {activeDownloads > 0 && (
+            <button className="active" aria-label="Open downloads" onClick={() => { setMediaView('downloads'); setMediaOpen(true) }}>
+              <b>DL</b> {activeDownloads}
+            </button>
+          )}
+          {chapterTitle && (
+            <span className="chapter-status" title={chapterTitle}>
+              <b>CH</b> {trimDisplayCells(chapterTitle, 64)}
+            </span>
+          )}
+          <button onClick={() => setReducedMotion((value) => !value)}>{reducedMotion ? 'motion off' : 'motion on'}</button>
+          <span className="status-grow" />
+          {update.state === 'downloaded' ? (
+            <button className="update-ready" disabled={!update.safeToInstall} onClick={() => void window.mariana.updates.install()}>
+              {update.safeToInstall ? `Install ${update.version}` : 'Update ready when idle'}
+            </button>
+          ) : (
+            <button onClick={() => void window.mariana.updates.check()}>{update.state === 'downloading' ? `Updating ${Math.round(update.percent || 0)}%` : `Update: ${update.state}`}</button>
+          )}
+        </div>
       </footer>
 
       {timerOpen && (

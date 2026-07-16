@@ -108,6 +108,25 @@ describe('Mariana desktop shell', () => {
     expect(write).not.toHaveBeenCalled()
   })
 
+  it('renders projected playback passively while preserving operational footer chips', () => {
+    render(<App />)
+    act(() => {
+      backendEvent?.({ event: 'playback', payload: playbackStatus({
+        title: 'Desktop Track', artist: 'Desktop Artist', source: 'youtube',
+        position_seconds: 30, duration_seconds: 120, percent: 25,
+        queue_position: 3, queue_count: 9,
+      }), timestamp: 1 })
+    })
+    expect(screen.getByLabelText('Playback status')).toHaveTextContent('Desktop Artist — Desktop Track')
+    expect(screen.getByRole('progressbar')).toHaveAttribute('value', '25')
+    expect(screen.getByLabelText('Queue item 3 of 9')).toBeInTheDocument()
+    expect(screen.getByLabelText('Desktop operational status')).toHaveTextContent('PTY')
+    expect(screen.getByLabelText('Desktop operational status')).toHaveTextContent('RG')
+    expect(screen.getByLabelText('Desktop operational status')).toHaveTextContent('CAST')
+    expect(screen.getByRole('button', { name: 'Station recommendations' })).toBeInTheDocument()
+    expect(write).not.toHaveBeenCalled()
+  })
+
   it('renders playback chapters and the next ten station tracks from structured events', () => {
     render(<App />)
     act(() => {

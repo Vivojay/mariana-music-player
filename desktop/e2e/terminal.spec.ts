@@ -23,6 +23,8 @@ test('hosts the real Mariana PTY in the riced terminal shell', async () => {
       queue_position: null,
       queue_count: expect.any(Number),
     })
+    await expect(page.getByLabel('Playback status')).toContainText('Nothing playing')
+    await expect(page.getByLabel('Desktop operational status')).toContainText('PTY')
     await expect(page.getByLabel('Terminal theme')).toHaveValue('aurora')
     await page.evaluate(() => window.mariana.terminal.write('sleep status\r'))
     await expect(page.getByLabel('Terminal output')).toContainText('Sleep timer is inactive', { timeout: 10_000 })
