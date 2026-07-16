@@ -41,6 +41,15 @@ class Discovery:
 
 def test_station_lifecycle_queue_snapshot_events_and_restart(tmp_path: Path):
     events = []
+    discovery_started = threading.Event()
+    release_discovery = threading.Event()
+
+    class GatedDiscovery(Discovery):
+        def discover(self, *args, **kwargs):
+            discovery_started.set()
+            assert release_discovery.wait(2), "station discovery gate timed out"
+            return super().discover(*args, **kwargs)
+
     database_path = tmp_path / "station.db"
     seed, old = youtube("seed"), youtube("old")
     recommendations = [youtube(f"rec-{index}") for index in range(12)]
@@ -48,10 +57,12 @@ def test_station_lifecycle_queue_snapshot_events_and_restart(tmp_path: Path):
         queue = PersistentQueue(database)
         queue.add(old)
         queue.jump(0)
-        discovery = Discovery(recommendations)
+        discovery = GatedDiscovery(recommendations)
         manager = StationManager(database, queue, discovery, on_update=events.append)
         session = manager.start(seed, scope="hybrid", limit=50)
+        assert discovery_started.wait(1)
         assert session.state == StationState.LOADING
+        release_discovery.set()
         ready = manager.wait_initial(10)
         assert ready.state == StationState.READY
         assert ready.ready_ahead == 10

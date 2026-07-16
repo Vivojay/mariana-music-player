@@ -73,6 +73,8 @@ jobs:
           make install
       - name: Download official Chromaprint and Deno assets
         shell: bash
+        env:
+          RSGAIN_ASSET: ${{ matrix.rsgain }}
         run: |
           curl --fail --location "https://github.com/acoustid/chromaprint/releases/download/v1.6.0/${{ matrix.chromaprint }}" -o chromaprint.tar.gz
           echo "${{ matrix.chromaprint_sha }}  chromaprint.tar.gz" | shasum -a 256 -c -
@@ -80,10 +82,10 @@ jobs:
           curl --fail --location "https://github.com/denoland/deno/releases/download/v2.9.2/${{ matrix.deno }}" -o deno.zip
           echo "${{ matrix.deno_sha }}  deno.zip" | shasum -a 256 -c -
           mkdir deno && unzip -q deno.zip -d deno
-          curl --fail --location "https://github.com/complexlogic/rsgain/releases/download/v3.7/${{ matrix.rsgain }}" -o rsgain-asset
+          curl --fail --location "https://github.com/complexlogic/rsgain/releases/download/v3.7/${RSGAIN_ASSET}" -o rsgain-asset
           echo "${{ matrix.rsgain_sha }}  rsgain-asset" | shasum -a 256 -c -
           mkdir rsgain
-          if [[ "${{ matrix.rsgain }}" == *.zip ]]; then unzip -q rsgain-asset -d rsgain; else tar -xf rsgain-asset -C rsgain; fi
+          if [[ "$RSGAIN_ASSET" == *.zip ]]; then unzip -q rsgain-asset -d rsgain; else tar -xf rsgain-asset -C rsgain; fi
       - name: Package and attest managed tools
         shell: bash
         run: >-
