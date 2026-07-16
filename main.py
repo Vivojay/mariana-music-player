@@ -123,7 +123,10 @@ from mariana.tool_setup import discover_media_tools, persist_media_tools, setup_
 from mariana.toolchain import ToolchainError, ToolchainManager, find_javascript_runtime
 from mariana.user_state import load_user_data, write_user_data_atomic
 from mariana.version import __version__
-from mariana.integrations.discord_presence import DiscordPresencePublisher
+from mariana.integrations.discord_presence import (
+    DiscordPresenceFailureCode,
+    DiscordPresencePublisher,
+)
 from recommendation_engine import Candidate, RecommendationEngine
 from runtime_check import check_runtime, format_runtime_report
 from beta.mediadl import media_DL
@@ -238,6 +241,23 @@ def create_required_files_if_not_exist(*files):
 def clear_terminal():
     """Clear the visible terminal, scrollback, and cursor position consistently."""
     print('\033[2J\033[3J\033[H', end='', flush=True)
+
+
+def _configured_discord_application_id(system_settings):
+    """Return the public Discord application ID, preferring a developer override."""
+    return (
+        os.environ.get('MARIANA_DISCORD_APPLICATION_ID')
+        or system_settings.get('system_settings', {}).get('discord_application_id')
+    )
+
+
+def _configured_presence_mode(settings):
+    """Return a safe privacy mode for persisted settings."""
+    value = settings.get('integrations', {}).get('discord', {}).get('presence', {}).get('mode', 'off')
+    try:
+        return PresencePrivacyMode(value)
+    except (TypeError, ValueError):
+        return PresencePrivacyMode.OFF
 
 create_required_files_if_not_exist(
     RUNTIME_PATHS.logs / 'history.log',
@@ -363,15 +383,9 @@ vas.configure(
 get_lyrics.configure(IDENTITY, vas.controller)
 DESKTOP_CONTROL = DesktopControl()
 DISCORD_PRESENCE = DiscordPresencePublisher(
-    os.environ.get('MARIANA_DISCORD_APPLICATION_ID')
-    or SYSTEM_SETTINGS.get('system_settings', {}).get('discord_application_id')
+    _configured_discord_application_id(SYSTEM_SETTINGS)
 )
-try:
-    PRESENCE_MODE = PresencePrivacyMode(
-        SETTINGS.get('integrations', {}).get('discord', {}).get('presence', {}).get('mode', 'off')
-    )
-except ValueError:
-    PRESENCE_MODE = PresencePrivacyMode.OFF
+PRESENCE_MODE = _configured_presence_mode(SETTINGS)
 PRESENCE = PresenceCoordinator(
     vas.controller.snapshot,
     DISCORD_PRESENCE,
@@ -2847,7 +2861,11 @@ def discord_command(arguments):
     if selected != PresencePrivacyMode.OFF:
         PRESENCE.start()
     PRESENCE.set_mode(selected)
-    IPrint(f'Discord presence mode set to {selected.value}.', visible=visible)
+    status = DISCORD_PRESENCE.status()
+    message = f'Discord presence mode set to {selected.value}.'
+    if selected != PresencePrivacyMode.OFF and status.failure_code == DiscordPresenceFailureCode.NOT_CONFIGURED:
+        message += f' {status.message}'
+    IPrint(message, visible=visible)
     return selected
 
 
@@ -4073,11 +4091,8 @@ def refresh_settings():
     browser_profile = SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile')
     YT_query.configure(browser_profile=browser_profile)
     vas.set_youtube_browser_profile(browser_profile)
-    presence_value = SETTINGS.get('integrations', {}).get('discord', {}).get('presence', {}).get('mode', 'off')
-    try:
-        presence_mode = PresencePrivacyMode(presence_value)
-    except ValueError:
-        presence_mode = PresencePrivacyMode.OFF
+    DISCORD_PRESENCE.configure_application_id(_configured_discord_application_id(SYSTEM_SETTINGS))
+    presence_mode = _configured_presence_mode(SETTINGS)
     if presence_mode != PresencePrivacyMode.OFF:
         PRESENCE.start()
     PRESENCE.set_mode(presence_mode)

@@ -17,7 +17,10 @@ from urllib.parse import parse_qs, urlparse
 from mariana.models import MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
 
 _URL = re.compile(r"(?:[a-z][a-z0-9+.-]*://|www\.)", re.IGNORECASE)
-_ABSOLUTE_PATH = re.compile(r"^(?:[a-z]:[\\/]|\\\\|/|~[\\/])", re.IGNORECASE)
+_ABSOLUTE_PATH = re.compile(
+    r"(?:^|[\s([{\"'])(?:[a-z]:[\\/]|\\\\|/[^/\s]+(?:/[^/\s]+)+|~[\\/])",
+    re.IGNORECASE,
+)
 _ACTIVE_STATES = {
     PlaybackState.RESOLVING,
     PlaybackState.BUFFERING,
@@ -230,8 +233,9 @@ class PresenceCoordinator:
         return selected
 
     def refresh(self) -> None:
-        with self._lock:
-            self._last_projection = _UNSET
+        # The publisher already retains the latest projection. Waking the
+        # coordinator lets a not-yet-published projection flow through, while
+        # avoiding a duplicate publish when one is already active.
         self._publisher.refresh()
         self._wake.set()
 

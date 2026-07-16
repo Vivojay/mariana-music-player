@@ -5,7 +5,11 @@ import pytest
 from ruamel.yaml import YAML
 
 import main
-from mariana.integrations.discord_presence import DiscordConnectionState, DiscordPresenceStatus
+from mariana.integrations.discord_presence import (
+    DiscordConnectionState,
+    DiscordPresenceFailureCode,
+    DiscordPresenceStatus,
+)
 from mariana.presence import PresencePrivacyMode
 
 
@@ -26,8 +30,11 @@ class Coordinator:
 
 
 class Publisher:
+    def __init__(self, status=None):
+        self._status = status or DiscordPresenceStatus(DiscordConnectionState.DISCONNECTED)
+
     def status(self):
-        return DiscordPresenceStatus(DiscordConnectionState.DISCONNECTED)
+        return self._status
 
 
 def configure(monkeypatch, mode="off"):
@@ -94,3 +101,37 @@ def test_discord_presence_settings_rollback_on_atomic_write_failure(monkeypatch)
 def test_discord_presence_factory_default_is_off():
     defaults = YAML(typ="safe").load((Path(__file__).parents[1] / "settings" / "settings.yml.default").read_text())
     assert defaults["integrations"]["discord"]["presence"]["mode"] == "off"
+
+
+def test_discord_presence_invalid_persisted_mode_falls_back_to_off():
+    settings = {"integrations": {"discord": {"presence": {"mode": "private-everything"}}}}
+    assert main._configured_presence_mode(settings) == PresencePrivacyMode.OFF
+    invalid = {"integrations": {"discord": {"presence": {"mode": None}}}}
+    assert main._configured_presence_mode(invalid) == PresencePrivacyMode.OFF
+
+
+def test_discord_application_id_prefers_developer_environment_override(monkeypatch):
+    monkeypatch.setenv("MARIANA_DISCORD_APPLICATION_ID", "123456789012345678")
+    settings = {"system_settings": {"discord_application_id": "987654321098765432"}}
+    assert main._configured_discord_application_id(settings) == "123456789012345678"
+    monkeypatch.delenv("MARIANA_DISCORD_APPLICATION_ID")
+    assert main._configured_discord_application_id(settings) == "987654321098765432"
+
+
+def test_discord_presence_enablement_reports_invalid_build_configuration(monkeypatch):
+    _settings, _coordinator, _saved, printed = configure(monkeypatch)
+    monkeypatch.setattr(
+        main,
+        "DISCORD_PRESENCE",
+        Publisher(
+            DiscordPresenceStatus(
+                DiscordConnectionState.DISCONNECTED,
+                DiscordPresenceFailureCode.NOT_CONFIGURED,
+                "Mariana's public Discord application ID is not configured correctly in this build.",
+            )
+        ),
+    )
+
+    main.process("discord presence track")
+
+    assert "not configured correctly" in printed[-1]

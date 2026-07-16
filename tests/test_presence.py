@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 from types import SimpleNamespace
 
@@ -10,6 +11,8 @@ from mariana.integrations.discord_presence import (
     DiscordConnectionState,
     DiscordPresenceFailureCode,
     DiscordPresencePublisher,
+    DiscordPresenceSdkUnavailable,
+    is_valid_discord_application_id,
 )
 from mariana.models import MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
 from mariana.presence import (
@@ -18,6 +21,8 @@ from mariana.presence import (
     project_presence,
     sanitize_presence_text,
 )
+
+TEST_APPLICATION_ID = "123456789012345678"
 
 
 def snapshot(media=None, state=PlaybackState.PLAYING, **values):
@@ -48,6 +53,13 @@ def wait_until(predicate, timeout=1.0):
 )
 def test_presence_text_sanitization(value, expected):
     assert sanitize_presence_text(value) == expected
+
+
+def test_presence_text_rejects_embedded_absolute_paths_without_rejecting_artist_slashes():
+    assert sanitize_presence_text(r"Track - C:\Users\name\private.mp3") is None
+    assert sanitize_presence_text("Track - /home/name/private.mp3") is None
+    assert sanitize_presence_text("Track - ~/private/song.mp3") is None
+    assert sanitize_presence_text("AC/DC - Thunderstruck") == "AC/DC - Thunderstruck"
 
 
 @pytest.mark.parametrize(
@@ -220,7 +232,8 @@ def test_coordinator_refresh_idempotent_start_and_snapshot_failure_isolation():
     assert coordinator._thread is thread
     wait_until(lambda: publisher.events == [("publish", PresenceProjection("Using Mariana"))])
     coordinator.refresh()
-    wait_until(lambda: ("refresh",) in publisher.events and len(publisher.events) >= 3)
+    wait_until(lambda: publisher.events[-1] == ("refresh",))
+    assert publisher.events == [("publish", PresenceProjection("Using Mariana")), ("refresh",)]
     coordinator.close(timeout=10)
     assert publisher.events[-1] == ("close", 1.0)
 
@@ -262,9 +275,11 @@ def test_default_transport_connects_local_rpc(monkeypatch):
     monkeypatch.setattr(
         discord_presence.importlib,
         "import_module",
-        lambda _name: SimpleNamespace(Presence=lambda application_id: transport if application_id == "public-id" else None),
+        lambda _name: SimpleNamespace(
+            Presence=lambda application_id: transport if application_id == TEST_APPLICATION_ID else None
+        ),
     )
-    assert discord_presence._default_transport("public-id") is transport
+    assert discord_presence._default_transport(TEST_APPLICATION_ID) is transport
     assert transport.connected is True
 
 
@@ -275,7 +290,7 @@ def test_default_transport_reports_missing_library(monkeypatch):
         lambda _name: (_ for _ in ()).throw(ImportError("missing")),
     )
     with pytest.raises(RuntimeError, match="library is unavailable"):
-        discord_presence._default_transport("public-id")
+        discord_presence._default_transport(TEST_APPLICATION_ID)
 
 
 def test_discord_publisher_updates_clears_and_closes_best_effort(monkeypatch):
@@ -286,7 +301,7 @@ def test_discord_publisher_updates_clears_and_closes_best_effort(monkeypatch):
         lambda _name: SimpleNamespace(ActivityType=SimpleNamespace(LISTENING="listening")),
     )
     publisher = DiscordPresencePublisher(
-        "public-application-id",
+        TEST_APPLICATION_ID,
         transport_factory=lambda _application_id: transport,
         minimum_interval=0,
         retry_delays=(0.01,),
@@ -305,7 +320,7 @@ def test_discord_publisher_updates_clears_and_closes_best_effort(monkeypatch):
 
 
 def test_discord_clear_before_connection_is_a_noop_and_refresh_is_safe():
-    publisher = DiscordPresencePublisher("public-id", transport_factory=lambda _value: Transport())
+    publisher = DiscordPresencePublisher(TEST_APPLICATION_ID, transport_factory=lambda _value: Transport())
     publisher.clear(disconnect=True)
     publisher.refresh()
     assert publisher.status().state == DiscordConnectionState.DISCONNECTED
@@ -320,7 +335,7 @@ def test_discord_clear_without_disconnect_keeps_transport_connected(monkeypatch)
         lambda _name: SimpleNamespace(ActivityType=SimpleNamespace(LISTENING="listening")),
     )
     publisher = DiscordPresencePublisher(
-        "public-id", transport_factory=lambda _value: transport, minimum_interval=0, retry_delays=(0.01,)
+        TEST_APPLICATION_ID, transport_factory=lambda _value: transport, minimum_interval=0, retry_delays=(0.01,)
     )
     publisher.publish(PresenceProjection("Playing"))
     wait_until(lambda: transport.updates)
@@ -340,7 +355,7 @@ def test_discord_absent_and_missing_application_id_are_typed(monkeypatch):
         raise ImportError("missing")
 
     monkeypatch.setattr(discord_presence.importlib, "import_module", unavailable)
-    absent = DiscordPresencePublisher("public-id", minimum_interval=0, retry_delays=(0.01,))
+    absent = DiscordPresencePublisher(TEST_APPLICATION_ID, minimum_interval=0, retry_delays=(0.01,))
     absent.publish(PresenceProjection("Using Mariana"))
     wait_until(lambda: absent.status().failure_code == DiscordPresenceFailureCode.SDK_UNAVAILABLE)
     absent.close()
@@ -348,7 +363,7 @@ def test_discord_absent_and_missing_application_id_are_typed(monkeypatch):
 
 def test_discord_generic_connection_failure_is_typed():
     publisher = DiscordPresencePublisher(
-        "public-id",
+        TEST_APPLICATION_ID,
         transport_factory=lambda _value: (_ for _ in ()).throw(OSError("private path")),
         minimum_interval=0,
         retry_delays=(1,),
@@ -376,7 +391,7 @@ def test_discord_publisher_coalesces_latest_pending_update(monkeypatch):
         lambda _name: SimpleNamespace(ActivityType=SimpleNamespace(LISTENING="listening")),
     )
     publisher = DiscordPresencePublisher(
-        "public-id",
+        TEST_APPLICATION_ID,
         transport_factory=lambda _application_id: transport,
         minimum_interval=0.05,
         retry_delays=(0.01,),
@@ -401,7 +416,7 @@ def test_transport_failure_is_typed_and_never_escapes_callers(monkeypatch):
         lambda _name: SimpleNamespace(ActivityType=SimpleNamespace(LISTENING="listening")),
     )
     publisher = DiscordPresencePublisher(
-        "public-id",
+        TEST_APPLICATION_ID,
         transport_factory=lambda _application_id: BrokenTransport(),
         minimum_interval=0,
         retry_delays=(1,),
@@ -430,7 +445,7 @@ def test_clear_transport_failure_is_typed_without_reconnecting(monkeypatch):
         return transport
 
     publisher = DiscordPresencePublisher(
-        "public-id",
+        TEST_APPLICATION_ID,
         transport_factory=create_transport,
         minimum_interval=0,
         retry_delays=(0.01,),
@@ -444,3 +459,243 @@ def test_clear_transport_failure_is_typed_without_reconnecting(monkeypatch):
     assert len(transports) == 1
     assert "private clear diagnostic" not in (publisher.status().message or "")
     publisher.close()
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (TEST_APPLICATION_ID, True),
+        ("  " + TEST_APPLICATION_ID + "  ", True),
+        (None, False),
+        ("", False),
+        ("public-id", False),
+        ("0" * 18, False),
+        ("1234567890123456", False),
+    ],
+)
+def test_discord_application_id_validation(value, expected):
+    assert is_valid_discord_application_id(value) is expected
+
+
+def test_off_mode_never_opens_local_rpc():
+    connections = []
+    publisher = DiscordPresencePublisher(
+        TEST_APPLICATION_ID,
+        transport_factory=lambda value: connections.append(value) or Transport(),
+    )
+    coordinator = PresenceCoordinator(lambda: snapshot(None, PlaybackState.IDLE), publisher, mode="off")
+
+    coordinator._publish_current()
+
+    assert connections == []
+    assert publisher.status().state == DiscordConnectionState.DISCONNECTED
+    coordinator.close()
+
+
+def test_permanent_sdk_failure_is_dormant_until_explicit_refresh():
+    attempts = []
+
+    def unavailable(_application_id):
+        attempts.append(time.monotonic())
+        raise DiscordPresenceSdkUnavailable("private dependency diagnostic")
+
+    publisher = DiscordPresencePublisher(
+        TEST_APPLICATION_ID,
+        transport_factory=unavailable,
+        minimum_interval=0,
+        retry_delays=(0.01,),
+    )
+    publisher.publish(PresenceProjection("Using Mariana"))
+    wait_until(lambda: publisher.status().failure_code == DiscordPresenceFailureCode.SDK_UNAVAILABLE)
+    time.sleep(0.04)
+    assert len(attempts) == 1
+    assert "private" not in (publisher.status().message or "")
+
+    publisher.refresh()
+    wait_until(lambda: len(attempts) == 2)
+    time.sleep(0.04)
+    assert len(attempts) == 2
+    publisher.close()
+
+
+def test_configuration_change_wakes_dormant_projection(monkeypatch):
+    transport = Transport()
+    monkeypatch.setattr(
+        discord_presence.importlib,
+        "import_module",
+        lambda _name: SimpleNamespace(ActivityType=SimpleNamespace(LISTENING="listening")),
+    )
+    connections = []
+    publisher = DiscordPresencePublisher(
+        None,
+        transport_factory=lambda value: connections.append(value) or transport,
+        minimum_interval=0,
+    )
+    publisher.publish(PresenceProjection("Using Mariana"))
+    assert connections == []
+
+    publisher.configure_application_id(TEST_APPLICATION_ID)
+
+    wait_until(lambda: len(transport.updates) == 1)
+    assert connections == [TEST_APPLICATION_ID]
+    publisher.close()
+
+
+def test_discord_unavailable_at_startup_connects_when_client_appears(monkeypatch):
+    transport = Transport()
+    monkeypatch.setattr(
+        discord_presence.importlib,
+        "import_module",
+        lambda _name: SimpleNamespace(ActivityType=SimpleNamespace(LISTENING="listening")),
+    )
+    attempts = []
+
+    def connect(_application_id):
+        attempts.append(True)
+        if len(attempts) == 1:
+            raise OSError("Discord is not running")
+        return transport
+
+    publisher = DiscordPresencePublisher(
+        TEST_APPLICATION_ID,
+        transport_factory=connect,
+        minimum_interval=0,
+        retry_delays=(0.01,),
+    )
+    publisher.publish(PresenceProjection("Using Mariana"))
+
+    wait_until(lambda: len(transport.updates) == 1)
+    assert len(attempts) == 2
+    assert publisher.status().state == DiscordConnectionState.CONNECTED
+    publisher.close()
+
+
+def test_health_republish_recovers_after_discord_restarts(monkeypatch):
+    class LostTransport(Transport):
+        def update(self, **values):
+            if self.updates:
+                raise BrokenPipeError("Discord exited")
+            super().update(**values)
+
+    first = LostTransport()
+    replacement = Transport()
+    transports = [first, replacement]
+    monkeypatch.setattr(
+        discord_presence.importlib,
+        "import_module",
+        lambda _name: SimpleNamespace(ActivityType=SimpleNamespace(LISTENING="listening")),
+    )
+    publisher = DiscordPresencePublisher(
+        TEST_APPLICATION_ID,
+        transport_factory=lambda _application_id: transports.pop(0),
+        minimum_interval=0,
+        health_check_interval=0.02,
+        retry_delays=(0.01,),
+    )
+    publisher.publish(PresenceProjection("Using Mariana"))
+
+    wait_until(lambda: len(replacement.updates) == 1)
+    assert first.closed == 1
+    assert replacement.updates[0]["details"] == "Using Mariana"
+    publisher.close()
+
+
+def test_explicit_coordinator_refresh_republishes_once(monkeypatch):
+    transport = Transport()
+    monkeypatch.setattr(
+        discord_presence.importlib,
+        "import_module",
+        lambda _name: SimpleNamespace(ActivityType=SimpleNamespace(LISTENING="listening")),
+    )
+    publisher = DiscordPresencePublisher(
+        TEST_APPLICATION_ID,
+        transport_factory=lambda _application_id: transport,
+        minimum_interval=0,
+        health_check_interval=10,
+    )
+    coordinator = PresenceCoordinator(
+        lambda: snapshot(None, PlaybackState.IDLE),
+        publisher,
+        mode="app",
+        poll_seconds=0.01,
+    )
+    coordinator.start()
+    wait_until(lambda: len(transport.updates) == 1)
+
+    coordinator.refresh()
+
+    wait_until(lambda: len(transport.updates) == 2)
+    time.sleep(0.04)
+    assert len(transport.updates) == 2
+    coordinator.close()
+
+
+def test_close_is_bounded_while_local_rpc_connect_stalls():
+    started = threading.Event()
+    release = threading.Event()
+    transport = Transport()
+
+    def stalled_connect(_application_id):
+        started.set()
+        release.wait(1)
+        return transport
+
+    publisher = DiscordPresencePublisher(TEST_APPLICATION_ID, transport_factory=stalled_connect)
+    publisher.publish(PresenceProjection("Using Mariana"))
+    assert started.wait(0.5)
+
+    before = time.monotonic()
+    publisher.close(timeout=0.01)
+    elapsed = time.monotonic() - before
+    release.set()
+
+    assert elapsed < 0.2
+    wait_until(lambda: publisher._thread is None or not publisher._thread.is_alive())
+    assert transport.updates == []
+
+
+@pytest.mark.parametrize(
+    "state",
+    [PlaybackState.IDLE, PlaybackState.FAILED, PlaybackState.STOPPING],
+)
+def test_inactive_media_never_projects_private_resolver_state(state):
+    media = MediaRef(
+        MediaSource.YOUTUBE,
+        "https://private.example/watch?token=secret",
+        title="Safe Song",
+        resolver_data={
+            "cookie": "secret-cookie",
+            "browser_profile": "private-profile",
+            "queue": ["private-next-track"],
+            "stable_local_id": "private-stable-id",
+        },
+    )
+    assert project_presence(snapshot(media, state), "session") is None
+
+
+def test_active_projection_ignores_private_resolver_and_identity_fields():
+    media = MediaRef(
+        MediaSource.URL,
+        "https://private.example/media?signature=secret",
+        stable_id="private-stable-id",
+        title="Safe Song",
+        artist="Safe Artist",
+        resolver_data={
+            "authorization": "Bearer private-token",
+            "browser_profile": "private-profile",
+            "cookie": "private-cookie",
+            "headers": {"X-Private": "secret"},
+            "queue": ["private-next-track"],
+        },
+    )
+
+    projection = project_presence(snapshot(media, position=10, duration=100), "session", now=1_000)
+    rendered = repr(projection)
+
+    assert projection == PresenceProjection("Safe Song", "by Safe Artist · Online media", 990, 1090)
+    assert all(value not in rendered for value in ("private", "secret", "Bearer", "queue"))
+
+
+def test_embedded_path_metadata_falls_back_to_safe_source_label():
+    media = MediaRef(MediaSource.URL, "https://private.example/media", title=r"Track - C:\Users\name\song.mp3")
+    assert project_presence(snapshot(media), "track") == PresenceProjection("Online media")
