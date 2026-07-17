@@ -2759,9 +2759,20 @@ def recycle_library_media(arguments):
     yes, values = _confirmation_bypass(arguments, preserve_single_bare=True)
     if not values:
         raise MediaRemovalError('Usage: rm|del <library-index|indexed-path> [y|yes|--yes]')
-    target = MEDIA_REMOVAL.resolve(' '.join(values))
+    reference = ' '.join(values)
+    if reference.isdigit():
+        display_index = int(reference)
+        if display_index < 1 or display_index > len(_sound_files):
+            raise MediaRemovalError(f'Library index must be between 1 and {len(_sound_files)}')
+        target = MEDIA_REMOVAL.resolve(_sound_files[display_index - 1])
+        if target.display_index != display_index:
+            raise MediaRemovalError('Library index changed; run the numeric lookup again')
+    else:
+        target = MEDIA_REMOVAL.resolve(reference)
+    position = f'Library #{target.display_index}' if target.display_index is not None else 'Indexed library item'
     if not _confirm_action(
-        f'Move "{target.path}" to the operating-system trash?',
+        f'Move {position} | "{target.title}" to the operating-system trash?\n'
+        f'Library ID: {target.library_id}\nPath: "{target.path}"',
         assume_yes=yes,
     ):
         IPrint('Media removal cancelled', visible=visible)

@@ -4,7 +4,12 @@ import pytest
 
 from mariana.database import MarianaDatabase
 from mariana.library import LibraryCatalog
-from mariana.media_removal import MediaRemovalError, MediaRemovalPartialError, MediaRemovalService
+from mariana.media_removal import (
+    MediaRemovalError,
+    MediaRemovalPartialError,
+    MediaRemovalService,
+    RemovalTarget,
+)
 from mariana.models import MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
 from mariana.preferences import MediaPreferences, PreferenceState
 from mariana.queueing import PersistentQueue
@@ -60,6 +65,78 @@ def test_successful_removal_uses_trash_tombstones_and_retains_preferences(tmp_pa
     assert preferences.get(media) == PreferenceState.FAVORITE
     assert database.fetchall("SELECT key FROM app_state WHERE key LIKE 'media_removal:%'") == []
     database.close()
+
+
+def test_numeric_removal_ignores_missing_tombstones_and_binds_displayed_item(tmp_path: Path):
+    root = tmp_path / "music"
+    root.mkdir()
+    missing = root / "00 missing.mp3"
+    im_tha = root / "10 Im tha kind devil.mp3"
+    tinzo = root / "20 Tinzo.mp3"
+    for path in (missing, im_tha, tinzo):
+        path.write_bytes(path.name.encode("utf-8"))
+    library_file = tmp_path / "lib.lib"
+    library_file.write_text(str(root), encoding="utf-8")
+    database = MarianaDatabase(tmp_path / "state.db")
+    catalog = LibraryCatalog(database, library_file=library_file, supported_extensions=[".mp3"])
+    catalog.scan()
+    missing.unlink()
+    catalog.scan()
+    queue = PersistentQueue(database)
+    trashed = []
+
+    def trash(path):
+        trashed.append(path)
+        Path(path).unlink()
+
+    service = MediaRemovalService(database, catalog, queue, Controller(), trash=trash)
+    try:
+        assert catalog.paths() == [str(im_tha.absolute()), str(tinzo.absolute())]
+        assert catalog.info("1")["canonical_path"] == str(im_tha.absolute())
+        assert catalog.info("2")["canonical_path"] == str(tinzo.absolute())
+        target = service.resolve("2")
+        assert target.display_index == 2
+        assert target.path == tinzo.resolve()
+        assert target.title == "20 Tinzo"
+
+        service.remove(target)
+        assert trashed == [str(tinzo.resolve())]
+        assert im_tha.exists()
+    finally:
+        database.close()
+
+
+def test_removal_aborts_when_bound_file_changes_before_confirmation(tmp_path: Path):
+    database, catalog, queue, song, _media = removal_fixture(tmp_path)
+    trashed = []
+    service = MediaRemovalService(database, catalog, queue, Controller(), trash=trashed.append)
+    try:
+        target = service.resolve("1")
+        song.write_bytes(b"replacement audio with a different size")
+        with pytest.raises(MediaRemovalError, match="changed after confirmation"):
+            service.remove(target)
+        assert trashed == []
+        assert catalog.info(str(song))["state"] == "available"
+        assert song.exists()
+    finally:
+        database.close()
+
+
+def test_removal_rejects_unbound_or_no_longer_visible_targets(monkeypatch, tmp_path: Path):
+    database, catalog, queue, song, media = removal_fixture(tmp_path)
+    trashed = []
+    service = MediaRemovalService(database, catalog, queue, Controller(), trash=trashed.append)
+    try:
+        with pytest.raises(MediaRemovalError, match="not safely bound"):
+            service.remove(RemovalTarget(media.stable_id, song.resolve()))
+        assert trashed == []
+
+        monkeypatch.setattr(catalog, "paths", list)
+        with pytest.raises(MediaRemovalError, match="current available-library view"):
+            service.resolve(str(song))
+        assert song.exists()
+    finally:
+        database.close()
 
 
 def test_cancelled_or_failed_trash_does_not_change_database(tmp_path: Path):

@@ -937,7 +937,10 @@ class LibraryCatalog:
 
     def info(self, value: str) -> dict[str, Any] | None:
         if value.isdigit():
-            rows = self.database.fetchall("SELECT * FROM library_files ORDER BY path_key LIMIT 1 OFFSET ?", (int(value) - 1,))
+            rows = self.database.fetchall(
+                "SELECT * FROM library_files WHERE state='available' ORDER BY path_key LIMIT 1 OFFSET ?",
+                (int(value) - 1,),
+            )
             row = rows[0] if rows else None
         elif len(value) == 32 and value.isalnum():
             row = self.database.fetchone("SELECT * FROM library_files WHERE library_id=?", (value,))

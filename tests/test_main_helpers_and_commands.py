@@ -8,6 +8,7 @@ from hypothesis import strategies as st
 
 import main
 from mariana import output_devices
+from mariana.media_removal import RemovalTarget
 from mariana.models import (
     MediaChapter,
     MediaRef,
@@ -209,6 +210,36 @@ def test_safe_command_families_dispatch(monkeypatch):
     assert "Blue Moon" in rendered
     assert "retired" in rendered.lower()
     assert stopped == [True]
+
+
+def test_search_results_do_not_redirect_numeric_removal(monkeypatch, tmp_path):
+    im_tha = tmp_path / "Unknown Artist - Im tha kind devil [jywYY7Z7IuU].mp3"
+    tinzo = tmp_path / "Tinzo.mp3"
+    printed = []
+    removed = []
+    resolved = []
+    target = RemovalTarget("tinzo-library-id", tinzo, 2, "Tinzo", (1, 2, 3, 4))
+    monkeypatch.setattr(main, "_sound_files", [str(im_tha), str(tinzo)])
+    monkeypatch.setattr(main, "_sound_files_names_only", [im_tha.stem, tinzo.stem])
+    monkeypatch.setattr(
+        main,
+        "_sound_files_names_enumerated",
+        [(1, im_tha.stem), (2, tinzo.stem)],
+    )
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
+    monkeypatch.setattr(
+        main.MEDIA_REMOVAL,
+        "resolve",
+        lambda value: resolved.append(value) or target,
+    )
+    monkeypatch.setattr(main.MEDIA_REMOVAL, "remove", lambda value: removed.append(value) or value)
+
+    main.process("2")
+    assert any("@2" in value and "Tinzo" in value for value in printed)
+    assert main.advanced_search_command(["f", "im", "tha"]) == [(1, im_tha.stem)]
+    assert main.recycle_library_media(["2", "--yes"]) == target
+    assert resolved == [str(tinzo)]
+    assert removed == [target]
 
 
 def test_volume_and_pause_command_dispatch(monkeypatch):

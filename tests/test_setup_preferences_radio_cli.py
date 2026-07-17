@@ -179,13 +179,17 @@ def test_preference_listing_download_root_and_recycle_helpers(monkeypatch, tmp_p
     assert states == [("library_include_downloads", True)]
     assert scans == ["changed"]
 
-    target = RemovalTarget("track", tmp_path / "song.mp3")
-    monkeypatch.setattr(main.MEDIA_REMOVAL, "resolve", lambda value: target)
+    target = RemovalTarget("track", tmp_path / "song.mp3", 1, "Song", (1, 2, 3, 4))
+    resolved = []
+    monkeypatch.setattr(main.MEDIA_REMOVAL, "resolve", lambda value: resolved.append(value) or target)
     monkeypatch.setattr(main.MEDIA_REMOVAL, "remove", lambda value: value)
     with pytest.raises(MediaRemovalError, match="Usage"):
         main.recycle_library_media([])
-    monkeypatch.setattr("builtins.input", lambda *_args: "n")
+    prompts = []
+    monkeypatch.setattr("builtins.input", lambda prompt="": prompts.append(prompt) or "n")
     assert main.recycle_library_media(["1"]) is None
+    assert resolved[-1] == media.original_uri
+    assert all(value in prompts[-1] for value in ('Library #1', '"Song"', 'track', str(target.path)))
     monkeypatch.setattr("builtins.input", lambda *_args: "yes")
     assert main.recycle_library_media(["1"]) == target
 
@@ -196,7 +200,6 @@ def test_preference_listing_download_root_and_recycle_helpers(monkeypatch, tmp_p
     for token in ("y", "yes", "--yes"):
         assert main.recycle_library_media(["1", token]) == target
 
-    resolved = []
     monkeypatch.setattr(main.MEDIA_REMOVAL, "resolve", lambda value: resolved.append(value) or target)
     monkeypatch.setattr("builtins.input", lambda *_args: "n")
     assert main.recycle_library_media(["yes"]) is None
