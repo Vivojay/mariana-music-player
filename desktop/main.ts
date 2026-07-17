@@ -6,7 +6,7 @@ import net from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as pty from 'node-pty'
-import type { BackendEvent, PlaybackStatus, UpdateState } from './shared.js'
+import type { BackendEvent, FavoriteToggleResult, PlaybackStatus, UpdateState } from './shared.js'
 
 const { autoUpdater } = electronUpdater
 
@@ -28,6 +28,7 @@ const controlEndpoint = process.platform === 'win32'
 let mainWindow: BrowserWindow | null = null
 let terminalProcess: pty.IPty | null = null
 let controlServer: net.Server | null = null
+let controlSocket: net.Socket | null = null
 let terminalHistory = ''
 let terminalControlTail = ''
 let quitting = false
@@ -40,6 +41,10 @@ let backendExitClosesView = true
 let backendSafeOverride: boolean | null = null
 let updateState: UpdateState = { state: app.isPackaged ? 'idle' : 'disabled' }
 let updatePreparationTimer: NodeJS.Timeout | null = null
+const pendingControlRequests = new Map<string, {
+  resolve: (result: FavoriteToggleResult) => void
+  timer: NodeJS.Timeout
+}>()
 
 const safeToInstall = () => (
   backendSafeOverride ?? (['idle', 'paused', 'failed'].includes(playbackState) && !sleepActive)
@@ -58,6 +63,50 @@ function validateSender(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEve
   return Boolean(mainWindow && event.sender === mainWindow.webContents)
 }
 
+function safeControlError(value: unknown): string {
+  const text = typeof value === 'string'
+    ? Array.from(value, (character) => {
+        const code = character.charCodeAt(0)
+        return code < 32 || code === 127 ? ' ' : character
+      }).join('').replace(/\s+/g, ' ').trim()
+    : ''
+  if (!text || /(?:https?:\/\/|[a-z]:[\\/]|\\\\|\b(?:cookie|token|secret|authorization)\b)/i.test(text)) {
+    return 'Favourite update failed'
+  }
+  return text.slice(0, 160)
+}
+
+function finishPendingControlRequests(error: string) {
+  for (const { resolve, timer } of pendingControlRequests.values()) {
+    clearTimeout(timer)
+    resolve({ ok: false, error })
+  }
+  pendingControlRequests.clear()
+}
+
+function requestBackendControl(action: string, payload: Record<string, unknown>): Promise<FavoriteToggleResult> {
+  const socket = controlSocket
+  if (!backendReady || !socket || socket.destroyed || !socket.writable) {
+    return Promise.resolve({ ok: false, error: 'Mariana backend is unavailable' })
+  }
+  const requestId = randomBytes(16).toString('hex')
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      pendingControlRequests.delete(requestId)
+      resolve({ ok: false, error: 'Mariana backend did not confirm the favourite update' })
+    }, 3_000)
+    pendingControlRequests.set(requestId, { resolve, timer })
+    socket.write(`${JSON.stringify({ token: controlToken, request_id: requestId, action, payload })}\n`, (error) => {
+      if (!error) return
+      const pending = pendingControlRequests.get(requestId)
+      if (!pending) return
+      clearTimeout(pending.timer)
+      pendingControlRequests.delete(requestId)
+      pending.resolve({ ok: false, error: 'Could not send the favourite update' })
+    })
+  })
+}
+
 function handleBackendEvent(event: BackendEvent) {
   if (event.event === 'playback') {
     playbackState = event.payload.state
@@ -73,6 +122,18 @@ function handleBackendEvent(event: BackendEvent) {
   }
   if (event.event === 'fatal-error' || event.event === 'shutdown-ack') backendReady = false
   if (event.event === 'shutdown-ack') backendShutdownAcknowledged = true
+  if (event.event === 'control-result') {
+    const requestId = event.payload.request_id
+    if (typeof requestId === 'string') {
+      const pending = pendingControlRequests.get(requestId)
+      if (pending) {
+        clearTimeout(pending.timer)
+        pendingControlRequests.delete(requestId)
+        const ok = event.payload.ok === true
+        pending.resolve(ok ? { ok: true } : { ok: false, error: safeControlError(event.payload.error) })
+      }
+    }
+  }
   if (event.event === 'update-prepared' && updateState.state === 'downloaded') {
     if (updatePreparationTimer) clearTimeout(updatePreparationTimer)
     quitting = true
@@ -96,11 +157,20 @@ async function createControlServer(): Promise<void> {
       for (const line of lines) {
         try {
           const message = JSON.parse(line) as BackendEvent & { token?: string }
-          if (message.token === controlToken && typeof message.event === 'string') handleBackendEvent(message)
+          if (message.token === controlToken && typeof message.event === 'string') {
+            if (controlSocket && controlSocket !== socket) controlSocket.destroy()
+            controlSocket = socket
+            handleBackendEvent(message)
+          }
         } catch {
           // Ignore malformed local control messages without affecting the PTY.
         }
       }
+    })
+    socket.on('close', () => {
+      if (controlSocket !== socket) return
+      controlSocket = null
+      finishPendingControlRequests('Mariana backend disconnected before confirming the favourite update')
     })
   })
   await new Promise<void>((resolve, reject) => {
@@ -132,6 +202,9 @@ function backendCommand(): { executable: string; args: string[]; cwd: string; re
 
 function startTerminal() {
   terminalProcess?.kill()
+  controlSocket?.destroy()
+  controlSocket = null
+  finishPendingControlRequests('Mariana backend restarted before confirming the favourite update')
   playbackState = 'idle'
   playbackStatus = null
   backendShutdownAcknowledged = false
@@ -219,6 +292,23 @@ function registerIpc() {
   ipcMain.handle('backend:snapshot', async (event) => {
     if (!validateSender(event)) throw new Error('Invalid IPC sender')
     return { ready: backendReady, playbackState, sleepActive, playback: playbackStatus }
+  })
+  ipcMain.handle('backend:favorite-toggle', async (event, mediaId: unknown) => {
+    const hasControlCharacters = typeof mediaId === 'string'
+      && Array.from(mediaId).some((character) => {
+        const code = character.charCodeAt(0)
+        return code < 32 || code === 127
+      })
+    if (
+      !validateSender(event)
+      || typeof mediaId !== 'string'
+      || !mediaId
+      || mediaId.length > 256
+      || hasControlCharacters
+    ) {
+      return { ok: false, error: 'Favourite target is unavailable' } satisfies FavoriteToggleResult
+    }
+    return requestBackendControl('favorite.toggle', { media_id: mediaId })
   })
   ipcMain.on('terminal:write', (event, data: unknown) => {
     if (validateSender(event) && typeof data === 'string' && data.length <= 1_000_000) terminalProcess?.write(data)
@@ -310,6 +400,9 @@ else {
     quitting = true
     terminalProcess?.write('exit y\r')
     terminalProcess?.kill()
+    controlSocket?.destroy()
+    controlSocket = null
+    finishPendingControlRequests('Mariana closed before confirming the favourite update')
     controlServer?.close()
     if (process.platform !== 'win32') fs.rmSync(controlEndpoint, { force: true })
   })

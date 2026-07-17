@@ -1,3 +1,10 @@
+export type FavoriteStatus = {
+  available: boolean
+  is_favorite: boolean
+  toggle_enabled: boolean
+  unavailable_reason: string | null
+}
+
 export type PlaybackStatus = {
   schema_version: number
   state: string
@@ -16,6 +23,7 @@ export type PlaybackStatus = {
   library_index: number | null
   queue_position: number | null
   queue_count: number
+  favorite: FavoriteStatus
   chapter: {
     title: string
     start_time: number
@@ -39,7 +47,7 @@ export function formatChapterLabel(chapter: PlaybackStatus['chapter']): string {
   return position && title ? `${position} · ${title}` : position || title
 }
 
-type BackendEventName = 'ready' | 'playback' | 'station' | 'sleep' | 'broadcast' | 'loudness' | 'queue' | 'playlist' | 'album' | 'download' | 'theme' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error'
+type BackendEventName = 'ready' | 'playback' | 'station' | 'sleep' | 'broadcast' | 'loudness' | 'queue' | 'playlist' | 'album' | 'download' | 'theme' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error' | 'control-result'
 
 export type BackendEvent = {
   event: Exclude<BackendEventName, 'playback'>
@@ -56,6 +64,11 @@ export type BackendSnapshot = {
   playbackState: string
   sleepActive: boolean
   playback: PlaybackStatus | null
+}
+
+export type FavoriteToggleResult = {
+  ok: boolean
+  error?: string
 }
 
 function displayCells(value: string): number {
@@ -102,6 +115,7 @@ export type MarianaDesktopApi = {
   }
   backend: {
     snapshot(): Promise<BackendSnapshot>
+    toggleFavorite(mediaId: string): Promise<FavoriteToggleResult>
     onEvent(callback: (event: BackendEvent) => void): () => void
   }
   updates: {

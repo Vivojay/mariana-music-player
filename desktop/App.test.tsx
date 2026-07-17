@@ -1,7 +1,13 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
-import { trimDisplayCells, type BackendEvent, type BackendSnapshot, type PlaybackStatus } from './shared'
+import {
+  trimDisplayCells,
+  type BackendEvent,
+  type BackendSnapshot,
+  type FavoriteToggleResult,
+  type PlaybackStatus,
+} from './shared'
 
 vi.mock('./TerminalSurface', () => ({ TerminalSurface: () => <div data-testid="terminal" /> }))
 
@@ -10,13 +16,14 @@ const check = vi.fn(async () => undefined)
 const install = vi.fn(async () => undefined)
 const restart = vi.fn(async () => undefined)
 const closeApp = vi.fn(async () => undefined)
+const toggleFavorite = vi.fn(async (): Promise<FavoriteToggleResult> => ({ ok: true }))
 let backendEvent: ((event: BackendEvent) => void) | undefined
 let updateEvent: ((event: { state: string; version?: string; safeToInstall?: boolean; percent?: number }) => void) | undefined
 let exitEvent: ((event: { code: number; intentional: boolean }) => void) | undefined
 let backendSnapshot: BackendSnapshot
 
 const playbackStatus = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus => ({
-  schema_version: 3,
+  schema_version: 4,
   state: 'playing',
   display_state: 'Playing',
   media_id: 'track-1',
@@ -33,6 +40,7 @@ const playbackStatus = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus
   library_index: null,
   queue_position: 1,
   queue_count: 3,
+  favorite: { available: true, is_favorite: false, toggle_enabled: true, unavailable_reason: null },
   chapter: null,
   replaygain_db: 0,
   live_leveling: false,
@@ -47,6 +55,8 @@ beforeEach(() => {
   install.mockClear()
   restart.mockClear()
   closeApp.mockClear()
+  toggleFavorite.mockClear()
+  toggleFavorite.mockResolvedValue({ ok: true })
   backendEvent = undefined
   updateEvent = undefined
   exitEvent = undefined
@@ -57,6 +67,7 @@ beforeEach(() => {
       terminal: { write, resize: vi.fn(), restart, history: async () => '', onData: () => () => {}, onExit: (callback: typeof exitEvent) => { exitEvent = callback; return () => {} } },
       backend: {
         snapshot: async () => backendSnapshot,
+        toggleFavorite,
         onEvent: (callback: typeof backendEvent) => { backendEvent = callback; return () => {} },
       },
       updates: { check, install, onState: (callback: typeof updateEvent) => { updateEvent = callback; return () => {} } },
@@ -125,6 +136,58 @@ describe('Mariana desktop shell', () => {
     expect(screen.getByLabelText('Desktop operational status')).toHaveTextContent('RG')
     expect(screen.getByLabelText('Desktop operational status')).toHaveTextContent('CAST')
     expect(screen.getByRole('button', { name: 'Station recommendations' })).toBeInTheDocument()
+    expect(write).not.toHaveBeenCalled()
+  })
+
+  it('toggles favourites through typed backend control and settles from playback projection', async () => {
+    let resolveToggle: ((value: { ok: boolean; error?: string }) => void) | undefined
+    toggleFavorite.mockImplementationOnce(() => new Promise((resolve) => { resolveToggle = resolve }))
+    backendSnapshot = { ready: true, playbackState: 'playing', sleepActive: false, playback: playbackStatus() }
+    render(<App />)
+
+    const add = await screen.findByRole('button', { name: 'Add to favourites' })
+    fireEvent.click(add)
+    fireEvent.click(add)
+    expect(toggleFavorite).toHaveBeenCalledOnce()
+    expect(toggleFavorite).toHaveBeenCalledWith('track-1')
+    expect(write).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Updating favourite' })).toBeDisabled()
+
+    act(() => backendEvent?.({ event: 'playback', payload: playbackStatus({
+      favorite: { available: true, is_favorite: true, toggle_enabled: true, unavailable_reason: null },
+    }), timestamp: 2 }))
+    await act(async () => { resolveToggle?.({ ok: true }) })
+    expect(screen.getByRole('button', { name: 'Remove from favourites' })).toHaveTextContent('♥')
+  })
+
+  it('tracks CLI favourite changes and clears stale state on track changes', () => {
+    render(<App />)
+    act(() => backendEvent?.({ event: 'playback', payload: playbackStatus({
+      favorite: { available: true, is_favorite: true, toggle_enabled: true, unavailable_reason: null },
+    }), timestamp: 1 }))
+    expect(screen.getByRole('button', { name: 'Remove from favourites' })).toHaveTextContent('♥')
+
+    act(() => backendEvent?.({ event: 'playback', payload: playbackStatus({
+      media_id: 'unbound-track',
+      title: 'Direct local file',
+      favorite: {
+        available: false,
+        is_favorite: false,
+        toggle_enabled: false,
+        unavailable_reason: 'Only indexed local media can be added to favourites',
+      },
+    }), timestamp: 2 }))
+    expect(screen.getByRole('button', { name: 'Add to favourites' })).toBeDisabled()
+    expect(screen.getByTitle('Only indexed local media can be added to favourites')).toBeInTheDocument()
+  })
+
+  it('shows a safe backend favourite error without changing projected state', async () => {
+    toggleFavorite.mockResolvedValueOnce({ ok: false, error: 'Current media changed; try again' })
+    backendSnapshot = { ready: true, playbackState: 'playing', sleepActive: false, playback: playbackStatus() }
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Add to favourites' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Current media changed; try again')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Add to favourites' })).not.toBeDisabled())
     expect(write).not.toHaveBeenCalled()
   })
 

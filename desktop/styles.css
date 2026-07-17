@@ -120,13 +120,16 @@ button { cursor: pointer; }
 .statusbar button.active { color: var(--accent); }
 .statusbar-operations { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .playback-status {
-  display: grid; grid-template-columns: minmax(130px, 1.4fr) auto auto minmax(90px, 1fr) auto minmax(0, .8fr);
+  display: grid; grid-template-columns: minmax(130px, 1.4fr) auto auto auto minmax(90px, 1fr) auto minmax(0, .8fr);
   align-items: center; gap: 10px; min-width: 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
 }
 .playback-status-empty { grid-template-columns: minmax(0, 1fr) auto; }
 .playback-identity { display: flex; align-items: baseline; gap: 8px; min-width: 0; overflow: hidden; }
 .playback-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 11px; }
 .playback-source, .playback-state, .playback-queue { flex: none; color: var(--muted); white-space: nowrap; }
+.favorite-toggle { width: 25px; padding: 0; border: 0; background: transparent; font-size: 17px; line-height: 1; }
+.favorite-toggle.active { color: #ff6f9f !important; }
+.favorite-toggle:disabled { cursor: not-allowed; opacity: .42; }
 .playback-state[data-state='playing'], .playback-state[data-state='crossfading'] { color: var(--accent); }
 .playback-state[data-state='failed'], .playback-error { color: #ff8da6; }
 .playback-timing { display: flex; align-items: center; justify-content: flex-end; gap: 8px; color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -208,7 +211,7 @@ button { cursor: pointer; }
 @media (max-width: 980px) {
   .search-box { display: none; }
   .title-actions select { width: 120px; }
-  .playback-status { grid-template-columns: minmax(120px, 1fr) auto auto minmax(80px, .8fr) auto; }
+  .playback-status { grid-template-columns: minmax(120px, 1fr) auto auto auto minmax(80px, .8fr) auto; }
   .playback-error { display: none; }
 }
 @media (max-width: 760px) {
@@ -217,7 +220,7 @@ button { cursor: pointer; }
   .title-actions button:nth-of-type(1), .title-actions button:nth-of-type(2) { display: none; }
   .terminal-frame { margin: 7px; }
   .timer-popover, .station-popover, .media-drawer { right: 8px; }
-  .playback-status { grid-template-columns: minmax(100px, 1fr) auto auto minmax(70px, .7fr); gap: 7px; }
+  .playback-status { grid-template-columns: minmax(100px, 1fr) auto auto auto minmax(70px, .7fr); gap: 7px; }
   .playback-queue, .playback-source { display: none; }
   .statusbar-operations { gap: 7px; overflow: hidden; }
 }

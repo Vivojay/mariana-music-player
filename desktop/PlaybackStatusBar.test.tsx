@@ -1,10 +1,10 @@
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PlaybackStatusBar } from './PlaybackStatusBar'
 import { formatChapterLabel, type PlaybackStatus } from './shared'
 
 const status = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus => ({
-  schema_version: 3,
+  schema_version: 4,
   state: 'playing',
   display_state: 'Playing',
   media_id: 'track-1',
@@ -21,6 +21,7 @@ const status = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus => ({
   library_index: null,
   queue_position: 2,
   queue_count: 8,
+  favorite: { available: true, is_favorite: false, toggle_enabled: true, unavailable_reason: null },
   chapter: null,
   replaygain_db: 0,
   live_leveling: false,
@@ -46,6 +47,37 @@ describe('PlaybackStatusBar', () => {
     expect(screen.getByText('25%')).toBeInTheDocument()
     expect(screen.getByLabelText('Queue item 2 of 8')).toHaveTextContent('Q 2/8')
     expect(screen.getByRole('progressbar', { name: 'Playback progress for Artist — Track' })).toHaveAttribute('value', '25')
+  })
+
+  it('renders and invokes the authoritative favourite toggle intent', () => {
+    const toggle = vi.fn()
+    const { rerender } = render(<PlaybackStatusBar status={status()} onToggleFavorite={toggle} />)
+    const add = screen.getByRole('button', { name: 'Add to favourites' })
+    expect(add).toHaveTextContent('♡')
+    expect(add).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(add)
+    expect(toggle).toHaveBeenCalledOnce()
+
+    rerender(<PlaybackStatusBar status={status({
+      favorite: { available: true, is_favorite: true, toggle_enabled: true, unavailable_reason: null },
+    })} onToggleFavorite={toggle} />)
+    expect(screen.getByRole('button', { name: 'Remove from favourites' })).toHaveTextContent('♥')
+  })
+
+  it('disables unavailable and in-flight favourite changes accessibly', () => {
+    const { rerender } = render(<PlaybackStatusBar status={status({
+      favorite: {
+        available: false,
+        is_favorite: false,
+        toggle_enabled: false,
+        unavailable_reason: 'Only indexed local media can be added to favourites',
+      },
+    })} onToggleFavorite={() => undefined} />)
+    expect(screen.getByRole('button', { name: 'Add to favourites' })).toBeDisabled()
+    expect(screen.getByTitle('Only indexed local media can be added to favourites')).toBeInTheDocument()
+
+    rerender(<PlaybackStatusBar status={status()} favoritePending onToggleFavorite={() => undefined} />)
+    expect(screen.getByRole('button', { name: 'Updating favourite' })).toBeDisabled()
   })
 
   it('clamps projected progress defensively', () => {

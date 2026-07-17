@@ -2,6 +2,9 @@ import type { PlaybackStatus } from './shared'
 
 type PlaybackStatusBarProps = {
   status: PlaybackStatus | null
+  favoritePending?: boolean
+  favoriteError?: string | null
+  onToggleFavorite?: () => void
 }
 
 function finiteNumber(value: unknown): number | null {
@@ -41,7 +44,12 @@ function stateLabel(status: PlaybackStatus): string {
     || 'Unknown'
 }
 
-export function PlaybackStatusBar({ status }: PlaybackStatusBarProps) {
+export function PlaybackStatusBar({
+  status,
+  favoritePending = false,
+  favoriteError = null,
+  onToggleFavorite,
+}: PlaybackStatusBarProps) {
   if (!status) {
     return (
       <section className="playback-status playback-status-empty" aria-label="Playback status">
@@ -69,6 +77,17 @@ export function PlaybackStatusBar({ status }: PlaybackStatusBarProps) {
   const title = status.title || (status.live ? 'Live stream' : hasMedia ? 'Media' : 'Nothing playing')
   const displayTitle = status.artist ? `${status.artist} — ${title}` : title
   const isFailed = status.state === 'failed'
+  const favorite = status.favorite
+  const favoriteEnabled = Boolean(
+    favorite?.available
+    && favorite.toggle_enabled
+    && status.media_id
+    && onToggleFavorite,
+  )
+  const favoriteLabel = favorite?.is_favorite ? 'Remove from favourites' : 'Add to favourites'
+  const favoriteTitle = favoriteEnabled
+    ? favoriteLabel
+    : favorite?.unavailable_reason || 'Favourite state unavailable'
 
   return (
     <section className={`playback-status playback-status-${status.state || 'unknown'}`} aria-label="Playback status">
@@ -76,6 +95,18 @@ export function PlaybackStatusBar({ status }: PlaybackStatusBarProps) {
         <strong className="playback-title">{displayTitle}</strong>
         {source && <small className="playback-source">{source}</small>}
       </span>
+
+      <button
+        type="button"
+        className={`favorite-toggle ${favorite?.is_favorite ? 'active' : ''}`}
+        aria-label={favoritePending ? 'Updating favourite' : favoriteLabel}
+        aria-pressed={favorite?.is_favorite === true}
+        title={favoriteTitle}
+        disabled={!favoriteEnabled || favoritePending}
+        onClick={onToggleFavorite}
+      >
+        {favorite?.is_favorite ? '♥' : '♡'}
+      </button>
 
       <span className="playback-state" data-state={status.state}>
         {status.live ? 'LIVE' : state}
@@ -117,8 +148,14 @@ export function PlaybackStatusBar({ status }: PlaybackStatusBarProps) {
         </span>
       )}
 
-      {isFailed && status.safe_error && (
-        <span className="playback-error" title={status.safe_error}>{status.safe_error}</span>
+      {((isFailed && status.safe_error) || favoriteError) && (
+        <span
+          className="playback-error"
+          role={favoriteError ? 'alert' : undefined}
+          title={favoriteError || status.safe_error || undefined}
+        >
+          {favoriteError || status.safe_error}
+        </span>
       )}
     </section>
   )

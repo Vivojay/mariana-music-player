@@ -108,6 +108,11 @@ export default function App() {
   const [broadcastStatus, setBroadcastStatus] = useState<Record<string, unknown>>({ state: 'idle' })
   const [loudnessStatus, setLoudnessStatus] = useState<Record<string, unknown>>({ replaygain_db: 0, live_leveling: false })
   const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus | null>(null)
+  const playbackStatusRef = useRef<PlaybackStatus | null>(null)
+  const favoritePendingRef = useRef(false)
+  const favoriteRequestEpoch = useRef(0)
+  const [favoritePending, setFavoritePending] = useState(false)
+  const [favoriteError, setFavoriteError] = useState<string | null>(null)
   const [stationStatus, setStationStatus] = useState<Record<string, unknown>>({ state: 'stopped', next: [] })
   const [stationOpen, setStationOpen] = useState(false)
   const [mediaOpen, setMediaOpen] = useState(false)
@@ -141,10 +146,20 @@ export default function App() {
   }, [tabs, activeTab])
 
   useEffect(() => {
+    const receivePlaybackStatus = (next: PlaybackStatus | null) => {
+      if (playbackStatusRef.current?.media_id !== next?.media_id) {
+        favoriteRequestEpoch.current += 1
+        favoritePendingRef.current = false
+        setFavoritePending(false)
+      }
+      playbackStatusRef.current = next
+      setFavoriteError(null)
+      setPlaybackStatus(next)
+    }
     void window.mariana.backend.snapshot().then((snapshot) => {
       if (snapshot.ready) setBackendState('ready')
       setTimerStatus((current) => ({ ...current, active: snapshot.sleepActive }))
-      setPlaybackStatus(snapshot.playback)
+      receivePlaybackStatus(snapshot.playback)
     })
     const backend = window.mariana.backend.onEvent((event: BackendEvent) => {
       if (event.event === 'ready') {
@@ -156,7 +171,7 @@ export default function App() {
       if (event.event === 'sleep') setTimerStatus(event.payload)
       if (event.event === 'broadcast') setBroadcastStatus(event.payload)
       if (event.event === 'loudness') setLoudnessStatus(event.payload)
-      if (event.event === 'playback') setPlaybackStatus(event.payload)
+      if (event.event === 'playback') receivePlaybackStatus(event.payload)
       if (event.event === 'station') setStationStatus(event.payload)
       if (event.event === 'queue') {
         setQueueTree(Array.isArray(event.payload.tree) ? event.payload.tree as QueueNode[] : [])
@@ -221,6 +236,25 @@ export default function App() {
   const startTimer = (duration: string) => {
     sendCommand(`sleep ${duration} ${timerAction}`)
     setTimerOpen(false)
+  }
+
+  const toggleFavorite = async () => {
+    const mediaId = playbackStatusRef.current?.media_id
+    if (!mediaId || favoritePendingRef.current) return
+    favoritePendingRef.current = true
+    const epoch = favoriteRequestEpoch.current
+    setFavoritePending(true)
+    setFavoriteError(null)
+    let result
+    try {
+      result = await window.mariana.backend.toggleFavorite(mediaId)
+    } catch {
+      result = { ok: false, error: 'Favourite update failed' }
+    }
+    if (epoch !== favoriteRequestEpoch.current) return
+    favoritePendingRef.current = false
+    setFavoritePending(false)
+    if (!result.ok) setFavoriteError(result.error || 'Favourite update failed')
   }
 
   const requestSearch = (direction: 'incremental' | 'next' | 'previous', query = search) => {
@@ -308,7 +342,12 @@ export default function App() {
       </section>
 
       <footer className="statusbar">
-        <PlaybackStatusBar status={playbackStatus} />
+        <PlaybackStatusBar
+          status={playbackStatus}
+          favoritePending={favoritePending}
+          favoriteError={favoriteError}
+          onToggleFavorite={() => void toggleFavorite()}
+        />
         <div className="statusbar-operations" aria-label="Desktop operational status">
           <span><b>PTY</b> {backendState}</span><span>{window.mariana.platform}</span>
           <span title="Program loudness normalization"><b>RG</b> {Number(loudnessStatus.replaygain_db || 0).toFixed(1)} dB{loudnessStatus.live_leveling ? ' · live' : ''}</span>
