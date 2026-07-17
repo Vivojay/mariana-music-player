@@ -933,6 +933,7 @@ def test_podcast_choice_media_playback_and_url_choice_edges(monkeypatch):
 def test_run_safety_callback_reports_every_busy_reason(monkeypatch):
     captured = {}
     monkeypatch.setattr(main, "initialize_audio_output", lambda: None)
+    monkeypatch.setattr(main.DESKTOP_CONTROL, "start_request_listener", lambda callback: captured.update(control=callback))
     monkeypatch.setattr(main.DESKTOP_CONTROL, "start_playback_monitor", lambda callback: captured.update(playback=callback))
     monkeypatch.setattr(main.DESKTOP_CONTROL, "start_safety_monitor", lambda callback: captured.update(safety=callback))
     monkeypatch.setattr(main.DESKTOP_CONTROL, "emit", lambda *_args, **_kwargs: None)
@@ -959,6 +960,7 @@ def test_run_safety_callback_reports_every_busy_reason(monkeypatch):
     main.COMMAND_BUSY.set()
     try:
         main.run()
+        assert captured["control"] is main._desktop_control_request
         assert captured["playback"] is main._playback_status_projection
         safe, reasons = captured["safety"]()
         assert not safe

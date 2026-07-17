@@ -1,4 +1,5 @@
 import json
+import socket
 import time
 
 from mariana.desktop_control import DesktopControl
@@ -10,7 +11,7 @@ from mariana.models import (
     PlaybackSnapshot,
     PlaybackState,
 )
-from mariana.playback_status import project_playback_status
+from mariana.playback_status import FavoriteStatusProjection, project_playback_status
 
 
 class MemoryStream:
@@ -51,6 +52,7 @@ def projected_status(
     library_index=None,
     queue_position=None,
     queue_count=0,
+    favorite=False,
 ):
     media = None if state == PlaybackState.IDLE and title is None else MediaRef(
         source,
@@ -77,6 +79,7 @@ def projected_status(
         library_index=library_index,
         queue_position=queue_position,
         queue_count=queue_count,
+        favorite=FavoriteStatusProjection(True, favorite, True),
     )
 
 
@@ -165,6 +168,27 @@ def test_playback_monitor_emits_safe_live_unknown_and_idle_projections(monkeypat
     assert cases[2].state == "idle" and cases[2].media_id is None and cases[2].title is None
 
 
+def test_playback_monitor_emits_cli_favorite_state_changes_without_track_change(monkeypatch):
+    current = {"status": projected_status(favorite=False)}
+    events = []
+    control = DesktopControl("pipe", "secret")
+    monkeypatch.setattr(
+        control,
+        "emit",
+        lambda event, payload=None: events.append((event, payload)) or True,
+    )
+    control.start_playback_monitor(lambda: current["status"], interval=0.001)
+    wait_for(lambda: sum(event == "playback" for event, _ in events) == 1)
+
+    current["status"] = projected_status(favorite=True)
+    wait_for(lambda: sum(event == "playback" for event, _ in events) == 2)
+
+    playback = [payload for event, payload in events if event == "playback"]
+    assert playback[0]["favorite"]["is_favorite"] is False
+    assert playback[1]["favorite"]["is_favorite"] is True
+    control.close()
+
+
 def test_playback_monitor_never_emits_raw_resolver_or_private_fields(monkeypatch):
     status = projected_status(
         source=MediaSource.URL,
@@ -208,3 +232,62 @@ def test_monitor_failures_are_reported_without_escaping(monkeypatch):
     wait_for(lambda: any(event == "fatal-error" for event, _ in events))
     assert "Update-safety monitor failed" in events[-1][1]["message"]
     control.close()
+
+
+def test_authenticated_desktop_control_request_returns_typed_result(monkeypatch):
+    backend, desktop = socket.socketpair()
+    backend.settimeout(0.05)
+    desktop.settimeout(1)
+    control = DesktopControl("pipe", "secret")
+    monkeypatch.setattr(control, "_connect", lambda: backend)
+    calls = []
+    control.start_request_listener(
+        lambda action, payload: calls.append((action, payload)) or {"ok": True}
+    )
+
+    desktop.sendall(
+        json.dumps(
+            {
+                "token": "secret",
+                "request_id": "request-1",
+                "action": "favorite.toggle",
+                "payload": {"media_id": "track-1"},
+            }
+        ).encode()
+        + b"\n"
+    )
+    response = json.loads(desktop.recv(4096).decode())
+
+    assert calls == [("favorite.toggle", {"media_id": "track-1"})]
+    assert response["event"] == "control-result"
+    assert response["payload"] == {"request_id": "request-1", "ok": True}
+    control.close()
+    desktop.close()
+
+
+def test_desktop_control_rejects_unauthenticated_and_sanitizes_handler_failure(monkeypatch):
+    backend, desktop = socket.socketpair()
+    backend.settimeout(0.05)
+    desktop.settimeout(1)
+    control = DesktopControl("pipe", "secret")
+    monkeypatch.setattr(control, "_connect", lambda: backend)
+
+    def fail(_action, _payload):
+        raise RuntimeError("C:/private/path?token=secret")
+
+    control.start_request_listener(fail)
+    desktop.sendall(
+        b'{"token":"wrong","request_id":"ignored","action":"favorite.toggle","payload":{}}\n'
+        b'{"token":"secret","request_id":"request-2","action":"favorite.toggle","payload":{}}\n'
+    )
+    response = json.loads(desktop.recv(4096).decode())
+
+    assert response["payload"] == {
+        "request_id": "request-2",
+        "ok": False,
+        "error": "Backend control request failed",
+    }
+    assert "private" not in json.dumps(response)
+    assert "token=secret" not in json.dumps(response)
+    control.close()
+    desktop.close()

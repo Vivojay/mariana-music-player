@@ -111,6 +111,7 @@ from mariana.paths import initialize_runtime_paths
 from mariana.platform import open_path, reveal_path
 from mariana.playlists import PlaylistError, PlaylistStore
 from mariana.playback_status import (
+    FavoriteStatusProjection,
     PlaybackChapterProjection,
     PlaybackStatusProjection,
     project_playback_status,
@@ -3238,6 +3239,39 @@ def get_current_progress():
     return vas.player.get_time() / 1000
 
 
+def _favorite_status_projection(media: MediaRef | None) -> FavoriteStatusProjection:
+    """Project current-media preference state without exposing its durable key."""
+    if media is None:
+        return FavoriteStatusProjection(False, False, False, 'No active media')
+    bound = _preference_media(media)
+    if bound is None:
+        return FavoriteStatusProjection(False, False, False, 'Favourite state unavailable')
+    if bound.source == MediaSource.LOCAL and bound.provenance != 'library':
+        return FavoriteStatusProjection(
+            False,
+            False,
+            False,
+            'Only indexed local media can be added to favourites',
+        )
+    if bound.source == MediaSource.URL and bound.provenance == 'user':
+        return FavoriteStatusProjection(
+            False,
+            False,
+            False,
+            'This online source has no durable favourite identity',
+        )
+    try:
+        favorite = PREFERENCES.get(bound) == PreferenceState.FAVORITE
+    except Exception:
+        return FavoriteStatusProjection(
+            False,
+            False,
+            False,
+            'Favourite state is temporarily unavailable',
+        )
+    return FavoriteStatusProjection(True, favorite, True)
+
+
 def _playback_status_projection() -> PlaybackStatusProjection:
     """Return the safe, authoritative playback projection used by CLI surfaces."""
     snapshot = vas.controller.snapshot()
@@ -3252,7 +3286,38 @@ def _playback_status_projection() -> PlaybackStatusProjection:
         library_index=library_index,
         queue_position=queue_position,
         queue_count=queue_count,
+        favorite=_favorite_status_projection(snapshot.media),
     )
+
+
+def _desktop_control_request(action: str, payload: dict[str, object]) -> dict[str, object]:
+    """Apply one allowlisted desktop intent against authoritative backend state."""
+    if action != 'favorite.toggle':
+        return {'ok': False, 'error': 'Unsupported desktop control request'}
+    expected_media_id = payload.get('media_id')
+    if not isinstance(expected_media_id, str) or not expected_media_id:
+        return {'ok': False, 'error': 'Favourite target is unavailable'}
+
+    snapshot = vas.controller.snapshot()
+    if snapshot.media is None or snapshot.media.stable_id != expected_media_id:
+        return {'ok': False, 'error': 'Current media changed; try again'}
+    status = _favorite_status_projection(snapshot.media)
+    if not status.toggle_enabled:
+        return {
+            'ok': False,
+            'error': status.unavailable_reason or 'Favourite toggle is unavailable',
+        }
+    media = _preference_media(snapshot.media)
+    if media is None:
+        return {'ok': False, 'error': 'Favourite target is unavailable'}
+    try:
+        PREFERENCES.toggle(media, PreferenceState.FAVORITE)
+    except Exception:
+        return {'ok': False, 'error': 'Could not update favourite state'}
+
+    # Publish the complete authoritative projection before acknowledging the request.
+    DESKTOP_CONTROL.emit('playback', _playback_status_projection().to_dict())
+    return {'ok': True}
 
 
 def _status_time(seconds: float | int | None) -> str:
@@ -6221,6 +6286,7 @@ def run():
     initialize_audio_output()
     if PRESENCE.mode != PresencePrivacyMode.OFF:
         PRESENCE.start()
+    DESKTOP_CONTROL.start_request_listener(_desktop_control_request)
     DESKTOP_CONTROL.start_playback_monitor(_playback_status_projection)
     def update_safety():
         reasons = []

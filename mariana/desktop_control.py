@@ -13,6 +13,8 @@ from typing import Any, BinaryIO
 
 from .playback_status import PlaybackStatusProjection
 
+ControlHandler = Callable[[str, dict[str, Any]], dict[str, Any]]
+
 
 class DesktopControl:
     def __init__(self, endpoint: str | None = None, token: str | None = None) -> None:
@@ -23,6 +25,8 @@ class DesktopControl:
         self._monitor_stop = threading.Event()
         self._monitor: threading.Thread | None = None
         self._safety_monitor: threading.Thread | None = None
+        self._request_monitor: threading.Thread | None = None
+        self._request_buffer = b""
 
     @property
     def enabled(self) -> bool:
@@ -36,7 +40,13 @@ class DesktopControl:
             return open(self.endpoint, "r+b", buffering=0)
         connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         connection.connect(self.endpoint)
+        connection.settimeout(0.2)
         return connection
+
+    def _connected_stream(self) -> BinaryIO | socket.socket | None:
+        with self._lock:
+            self._stream = self._stream or self._connect()
+            return self._stream
 
     def emit(self, event: str, payload: dict[str, Any] | None = None) -> bool:
         if not self.enabled:
@@ -112,19 +122,95 @@ class DesktopControl:
         self._safety_monitor = threading.Thread(target=monitor, name="mariana-update-safety", daemon=True)
         self._safety_monitor.start()
 
+    def _read_request_line(self, stream: BinaryIO | socket.socket) -> bytes | None:
+        if not isinstance(stream, socket.socket):
+            return stream.readline()
+        while b"\n" not in self._request_buffer:
+            try:
+                chunk = stream.recv(4096)
+            except TimeoutError:
+                return None
+            if not chunk:
+                return b""
+            self._request_buffer += chunk
+            if len(self._request_buffer) > 64_000:
+                self._request_buffer = b""
+                return None
+        line, self._request_buffer = self._request_buffer.split(b"\n", 1)
+        return line
+
+    def start_request_listener(self, handler: ControlHandler) -> None:
+        """Receive narrow authenticated desktop intents over the event stream."""
+        if not self.enabled or (self._request_monitor and self._request_monitor.is_alive()):
+            return
+        self._monitor_stop.clear()
+
+        def monitor() -> None:
+            while not self._monitor_stop.is_set():
+                try:
+                    stream = self._connected_stream()
+                    if stream is None:
+                        return
+                    line = self._read_request_line(stream)
+                    if line is None:
+                        continue
+                    if not line:
+                        with self._lock:
+                            self._close_stream()
+                        self._monitor_stop.wait(0.1)
+                        continue
+                    message = json.loads(line.decode("utf-8"))
+                    if not isinstance(message, dict) or message.get("token") != self.token:
+                        continue
+                    request_id = message.get("request_id")
+                    action = message.get("action")
+                    payload = message.get("payload", {})
+                    if (
+                        not isinstance(request_id, str)
+                        or not request_id
+                        or len(request_id) > 128
+                        or not isinstance(action, str)
+                        or not isinstance(payload, dict)
+                    ):
+                        continue
+                    try:
+                        result = handler(action, payload)
+                    except Exception:
+                        result = {"ok": False, "error": "Backend control request failed"}
+                    safe_result = result if isinstance(result, dict) else {
+                        "ok": False,
+                        "error": "Backend control request failed",
+                    }
+                    self.emit("control-result", {"request_id": request_id, **safe_result})
+                except (OSError, UnicodeError, json.JSONDecodeError):
+                    with self._lock:
+                        self._close_stream()
+                    self._monitor_stop.wait(0.1)
+
+        self._request_monitor = threading.Thread(
+            target=monitor,
+            name="mariana-desktop-control",
+            daemon=True,
+        )
+        self._request_monitor.start()
+
     def close(self) -> None:
         self._monitor_stop.set()
+        with self._lock:
+            self._close_stream()
         if self._monitor and self._monitor is not threading.current_thread():
             self._monitor.join(timeout=1)
         self._monitor = None
         if self._safety_monitor and self._safety_monitor is not threading.current_thread():
             self._safety_monitor.join(timeout=1)
         self._safety_monitor = None
-        with self._lock:
-            self._close_stream()
+        if self._request_monitor and self._request_monitor is not threading.current_thread():
+            self._request_monitor.join(timeout=1)
+        self._request_monitor = None
 
     def _close_stream(self) -> None:
         if self._stream is not None:
             with suppress(OSError):
                 self._stream.close()
             self._stream = None
+        self._request_buffer = b""

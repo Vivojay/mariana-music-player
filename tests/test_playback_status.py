@@ -11,7 +11,11 @@ from mariana.models import (
     PlaybackSnapshot,
     PlaybackState,
 )
-from mariana.playback_status import PlaybackChapterProjection, project_playback_status
+from mariana.playback_status import (
+    FavoriteStatusProjection,
+    PlaybackChapterProjection,
+    project_playback_status,
+)
 from mariana.queueing import PersistentQueue
 
 
@@ -103,19 +107,47 @@ def test_projection_includes_safe_finite_metadata_and_chapter():
         queue_position=2,
         queue_count=5,
     )
-    assert projection.schema_version == 3
+    assert projection.schema_version == 4
     assert projection.title == "Track" and projection.artist == "Artist"
     assert projection.source == "local" and projection.media_id
     assert projection.finite and projection.seekable and not projection.live
     assert projection.queue_position == 2 and projection.queue_count == 5
     assert projection.buffered_seconds == 3 and projection.replaygain_db == -2.5
     assert projection.chapter == PlaybackChapterProjection("Verse One", 20, 40, 2, 3)
+    assert projection.favorite == FavoriteStatusProjection(
+        False,
+        False,
+        False,
+        "Favourite state unavailable",
+    )
     assert projection.to_dict()["chapter"] == {
         "title": "Verse One",
         "start_time": 20,
         "end_time": 40,
         "index": 2,
         "count": 3,
+    }
+
+
+def test_projection_carries_only_sanitized_favorite_state():
+    favorite = FavoriteStatusProjection(True, True, True)
+    projection = project_playback_status(
+        PlaybackSnapshot(PlaybackState.PLAYING, media=media()),
+        favorite=favorite,
+    )
+
+    assert projection.favorite is favorite
+    assert projection.to_dict()["favorite"] == {
+        "available": True,
+        "is_favorite": True,
+        "toggle_enabled": True,
+        "unavailable_reason": None,
+    }
+    assert set(projection.to_dict()["favorite"]) == {
+        "available",
+        "is_favorite",
+        "toggle_enabled",
+        "unavailable_reason",
     }
 
 
@@ -278,6 +310,8 @@ def test_projection_distinguishes_completed_from_explicitly_stopped_idle():
     assert completed.display_state == "Finished"
     assert stopped.display_state == empty.display_state == "Stopped"
     assert empty.media_id is None and empty.title is None
+    assert not empty.favorite.available and not empty.favorite.toggle_enabled
+    assert empty.favorite.unavailable_reason == "No active media"
 
 
 def test_projection_rejects_invalid_queue_positions():

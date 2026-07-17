@@ -9,7 +9,7 @@ from typing import Any
 
 from .models import MediaSource, PlaybackSnapshot, PlaybackState
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 MAX_ERROR_LENGTH = 160
 _GENERIC_ERROR = "Playback failed; see logs for details"
 _SPACE_PATTERN = re.compile(r"\s+")
@@ -32,6 +32,16 @@ class PlaybackChapterProjection:
 
 
 @dataclass(frozen=True, slots=True)
+class FavoriteStatusProjection:
+    """Sanitized preference state for the current playback item."""
+
+    available: bool
+    is_favorite: bool
+    toggle_enabled: bool
+    unavailable_reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class PlaybackStatusProjection:
     schema_version: int
     state: str
@@ -50,6 +60,7 @@ class PlaybackStatusProjection:
     library_index: int | None
     queue_position: int | None
     queue_count: int
+    favorite: FavoriteStatusProjection
     chapter: PlaybackChapterProjection | None
     replaygain_db: float
     live_leveling: bool
@@ -175,9 +186,23 @@ def project_playback_status(
     library_index: int | None = None,
     queue_position: int | None = None,
     queue_count: int = 0,
+    favorite: FavoriteStatusProjection | None = None,
 ) -> PlaybackStatusProjection:
     """Build a safe status projection without resolving or mutating media."""
     media = snapshot.media
+    favorite_status = favorite or FavoriteStatusProjection(
+        available=False,
+        is_favorite=False,
+        toggle_enabled=False,
+        unavailable_reason="Favourite state unavailable",
+    )
+    if media is None:
+        favorite_status = FavoriteStatusProjection(
+            available=False,
+            is_favorite=False,
+            toggle_enabled=False,
+            unavailable_reason="No active media",
+        )
     capabilities = media.capabilities if media else None
     finite = bool(capabilities and capabilities.finite)
     live = bool(capabilities and capabilities.live)
@@ -237,6 +262,7 @@ def project_playback_status(
         library_index=normalized_library_index,
         queue_position=normalized_queue_position,
         queue_count=count,
+        favorite=favorite_status,
         chapter=_chapter(snapshot),
         replaygain_db=_finite_number(snapshot.replaygain_db),
         live_leveling=bool(snapshot.live_leveling),

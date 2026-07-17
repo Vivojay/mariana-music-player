@@ -540,6 +540,7 @@ def test_create_files_save_user_data_and_run_lifecycle(monkeypatch, tmp_path):
         main,
         "DESKTOP_CONTROL",
         SimpleNamespace(
+            start_request_listener=lambda _callback: None,
             start_playback_monitor=lambda _callback: None,
             start_safety_monitor=lambda _callback: None,
             emit=lambda *_args: None,
@@ -713,6 +714,7 @@ def test_run_reports_every_update_safety_reason_and_first_boot(monkeypatch, tmp_
     startup_sound = tmp_path / "startup.mp3"
     startup_sound.write_bytes(b"audio")
     desktop = SimpleNamespace(
+        start_request_listener=lambda callback: events.append(("request-listener", callback)),
         start_playback_monitor=lambda callback: events.append(("playback-monitor", callback)),
         start_safety_monitor=lambda callback: safety.update(callback=callback),
         emit=lambda *args: events.append(args),
