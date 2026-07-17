@@ -11,7 +11,11 @@ from mariana.models import (
     PlaybackSnapshot,
     PlaybackState,
 )
-from mariana.playback_status import PlaybackStatusProjection, project_playback_status
+from mariana.playback_status import (
+    PlaybackChapterProjection,
+    PlaybackStatusProjection,
+    project_playback_status,
+)
 
 
 def _media(
@@ -78,6 +82,15 @@ def test_progress_formats_finite_boundaries(position, expected_percent, bar):
     assert "queue 2/5" in lines[0]
 
 
+def test_chapter_label_formats_position_title_and_missing_values():
+    assert main._status_chapter_label(PlaybackChapterProjection("Bridge", 10, 20, 17, 23)) == (
+        "Ch 17/23 · Bridge"
+    )
+    assert main._status_chapter_label(PlaybackChapterProjection("", 10, 20, 17, 23)) == "Ch 17/23"
+    assert main._status_chapter_label(PlaybackChapterProjection("Bridge", 10, 20)) == "Bridge"
+    assert main._status_chapter_label(None) is None
+
+
 def test_progress_formats_live_and_unknown_duration_without_fake_percent():
     live = _status(media=_media(source=MediaSource.RADIO, title="Station", live=True), duration=None)
     unknown = _status(media=_media(source=MediaSource.URL), duration=None)
@@ -138,12 +151,15 @@ def test_now_and_detailed_progress_include_safe_projection_fields():
     assert now == [
         "Now: Artist — Track [Local]",
         "Status: [#####---------------] | 00:30 / 02:00 | 25% | Playing | queue 2/5",
-        "Chapter 1/1: Verse (00:20-00:40)",
+        "Ch 1/1 · Verse (00:20-00:40)",
     ]
     assert "Source: Local" in detailed
     assert "Seekable: yes" in detailed
     assert "Queue: 2/5" in detailed
-    assert "Chapter 1/1: Verse (00:20-00:40)" in detailed
+    assert "Ch 1/1 · Verse (00:20-00:40)" in detailed
+
+    progress = main._playback_status_lines(status)
+    assert progress[0].endswith("| Ch 1/1 · Verse")
 
 
 def test_projection_and_output_never_fall_back_to_online_url():
@@ -155,17 +171,29 @@ def test_projection_and_output_never_fall_back_to_online_url():
     assert "private.test" not in output
     assert "token=" not in output
 
+    unsafe_chapter = _status(
+        chapter=MediaChapter("https://private.test/chapter?token=secret", 20, 40)
+    )
+    chapter_output = "\n".join(main._playback_status_lines(unsafe_chapter, detailed=True))
+    assert unsafe_chapter.chapter is None
+    assert "private.test" not in chapter_output and "token=" not in chapter_output
 
-@pytest.mark.parametrize("command", ["prog", "progress", "prog*", "progress*", "now", "now*"])
+
+@pytest.mark.parametrize("command", ["prog", "progress", "prog*", "progress*", "now", "now*", ".*"])
 def test_status_command_aliases_use_projection(monkeypatch, command):
     printed = []
     monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
-    monkeypatch.setattr(main, "_playback_status_projection", lambda: _status())
+    monkeypatch.setattr(
+        main,
+        "_playback_status_projection",
+        lambda: _status(chapter=MediaChapter("Bridge", 20, 40)),
+    )
 
     main.process(command)
 
     assert printed
     assert any("Track" in line for line in printed)
+    assert any("Ch 1/1 · Bridge" in line for line in printed)
 
 
 def test_rich_prompt_uses_projection_for_queue_live_unknown_and_stopped(monkeypatch):

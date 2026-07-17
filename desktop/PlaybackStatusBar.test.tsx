@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { PlaybackStatusBar } from './PlaybackStatusBar'
-import type { PlaybackStatus } from './shared'
+import { formatChapterLabel, type PlaybackStatus } from './shared'
 
 const status = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus => ({
   schema_version: 3,
@@ -31,6 +31,13 @@ const status = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus => ({
 afterEach(cleanup)
 
 describe('PlaybackStatusBar', () => {
+  it('formats chapter position and title defensively for footer rendering', () => {
+    expect(formatChapterLabel({ title: 'Bridge', start_time: 10, end_time: 20, index: 17, count: 23 })).toBe('Ch 17/23 · Bridge')
+    expect(formatChapterLabel({ title: '', start_time: 10, end_time: 20, index: 17, count: 23 })).toBe('Ch 17/23')
+    expect(formatChapterLabel({ title: 'Bridge', start_time: 10, end_time: 20 })).toBe('Bridge')
+    expect(formatChapterLabel(null)).toBe('')
+  })
+
   it('renders finite media identity, source, timing, queue position, and accessible progress', () => {
     render(<PlaybackStatusBar status={status()} />)
     expect(screen.getByText('Artist — Track')).toBeInTheDocument()

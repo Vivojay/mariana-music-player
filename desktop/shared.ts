@@ -28,6 +28,17 @@ export type PlaybackStatus = {
   safe_error: string | null
 }
 
+export function formatChapterLabel(chapter: PlaybackStatus['chapter']): string {
+  if (!chapter) return ''
+  const title = chapter.title?.trim() ?? ''
+  const index = Number(chapter.index)
+  const count = Number(chapter.count)
+  const position = Number.isInteger(index) && Number.isInteger(count) && index >= 1 && index <= count
+    ? `Ch ${index}/${count}`
+    : ''
+  return position && title ? `${position} · ${title}` : position || title
+}
+
 type BackendEventName = 'ready' | 'playback' | 'station' | 'sleep' | 'broadcast' | 'loudness' | 'queue' | 'playlist' | 'album' | 'download' | 'theme' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error'
 
 export type BackendEvent = {

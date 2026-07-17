@@ -131,7 +131,7 @@ describe('Mariana desktop shell', () => {
   it('renders playback chapters and the next ten station tracks from structured events', () => {
     render(<App />)
     act(() => {
-      backendEvent?.({ event: 'playback', payload: playbackStatus({ chapter: { title: 'A very long 章 chapter title', start_time: 10, end_time: 20 } }), timestamp: 1 })
+      backendEvent?.({ event: 'playback', payload: playbackStatus({ chapter: { title: 'A very long 章 chapter title', start_time: 10, end_time: 20, index: 17, count: 23 } }), timestamp: 1 })
       backendEvent?.({
         event: 'station',
         payload: {
@@ -141,7 +141,7 @@ describe('Mariana desktop shell', () => {
         timestamp: 2,
       })
     })
-    expect(screen.getByTitle('A very long 章 chapter title')).toHaveTextContent('A very long 章 chapter title')
+    expect(screen.getByTitle('Ch 17/23 · A very long 章 chapter title')).toHaveTextContent('Ch 17/23 · A very long 章 chapter title')
     fireEvent.click(screen.getByRole('button', { name: 'Station recommendations' }))
     expect(screen.getByLabelText('Station upcoming tracks')).toBeVisible()
     expect(screen.getByText('Track 10')).toBeInTheDocument()

@@ -110,7 +110,11 @@ from mariana.output_devices import OutputDeviceError, default_output_device
 from mariana.paths import initialize_runtime_paths
 from mariana.platform import open_path, reveal_path
 from mariana.playlists import PlaylistError, PlaylistStore
-from mariana.playback_status import PlaybackStatusProjection, project_playback_status
+from mariana.playback_status import (
+    PlaybackChapterProjection,
+    PlaybackStatusProjection,
+    project_playback_status,
+)
 from mariana.preferences import MediaPreferences, PreferenceState
 from mariana.presence import PresenceCoordinator, PresencePrivacyMode
 from mariana.queueing import PersistentQueue, QueueError
@@ -3178,6 +3182,25 @@ def _status_summary(status: PlaybackStatusProjection, *, detailed: bool = False)
     return ' | '.join(parts)
 
 
+def _status_chapter_label(chapter: PlaybackChapterProjection | None) -> str | None:
+    """Format a safe projected chapter without inspecting media or resolver state."""
+    if chapter is None:
+        return None
+    title = str(chapter.title or '').strip()
+    index = chapter.index
+    count = chapter.count
+    position = (
+        f'Ch {index}/{count}'
+        if isinstance(index, int)
+        and isinstance(count, int)
+        and 1 <= index <= count
+        else ''
+    )
+    if position and title:
+        return f'{position} · {title}'
+    return position or title or None
+
+
 def _playback_status_lines(
     status: PlaybackStatusProjection,
     *,
@@ -3196,18 +3219,16 @@ def _playback_status_lines(
         prefix = 'Now' if now else 'Progress'
         if now:
             lines = [f'{prefix}: {label} [{source}]', f'Status: {summary}']
-            if status.chapter:
-                position = (
-                    f' {status.chapter.index}/{status.chapter.count}'
-                    if status.chapter.index is not None and status.chapter.count is not None
-                    else ''
-                )
+            if chapter_label := _status_chapter_label(status.chapter):
                 lines.append(
-                    f'Chapter{position}: {status.chapter.title} '
+                    f'{chapter_label} '
                     f'({_status_time(status.chapter.start_time)}-{_status_time(status.chapter.end_time)})'
                 )
             return lines
-        return [f'{label} [{source}] | {summary}']
+        line = f'{label} [{source}] | {summary}'
+        if chapter_label := _status_chapter_label(status.chapter):
+            line += f' | {chapter_label}'
+        return [line]
 
     lines = [f'Title: {label}', f'Source: {source}', f'State: {status.display_state}']
     if status.live:
@@ -3224,14 +3245,9 @@ def _playback_status_lines(
     lines.append(f'Seekable: {"yes" if status.seekable else "no"}')
     if status.queue_position is not None:
         lines.append(f'Queue: {status.queue_position}/{status.queue_count}')
-    if status.chapter:
-        position = (
-            f' {status.chapter.index}/{status.chapter.count}'
-            if status.chapter.index is not None and status.chapter.count is not None
-            else ''
-        )
+    if chapter_label := _status_chapter_label(status.chapter):
         lines.append(
-            f'Chapter{position}: {status.chapter.title} '
+            f'{chapter_label} '
             f'({_status_time(status.chapter.start_time)}-{_status_time(status.chapter.end_time)})'
         )
     if status.safe_error:
@@ -5988,8 +6004,8 @@ def prompt_text():
             status = f'{_status_time(status_projection.position_seconds)} ━ duration ? ━ {state}'
         if status_projection.queue_position is not None:
             status += f' ━ Q {status_projection.queue_position}/{status_projection.queue_count}'
-        if status_projection.chapter:
-            status += f' ━ {truncate_display_cells(status_projection.chapter.title, 36)}'
+        if chapter_label := _status_chapter_label(status_projection.chapter):
+            status += f' ━ {truncate_display_cells(chapter_label, 36)}'
         if status_projection.safe_error:
             status += f' ━ {truncate_display_cells(status_projection.safe_error, 48)}'
     else:

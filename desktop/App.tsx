@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react'
 import { PlaybackStatusBar } from './PlaybackStatusBar'
 import { TerminalSurface } from './TerminalSurface'
 import { themes, type ThemeName } from './themes'
-import { trimDisplayCells, type BackendEvent, type PlaybackStatus, type UpdateState } from './shared'
+import { formatChapterLabel, trimDisplayCells, type BackendEvent, type PlaybackStatus, type UpdateState } from './shared'
 
 const TIMER_PRESETS = [15, 30, 45, 60, 90]
 
@@ -241,7 +241,7 @@ export default function App() {
     if (activeTab === id) setActiveTab(remaining[Math.max(0, index - 1)].id)
   }
 
-  const chapterTitle = playbackStatus?.chapter?.title ?? ''
+  const chapterLabel = formatChapterLabel(playbackStatus?.chapter ?? null)
   const stationTracks = Array.isArray(stationStatus.next)
     ? stationStatus.next as Array<{ id?: string; title?: string; artist?: string; reasons?: string[] }>
     : []
@@ -329,9 +329,9 @@ export default function App() {
               <b>DL</b> {activeDownloads}
             </button>
           )}
-          {chapterTitle && (
-            <span className="chapter-status" title={chapterTitle}>
-              <b>CH</b> {trimDisplayCells(chapterTitle, 64)}
+          {chapterLabel && (
+            <span className="chapter-status" title={chapterLabel}>
+              {trimDisplayCells(chapterLabel, 64)}
             </span>
           )}
           <button onClick={() => setReducedMotion((value) => !value)}>{reducedMotion ? 'motion off' : 'motion on'}</button>

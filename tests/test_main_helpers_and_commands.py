@@ -1044,11 +1044,13 @@ def test_autonext_queue_cursor_drives_navigation_when_legacy_index_is_stale(monk
 
 
 def test_rich_prompt_reports_media_progress(monkeypatch):
+    chapter = MediaChapter("A very long 章 chapter title that must be trimmed safely", 20, 40)
     media = main.MediaRef(
         main.MediaSource.LOCAL,
         "C:/music/track.mp3",
         title="Track",
         provenance="library",
+        chapters=[chapter],
     )
     monkeypatch.setattr(
         main,
@@ -1065,7 +1067,7 @@ def test_rich_prompt_reports_media_progress(monkeypatch):
             media=media,
             position=30,
             duration=120,
-            current_chapter=MediaChapter("A very long 章 chapter title that must be trimmed safely", 20, 40),
+            current_chapter=chapter,
         ),
     )
     prompt = main.prompt_text()
@@ -1073,7 +1075,7 @@ def test_rich_prompt_reports_media_progress(monkeypatch):
     assert "[3] Track" in prompt
     assert "00:30" in prompt and "02:00" in prompt and "25%" in prompt
     assert "Q 3/8" in prompt
-    assert "A very long 章 chapter title" in prompt and "…" in prompt
+    assert "Ch 1/1 · A very long 章 chapter" in prompt and "…" in prompt
 
 
 def test_exit_closes_independent_services_without_serial_waits(monkeypatch):

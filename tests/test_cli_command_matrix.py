@@ -378,7 +378,8 @@ def test_now_and_open_render_every_media_type(cli, monkeypatch, media_type, song
     title = song if isinstance(song, str) and not song.startswith("https://") else "Safe title"
     if isinstance(song, tuple):
         title = song[0]
-    media = MediaRef(source, str(song), title=title)
+    chapter = MediaChapter("Complete chapter title", 60, 120)
+    media = MediaRef(source, str(song), title=title, chapters=[chapter])
     monkeypatch.setattr(main.QUEUE, "playback_position", lambda _stable_id: (None, 0))
     monkeypatch.setattr(
         main.vas.controller,
@@ -388,11 +389,11 @@ def test_now_and_open_render_every_media_type(cli, monkeypatch, media_type, song
             media=media,
             position=75,
             duration=180,
-            current_chapter=MediaChapter("Complete chapter title", 60, 120),
+            current_chapter=chapter,
         ),
     )
     main.process("now")
-    assert any("Chapter: Complete chapter title (01:00-02:00)" in value for value in cli.printed)
+    assert any("Ch 1/1 · Complete chapter title (01:00-02:00)" in value for value in cli.printed)
     main.process("now*")
     main.process("open")
 
