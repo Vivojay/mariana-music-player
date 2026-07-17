@@ -431,7 +431,15 @@ def test_discord_publisher_coalesces_latest_pending_update(monkeypatch):
 
 
 def test_newer_projection_interrupts_throttle_wait(monkeypatch):
+    class Clock:
+        value = 0.0
+
+        def __call__(self):
+            return self.value
+
     transport = Transport()
+    clock = Clock()
+    throttle_waiting = threading.Event()
     monkeypatch.setattr(
         discord_presence.importlib,
         "import_module",
@@ -440,19 +448,31 @@ def test_newer_projection_interrupts_throttle_wait(monkeypatch):
     publisher = DiscordPresencePublisher(
         TEST_APPLICATION_ID,
         transport_factory=lambda _application_id: transport,
-        minimum_interval=0.15,
-        health_check_interval=10,
+        minimum_interval=10,
+        health_check_interval=60,
+        monotonic=clock,
     )
-    publisher.publish(PresenceProjection("First"))
-    wait_until(lambda: len(transport.updates) == 1)
-    publisher.publish(PresenceProjection("Superseded"))
-    time.sleep(0.03)
+    condition_wait = publisher._condition.wait
 
-    publisher.publish(PresenceProjection("Latest"))
+    def observe_throttle_wait(timeout=None):
+        if timeout is not None and 0 < timeout <= publisher._minimum_interval:
+            throttle_waiting.set()
+        return condition_wait(timeout)
 
-    wait_until(lambda: len(transport.updates) == 2)
-    assert [update["details"] for update in transport.updates] == ["First", "Latest"]
-    publisher.close()
+    monkeypatch.setattr(publisher._condition, "wait", observe_throttle_wait)
+    try:
+        publisher.publish(PresenceProjection("First"))
+        wait_until(lambda: len(transport.updates) == 1)
+        publisher.publish(PresenceProjection("Superseded"))
+        assert throttle_waiting.wait(0.5)
+
+        clock.value = publisher._minimum_interval
+        publisher.publish(PresenceProjection("Latest"))
+
+        wait_until(lambda: len(transport.updates) == 2)
+        assert [update["details"] for update in transport.updates] == ["First", "Latest"]
+    finally:
+        publisher.close()
 
 
 def test_transport_failure_is_typed_and_never_escapes_callers(monkeypatch):
