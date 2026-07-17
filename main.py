@@ -92,7 +92,7 @@ from mariana.library import LibraryCatalog, LibraryError
 from mariana.library_service import LibraryProfilerService
 from mariana.local_match import LocalMatchResult, LocalMatchStatus, LocalMediaMatcher
 from mariana.loudness import LoudnessError, RSGainAnalyzer
-from mariana.media_details import flattened_details, short_filename
+from mariana.media_details import flattened_details, short_filename_plan
 from mariana.media_removal import MediaRemovalError, MediaRemovalService
 from mariana.models import (
     IdentityStatus,
@@ -3059,9 +3059,18 @@ def rename_command(arguments):
     if media.source != MediaSource.LOCAL or info.get('state') != 'available':
         raise ValueError('Only an available, indexed local media file can be renamed')
     source = Path(info['canonical_path'])
-    filename = short_filename(source, info.get('metadata') or {})
+    plan = short_filename_plan(source, info.get('metadata') or {})
+    if plan.filename is None:
+        raise ValueError(plan.reason or 'Insufficient trusted metadata for safe rename.')
+    filename = plan.filename
     destination = source.with_name(filename)
-    IPrint(f'Rename preview:\n  {source.name}\n  -> {destination.name}', visible=visible)
+    if source.name.casefold() == destination.name.casefold():
+        raise ValueError('Current filename already matches the trusted short name.')
+    IPrint(
+        f'Rename preview:\n  {source.name}\n  -> {destination.name}\n'
+        f'Metadata confidence: {plan.confidence} ({plan.source})',
+        visible=visible,
+    )
     if dry_run:
         return destination
     if not _confirm_action('Apply this rename?', assume_yes=yes):

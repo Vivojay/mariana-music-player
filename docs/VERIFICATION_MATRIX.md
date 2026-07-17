@@ -112,7 +112,7 @@ user-facing behavior disappeared.
 | `res/banner.banner`, `res/default.css`, `res/first_boot_startup_sound.mp3` | Native assets | Retained as immutable resources |
 | External testing snapshot prompt/banner | Modernized | Rich two-line prompt ported; banner verified as the same mirrored blue gradient, with no rainbow asset present |
 | `media info/fingerprint/identify/local-match` | Native | Indexed/current metadata, conservative identity inspection, and offline unique local-copy matching |
-| `rename short` | Native | Transactional indexed-file rename with collision, extension, rollback, and source-ID safeguards |
+| `rename short` | Native | Transactional indexed-file rename with collision, rollback, source-ID de-duplication, confidence reporting, and placeholder-only refusal |
 | `autoplay`, `autonext`, `queue reset` | Native | Fresh queues mirror library order; direct selection preserves queue identity; custom queues are not overwritten; disabling discards prefetch and retains the completed end position |
 | `queue tree/group/order/priority/dedupe`, `playlist *` | Native | Transactional hierarchical groups, deterministic upcoming-item strategies, versioned local snapshots, M3U/M3U8 and explicit YouTube-playlist import |
 | `album search/show/tracks/fetch/play/queue/save` | Native | Release-specific local/MusicBrainz catalog, multidisc ordering, conservative local matching, verified canonical YouTube fallback |

@@ -309,8 +309,10 @@ Omit the URL from `download-yv` or `download-ya` to download the active
 YouTube item. After confirmation, the download runs in the current Mariana
 session and reports its result there; it never opens another REPL.
 YouTube downloads retain the eleven-character source ID in both output naming
-and embedded metadata so `rename short` can produce
-`Creator - Title Year [YouTube-ID].ext` without guessing provenance.
+and embedded metadata. Trusted cached source metadata takes precedence over
+generic embedded placeholders. `rename short --dry-run` reports the metadata
+confidence/source and produces `Creator - Title Year [YouTube-ID].ext`; it
+refuses placeholder-only, equivalent, or identity-duplicating proposals.
 
 Queues are persistent trees. A group can contain tracks or other groups up to
 eight levels deep; album and playlist groups are atomic by default, so root

@@ -1181,6 +1181,7 @@ def test_short_rename_preview_cancel_and_apply(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "currentsong", str(source))
 
     assert main.rename_command(["short", "--dry-run"]) == renamed
+    assert "Metadata confidence: medium (embedded metadata)" in printed[-1]
     monkeypatch.setattr("builtins.input", lambda _prompt="": "n")
     assert main.rename_command(["short"]) is None
     assert "Rename cancelled" in printed[-1]
@@ -1197,6 +1198,38 @@ def test_short_rename_preview_cancel_and_apply(monkeypatch, tmp_path):
     info["state"] = "missing"
     with pytest.raises(ValueError, match="available"):
         main.rename_command(["short", "--yes"])
+
+
+def test_short_rename_rejects_placeholder_only_and_equivalent_names(monkeypatch, tmp_path):
+    placeholder_path = tmp_path / "Unknown Artist - YouTube audio [dYsg37kwCwM].mp3"
+    placeholder_path.write_bytes(b"audio")
+    media = main.MediaRef(main.MediaSource.LOCAL, str(placeholder_path), stable_id="placeholder")
+    info = {
+        "canonical_path": str(placeholder_path),
+        "state": "available",
+        "metadata": {
+            "title": "Unknown Artist - YouTube audio [dYsg37kwCwM]",
+            "artist": "Unknown Artist",
+            "youtube_id": "dYsg37kwCwM",
+        },
+    }
+    rename_calls = []
+    monkeypatch.setattr(main, "_media_info", lambda _args: (media, info))
+    monkeypatch.setattr(main, "LIBRARY", SimpleNamespace(rename=lambda *args: rename_calls.append(args)))
+
+    with pytest.raises(ValueError, match="Insufficient trusted metadata for safe rename"):
+        main.rename_command(["short", "--dry-run"])
+    assert rename_calls == []
+
+    info["metadata"] = {
+        "source_title": "Actual Song",
+        "source_artist": "Actual Artist",
+        "youtube_id": "dYsg37kwCwM",
+    }
+    info["canonical_path"] = str(tmp_path / "Actual Artist - Actual Song [dYsg37kwCwM].mp3")
+    with pytest.raises(ValueError, match="already matches"):
+        main.rename_command(["short", "--dry-run"])
+    assert rename_calls == []
 
 
 @pytest.mark.parametrize("token", ["y", "yes", "--yes"])

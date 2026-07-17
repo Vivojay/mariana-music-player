@@ -175,7 +175,7 @@ database.
 | `library clean --missing [y|yes|--yes]` | Confirm and remove missing-file tombstones only; never delete media |
 | `reload` | Refresh the legacy library projection from the current index |
 | `include downloads`, `exclude downloads` | Add or remove Mariana's managed download root without editing user roots |
-| `rename short [current|index|path] [--dry-run] [y|yes|--yes]` | Rename indexed local media from trusted metadata and provenance |
+| `rename short [current|index|path] [--dry-run] [y|yes|--yes]` | Preview a confidence-labeled rename from trusted metadata; placeholder-only or equivalent proposals are refused |
 | `replaygain scan [changed|full]`, `replaygain rescan <index|path>` | Queue non-destructive loudness analysis |
 | `fav [!|+|-]`, `bl [!|+|-]` | Inspect, toggle, set, or clear favorite/blocked state for active media |
 | `like`, `dislike` | Set the active item to favorite or blocked |
