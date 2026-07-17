@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import yaml
 
 from .database import MarianaDatabase
-from .models import MediaRef, MediaSource
+from .models import MediaCapabilities, MediaChapter, MediaRef, MediaSource
 from .sources import sanitized_resolver_data
 
 if TYPE_CHECKING:
@@ -34,6 +34,7 @@ class PreferenceEntry:
     uri: str | None
     updated_at: float
     source: MediaSource | None = None
+    availability: str | None = None
 
 
 class MediaPreferences:
@@ -106,10 +107,12 @@ class MediaPreferences:
     def list(self, state: PreferenceState | str, limit: int | None = None) -> list[PreferenceEntry]:
         state = PreferenceState(state)
         sql = (
-            "SELECT p.stable_id, p.state, p.updated_at, m.source, m.original_uri, m.title, f.canonical_path "
+            "SELECT p.stable_id, p.state, p.updated_at, "
+            "COALESCE(m.source, CASE WHEN f.library_id IS NOT NULL THEN 'local' END) source, "
+            "m.original_uri, m.title, f.canonical_path, f.state availability "
             "FROM media_preferences p LEFT JOIN media_items m ON m.stable_id=p.stable_id "
             "LEFT JOIN library_files f ON f.library_id=p.stable_id WHERE p.state=? "
-            "ORDER BY p.updated_at DESC"
+            "ORDER BY p.updated_at DESC, p.stable_id ASC"
         )
         parameters: tuple = (state.value,)
         if limit is not None:
@@ -127,9 +130,35 @@ class MediaPreferences:
                 uri=row["canonical_path"] or row["original_uri"],
                 updated_at=row["updated_at"],
                 source=MediaSource(row["source"]) if row["source"] else None,
+                availability=row["availability"],
             )
             for row in self.database.fetchall(sql, parameters)
         ]
+
+    def media(self, stable_id: str) -> MediaRef | None:
+        """Return the durable stored media bound to one preference identity."""
+        row = self.database.fetchone("SELECT * FROM media_items WHERE stable_id=?", (stable_id,))
+        if not row:
+            return None
+        try:
+            return MediaRef(
+                stable_id=row["stable_id"],
+                source=MediaSource(row["source"]),
+                original_uri=row["original_uri"],
+                title=row["title"],
+                artist=row["artist"],
+                album=row["album"],
+                duration=row["duration"],
+                capabilities=MediaCapabilities.from_json(row["capabilities_json"]),
+                resolver_data=json.loads(row["resolver_json"]),
+                chapters=[
+                    MediaChapter.from_dict(item)
+                    for item in json.loads(row["chapters_json"] or "[]")
+                ],
+                provenance=row["provenance"],
+            )
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return None
 
     def migrate_legacy(self, path: Path | str, catalog: LibraryCatalog) -> dict[str, int]:
         path = Path(path)

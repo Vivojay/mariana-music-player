@@ -131,6 +131,37 @@ def test_preference_listing_limit_and_uri_label_fallbacks(tmp_path: Path):
         assert preferences.list(PreferenceState.FAVORITE, limit=-1) == []
 
 
+def test_preference_order_is_stable_and_stored_media_can_be_rebound(tmp_path: Path):
+    with MarianaDatabase(tmp_path / "state.db") as database:
+        preferences = MediaPreferences(database)
+        second = MediaRef(
+            MediaSource.YOUTUBE,
+            "https://www.youtube.com/watch?v=second",
+            stable_id="second",
+            title="Second",
+        )
+        first = MediaRef(
+            MediaSource.YOUTUBE,
+            "https://www.youtube.com/watch?v=first",
+            stable_id="first",
+            title="First",
+        )
+        preferences.set(second, PreferenceState.FAVORITE)
+        preferences.set(first, PreferenceState.FAVORITE)
+        database.execute("UPDATE media_preferences SET updated_at=100")
+
+        assert [entry.stable_id for entry in preferences.list(PreferenceState.FAVORITE)] == [
+            "first",
+            "second",
+        ]
+        rebound = preferences.media("second")
+        assert rebound is not None
+        assert rebound.stable_id == second.stable_id
+        assert rebound.original_uri == second.original_uri
+        assert rebound.title == "Second"
+        assert preferences.media("missing") is None
+
+
 def test_legacy_preferences_ignore_malformed_rows_and_reuse_backup(tmp_path: Path):
     legacy = tmp_path / "track-infos.yml"
     neutral = tmp_path / "neutral.mp3"

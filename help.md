@@ -177,9 +177,12 @@ database.
 | `include downloads`, `exclude downloads` | Add or remove Mariana's managed download root without editing user roots |
 | `rename short [current|index|path] [--dry-run] [y|yes|--yes]` | Preview a confidence-labeled rename from trusted metadata; placeholder-only or equivalent proposals are refused |
 | `replaygain scan [changed|full]`, `replaygain rescan <index|path>` | Queue non-destructive loudness analysis |
-| `fav [!|+|-]`, `bl [!|+|-]` | Inspect, toggle, set, or clear favorite/blocked state for active media |
+| `fav` | List favorites using stable favorite-local numbering |
+| `fav <favorite-index>` | Inspect that favorite without interpreting the number as a library index |
+| `.fav <favorite-index>` | Immediately play that favorite |
+| `fav current`, `fav [!|+|-]`, `bl [!|+|-]` | Inspect, toggle, set, or clear favorite/blocked state for active media |
 | `like`, `dislike` | Set the active item to favorite or blocked |
-| `favs [count]`, `blacklist [count]` | List persistent media preferences |
+| `favs [count]`, `blacklist [count]` | List persistent media preferences; `favs` remains the count-limited listing alias |
 
 Unavailable roots do not block startup. Missing media remains as history-aware
 tombstones until explicitly cleaned.

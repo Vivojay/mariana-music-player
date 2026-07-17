@@ -143,6 +143,7 @@ def test_preference_listing_download_root_and_recycle_helpers(monkeypatch, tmp_p
                 media.original_uri,
                 1,
                 MediaSource.LOCAL,
+                "available",
             )
         ],
     )
@@ -161,7 +162,7 @@ def test_preference_listing_download_root_and_recycle_helpers(monkeypatch, tmp_p
     with pytest.raises(ValueError, match="No active"):
         main.preference_command([], PreferenceState.FAVORITE)
     assert main.list_preferences(PreferenceState.FAVORITE, ["1"])[0].label == "Song"
-    assert any("Library #" in value and "Source / reference" in value for value in printed)
+    assert any("Library #" in value and "Source" in value for value in printed)
     with pytest.raises(ValueError, match="optional numeric"):
         main.list_preferences(PreferenceState.FAVORITE, ["all"])
     with pytest.raises(ValueError, match="optional numeric"):

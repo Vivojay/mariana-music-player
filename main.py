@@ -115,8 +115,8 @@ from mariana.playback_status import (
     PlaybackStatusProjection,
     project_playback_status,
 )
-from mariana.preferences import MediaPreferences, PreferenceState
-from mariana.presence import PresenceCoordinator, PresencePrivacyMode
+from mariana.preferences import MediaPreferences, PreferenceEntry, PreferenceState
+from mariana.presence import PresenceCoordinator, PresencePrivacyMode, sanitize_presence_text
 from mariana.queueing import PersistentQueue, QueueError
 from mariana.radio import RadioCatalog, RadioError
 from mariana.seek import SeekSyntaxError, parse_seek_target
@@ -2648,16 +2648,125 @@ def preference_command(arguments, state):
     return current
 
 
-def list_preferences(state, arguments):
+def _favorite_selection(index):
+    """Bind one favourite-local index to one durable media identity."""
+    entries = PREFERENCES.list(PreferenceState.FAVORITE)
+    if not entries:
+        raise ValueError('No favorites are saved')
+    if index not in range(1, len(entries) + 1):
+        raise ValueError(f'Favorite number must be between 1 and {len(entries)}')
+    entry = entries[index - 1]
+    stored = PREFERENCES.media(entry.stable_id)
+    source = entry.source or (stored.source if stored else None)
+    if source == MediaSource.LOCAL:
+        info = LIBRARY.info(entry.stable_id)
+        if not info or info.get('state') != 'available':
+            raise ValueError(f'Favorite #{index} is missing or unavailable in the indexed library')
+        canonical_path = info.get('canonical_path')
+        if not isinstance(canonical_path, str) or not Path(canonical_path).is_file():
+            raise ValueError(f'Favorite #{index} is missing or unavailable in the indexed library')
+        metadata = info.get('metadata') or {}
+        media = MediaRef(
+            MediaSource.LOCAL,
+            canonical_path,
+            stable_id=entry.stable_id,
+            title=metadata.get('title') or (stored.title if stored else None),
+            artist=metadata.get('artist') or (stored.artist if stored else None),
+            album=metadata.get('album') or (stored.album if stored else None),
+            duration=metadata.get('duration') or (stored.duration if stored else None),
+            resolver_data=dict(stored.resolver_data) if stored else {},
+            provenance='library',
+            capabilities=stored.capabilities if stored else MediaCapabilities(downloadable=False),
+            chapters=list(stored.chapters) if stored else [],
+        )
+        media = _indexed_local_playback_media(media)
+        library_index = _library_song_index(canonical_path)
+        return entry, media, library_index if isinstance(library_index, int) else None
+    if stored is None:
+        raise ValueError(f'Favorite #{index} is unavailable')
+    return entry, stored, None
+
+
+def _favorite_display_label(entry: PreferenceEntry, media: MediaRef | None = None) -> str:
+    """Return path- and URL-free text for favourite list and detail surfaces."""
+    title = sanitize_presence_text(media.title if media else entry.label)
+    artist = sanitize_presence_text(media.artist) if media else None
+    if title and artist and artist.casefold() not in title.casefold():
+        return f'{artist} — {title}'
+    if title:
+        return title
+    return {
+        MediaSource.LOCAL: 'Local media',
+        MediaSource.YOUTUBE: 'YouTube media',
+        MediaSource.URL: 'Online media',
+        MediaSource.PODCAST: 'Podcast',
+        MediaSource.RADIO: 'Internet radio',
+        MediaSource.RECOMMENDATION: 'Recommended media',
+    }.get((media.source if media else entry.source), 'Media')
+
+
+def _show_favorite_selection(index, entry, media, library_index):
+    source = media.source.value.replace('_', ' ').title()
+    IPrint(f'Favorite #{index}: {_favorite_display_label(entry, media)}', visible=visible)
+    IPrint(f'Source: {source}', visible=visible)
+    if media.source == MediaSource.LOCAL:
+        IPrint(
+            f'Library: #{library_index}' if library_index is not None else 'Library: indexed item',
+            visible=visible,
+        )
+
+
+def _play_favorite_selection(index, entry, media, library_index):
+    """Play exactly the immutable media bound by ``_favorite_selection``."""
+    try:
+        if media.source == MediaSource.LOCAL:
+            play_local_default_player(
+                media.original_uri,
+                _songindex=str(library_index) if library_index is not None else None,
+                media=media,
+            )
+        else:
+            stopsong()
+            vas.supervisor.play(media)
+            _set_current_media_state(media)
+            _show_local_copy_hint(media)
+    except (MediaFailure, OSError) as error:
+        raise ValueError(f'Favorite #{index} could not be played') from error
+    IPrint(f'Playing favorite #{index}: {_favorite_display_label(entry, media)}', visible=visible)
+    return media
+
+
+def favorite_command(arguments, *, play=False):
+    """List, inspect, edit, or play favourite-local selections."""
+    if play:
+        if len(arguments) != 1 or not arguments[0].isdigit() or int(arguments[0]) <= 0:
+            raise ValueError('Usage: .fav <favorite-index>')
+        index = int(arguments[0])
+        return _play_favorite_selection(index, *_favorite_selection(index))
+    if not arguments:
+        return list_preferences(PreferenceState.FAVORITE, [], default_limit=None)
+    if len(arguments) == 1 and arguments[0] in {'!', '+', '-'}:
+        return preference_command(arguments, PreferenceState.FAVORITE)
+    if arguments == ['current']:
+        return preference_command([], PreferenceState.FAVORITE)
+    if len(arguments) == 1 and arguments[0].isdigit() and int(arguments[0]) > 0:
+        index = int(arguments[0])
+        selection = _favorite_selection(index)
+        _show_favorite_selection(index, *selection)
+        return selection
+    raise ValueError('Usage: fav [favorite-index|current|!|+|-] | .fav <favorite-index>')
+
+
+def list_preferences(state, arguments, *, default_limit=MAX_RESULT_COUNT):
     if len(arguments) > 1 or (arguments and not arguments[0].isdigit()):
         raise ValueError('Preference list accepts an optional numeric limit')
-    limit = int(arguments[0]) if arguments else MAX_RESULT_COUNT
+    limit = int(arguments[0]) if arguments else default_limit
     entries = PREFERENCES.list(state, limit)
 
     def reference(entry):
-        if not entry.uri:
-            return f'Internal ID · {entry.stable_id}'
         if entry.source == MediaSource.LOCAL:
+            if entry.availability != 'available' or not entry.uri:
+                return 'Unavailable library item'
             target = str(Path(entry.uri).expanduser().resolve()).casefold()
             library_index = next(
                 (
@@ -2667,21 +2776,24 @@ def list_preferences(state, arguments):
                 ),
                 None,
             )
-            origin = f'Library #{library_index}' if library_index is not None else 'Local file'
+            origin = f'Library #{library_index}' if library_index is not None else 'Indexed library item'
         elif entry.source == MediaSource.YOUTUBE:
             origin = 'YouTube'
         elif entry.source == MediaSource.URL:
-            origin = 'Media link'
+            origin = 'Online media'
         elif entry.source is not None:
             origin = entry.source.value.replace('_', ' ').title()
         else:
             origin = 'Media'
-        return f'{origin} · {entry.uri}'
+        return origin
 
     IPrint(
         tbl(
-            [(index + 1, entry.label, reference(entry)) for index, entry in enumerate(entries)],
-            headers=('#', 'Title', 'Source / reference'),
+            [
+                (index + 1, _favorite_display_label(entry), reference(entry))
+                for index, entry in enumerate(entries)
+            ],
+            headers=('#', 'Title', 'Source'),
             tablefmt='plain',
         ) if entries else '(none)',
         visible=visible,
@@ -4394,6 +4506,8 @@ def process(command):
             'rename': rename_command,
             'station': station_command,
             'download-ya': download_audio_command,
+            'fav': favorite_command,
+            '.fav': lambda values: favorite_command(values, play=True),
         }
         if handler := routed.get(commandslist[0].casefold()):
             try:
@@ -5497,11 +5611,11 @@ def process(command):
                         log_message = 'Invalid song index provided for listing name',
                         log_priority = 2)
 
-        elif commandslist[0] in {'fav', 'bl', 'blacklisted'}:
+        elif commandslist[0] in {'bl', 'blacklisted'}:
             try:
                 preference_command(
                     commandslist[1:],
-                    PreferenceState.FAVORITE if commandslist[0] == 'fav' else PreferenceState.BLOCKED,
+                    PreferenceState.BLOCKED,
                 )
             except ValueError as error:
                 SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
