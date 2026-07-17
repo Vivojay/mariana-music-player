@@ -758,6 +758,51 @@ def test_close_is_bounded_while_local_rpc_connect_stalls():
     assert transport.updates == []
 
 
+def test_worker_honors_shutdown_immediately_after_wake(monkeypatch):
+    publisher = DiscordPresencePublisher(TEST_APPLICATION_ID)
+
+    def stop_after_wake():
+        with publisher._condition:
+            publisher._stopping = True
+        return True
+
+    monkeypatch.setattr(publisher, "_wait_for_work", stop_after_wake)
+
+    publisher._run()
+
+    assert publisher.status().state == DiscordConnectionState.CLOSED
+    assert publisher._transport is None
+
+
+def test_close_called_from_publisher_worker_does_not_join_itself(monkeypatch):
+    publisher_holder = {}
+
+    class WorkerClosingTransport(Transport):
+        def update(self, **values):
+            super().update(**values)
+            publisher_holder["publisher"].close()
+
+    transport = WorkerClosingTransport()
+    monkeypatch.setattr(
+        discord_presence.importlib,
+        "import_module",
+        lambda _name: SimpleNamespace(ActivityType=SimpleNamespace(LISTENING="listening")),
+    )
+    publisher = DiscordPresencePublisher(
+        TEST_APPLICATION_ID,
+        transport_factory=lambda _application_id: transport,
+        minimum_interval=0,
+    )
+    publisher_holder["publisher"] = publisher
+
+    publisher.publish(PresenceProjection("Using Mariana"))
+
+    wait_until(lambda: publisher.status().state == DiscordConnectionState.CLOSED)
+    assert len(transport.updates) == 1
+    assert transport.cleared == 1
+    assert transport.closed == 1
+
+
 @pytest.mark.parametrize(
     "state",
     [PlaybackState.IDLE, PlaybackState.FAILED, PlaybackState.STOPPING],
