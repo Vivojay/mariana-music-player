@@ -16,7 +16,7 @@ let exitEvent: ((event: { code: number; intentional: boolean }) => void) | undef
 let backendSnapshot: BackendSnapshot
 
 const playbackStatus = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus => ({
-  schema_version: 2,
+  schema_version: 3,
   state: 'playing',
   display_state: 'Playing',
   media_id: 'track-1',

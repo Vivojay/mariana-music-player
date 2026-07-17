@@ -16,7 +16,13 @@ export type PlaybackStatus = {
   library_index: number | null
   queue_position: number | null
   queue_count: number
-  chapter: { title: string; start_time: number; end_time: number } | null
+  chapter: {
+    title: string
+    start_time: number
+    end_time: number
+    index?: number | null
+    count?: number | null
+  } | null
   replaygain_db: number
   live_leveling: boolean
   safe_error: string | null

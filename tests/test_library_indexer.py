@@ -9,7 +9,7 @@ import pytest
 from mariana.database import SCHEMA_VERSION, MarianaDatabase
 from mariana.download_jobs import DownloadManager
 from mariana.library import LibraryCatalog, LibraryError, parse_library_file
-from mariana.models import MediaRef, MediaSource
+from mariana.models import MediaChapter, MediaRef, MediaSource
 
 
 def write_library(path: Path, *roots: Path) -> None:
@@ -168,6 +168,76 @@ def test_probe_prefers_trusted_download_source_tags_over_placeholders(monkeypatc
         database.close()
 
 
+@pytest.mark.parametrize(
+    ("suffix", "format_name"),
+    [
+        (".mp3", "mp3"),
+        (".m4a", "mov,mp4,m4a,3gp,3g2,mj2"),
+        (".mp4", "mov,mp4,m4a,3gp,3g2,mj2"),
+        (".webm", "matroska,webm"),
+        (".mkv", "matroska,webm"),
+    ],
+)
+def test_probe_persists_embedded_chapters_idempotently(
+    monkeypatch, tmp_path: Path, suffix: str, format_name: str
+):
+    root = tmp_path / "music"
+    root.mkdir()
+    media_path = root / f"chaptered{suffix}"
+    media_path.write_bytes(b"media")
+    library_file = tmp_path / "lib.lib"
+    write_library(library_file, root)
+    database = MarianaDatabase(tmp_path / "chapters.db")
+    library = LibraryCatalog(
+        database,
+        library_file=library_file,
+        supported_extensions=[suffix],
+        ffmpeg_bin=str(tmp_path),
+        fpcalc_bin=str(tmp_path),
+    )
+    payload = {
+        "format": {"duration": "60", "format_name": format_name, "tags": {"title": "Chaptered"}},
+        "streams": [{"codec_type": "audio", "codec_name": "aac"}],
+        "chapters": [
+            {"start_time": "30", "end_time": "80", "tags": {"title": "Second"}},
+            {"start_time": "0", "end_time": "40", "tags": {"TITLE": " Intro\nPart "}},
+            {"start_time": "bad", "end_time": "50", "tags": {"title": "Invalid"}},
+            {"start_time": "60", "end_time": "50", "tags": {"title": "Backwards"}},
+        ],
+    }
+    commands = []
+
+    def ffprobe(command, **_kwargs):
+        commands.append(command)
+        return subprocess.CompletedProcess([], 0, json.dumps(payload), "")
+
+    monkeypatch.setattr("mariana.library.find_executable", lambda *_args: "ffprobe")
+    monkeypatch.setattr("mariana.library.subprocess.run", ffprobe)
+    monkeypatch.setattr("mariana.library.MutagenFile", lambda *_args, **_kwargs: SimpleNamespace(tags={}))
+    try:
+        assert library.scan().changed == 1
+        assert library.process_jobs("probe") == 1
+        expected = [MediaChapter("Intro Part", 0, 30), MediaChapter("Second", 30, 60)]
+        assert library.media_refs()[0].chapters == expected
+        assert library.info("1")["metadata"]["chapters"] == [
+            {"title": "Intro Part", "start_time": 0.0, "end_time": 30.0},
+            {"title": "Second", "start_time": 30.0, "end_time": 60.0},
+        ]
+        stored = json.loads(database.fetchone("SELECT chapters_json FROM media_items")["chapters_json"])
+        assert len(stored) == 2
+        assert any(
+            "chapter=start_time,end_time:chapter_tags=title" in argument
+            for argument in commands[0]
+        )
+
+        assert library.scan("full").changed == 1
+        assert library.process_jobs("probe") == 1
+        assert library.media_refs()[0].chapters == expected
+        assert len(json.loads(database.fetchone("SELECT chapters_json FROM media_items")["chapters_json"])) == 2
+    finally:
+        database.close()
+
+
 def test_trusted_download_metadata_survives_library_reload_and_reprobe(monkeypatch, tmp_path: Path):
     root = tmp_path / "music"
     root.mkdir()
@@ -198,6 +268,11 @@ def test_trusted_download_metadata_survives_library_reload_and_reprobe(monkeypat
         "source_artist": "7clouds",
         "source_uploader": "7clouds",
         "source_channel": "7clouds",
+        "duration": 180,
+        "chapters": [
+            {"title": "Intro", "start_time": 0, "end_time": 30},
+            {"title": "Song", "start_time": 30, "end_time": 180},
+        ],
         "metadata_source": "youtube-download",
         "metadata_confidence": "trusted",
     }
@@ -236,6 +311,8 @@ def test_trusted_download_metadata_survives_library_reload_and_reprobe(monkeypat
         )
         assert persisted["source_title"] == before_probe["source_title"]
         assert persisted["source_artist"] == before_probe["source_artist"]
+        assert len(persisted["chapters"]) == 2
+        assert library.media_refs()[0].chapter_at(45) == MediaChapter("Song", 30, 180)
 
         output.write_bytes(b"changed-audio")
         assert library.scan("changed").changed == 1
@@ -243,6 +320,7 @@ def test_trusted_download_metadata_survives_library_reload_and_reprobe(monkeypat
         reloaded = library.info("1")["metadata"]
         assert reloaded["source_title"] == before_probe["source_title"]
         assert reloaded["source_artist"] == before_probe["source_artist"]
+        assert len(reloaded["chapters"]) == 2
         assert "youtube.com" not in json.dumps(reloaded)
     finally:
         manager.close()

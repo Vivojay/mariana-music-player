@@ -73,6 +73,7 @@ from first_boot_welcome_screen import notify;       _boot_progress(21, 'first ru
 from config_manager import load_system_settings, load_user_settings, save_user_settings
 from mariana.albums import AlbumCatalog, AlbumError
 from mariana.broadcast import BroadcastError, BroadcastState, IcecastBroadcaster
+from mariana.chapters import normalize_chapters
 from mariana.commands import (
     DOWNLOAD_TYPOS,
     SEARCH_COMMANDS,
@@ -97,6 +98,7 @@ from mariana.media_removal import MediaRemovalError, MediaRemovalService
 from mariana.models import (
     IdentityStatus,
     MediaCapabilities,
+    MediaChapter,
     MediaRef,
     MediaSource,
     PlaybackState,
@@ -837,6 +839,10 @@ def _indexed_local_playback_media(media):
     # The catalog already presents this indexed basename in library listings.
     # Keep it separate from media.title so external presence never receives it.
     resolver_data['library_display_title'] = Path(canonical_path).stem
+    chapters = media.chapters or [
+        MediaChapter.from_dict(item)
+        for item in normalize_chapters(metadata.get('chapters'), media.duration or metadata.get('duration'))
+    ]
     return MediaRef(
         MediaSource.LOCAL,
         canonical_path,
@@ -848,7 +854,7 @@ def _indexed_local_playback_media(media):
         resolver_data=resolver_data,
         provenance='library',
         capabilities=media.capabilities,
-        chapters=media.chapters,
+        chapters=chapters,
     )
 
 
@@ -3180,8 +3186,13 @@ def _playback_status_lines(
         if now:
             lines = [f'{prefix}: {label} [{source}]', f'Status: {summary}']
             if status.chapter:
+                position = (
+                    f' {status.chapter.index}/{status.chapter.count}'
+                    if status.chapter.index is not None and status.chapter.count is not None
+                    else ''
+                )
                 lines.append(
-                    f'Chapter: {status.chapter.title} '
+                    f'Chapter{position}: {status.chapter.title} '
                     f'({_status_time(status.chapter.start_time)}-{_status_time(status.chapter.end_time)})'
                 )
             return lines
@@ -3203,8 +3214,13 @@ def _playback_status_lines(
     if status.queue_position is not None:
         lines.append(f'Queue: {status.queue_position}/{status.queue_count}')
     if status.chapter:
+        position = (
+            f' {status.chapter.index}/{status.chapter.count}'
+            if status.chapter.index is not None and status.chapter.count is not None
+            else ''
+        )
         lines.append(
-            f'Chapter: {status.chapter.title} '
+            f'Chapter{position}: {status.chapter.title} '
             f'({_status_time(status.chapter.start_time)}-{_status_time(status.chapter.end_time)})'
         )
     if status.safe_error:

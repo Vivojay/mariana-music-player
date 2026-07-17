@@ -84,27 +84,39 @@ def test_projection_normalizes_nonfinite_position(position):
 
 
 def test_projection_includes_safe_finite_metadata_and_chapter():
+    chaptered = media()
+    chaptered.chapters = [
+        MediaChapter("Intro", 0, 20),
+        MediaChapter("Verse\nOne", 20, 40),
+        MediaChapter("Outro", 40, 100),
+    ]
     projection = project_playback_status(
         PlaybackSnapshot(
             PlaybackState.PLAYING,
-            media=media(),
+            media=chaptered,
             position=25,
             duration=100,
             buffered_seconds=3,
             replaygain_db=-2.5,
-            current_chapter=MediaChapter("Verse\nOne", 20, 40),
+            current_chapter=chaptered.chapters[1],
         ),
         queue_position=2,
         queue_count=5,
     )
-    assert projection.schema_version == 2
+    assert projection.schema_version == 3
     assert projection.title == "Track" and projection.artist == "Artist"
     assert projection.source == "local" and projection.media_id
     assert projection.finite and projection.seekable and not projection.live
     assert projection.queue_position == 2 and projection.queue_count == 5
     assert projection.buffered_seconds == 3 and projection.replaygain_db == -2.5
-    assert projection.chapter == PlaybackChapterProjection("Verse One", 20, 40)
-    assert projection.to_dict()["chapter"] == {"title": "Verse One", "start_time": 20, "end_time": 40}
+    assert projection.chapter == PlaybackChapterProjection("Verse One", 20, 40, 2, 3)
+    assert projection.to_dict()["chapter"] == {
+        "title": "Verse One",
+        "start_time": 20,
+        "end_time": 40,
+        "index": 2,
+        "count": 3,
+    }
 
 
 def test_projection_represents_live_nonseekable_media_without_percentage():

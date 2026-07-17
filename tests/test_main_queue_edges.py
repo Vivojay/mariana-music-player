@@ -4,7 +4,7 @@ import pytest
 
 import main
 from mariana.database import MarianaDatabase
-from mariana.models import MediaCapabilities, MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
+from mariana.models import MediaCapabilities, MediaChapter, MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
 from mariana.playback_status import project_playback_status
 from mariana.queueing import PersistentQueue, QueueError
 
@@ -36,7 +36,14 @@ def test_indexed_local_playback_media_uses_catalog_metadata_and_safe_display_lab
         "library_id": "library-id",
         "canonical_path": str(song),
         "state": "available",
-        "metadata": {"artist": "Artist", "duration": 120},
+        "metadata": {
+            "artist": "Artist",
+            "duration": 120,
+            "chapters": [
+                {"title": "Intro", "start_time": 0, "end_time": 30},
+                {"title": "Song", "start_time": 30, "end_time": 120},
+            ],
+        },
     }
     monkeypatch.setattr(main.LIBRARY, "info", lambda value: indexed if value == str(song) else None)
 
@@ -46,6 +53,7 @@ def test_indexed_local_playback_media_uses_catalog_metadata_and_safe_display_lab
     assert enriched.stable_id == "library-id"
     assert enriched.artist == "Artist" and enriched.duration == 120
     assert enriched.title is None
+    assert enriched.chapters == [MediaChapter("Intro", 0, 30), MediaChapter("Song", 30, 120)]
     assert enriched.resolver_data["library_display_title"] == "maybe you miss me [932698612]"
     assert str(song) not in str(enriched.resolver_data)
     assert project_playback_status(

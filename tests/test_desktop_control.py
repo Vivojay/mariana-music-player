@@ -62,6 +62,9 @@ def projected_status(
     )
     if media is not None and library_index is not None and source == MediaSource.LOCAL:
         media.provenance = "library"
+    chapter = MediaChapter("Verse", 1, 5) if media else None
+    if media is not None and chapter is not None:
+        media.chapters = [chapter]
     return project_playback_status(
         PlaybackSnapshot(
             state,
@@ -69,7 +72,7 @@ def projected_status(
             duration=duration,
             error=error,
             media=media,
-            current_chapter=MediaChapter("Verse", 1, 5) if media else None,
+            current_chapter=chapter,
         ),
         library_index=library_index,
         queue_position=queue_position,
@@ -114,7 +117,13 @@ def test_playback_and_safety_monitors_emit_changes_and_close_cleanly(monkeypatch
     assert playback["library_index"] == 3
     assert playback["queue_position"] == 2
     assert playback["queue_count"] == 4
-    assert playback["chapter"] == {"title": "Verse", "start_time": 1, "end_time": 5}
+    assert playback["chapter"] == {
+        "title": "Verse",
+        "start_time": 1,
+        "end_time": 5,
+        "index": 1,
+        "count": 1,
+    }
     assert next(payload for event, payload in events if event == "loudness")["replaygain_db"] == 0
     assert next(payload for event, payload in events if event == "update-safe")["reasons"] == ["playback"]
     control.close()

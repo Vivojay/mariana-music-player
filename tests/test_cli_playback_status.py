@@ -45,6 +45,8 @@ def _status(
     chapter: MediaChapter | None = None,
 ) -> PlaybackStatusProjection:
     selected_media = media or _media()
+    if chapter is not None and not selected_media.chapters:
+        selected_media.chapters = [chapter]
     if library_index is not None and selected_media.source == MediaSource.LOCAL:
         selected_media.provenance = "library"
     return project_playback_status(
@@ -136,12 +138,12 @@ def test_now_and_detailed_progress_include_safe_projection_fields():
     assert now == [
         "Now: Artist — Track [Local]",
         "Status: [#####---------------] | 00:30 / 02:00 | 25% | Playing | queue 2/5",
-        "Chapter: Verse (00:20-00:40)",
+        "Chapter 1/1: Verse (00:20-00:40)",
     ]
     assert "Source: Local" in detailed
     assert "Seekable: yes" in detailed
     assert "Queue: 2/5" in detailed
-    assert "Chapter: Verse (00:20-00:40)" in detailed
+    assert "Chapter 1/1: Verse (00:20-00:40)" in detailed
 
 
 def test_projection_and_output_never_fall_back_to_online_url():

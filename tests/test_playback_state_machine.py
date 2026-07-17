@@ -128,6 +128,35 @@ def test_prepare_success_failure_and_play_without_media(controller, monkeypatch)
     assert controller.snapshot().state == PlaybackState.FAILED
 
 
+def test_prepare_preserves_catalog_chapters_and_projects_position(controller):
+    catalog_chapters = [
+        MediaChapter("Local intro", 0, 10),
+        MediaChapter("Local verse", 10, 20),
+    ]
+    media = MediaRef(
+        MediaSource.LOCAL,
+        "C:/chaptered.flac",
+        title="Chaptered",
+        duration=20,
+        chapters=catalog_chapters,
+    )
+
+    class ResolverWithDifferentChapters(Resolvers):
+        def resolve(self, source, **_kwargs):
+            resolved = super().resolve(source)
+            resolved.metadata["chapters"] = [
+                {"title": "Resolver fallback", "start_time": 0, "end_time": 20}
+            ]
+            return resolved
+
+    controller.resolvers = ResolverWithDifferentChapters()
+    assert controller.prepare(media, probe=False).chapters == catalog_chapters
+    active = Session(media)
+    active.position = 12
+    controller._active = active
+    assert controller.snapshot().current_chapter == catalog_chapters[1]
+
+
 def test_play_prefetch_replace_and_failure(controller):
     media = controller.play(finite(), probe=False)
     assert media.title == "track"

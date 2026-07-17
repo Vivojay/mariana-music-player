@@ -9,7 +9,7 @@ from typing import Any
 
 from .models import MediaSource, PlaybackSnapshot, PlaybackState
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 MAX_ERROR_LENGTH = 160
 _GENERIC_ERROR = "Playback failed; see logs for details"
 _SPACE_PATTERN = re.compile(r"\s+")
@@ -27,6 +27,8 @@ class PlaybackChapterProjection:
     title: str
     start_time: float
     end_time: float
+    index: int | None = None
+    count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,7 +159,14 @@ def _chapter(snapshot: PlaybackSnapshot) -> PlaybackChapterProjection | None:
     end = _finite_nonnegative(chapter.end_time)
     if title is None or end <= start:
         return None
-    return PlaybackChapterProjection(title, start, end)
+    index = count = None
+    if snapshot.media and snapshot.media.chapters:
+        count = len(snapshot.media.chapters)
+        try:
+            index = snapshot.media.chapters.index(chapter) + 1
+        except ValueError:
+            count = None
+    return PlaybackChapterProjection(title, start, end, index, count)
 
 
 def project_playback_status(

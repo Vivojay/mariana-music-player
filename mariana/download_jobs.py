@@ -20,6 +20,7 @@ from yt_dlp import YoutubeDL
 
 from beta.youtube_media import integration_options
 
+from .chapters import normalize_chapters
 from .database import MarianaDatabase
 from .media_details import deduplicate_media_title, trusted_metadata_text
 from .models import DownloadItem, DownloadJob, DownloadState, MediaRef, MediaSource, canonical_uri
@@ -118,6 +119,20 @@ def resolved_download_metadata(item: DownloadItem, extracted: dict[str, Any]) ->
         metadata["source_uploader"] = uploader
     if channel:
         metadata["source_channel"] = channel
+    chapter_sources = (
+        extracted.get("chapters"),
+        metadata.get("chapters"),
+        [asdict(chapter) for chapter in item.media.chapters],
+    )
+    duration = extracted.get("duration") or metadata.get("duration") or item.media.duration
+    chapters = next(
+        (normalized for value in chapter_sources if (normalized := normalize_chapters(value, duration))),
+        [],
+    )
+    if chapters:
+        metadata["chapters"] = chapters
+    else:
+        metadata.pop("chapters", None)
     metadata["metadata_source"] = "youtube-download"
     metadata["metadata_confidence"] = "trusted" if title else "placeholder"
     return metadata
@@ -534,7 +549,7 @@ class DownloadManager:
                     "preferredcodec": "mp3",
                     "preferredquality": "192",
                 },
-                {"key": "FFmpegMetadata", "add_metadata": True},
+                {"key": "FFmpegMetadata", "add_metadata": True, "add_chapters": True},
             ],
             "postprocessor_args": {"FFmpegMetadata": post_args},
         }

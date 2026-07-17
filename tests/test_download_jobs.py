@@ -70,6 +70,21 @@ class FailingDownloader(SuccessfulDownloader):
         raise OSError("network failed")
 
 
+class ChapterDownloader(SuccessfulDownloader):
+    def extract_info(self, url, *, download):
+        info = super().extract_info(url, download=download)
+        info.update(
+            {
+                "duration": 90,
+                "chapters": [
+                    {"title": "Intro", "start_time": 0, "end_time": 30},
+                    {"title": "Song", "start_time": 30, "end_time": 90},
+                ],
+            }
+        )
+        return info
+
+
 class BlockingDownloader(SuccessfulDownloader):
     started = threading.Event()
 
@@ -217,6 +232,40 @@ def test_download_keeps_trusted_cached_source_metadata_over_generic_extraction(t
             assert Path(item.output_path).name == "Trusted Artist - Trusted Song [dYsg37kwCwM].mp3"
             assert item.metadata["source_title"] == "Trusted Song"
             assert item.metadata["source_artist"] == "Trusted Artist"
+        finally:
+            manager.close()
+
+
+def test_download_embeds_and_persists_normalized_chapters(tmp_path: Path):
+    with MarianaDatabase(tmp_path / "chapters.db") as database:
+        manager = DownloadManager(database, downloader_factory=ChapterDownloader)
+        try:
+            job = manager.create(
+                [youtube_media("chaptered01")],
+                destination=tmp_path / "downloads",
+            )
+
+            assert manager.wait(job.job_id).state == DownloadState.COMPLETED
+            item = manager.items(job.job_id)[0]
+            assert item.metadata["chapters"] == [
+                {"title": "Intro", "start_time": 0.0, "end_time": 30.0},
+                {"title": "Song", "start_time": 30.0, "end_time": 90.0},
+            ]
+            metadata_postprocessor = next(
+                value
+                for value in ChapterDownloader.last_options["postprocessors"]
+                if value["key"] == "FFmpegMetadata"
+            )
+            assert metadata_postprocessor == {
+                "key": "FFmpegMetadata",
+                "add_metadata": True,
+                "add_chapters": True,
+            }
+            persisted = database.fetchone(
+                "SELECT metadata_json FROM download_items WHERE item_id=?", (item.item_id,)
+            )["metadata_json"]
+            assert "chapters" in persisted
+            assert all(secret not in persisted for secret in ("signed.test", "Authorization", "token=secret"))
         finally:
             manager.close()
 

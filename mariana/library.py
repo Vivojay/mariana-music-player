@@ -18,6 +18,7 @@ from typing import Any
 from mutagen import File as MutagenFile  # pyright: ignore[reportMissingImports]
 from mutagen import MutagenError  # pyright: ignore[reportMissingImports]
 
+from .chapters import normalize_chapters
 from .database import MarianaDatabase
 from .identity import IdentificationError, IdentificationService, fingerprint_file
 from .loudness import (
@@ -29,12 +30,12 @@ from .loudness import (
     profile_from_tags,
 )
 from .media_details import extract_youtube_id, trusted_metadata_text
-from .models import MediaCapabilities, MediaRef, MediaSource
+from .models import MediaCapabilities, MediaChapter, MediaRef, MediaSource
 from .playback import CREATE_NO_WINDOW, find_executable
 
 APP_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_LIBRARY_FILE = APP_DIR / "lib.lib"
-PROBE_VERSION = 1
+PROBE_VERSION = 2
 
 
 class LibraryError(RuntimeError):
@@ -295,6 +296,8 @@ class LibraryCatalog:
                     "WHERE library_id=?",
                     (generation, now, existing["library_id"]),
                 )
+                if int(existing["probe_version"] or 0) < PROBE_VERSION:
+                    self._schedule(connection, existing["library_id"], "probe", priority=100)
             return False, existing["library_id"]
 
         identity = file_key(stat)
@@ -446,7 +449,7 @@ class LibraryCatalog:
                 or metadata.get("source_channel"),
                 youtube_id=candidate_id,
             )
-            result = {
+            result: dict[str, Any] = {
                 "title": title,
                 "source_title": title,
                 "metadata_source": "youtube-download",
@@ -459,6 +462,8 @@ class LibraryCatalog:
                     result[key] = value
             if candidate_id:
                 result["youtube_id"] = candidate_id
+            if chapters := normalize_chapters(metadata.get("chapters"), metadata.get("duration")):
+                result["chapters"] = chapters
             return result
         return {}
 
@@ -475,6 +480,7 @@ class LibraryCatalog:
             "SELECT * FROM library_files WHERE state='available' ORDER BY path_key"
         ):
             metadata = json.loads(row["metadata_json"] or "{}")
+            chapters = normalize_chapters(metadata.get("chapters"), metadata.get("duration"))
             result.append(
                 MediaRef(
                     MediaSource.LOCAL,
@@ -491,6 +497,7 @@ class LibraryCatalog:
                     },
                     provenance="library",
                     capabilities=MediaCapabilities(downloadable=False, metadata_available=bool(metadata)),
+                    chapters=[MediaChapter.from_dict(item) for item in chapters],
                 )
             )
         return result
@@ -548,7 +555,8 @@ class LibraryCatalog:
                     "-v",
                     "error",
                     "-show_entries",
-                    "format=duration,format_name,bit_rate,tags:stream=codec_type,codec_name,sample_rate,channels,tags",
+                    "format=duration,format_name,bit_rate,tags:stream=codec_type,codec_name,sample_rate,channels,tags:"
+                    "chapter=start_time,end_time:chapter_tags=title",
                     "-of",
                     "json",
                     str(job.path),
@@ -621,8 +629,10 @@ class LibraryCatalog:
             "sample_rate": audio.get("sample_rate"),
             "channels": audio.get("channels"),
             "artwork_embedded": artwork,
+            "chapters": normalize_chapters(payload.get("chapters"), duration),
         }
         metadata = self._metadata_with_download_source(job.path, metadata)
+        metadata["chapters"] = normalize_chapters(metadata.get("chapters"), duration)
         library_row = self.database.fetchone(
             "SELECT content_signature FROM library_files WHERE library_id=?", (job.library_id,)
         )
@@ -656,11 +666,12 @@ class LibraryCatalog:
             capabilities = MediaCapabilities(downloadable=False, metadata_available=True)
             connection.execute(
                 "INSERT INTO media_items(stable_id, source, original_uri, title, artist, album, duration, "
-                "capabilities_json, resolver_json, provenance, updated_at) VALUES(?, 'local', ?, ?, ?, ?, ?, ?, ?, "
-                "'library', ?) ON CONFLICT(stable_id) DO UPDATE SET original_uri=excluded.original_uri, "
+                "capabilities_json, resolver_json, chapters_json, provenance, updated_at) "
+                "VALUES(?, 'local', ?, ?, ?, ?, ?, ?, ?, ?, 'library', ?) "
+                "ON CONFLICT(stable_id) DO UPDATE SET original_uri=excluded.original_uri, "
                 "title=excluded.title, artist=excluded.artist, album=excluded.album, duration=excluded.duration, "
                 "capabilities_json=excluded.capabilities_json, resolver_json=excluded.resolver_json, "
-                "provenance='library', updated_at=excluded.updated_at",
+                "chapters_json=excluded.chapters_json, provenance='library', updated_at=excluded.updated_at",
                 (
                     job.library_id,
                     str(job.path),
@@ -677,6 +688,7 @@ class LibraryCatalog:
                         ensure_ascii=False,
                         sort_keys=True,
                     ),
+                    json.dumps(metadata["chapters"], ensure_ascii=False, sort_keys=True),
                     time.time(),
                 ),
             )

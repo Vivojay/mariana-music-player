@@ -4,7 +4,7 @@ import { PlaybackStatusBar } from './PlaybackStatusBar'
 import type { PlaybackStatus } from './shared'
 
 const status = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus => ({
-  schema_version: 2,
+  schema_version: 3,
   state: 'playing',
   display_state: 'Playing',
   media_id: 'track-1',
