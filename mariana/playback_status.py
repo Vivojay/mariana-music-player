@@ -9,7 +9,7 @@ from typing import Any
 
 from .models import MediaSource, PlaybackSnapshot, PlaybackState
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MAX_ERROR_LENGTH = 160
 _GENERIC_ERROR = "Playback failed; see logs for details"
 _SPACE_PATTERN = re.compile(r"\s+")
@@ -45,6 +45,7 @@ class PlaybackStatusProjection:
     finite: bool
     live: bool
     seekable: bool
+    library_index: int | None
     queue_position: int | None
     queue_count: int
     chapter: PlaybackChapterProjection | None
@@ -162,6 +163,7 @@ def _chapter(snapshot: PlaybackSnapshot) -> PlaybackChapterProjection | None:
 def project_playback_status(
     snapshot: PlaybackSnapshot,
     *,
+    library_index: int | None = None,
     queue_position: int | None = None,
     queue_count: int = 0,
 ) -> PlaybackStatusProjection:
@@ -180,6 +182,15 @@ def project_playback_status(
         if media is not None
         and queue_position is not None
         and 1 <= int(queue_position) <= count
+        else None
+    )
+    normalized_library_index = (
+        int(library_index)
+        if media is not None
+        and media.source == MediaSource.LOCAL
+        and media.provenance == "library"
+        and library_index is not None
+        and int(library_index) > 0
         else None
     )
 
@@ -214,6 +225,7 @@ def project_playback_status(
         finite=finite,
         live=live,
         seekable=seekable,
+        library_index=normalized_library_index,
         queue_position=normalized_queue_position,
         queue_count=count,
         chapter=_chapter(snapshot),

@@ -499,6 +499,7 @@ def test_completion_callback_advances_persistent_queue_without_restarting_prefet
         items=lambda: [first, second],
     )
     events = []
+    monkeypatch.setattr(main, "_sound_files", [first.media.original_uri, second.media.original_uri])
     monkeypatch.setattr(main, "QUEUE", queue)
     monkeypatch.setattr(main.RECOMMENDER, "record_event", lambda media, event, **_kwargs: events.append((media, event)))
     monkeypatch.setattr(
@@ -511,6 +512,7 @@ def test_completion_callback_advances_persistent_queue_without_restarting_prefet
     main._on_queue_item_complete(first.media)
     assert [event for _media, event in events] == ["completion", "start", "prefetch"]
     assert main.currentsong == "Second"
+    assert main.songindex == 2
 
 
 def test_process_reconciles_finished_playback_and_tolerates_snapshot_failure(cli, monkeypatch):

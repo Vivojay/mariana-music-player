@@ -97,7 +97,7 @@ def test_projection_includes_safe_finite_metadata_and_chapter():
         queue_position=2,
         queue_count=5,
     )
-    assert projection.schema_version == 1
+    assert projection.schema_version == 2
     assert projection.title == "Track" and projection.artist == "Artist"
     assert projection.source == "local" and projection.media_id
     assert projection.finite and projection.seekable and not projection.live
@@ -158,6 +158,30 @@ def test_projection_uses_dedicated_indexed_local_display_title_without_exposing_
 
     assert projected.title == "maybe you miss me [932698612]"
     assert "C:/private" not in str(projected.to_dict())
+
+
+def test_projection_accepts_library_index_only_for_indexed_local_media():
+    indexed = media(title="Indexed Track")
+    indexed.provenance = "library"
+    online = media(MediaSource.YOUTUBE, title="Online Track")
+    unindexed = media(title=None)
+
+    local_status = project_playback_status(
+        PlaybackSnapshot(PlaybackState.PLAYING, media=indexed),
+        library_index=37,
+    )
+    online_status = project_playback_status(
+        PlaybackSnapshot(PlaybackState.PLAYING, media=online),
+        library_index=37,
+    )
+    unindexed_status = project_playback_status(
+        PlaybackSnapshot(PlaybackState.PLAYING, media=unindexed),
+        library_index=37,
+    )
+
+    assert local_status.library_index == 37
+    assert online_status.library_index is None
+    assert unindexed_status.library_index is None
 
 
 def test_projection_rejects_unsafe_indexed_local_display_title():

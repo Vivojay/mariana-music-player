@@ -99,6 +99,30 @@ def test_projection_modes_and_inactive_state():
     assert project_presence(snapshot(None), "session") is None
 
 
+def test_presence_projection_uses_each_fresh_snapshot_across_source_switches():
+    local = MediaRef(
+        MediaSource.LOCAL,
+        r"C:\Users\private\old.mp3",
+        title="Old Local Track",
+        provenance="library",
+    )
+    online = MediaRef(
+        MediaSource.YOUTUBE,
+        "https://www.youtube.com/watch?v=yWHrYNP6j4k",
+        title="Fresh Online Track",
+        artist="Online Artist",
+    )
+
+    local_projection = project_presence(snapshot(local), "track")
+    online_projection = project_presence(snapshot(online), "track")
+
+    assert local_projection == PresenceProjection("Old Local Track")
+    assert online_projection == PresenceProjection("Fresh Online Track", "by Online Artist")
+    assert "Old Local Track" not in str(online_projection)
+    assert "youtube.com" not in str(online_projection)
+    assert "yWHrYNP6j4k" not in str(online_projection)
+
+
 def test_projection_never_uses_a_direct_local_path_or_filename():
     direct = MediaRef(
         MediaSource.LOCAL,

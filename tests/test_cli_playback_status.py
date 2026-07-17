@@ -39,19 +39,24 @@ def _status(
     position: float = 30,
     duration: float | None = 120,
     error: str | None = None,
+    library_index: int | None = None,
     queue_position: int | None = 2,
     queue_count: int = 5,
     chapter: MediaChapter | None = None,
 ) -> PlaybackStatusProjection:
+    selected_media = media or _media()
+    if library_index is not None and selected_media.source == MediaSource.LOCAL:
+        selected_media.provenance = "library"
     return project_playback_status(
         PlaybackSnapshot(
             state,
-            media=media or _media(),
+            media=selected_media,
             position=position,
             duration=duration,
             error=error,
             current_chapter=chapter,
         ),
+        library_index=library_index,
         queue_position=queue_position,
         queue_count=queue_count,
     )
@@ -163,7 +168,7 @@ def test_status_command_aliases_use_projection(monkeypatch, command):
 
 def test_rich_prompt_uses_projection_for_queue_live_unknown_and_stopped(monkeypatch):
     monkeypatch.setattr(main, "songindex", 4)
-    monkeypatch.setattr(main, "_playback_status_projection", lambda: _status())
+    monkeypatch.setattr(main, "_playback_status_projection", lambda: _status(library_index=4))
     finite = main.prompt_text()
 
     monkeypatch.setattr(
@@ -191,3 +196,59 @@ def test_rich_prompt_uses_projection_for_queue_live_unknown_and_stopped(monkeypa
     assert "LIVE" in live and "[radio]" in live
     assert "duration ?" in unknown and "%" not in unknown
     assert "(Not Playing)" in stopped and "Track" not in stopped
+
+
+def test_source_switch_and_queue_advance_refresh_projected_identity(monkeypatch, tmp_path):
+    paths = [tmp_path / f"Track {index}.mp3" for index in range(1, 4)]
+    next_path = tmp_path / "Elina - Mirage (Official Video) [audio].mp3"
+    paths.append(next_path)
+    online = _media(
+        source=MediaSource.YOUTUBE,
+        title="The Kid LAROI, Justin Bieber - Stay (Lyrics)",
+        artist="7clouds",
+    )
+    local = MediaRef(
+        MediaSource.LOCAL,
+        str(next_path),
+        stable_id="library-four",
+        resolver_data={"library_display_title": next_path.stem},
+        provenance="library",
+        capabilities=MediaCapabilities(finite=True, seekable=True),
+    )
+    current = {"snapshot": PlaybackSnapshot(PlaybackState.PLAYING, media=online, duration=120)}
+    monkeypatch.setattr(main, "_sound_files", [str(path) for path in paths])
+    monkeypatch.setattr(main, "songindex", 37)
+    monkeypatch.setattr(main.vas.controller, "snapshot", lambda: current["snapshot"])
+    monkeypatch.setattr(
+        main.QUEUE,
+        "playback_position",
+        lambda stable_id: (4, 38) if stable_id == "library-four" else (None, 38),
+    )
+
+    status_provider = main._playback_status_projection
+    online_status = status_provider()
+    monkeypatch.setattr(main, "_playback_status_projection", lambda: online_status)
+    online_prompt = main.prompt_text()
+    assert online_status.source == "youtube" and online_status.library_index is None
+    assert online_status.title == "The Kid LAROI, Justin Bieber - Stay (Lyrics)"
+    assert "[37]" not in online_prompt
+
+    current["snapshot"] = PlaybackSnapshot(
+        PlaybackState.PLAYING,
+        media=local,
+        position=10,
+        duration=180,
+    )
+    local_status = status_provider()
+    monkeypatch.setattr(main, "_playback_status_projection", lambda: local_status)
+    local_prompt = main.prompt_text()
+    detailed = "\n".join(main._playback_status_lines(local_status, detailed=True))
+
+    assert local_status.source == "local"
+    assert local_status.title == next_path.stem
+    assert local_status.library_index == local_status.queue_position == 4
+    assert "[4]" in local_prompt and "Q 4/38" in local_prompt
+    assert next_path.stem in detailed and "Queue: 4/38" in detailed
+    serialized = str(local_status.to_dict()) + str(online_status.to_dict())
+    assert str(tmp_path) not in serialized
+    assert "private.test" not in serialized

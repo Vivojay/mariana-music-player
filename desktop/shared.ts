@@ -13,6 +13,7 @@ export type PlaybackStatus = {
   finite: boolean
   live: boolean
   seekable: boolean
+  library_index: number | null
   queue_position: number | null
   queue_count: number
   chapter: { title: string; start_time: number; end_time: number } | null

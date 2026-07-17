@@ -48,6 +48,7 @@ def projected_status(
     live=False,
     seekable=True,
     error=None,
+    library_index=None,
     queue_position=None,
     queue_count=0,
 ):
@@ -59,6 +60,8 @@ def projected_status(
         stable_id="track-1",
         capabilities=MediaCapabilities(finite=finite, live=live, seekable=seekable),
     )
+    if media is not None and library_index is not None and source == MediaSource.LOCAL:
+        media.provenance = "library"
     return project_playback_status(
         PlaybackSnapshot(
             state,
@@ -68,6 +71,7 @@ def projected_status(
             media=media,
             current_chapter=MediaChapter("Verse", 1, 5) if media else None,
         ),
+        library_index=library_index,
         queue_position=queue_position,
         queue_count=queue_count,
     )
@@ -96,7 +100,7 @@ def test_playback_and_safety_monitors_emit_changes_and_close_cleanly(monkeypatch
     control = DesktopControl("pipe", "secret")
     events = []
     monkeypatch.setattr(control, "emit", lambda event, payload=None: events.append((event, payload)) or True)
-    status = projected_status(queue_position=2, queue_count=4)
+    status = projected_status(library_index=3, queue_position=2, queue_count=4)
     control.start_playback_monitor(lambda: status, interval=0.001)
     control.start_playback_monitor(lambda: status, interval=0.001)
     control.start_safety_monitor(lambda: (False, ["playback"]), interval=0.001)
@@ -107,6 +111,7 @@ def test_playback_and_safety_monitors_emit_changes_and_close_cleanly(monkeypatch
     assert playback["position_seconds"] == 3
     assert playback["duration_seconds"] == 10
     assert playback["percent"] == 30
+    assert playback["library_index"] == 3
     assert playback["queue_position"] == 2
     assert playback["queue_count"] == 4
     assert playback["chapter"] == {"title": "Verse", "start_time": 1, "end_time": 5}

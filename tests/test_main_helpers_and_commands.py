@@ -289,6 +289,7 @@ def test_play_vas_media_state_machine(
     monkeypatch.setattr(main, "SAY", lambda **_kwargs: None)
     monkeypatch.setattr(main, "IPrint", lambda *_a, **_k: None)
     monkeypatch.setattr(main, "USER_DATA", playback_user_data())
+    monkeypatch.setattr(main, "songindex", 37)
 
     main.play_vas_media(media_url, media_name=media_name, media_type=media_type)
 
@@ -299,6 +300,7 @@ def test_play_vas_media_state_machine(
     assert main.currentsong_length == expected_length
     assert recents
     assert set_calls
+    assert main.songindex == -1
 
 
 def test_play_vas_media_handles_unresolved_title_and_invalid_type(monkeypatch):
@@ -1011,7 +1013,17 @@ def test_autonext_queue_cursor_drives_navigation_when_legacy_index_is_stale(monk
 
 
 def test_rich_prompt_reports_media_progress(monkeypatch):
-    media = main.MediaRef(main.MediaSource.LOCAL, "C:/music/track.mp3", title="Track")
+    media = main.MediaRef(
+        main.MediaSource.LOCAL,
+        "C:/music/track.mp3",
+        title="Track",
+        provenance="library",
+    )
+    monkeypatch.setattr(
+        main,
+        "_sound_files",
+        ["C:/music/one.mp3", "C:/music/two.mp3", media.original_uri],
+    )
     monkeypatch.setattr(main, "songindex", 3)
     monkeypatch.setattr(main.QUEUE, "playback_position", lambda _stable_id: (3, 8))
     monkeypatch.setattr(

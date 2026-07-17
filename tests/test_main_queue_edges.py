@@ -117,6 +117,56 @@ def test_queue_play_skip_and_prefetch_modes(monkeypatch):
     main._prefetch_after(first)
 
 
+def test_prefetch_attaches_fresh_indexed_identity_before_auto_advance(monkeypatch, tmp_path):
+    first_path = tmp_path / "First.mp3"
+    next_path = tmp_path / "Elina - Mirage (Official Video) [audio].mp3"
+    first = SimpleNamespace(
+        queue_id=1,
+        media=MediaRef(
+            MediaSource.LOCAL,
+            str(first_path),
+            stable_id="library-first",
+            capabilities=MediaCapabilities(finite=True),
+        ),
+    )
+    second = SimpleNamespace(
+        queue_id=2,
+        media=MediaRef(
+            MediaSource.LOCAL,
+            str(next_path),
+            stable_id="library-second",
+            capabilities=MediaCapabilities(finite=True),
+        ),
+    )
+    info = {
+        "library_id": "library-second",
+        "canonical_path": str(next_path),
+        "state": "available",
+        "metadata": {},
+    }
+    prefetched = []
+    monkeypatch.setattr(main, "AUTOPLAY_ENABLED", True)
+    monkeypatch.setattr(main.QUEUE, "items", lambda: [first, second])
+    monkeypatch.setattr(main.QUEUE, "state", lambda: {"repeat_mode": "off"})
+    monkeypatch.setattr(main.LIBRARY, "info", lambda value: info if value == str(next_path) else None)
+    monkeypatch.setattr(main.vas.controller, "prefetch", prefetched.append)
+
+    main._prefetch_after(first)
+
+    assert len(prefetched) == 1
+    assert prefetched[0].stable_id == "library-second"
+    assert prefetched[0].provenance == "library"
+    assert prefetched[0].resolver_data["library_display_title"] == next_path.stem
+    projected = project_playback_status(
+        PlaybackSnapshot(PlaybackState.PLAYING, media=prefetched[0]),
+        library_index=2,
+        queue_position=2,
+        queue_count=2,
+    )
+    assert projected.title == next_path.stem
+    assert projected.library_index == projected.queue_position == 2
+
+
 @pytest.fixture
 def queue_cli(monkeypatch, tmp_path):
     database = MarianaDatabase(tmp_path / "queue.db")

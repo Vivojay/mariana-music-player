@@ -948,7 +948,7 @@ def _play_queue_item(item):
 
 
 def _set_current_media_state(media):
-    global currentsong, current_media_type, isplaying, currentsong_length
+    global currentsong, current_media_type, isplaying, currentsong_length, songindex
     currentsong = media.title or media.original_uri
     currentsong_length = media.duration or -1
     current_media_type = {
@@ -958,6 +958,7 @@ def _set_current_media_state(media):
         MediaSource.RADIO: 2,
         MediaSource.RECOMMENDATION: 0,
     }.get(media.source)
+    songindex = _library_song_index(media.original_uri) if media.source == MediaSource.LOCAL else -1
     isplaying = True
 
 
@@ -976,7 +977,8 @@ def _prefetch_after(item):
         elif repeat_mode == 'all' and items:
             candidate = items[0]
         if candidate and candidate.media.capabilities.finite:
-            vas.controller.prefetch(candidate.media)
+            media = _indexed_local_playback_media(candidate.media) or candidate.media
+            vas.controller.prefetch(media)
     except Exception:
         pass
 
@@ -1006,8 +1008,8 @@ def _on_queue_item_complete(media):
         return
     snapshot = vas.controller.snapshot()
     if snapshot.media and snapshot.media.stable_id == next_item.media.stable_id:
-        _set_current_media_state(next_item.media)
-        RECOMMENDER.record_event(next_item.media, 'start')
+        _set_current_media_state(snapshot.media)
+        RECOMMENDER.record_event(snapshot.media, 'start')
         _prefetch_after(next_item)
     else:
         _play_queue_item(next_item)
@@ -3097,8 +3099,13 @@ def _playback_status_projection() -> PlaybackStatusProjection:
     snapshot = vas.controller.snapshot()
     stable_id = snapshot.media.stable_id if snapshot.media else None
     queue_position, queue_count = QUEUE.playback_position(stable_id)
+    library_index = None
+    if snapshot.media is not None and snapshot.media.source == MediaSource.LOCAL:
+        candidate = _library_song_index(snapshot.media.original_uri)
+        library_index = candidate if isinstance(candidate, int) else None
     return project_playback_status(
         snapshot,
+        library_index=library_index,
         queue_position=queue_position,
         queue_count=queue_count,
     )
@@ -3967,13 +3974,14 @@ def play_vas_media(media_url, single_video = None, media_name = None,
                    show_link_chosen_msg = False):
 
     global isplaying, visible, currentsong, cached_volume
-    global currentsong_length, current_media_type
+    global currentsong_length, current_media_type, songindex
 
     prepared_media = None
     previous_media = vas.current_media
 
     # Stop prev audios b4 loading VAS Media...
     stopsong()
+    songindex = -1
 
     # VAS Media Load/Set
     if media_type == 'video':
@@ -5923,7 +5931,7 @@ def prompt_text():
     has_active_label = status_projection.media_id is not None and status_projection.display_state != 'Stopped'
     if has_active_label:
         title = _status_media_label(status_projection)
-        prefix = f'[{songindex}] ' if isinstance(songindex, int) and songindex > 0 else ''
+        prefix = f'[{status_projection.library_index}] ' if status_projection.library_index else ''
         first = (
             colored.fg('light_slate_blue') + '┏━' +
             colored.fg('navajo_white_1') +
