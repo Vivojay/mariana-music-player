@@ -27,6 +27,19 @@ class Credentials:
         return "test-password"
 
 
+def dominant_tone_frequency(samples: np.ndarray, sample_rate: int) -> float:
+    """Measure the active tone rather than capture framing and keepalive silence."""
+    peak = float(np.max(np.abs(samples)))
+    active = np.flatnonzero(np.abs(samples) >= max(0.01, peak * 0.1))
+    assert active.size >= 2
+    tone = samples[active[0] : active[-1] + 1]
+    assert tone.size >= sample_rate // 20
+    fft_size = max(65_536, 1 << (tone.size - 1).bit_length())
+    spectrum = np.abs(np.fft.rfft(tone * np.hanning(tone.size), n=fft_size))
+    frequencies = np.fft.rfftfreq(fft_size, 1 / sample_rate)
+    return float(frequencies[int(np.argmax(spectrum[1:]) + 1)])
+
+
 def dechunk(payload: bytes) -> bytes:
     output = bytearray()
     while payload:
@@ -118,10 +131,18 @@ def test_real_broadcast_encodes_decodable_normalized_program_mix(tmp_path, codec
     ).stdout
     left = np.frombuffer(decoded, dtype=np.float32)[::2]
     assert np.max(np.abs(left)) > 0.1
-    spectrum = np.abs(np.fft.rfft(left))
-    frequencies = np.fft.rfftfreq(len(left), 1 / 48_000)
-    dominant = frequencies[int(np.argmax(spectrum[1:]) + 1)]
-    # MP3 frame padding and platform FFmpeg/libmp3lame differences can move the
-    # whole-capture FFT peak slightly; keep the stable Opus path tighter.
+    dominant = dominant_tone_frequency(left, 48_000)
+    # Encoder delay, padding, and keepalive silence differ across platform
+    # FFmpeg builds. Analyze the windowed active program material while retaining
+    # a small extra tolerance for the lossy MP3 path.
     frequency_tolerance = 6 if codec == "mp3" else 5
     assert dominant == pytest.approx(440, abs=frequency_tolerance)
+
+
+def test_dominant_tone_frequency_ignores_capture_silence_and_short_boundaries():
+    sample_rate = 48_000
+    frames = np.arange(round(sample_rate * 0.17), dtype=np.float32)
+    tone = (0.2 * np.sin(2 * np.pi * 440 * frames / sample_rate)).astype(np.float32)
+    capture = np.concatenate((np.zeros(8_137, dtype=np.float32), tone, np.zeros(12_421, dtype=np.float32)))
+
+    assert dominant_tone_frequency(capture, sample_rate) == pytest.approx(440, abs=1)
