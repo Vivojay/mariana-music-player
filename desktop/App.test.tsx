@@ -63,6 +63,8 @@ beforeEach(() => {
   backendSnapshot = {
     ready: true,
     diagnostic: null,
+    desktopNotice: null,
+    closeButtonBehavior: 'tray',
     playbackState: 'idle',
     sleepActive: false,
     playback: null,
@@ -101,6 +103,8 @@ describe('Mariana desktop shell', () => {
     backendSnapshot = {
       ready: false,
       diagnostic: null,
+      desktopNotice: null,
+      closeButtonBehavior: 'tray',
       playbackState: 'idle',
       sleepActive: false,
       playback: null,
@@ -128,6 +132,8 @@ describe('Mariana desktop shell', () => {
     backendSnapshot = {
       ready: false,
       diagnostic: 'Backend control channel did not become ready',
+      desktopNotice: null,
+      closeButtonBehavior: 'tray',
       playbackState: 'idle',
       sleepActive: false,
       playback: null,
@@ -137,6 +143,20 @@ describe('Mariana desktop shell', () => {
     expect(await screen.findByText('Backend control channel did not become ready')).toBeInTheDocument()
     expect(document.querySelector('.backend-dot.error')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Add to favourites' })).toBeDisabled()
+  })
+
+  it('shows only safe desktop integration diagnostics', async () => {
+    backendSnapshot.desktopNotice = 'System tray is unavailable; the close button will quit Mariana'
+    render(<App />)
+
+    expect(await screen.findByRole('status')).toHaveTextContent('System tray is unavailable')
+    act(() => backendEvent?.({
+      event: 'desktop-notice',
+      payload: { message: 'C:\\private\\tray.png?token=secret' },
+      timestamp: 1,
+    }))
+    expect(screen.getByRole('status')).toHaveTextContent('Desktop integration is unavailable')
+    expect(screen.getByRole('status')).not.toHaveTextContent('private')
   })
 
   it('routes sleep controls through the real CLI command path', () => {
@@ -193,6 +213,8 @@ describe('Mariana desktop shell', () => {
     backendSnapshot = {
       ready: true,
       diagnostic: null,
+      desktopNotice: null,
+      closeButtonBehavior: 'tray',
       playbackState: 'playing',
       sleepActive: false,
       playback: playbackStatus(),
@@ -240,6 +262,8 @@ describe('Mariana desktop shell', () => {
     backendSnapshot = {
       ready: true,
       diagnostic: null,
+      desktopNotice: null,
+      closeButtonBehavior: 'tray',
       playbackState: 'playing',
       sleepActive: false,
       playback: playbackStatus(),
@@ -278,6 +302,8 @@ describe('Mariana desktop shell', () => {
     backendSnapshot = {
       ready: true,
       diagnostic: null,
+      desktopNotice: null,
+      closeButtonBehavior: 'tray',
       playbackState: 'paused',
       sleepActive: false,
       playback: playbackStatus({

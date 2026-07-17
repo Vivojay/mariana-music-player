@@ -117,3 +117,36 @@ test('preserves PTY controls, history, resize, themes, and session restart', asy
     await application.close()
   }
 })
+
+test('hides window close to tray by default and honors the quit preference', async () => {
+  const application = await electron.launch({
+    args: ['.'],
+    env: { ...process.env, MARIANA_E2E: '1', MARIANA_E2E_USE_DIST: '1' },
+  })
+  try {
+    const page = await application.firstWindow()
+    await expect(page.locator('.backend-dot.ready')).toBeVisible({ timeout: 30_000 })
+
+    await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close())
+    await expect.poll(
+      () => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible()),
+    ).toBe(false)
+    expect((await page.evaluate(() => window.mariana.backend.snapshot())).ready).toBe(true)
+
+    await application.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0]
+      window?.show()
+      window?.focus()
+    })
+    await expect(page.getByLabel('Mariana command terminal')).toBeVisible()
+    await page.evaluate(() => window.mariana.terminal.write('sleep status\r'))
+    await expect(page.getByLabel('Terminal output')).toContainText('Sleep timer is inactive', { timeout: 10_000 })
+
+    await page.evaluate(() => window.mariana.terminal.write('desktop close quit\r'))
+    await expect(page.getByLabel('Terminal output')).toContainText('Desktop close button set to quit.')
+    await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close())
+    await expect.poll(() => application.windows().length, { timeout: 10_000 }).toBe(0)
+  } finally {
+    await application.close()
+  }
+})

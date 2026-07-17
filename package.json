@@ -87,6 +87,10 @@
       {
         "from": "tools/bootstrap-manifest.json",
         "to": "tools/bootstrap-manifest.json"
+      },
+      {
+        "from": "res/welcome_banner.png",
+        "to": "tray-icon.png"
       }
     ],
     "publish": {

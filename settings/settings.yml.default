@@ -28,6 +28,9 @@ get related songs: true
 appearance:
   terminal theme: aurora
 
+desktop:
+  close button: tray
+
 integrations:
   discord:
     presence:

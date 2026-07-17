@@ -20,11 +20,13 @@ def test_packaged_app_contains_both_media_tool_manifests():
     root = Path(__file__).resolve().parents[1]
     spec = (root / "mariana-cli.spec").read_text(encoding="utf-8")
     package = json.loads((root / "package.json").read_text(encoding="utf-8"))
-    resources = {entry["to"] for entry in package["build"]["extraResources"]}
+    resource_entries = package["build"]["extraResources"]
+    resources = {entry["to"] for entry in resource_entries}
 
     assert 'tools" / "manifest.json' in spec
     assert 'tools" / "bootstrap-manifest.json' in spec
-    assert {"tools/manifest.json", "tools/bootstrap-manifest.json"} <= resources
+    assert {"tools/manifest.json", "tools/bootstrap-manifest.json", "tray-icon.png"} <= resources
+    assert {"from": "res/welcome_banner.png", "to": "tray-icon.png"} in resource_entries
 
 
 def test_packaged_app_contains_public_discord_presence_contract():

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, shell, Tray } from 'electron'
 import electronUpdater from 'electron-updater'
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
@@ -7,6 +7,13 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as pty from 'node-pty'
 import type { BackendEvent, FavoriteToggleResult, PlaybackStatus, UpdateState } from './shared.js'
+import {
+  createTrayActions,
+  ensureSingleTray,
+  handleWindowClose,
+  normalizeCloseButtonBehavior,
+  type CloseButtonBehavior,
+} from './windowLifecycle.js'
 
 const { autoUpdater } = electronUpdater
 
@@ -29,6 +36,10 @@ let mainWindow: BrowserWindow | null = null
 let terminalProcess: pty.IPty | null = null
 let controlServer: net.Server | null = null
 let controlSocket: net.Socket | null = null
+let tray: Tray | null = null
+let trayAvailable = false
+let closeButtonBehavior: CloseButtonBehavior = 'tray'
+let desktopNotice: string | null = null
 let terminalHistory = ''
 let terminalControlTail = ''
 let quitting = false
@@ -54,6 +65,53 @@ const safeToInstall = () => (
 
 const send = <T>(channel: string, value: T) => {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, value)
+}
+
+const trayActions = createTrayActions(
+  () => mainWindow,
+  () => {
+    quitting = true
+    app.quit()
+  },
+)
+
+function setDesktopNotice(message: string | null) {
+  desktopNotice = message
+  if (message) {
+    send('backend:event', {
+      event: 'desktop-notice',
+      payload: { message },
+      timestamp: Date.now() / 1000,
+    } satisfies BackendEvent)
+  }
+}
+
+function ensureTray(): boolean {
+  if (tray) return true
+  try {
+    const iconPath = isDevelopment
+      ? path.join(repositoryRoot, 'res', 'welcome_banner.png')
+      : path.join(process.resourcesPath, 'tray-icon.png')
+    const source = nativeImage.createFromPath(iconPath)
+    if (source.isEmpty()) throw new Error('tray icon unavailable')
+    const size = process.platform === 'darwin' ? 18 : process.platform === 'win32' ? 16 : 22
+    tray = ensureSingleTray(tray, () => new Tray(source.resize({ width: size, height: size })))
+    tray.setToolTip('Mariana')
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: 'Show Mariana', click: trayActions.show },
+      { label: 'Hide Mariana', click: trayActions.hide },
+      { type: 'separator' },
+      { label: 'Quit', click: trayActions.quit },
+    ]))
+    tray.on('double-click', trayActions.show)
+    trayAvailable = true
+    setDesktopNotice(null)
+    return true
+  } catch {
+    trayAvailable = false
+    setDesktopNotice('System tray is unavailable; the close button will quit Mariana')
+    return false
+  }
 }
 
 const setUpdateState = (next: UpdateState) => {
@@ -124,8 +182,13 @@ function handleBackendEvent(event: BackendEvent) {
     fs.writeFileSync(path.join(app.getPath('userData'), 'healthy.json'), JSON.stringify({
       version: app.getVersion(), timestamp: Date.now(),
     }))
+    closeButtonBehavior = normalizeCloseButtonBehavior(event.payload.close_button_behavior)
+  }
+  if (event.event === 'desktop-preferences') {
+    closeButtonBehavior = normalizeCloseButtonBehavior(event.payload.close_button_behavior)
   }
   if (event.event === 'fatal-error' || event.event === 'shutdown-ack') backendReady = false
+  if (event.event === 'fatal-error') trayActions.show()
   if (event.event === 'shutdown-ack') backendShutdownAcknowledged = true
   if (event.event === 'control-result') {
     const requestId = event.payload.request_id
@@ -309,9 +372,14 @@ async function createWindow() {
   })
   mainWindow.webContents.on('did-finish-load', () => {
     setUpdateState(updateState)
+    if (desktopNotice) setDesktopNotice(desktopNotice)
   })
   if (usesViteRenderer) await mainWindow.loadURL('http://127.0.0.1:5173')
   else await mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+  mainWindow.on('close', (event) => {
+    if (!mainWindow) return
+    handleWindowClose(event, mainWindow, closeButtonBehavior, trayAvailable, quitting)
+  })
   mainWindow.on('closed', () => { mainWindow = null })
 }
 
@@ -321,6 +389,8 @@ function registerIpc() {
     return {
       ready: backendReady,
       diagnostic: backendDiagnostic,
+      desktopNotice,
+      closeButtonBehavior,
       playbackState,
       sleepActive,
       playback: playbackStatus,
@@ -370,7 +440,7 @@ function registerIpc() {
   })
   ipcMain.handle('app:close', async (event) => {
     if (!validateSender(event)) throw new Error('Invalid IPC sender')
-    mainWindow?.close()
+    trayActions.quit()
   })
   ipcMain.handle('shell:open-external', async (event, value: unknown) => {
     if (!validateSender(event) || typeof value !== 'string') throw new Error('Invalid external URL')
@@ -417,15 +487,13 @@ const ownsInstanceLock = process.env.MARIANA_E2E === '1' || app.requestSingleIns
 if (!ownsInstanceLock) app.quit()
 else {
   app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.focus()
-    }
+    trayActions.show()
   })
   app.whenReady().then(async () => {
     registerIpc()
     await createControlServer()
     await createWindow()
+    ensureTray()
     startTerminal()
     configureUpdates()
   })
@@ -438,10 +506,14 @@ else {
     controlSocket?.destroy()
     controlSocket = null
     finishPendingControlRequests('Mariana closed before confirming the favourite update')
+    tray?.destroy()
+    tray = null
+    trayAvailable = false
     controlServer?.close()
     if (process.platform !== 'win32') fs.rmSync(controlEndpoint, { force: true })
   })
   app.on('window-all-closed', () => {
-    if (!quitting) app.quit()
+    if (!quitting) trayActions.quit()
   })
+  app.on('activate', trayActions.show)
 }

@@ -247,6 +247,7 @@ media identify [current|library-index|indexed-path]
 media local-match current
 rename short [current|library-index|indexed-path] [--dry-run] [y|yes|--yes]
 theme aurora|windows|kitty|gruvbox|list|current
+desktop close [tray|quit|status]
 youtube auth status|set <browser[:profile]>|clear|test <YouTube URL>
 download-yv [YouTube URL] [y|yes|--yes]
 download-ya [current|YouTube URL] [--track] [--quality best|worst] [--to <directory>] [y|yes|--yes]
@@ -463,6 +464,12 @@ incremental highlighting, Enter/Shift+Enter navigation, arrow buttons, and
 Escape-to-clear. Theme changes made in the selector issue the same `theme`
 command as the CLI, keeping runtime settings, the preset selector, and future
 launches synchronized.
+
+The desktop close button hides Mariana to the system tray by default so the
+backend and current playback continue running. Use `desktop close quit` to make
+the window close button terminate Mariana instead, or `desktop close tray` to
+restore the default. The tray menu provides **Show Mariana**, **Hide Mariana**,
+and **Quit**; explicit CLI exit and tray Quit still shut down the backend.
 
 The signed desktop updater checks the stable GitHub Releases channel shortly
 after startup and every six hours. It downloads in-app but will not install

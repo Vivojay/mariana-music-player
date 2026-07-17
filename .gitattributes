@@ -11,6 +11,7 @@
 *.toml text eol=lf
 *.yaml text eol=lf
 *.yml text eol=lf
+settings/settings.yml.default text eol=lf
 "Future Ideas and Issues to Address.md" -text
 requirements*.in text eol=lf
 requirements*.txt text eol=lf

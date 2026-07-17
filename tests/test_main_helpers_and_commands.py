@@ -720,6 +720,11 @@ def test_run_reports_every_update_safety_reason_and_first_boot(monkeypatch, tmp_
         emit=lambda *args: events.append(args),
     )
     monkeypatch.setattr(main, "DESKTOP_CONTROL", desktop)
+    monkeypatch.setattr(
+        main,
+        "SETTINGS",
+        {"appearance": {"terminal theme": "aurora"}, "desktop": {"close button": "quit"}},
+    )
     monkeypatch.setattr(main, "initialize_audio_output", lambda: events.append("audio"))
     monkeypatch.setattr(main, "LIBRARY_SERVICE", SimpleNamespace(
         start=lambda **kwargs: events.append(("library", kwargs)),
@@ -761,6 +766,10 @@ def test_run_reports_every_update_safety_reason_and_first_boot(monkeypatch, tmp_
         "profiler-transaction",
     ]
     assert any(event[0] == "set-media" for event in events if isinstance(event, tuple))
+    assert (
+        "ready",
+        {"version": main.__version__, "theme": "aurora", "close_button_behavior": "quit"},
+    ) in events
     assert "banner" in events and "prompt" in events
 
 
@@ -803,6 +812,44 @@ def test_compact_help_autoplay_and_theme_commands_persist(monkeypatch):
     assert emitted == [("theme", {"name": "gruvbox"})]
     assert len(saved) == 2
     assert any("Playback" in value for value in printed)
+
+
+def test_desktop_close_policy_defaults_persists_and_projects(monkeypatch):
+    printed = []
+    saved = []
+    emitted = []
+    settings = {"desktop": "not-valid"}
+    monkeypatch.setattr(main, "SETTINGS", settings)
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
+    monkeypatch.setattr(main, "save_user_settings", lambda value, path: saved.append((value, path)))
+    monkeypatch.setattr(main, "RUNTIME_PATHS", SimpleNamespace(settings=Path("settings.yml")))
+    monkeypatch.setattr(main, "DESKTOP_CONTROL", SimpleNamespace(emit=lambda *args: emitted.append(args)))
+
+    assert main.desktop_command(["close", "status"]) == "tray"
+    assert main.process("desktop close quit") is None
+    assert settings["desktop"]["close button"] == "quit"
+    assert emitted == [("desktop-preferences", {"close_button_behavior": "quit"})]
+    assert len(saved) == 1
+    assert any("Desktop close button: tray" in value for value in printed)
+
+
+def test_desktop_close_policy_validates_and_rolls_back_failed_save(monkeypatch):
+    settings = {"desktop": {"close button": "tray"}}
+    monkeypatch.setattr(main, "SETTINGS", settings)
+    monkeypatch.setattr(main, "IPrint", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main, "RUNTIME_PATHS", SimpleNamespace(settings=Path("settings.yml")))
+    monkeypatch.setattr(main, "DESKTOP_CONTROL", SimpleNamespace(emit=lambda *_args: None))
+
+    with pytest.raises(ValueError, match="Usage: desktop close"):
+        main.desktop_command(["close", "hide"])
+    monkeypatch.setattr(
+        main,
+        "save_user_settings",
+        lambda *_args: (_ for _ in ()).throw(OSError("read-only")),
+    )
+    with pytest.raises(OSError, match="read-only"):
+        main.desktop_command(["close", "quit"])
+    assert settings["desktop"]["close button"] == "tray"
 
 
 def test_help_covers_user_topics_examples_and_legacy_topic_names(monkeypatch):

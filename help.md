@@ -271,6 +271,7 @@ never affects playback or startup.
 | --- | --- |
 | `theme aurora|windows|kitty|gruvbox` | Select a terminal preset |
 | `theme list`, `theme current` | List presets or show the active one |
+| `desktop close [tray|quit|status]` | Hide to the system tray on window close (default), quit on close, or show the current policy |
 | `autonext [on|off|status]` | Configure automatic queue progression |
 | `sleep <duration> [pause|stop] [fade <duration>]` | Start a session-scoped sleep timer |
 | `sleep status`, `sleep cancel` | Inspect or cancel the sleep timer |

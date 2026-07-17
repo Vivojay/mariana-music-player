@@ -10,5 +10,5 @@
     "rootDir": ".",
     "types": ["node"]
   },
-  "include": ["main.ts", "preload.cts", "shared.ts"]
+  "include": ["main.ts", "preload.cts", "shared.ts", "windowLifecycle.ts"]
 }

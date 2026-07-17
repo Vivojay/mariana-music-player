@@ -106,6 +106,7 @@ export default function App() {
   const [update, setUpdate] = useState<UpdateState>({ state: 'idle' })
   const [backendState, setBackendState] = useState('starting')
   const [backendDiagnostic, setBackendDiagnostic] = useState<string | null>(null)
+  const [desktopNotice, setDesktopNotice] = useState<string | null>(null)
   const [broadcastStatus, setBroadcastStatus] = useState<Record<string, unknown>>({ state: 'idle' })
   const [loudnessStatus, setLoudnessStatus] = useState<Record<string, unknown>>({ replaygain_db: 0, live_leveling: false })
   const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus | null>(null)
@@ -167,6 +168,7 @@ export default function App() {
         setBackendDiagnostic(snapshot.diagnostic)
       }
       setTimerStatus((current) => ({ ...current, active: snapshot.sleepActive }))
+      setDesktopNotice(snapshot.desktopNotice)
       if (!playbackEventReceived) receivePlaybackStatus(snapshot.playback)
     })
     const backend = window.mariana.backend.onEvent((event: BackendEvent) => {
@@ -224,6 +226,13 @@ export default function App() {
       if (event.event === 'theme') {
         const name = String(event.payload.name || '')
         if (name in themes) setThemeName(name as ThemeName)
+      }
+      if (event.event === 'desktop-notice') {
+        setDesktopNotice(
+          event.payload.message === 'System tray is unavailable; the close button will quit Mariana'
+            ? event.payload.message
+            : 'Desktop integration is unavailable',
+        )
       }
     })
     const updater = window.mariana.updates.onState(setUpdate)
@@ -378,6 +387,7 @@ export default function App() {
         />
         <div className="statusbar-operations" aria-label="Desktop operational status">
           <span><b>PTY</b> {backendState}</span><span>{window.mariana.platform}</span>
+          {desktopNotice && <span role="status" title={desktopNotice}>{desktopNotice}</span>}
           <span title="Program loudness normalization"><b>RG</b> {Number(loudnessStatus.replaygain_db || 0).toFixed(1)} dB{loudnessStatus.live_leveling ? ' · live' : ''}</span>
           <span title={String(broadcastStatus.error || 'Icecast source status')}><b>CAST</b> {String(broadcastStatus.state || 'idle')}{broadcastStatus.codec ? ` · ${String(broadcastStatus.codec)}` : ''}{broadcastStatus.reconnects ? ` · ↻${String(broadcastStatus.reconnects)}` : ''}</span>
           <button

@@ -266,6 +266,15 @@ def _configured_presence_mode(settings):
     except (TypeError, ValueError):
         return PresencePrivacyMode.OFF
 
+
+def _configured_desktop_close_behavior(settings):
+    """Return the validated desktop close-button policy."""
+    desktop_settings = settings.get('desktop')
+    if not isinstance(desktop_settings, dict):
+        return 'tray'
+    value = desktop_settings.get('close button', 'tray')
+    return value if value in {'tray', 'quit'} else 'tray'
+
 create_required_files_if_not_exist(
     RUNTIME_PATHS.logs / 'history.log',
     RUNTIME_PATHS.logs / 'general.log',
@@ -2923,7 +2932,7 @@ HELP_GROUPS = (
     ('Lyrics', 'lyrics|lyr, lyrics edit|lyr edit, open lyrics'),
     ('Radio', 'radio search/list/play/add/info/metadata/resync/health/leveling'),
     ('Discord Presence', 'discord presence off/app/track/session/status/refresh'),
-    ('Settings', 'theme, autoplay|autonext, sleep, youtube auth, replaygain, output device'),
+    ('Settings', 'theme, desktop close, autoplay|autonext, sleep, youtube auth, replaygain, output device'),
     (
         'Diagnostics',
         'now, progress, media info/probe/fingerprint/identify/local-match, tools/setup/library status, check_dev',
@@ -2946,7 +2955,7 @@ HELP_EXAMPLES = {
     'Lyrics': ('lyrics', 'lyrics edit', 'open lyrics'),
     'Radio': ('radio search jazz', 'radio list', 'radio play 1', 'radio metadata'),
     'Discord Presence': ('discord presence status', 'discord presence track', 'discord presence off'),
-    'Settings': ('theme list', 'autonext status', 'sleep 30m pause fade 5m', 'replaygain status'),
+    'Settings': ('theme list', 'desktop close status', 'autonext status', 'sleep 30m pause fade 5m'),
     'Diagnostics': ('now', 'tools status', 'library verify', 'media probe current', 'media local-match current'),
     'Dangerous/destructive commands': ('rm 4', 'playlist delete "Road trip" --yes', 'exit y'),
 }
@@ -3077,6 +3086,43 @@ def theme_command(arguments):
         raise
     DESKTOP_CONTROL.emit('theme', {'name': operation})
     IPrint(f'Theme changed to {THEME_PRESETS[operation]}', visible=visible)
+    return operation
+
+
+def desktop_command(arguments):
+    normalized = [value.casefold() for value in arguments]
+    if not normalized or normalized == ['close']:
+        operation = 'status'
+    elif len(normalized) == 2 and normalized[0] == 'close':
+        operation = normalized[1]
+    else:
+        raise ValueError('Usage: desktop close [tray|quit|status]')
+    current = _configured_desktop_close_behavior(SETTINGS)
+    if operation in {'status', 'current'}:
+        IPrint(f'Desktop close button: {current}', visible=visible)
+        return current
+    if operation not in {'tray', 'quit'}:
+        raise ValueError('Usage: desktop close [tray|quit|status]')
+    previous_section = SETTINGS.get('desktop')
+    desktop_settings = previous_section if isinstance(previous_section, dict) else {}
+    SETTINGS['desktop'] = desktop_settings
+    previous = desktop_settings.get('close button')
+    desktop_settings['close button'] = operation
+    try:
+        save_user_settings(SETTINGS, RUNTIME_PATHS.settings)
+    except Exception:
+        if not isinstance(previous_section, dict):
+            if previous_section is None:
+                SETTINGS.pop('desktop', None)
+            else:
+                SETTINGS['desktop'] = previous_section
+        elif previous is None:
+            desktop_settings.pop('close button', None)
+        else:
+            desktop_settings['close button'] = previous
+        raise
+    DESKTOP_CONTROL.emit('desktop-preferences', {'close_button_behavior': operation})
+    IPrint(f'Desktop close button set to {operation}.', visible=visible)
     return operation
 
 
@@ -4576,6 +4622,7 @@ def process(command):
             'autoplay': autoplay_command,
             'autonext': autoplay_command,
             'discord': discord_command,
+            'desktop': desktop_command,
             'theme': theme_command,
             'media': media_command,
             'metadata': lambda values: media_command(['metadata', *values]),
@@ -6309,6 +6356,7 @@ def run():
     DESKTOP_CONTROL.emit('ready', {
         'version': __version__,
         'theme': SETTINGS.get('appearance', {}).get('terminal theme', 'aurora'),
+        'close_button_behavior': _configured_desktop_close_behavior(SETTINGS),
     })
     _emit_queue_desktop_state()
     DESKTOP_CONTROL.emit('download', {'jobs': DOWNLOADS.status()})
