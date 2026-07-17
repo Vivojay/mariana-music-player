@@ -2,9 +2,13 @@
 
 Mariana has one command surface and two hosts. `main.py` owns the interactive
 REPL. A direct terminal runs it normally; Electron runs the same process in a
-native PTY and renders it with xterm.js. UI buttons send ordinary commands to
-the PTY. The authenticated side channel reports state but cannot execute
-commands.
+native PTY and renders it with xterm.js. CLI-shaped UI actions send ordinary
+commands to the PTY. The authenticated side channel reports state and accepts
+only allowlisted typed control intents.
+
+The [playback projection contract](PLAYBACK_PROJECTION_CONTRACT.md) defines how
+authoritative backend playback state becomes safe CLI, desktop, presence, and
+future control-surface data.
 
 Electron may render several terminal tabs, but they are views of that one PTY,
 not additional Mariana processes. The host retains a bounded ANSI stream for
