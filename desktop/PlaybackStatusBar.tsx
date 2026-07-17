@@ -2,6 +2,7 @@ import type { PlaybackStatus } from './shared'
 
 type PlaybackStatusBarProps = {
   status: PlaybackStatus | null
+  unavailableReason?: string | null
   favoritePending?: boolean
   favoriteError?: string | null
   onToggleFavorite?: () => void
@@ -46,6 +47,7 @@ function stateLabel(status: PlaybackStatus): string {
 
 export function PlaybackStatusBar({
   status,
+  unavailableReason = null,
   favoritePending = false,
   favoriteError = null,
   onToggleFavorite,
@@ -54,7 +56,16 @@ export function PlaybackStatusBar({
     return (
       <section className="playback-status playback-status-empty" aria-label="Playback status">
         <span className="playback-title">Playback status unavailable</span>
-        <span className="playback-state">Waiting for backend</span>
+        <button
+          type="button"
+          className="favorite-toggle"
+          aria-label="Add to favourites"
+          title="Favourite state unavailable while the backend is starting"
+          disabled
+        >
+          ♡
+        </button>
+        <span className="playback-state">{unavailableReason || 'Waiting for backend'}</span>
       </section>
     )
   }

@@ -1,4 +1,4 @@
-"""Best-effort authenticated event stream from the CLI to the Electron host."""
+"""Best-effort authenticated event and request channels for the Electron host."""
 
 from __future__ import annotations
 
@@ -20,8 +20,10 @@ class DesktopControl:
     def __init__(self, endpoint: str | None = None, token: str | None = None) -> None:
         self.endpoint = endpoint or os.environ.get("MARIANA_CONTROL_ENDPOINT")
         self.token = token or os.environ.get("MARIANA_CONTROL_TOKEN")
-        self._lock = threading.RLock()
-        self._stream: BinaryIO | socket.socket | None = None
+        self._event_lock = threading.RLock()
+        self._request_lock = threading.RLock()
+        self._event_stream: BinaryIO | socket.socket | None = None
+        self._request_stream: BinaryIO | socket.socket | None = None
         self._monitor_stop = threading.Event()
         self._monitor: threading.Thread | None = None
         self._safety_monitor: threading.Thread | None = None
@@ -43,11 +45,6 @@ class DesktopControl:
         connection.settimeout(0.2)
         return connection
 
-    def _connected_stream(self) -> BinaryIO | socket.socket | None:
-        with self._lock:
-            self._stream = self._stream or self._connect()
-            return self._stream
-
     def emit(self, event: str, payload: dict[str, Any] | None = None) -> bool:
         if not self.enabled:
             return False
@@ -56,19 +53,19 @@ class DesktopControl:
             ensure_ascii=False,
             separators=(",", ":"),
         ).encode("utf-8") + b"\n"
-        with self._lock:
+        with self._event_lock:
             for _ in range(2):
                 try:
-                    self._stream = self._stream or self._connect()
-                    if self._stream is None:
+                    self._event_stream = self._event_stream or self._connect()
+                    if self._event_stream is None:
                         return False
-                    if isinstance(self._stream, socket.socket):
-                        self._stream.sendall(message)
+                    if isinstance(self._event_stream, socket.socket):
+                        self._event_stream.sendall(message)
                     else:
-                        self._stream.write(message)
+                        self._event_stream.write(message)
                     return True
                 except OSError:
-                    self._close_stream()
+                    self._close_event_stream()
         return False
 
     def start_playback_monitor(
@@ -140,7 +137,7 @@ class DesktopControl:
         return line
 
     def start_request_listener(self, handler: ControlHandler) -> None:
-        """Receive narrow authenticated desktop intents over the event stream."""
+        """Receive narrow authenticated desktop intents over a dedicated channel."""
         if not self.enabled or (self._request_monitor and self._request_monitor.is_alive()):
             return
         self._monitor_stop.clear()
@@ -148,18 +145,35 @@ class DesktopControl:
         def monitor() -> None:
             while not self._monitor_stop.is_set():
                 try:
-                    stream = self._connected_stream()
+                    # A synchronous Windows named-pipe read can stall writes on the same
+                    # FileIO handle, so typed requests use a dedicated connection.
+                    with self._request_lock:
+                        stream = self._request_stream or self._connect()
+                        if stream is not None and self._request_stream is None:
+                            self._request_stream = stream
+                            handshake = json.dumps(
+                                {"token": self.token, "channel": "requests"},
+                                ensure_ascii=False,
+                                separators=(",", ":"),
+                            ).encode("utf-8") + b"\n"
+                            if isinstance(stream, socket.socket):
+                                stream.sendall(handshake)
+                            else:
+                                stream.write(handshake)
                     if stream is None:
                         return
                     line = self._read_request_line(stream)
                     if line is None:
                         continue
                     if not line:
-                        with self._lock:
-                            self._close_stream()
+                        with self._request_lock:
+                            self._close_request_stream()
                         self._monitor_stop.wait(0.1)
                         continue
-                    message = json.loads(line.decode("utf-8"))
+                    try:
+                        message = json.loads(line.decode("utf-8"))
+                    except (UnicodeError, json.JSONDecodeError):
+                        continue
                     if not isinstance(message, dict) or message.get("token") != self.token:
                         continue
                     request_id = message.get("request_id")
@@ -182,9 +196,9 @@ class DesktopControl:
                         "error": "Backend control request failed",
                     }
                     self.emit("control-result", {"request_id": request_id, **safe_result})
-                except (OSError, UnicodeError, json.JSONDecodeError):
-                    with self._lock:
-                        self._close_stream()
+                except OSError:
+                    with self._request_lock:
+                        self._close_request_stream()
                     self._monitor_stop.wait(0.1)
 
         self._request_monitor = threading.Thread(
@@ -196,8 +210,10 @@ class DesktopControl:
 
     def close(self) -> None:
         self._monitor_stop.set()
-        with self._lock:
-            self._close_stream()
+        with self._event_lock:
+            self._close_event_stream()
+        with self._request_lock:
+            self._close_request_stream()
         if self._monitor and self._monitor is not threading.current_thread():
             self._monitor.join(timeout=1)
         self._monitor = None
@@ -208,9 +224,15 @@ class DesktopControl:
             self._request_monitor.join(timeout=1)
         self._request_monitor = None
 
-    def _close_stream(self) -> None:
-        if self._stream is not None:
+    def _close_event_stream(self) -> None:
+        if self._event_stream is not None:
             with suppress(OSError):
-                self._stream.close()
-            self._stream = None
+                self._event_stream.close()
+            self._event_stream = None
+
+    def _close_request_stream(self) -> None:
+        if self._request_stream is not None:
+            with suppress(OSError):
+                self._request_stream.close()
+            self._request_stream = None
         self._request_buffer = b""

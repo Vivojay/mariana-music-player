@@ -16,8 +16,10 @@ test('hosts the real Mariana PTY in the riced terminal shell', async () => {
     await expect.poll(
       () => page.evaluate(async () => (await window.mariana.backend.snapshot()).playback?.schema_version),
       { timeout: 10_000 },
-    ).toBe(2)
+    ).toBe(4)
     const backendSnapshot = await page.evaluate(() => window.mariana.backend.snapshot())
+    expect(backendSnapshot.ready).toBe(true)
+    expect(backendSnapshot.diagnostic).toBeNull()
     expect(backendSnapshot.playback).toMatchObject({
       state: 'idle',
       library_index: null,

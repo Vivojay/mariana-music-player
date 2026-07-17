@@ -60,7 +60,13 @@ beforeEach(() => {
   backendEvent = undefined
   updateEvent = undefined
   exitEvent = undefined
-  backendSnapshot = { ready: true, playbackState: 'idle', sleepActive: false, playback: null }
+  backendSnapshot = {
+    ready: true,
+    diagnostic: null,
+    playbackState: 'idle',
+    sleepActive: false,
+    playback: null,
+  }
   Object.defineProperty(window, 'mariana', {
     configurable: true,
     value: {
@@ -89,6 +95,48 @@ describe('Mariana desktop shell', () => {
     expect([...options].map((option) => option.textContent)).toEqual([
       'Mariana Aurora', 'Windows Terminal Acrylic', 'Kitty / Catppuccin', 'Gruvbox Dark',
     ])
+  })
+
+  it('keeps favourite control disabled until structured backend readiness arrives', async () => {
+    backendSnapshot = {
+      ready: false,
+      diagnostic: null,
+      playbackState: 'idle',
+      sleepActive: false,
+      playback: null,
+    }
+    render(<App />)
+
+    expect(screen.getByText('Waiting for backend')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add to favourites' })).toBeDisabled()
+    expect(document.querySelector('.backend-dot.starting')).toBeInTheDocument()
+
+    act(() => {
+      backendEvent?.({ event: 'ready', payload: {}, timestamp: 1 })
+      backendEvent?.({ event: 'playback', payload: playbackStatus(), timestamp: 2 })
+    })
+    await waitFor(() => expect(document.querySelector('.backend-dot.ready')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Add to favourites' })).not.toBeDisabled()
+
+    act(() => backendEvent?.({ event: 'starting', payload: {}, timestamp: 3 }))
+    expect(document.querySelector('.backend-dot.starting')).toBeInTheDocument()
+    expect(screen.getByText('Waiting for backend')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add to favourites' })).toBeDisabled()
+  })
+
+  it('shows the fixed safe backend readiness diagnostic', async () => {
+    backendSnapshot = {
+      ready: false,
+      diagnostic: 'Backend control channel did not become ready',
+      playbackState: 'idle',
+      sleepActive: false,
+      playback: null,
+    }
+    render(<App />)
+
+    expect(await screen.findByText('Backend control channel did not become ready')).toBeInTheDocument()
+    expect(document.querySelector('.backend-dot.error')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add to favourites' })).toBeDisabled()
   })
 
   it('routes sleep controls through the real CLI command path', () => {
@@ -142,7 +190,13 @@ describe('Mariana desktop shell', () => {
   it('toggles favourites through typed backend control and settles from playback projection', async () => {
     let resolveToggle: ((value: { ok: boolean; error?: string }) => void) | undefined
     toggleFavorite.mockImplementationOnce(() => new Promise((resolve) => { resolveToggle = resolve }))
-    backendSnapshot = { ready: true, playbackState: 'playing', sleepActive: false, playback: playbackStatus() }
+    backendSnapshot = {
+      ready: true,
+      diagnostic: null,
+      playbackState: 'playing',
+      sleepActive: false,
+      playback: playbackStatus(),
+    }
     render(<App />)
 
     const add = await screen.findByRole('button', { name: 'Add to favourites' })
@@ -183,7 +237,13 @@ describe('Mariana desktop shell', () => {
 
   it('shows a safe backend favourite error without changing projected state', async () => {
     toggleFavorite.mockResolvedValueOnce({ ok: false, error: 'Current media changed; try again' })
-    backendSnapshot = { ready: true, playbackState: 'playing', sleepActive: false, playback: playbackStatus() }
+    backendSnapshot = {
+      ready: true,
+      diagnostic: null,
+      playbackState: 'playing',
+      sleepActive: false,
+      playback: playbackStatus(),
+    }
     render(<App />)
     fireEvent.click(await screen.findByRole('button', { name: 'Add to favourites' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Current media changed; try again')
@@ -217,6 +277,7 @@ describe('Mariana desktop shell', () => {
   it('restores the latest playback projection from the backend snapshot', async () => {
     backendSnapshot = {
       ready: true,
+      diagnostic: null,
       playbackState: 'paused',
       sleepActive: false,
       playback: playbackStatus({

@@ -235,17 +235,21 @@ def test_monitor_failures_are_reported_without_escaping(monkeypatch):
 
 
 def test_authenticated_desktop_control_request_returns_typed_result(monkeypatch):
-    backend, desktop = socket.socketpair()
-    backend.settimeout(0.05)
-    desktop.settimeout(1)
+    request_backend, request_desktop = socket.socketpair()
+    event_backend, event_desktop = socket.socketpair()
+    request_backend.settimeout(0.05)
+    request_desktop.settimeout(1)
+    event_desktop.settimeout(1)
     control = DesktopControl("pipe", "secret")
-    monkeypatch.setattr(control, "_connect", lambda: backend)
+    connections = iter((request_backend, event_backend))
+    monkeypatch.setattr(control, "_connect", lambda: next(connections))
     calls = []
     control.start_request_listener(
         lambda action, payload: calls.append((action, payload)) or {"ok": True}
     )
+    handshake = json.loads(request_desktop.recv(4096).decode())
 
-    desktop.sendall(
+    request_desktop.sendall(
         json.dumps(
             {
                 "token": "secret",
@@ -256,31 +260,62 @@ def test_authenticated_desktop_control_request_returns_typed_result(monkeypatch)
         ).encode()
         + b"\n"
     )
-    response = json.loads(desktop.recv(4096).decode())
+    response = json.loads(event_desktop.recv(4096).decode())
 
+    assert handshake == {"token": "secret", "channel": "requests"}
     assert calls == [("favorite.toggle", {"media_id": "track-1"})]
     assert response["event"] == "control-result"
     assert response["payload"] == {"request_id": "request-1", "ok": True}
     control.close()
-    desktop.close()
+    request_desktop.close()
+    event_desktop.close()
+
+
+def test_blocked_request_channel_does_not_block_ready_event(monkeypatch):
+    request_backend, request_desktop = socket.socketpair()
+    event_backend, event_desktop = socket.socketpair()
+    request_backend.settimeout(0.05)
+    request_desktop.settimeout(1)
+    event_desktop.settimeout(1)
+    control = DesktopControl("pipe", "secret")
+    connections = iter((request_backend, event_backend))
+    monkeypatch.setattr(control, "_connect", lambda: next(connections))
+
+    control.start_request_listener(lambda _action, _payload: {"ok": True})
+    handshake = json.loads(request_desktop.recv(4096).decode())
+    assert handshake["channel"] == "requests"
+
+    assert control.emit("ready", {"theme": "aurora"}) is True
+    ready = json.loads(event_desktop.recv(4096).decode())
+    assert ready["event"] == "ready"
+    assert ready["payload"] == {"theme": "aurora"}
+
+    control.close()
+    request_desktop.close()
+    event_desktop.close()
 
 
 def test_desktop_control_rejects_unauthenticated_and_sanitizes_handler_failure(monkeypatch):
-    backend, desktop = socket.socketpair()
-    backend.settimeout(0.05)
-    desktop.settimeout(1)
+    request_backend, request_desktop = socket.socketpair()
+    event_backend, event_desktop = socket.socketpair()
+    request_backend.settimeout(0.05)
+    request_desktop.settimeout(1)
+    event_desktop.settimeout(1)
     control = DesktopControl("pipe", "secret")
-    monkeypatch.setattr(control, "_connect", lambda: backend)
+    connections = iter((request_backend, event_backend))
+    monkeypatch.setattr(control, "_connect", lambda: next(connections))
 
     def fail(_action, _payload):
         raise RuntimeError("C:/private/path?token=secret")
 
     control.start_request_listener(fail)
-    desktop.sendall(
+    json.loads(request_desktop.recv(4096).decode())
+    request_desktop.sendall(
+        b'not-json\n'
         b'{"token":"wrong","request_id":"ignored","action":"favorite.toggle","payload":{}}\n'
         b'{"token":"secret","request_id":"request-2","action":"favorite.toggle","payload":{}}\n'
     )
-    response = json.loads(desktop.recv(4096).decode())
+    response = json.loads(event_desktop.recv(4096).decode())
 
     assert response["payload"] == {
         "request_id": "request-2",
@@ -290,4 +325,5 @@ def test_desktop_control_rejects_unauthenticated_and_sanitizes_handler_failure(m
     assert "private" not in json.dumps(response)
     assert "token=secret" not in json.dumps(response)
     control.close()
-    desktop.close()
+    request_desktop.close()
+    event_desktop.close()

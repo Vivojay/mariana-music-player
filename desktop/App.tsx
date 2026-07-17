@@ -105,6 +105,7 @@ export default function App() {
   const activeTabRef = useRef(activeTab)
   const [update, setUpdate] = useState<UpdateState>({ state: 'idle' })
   const [backendState, setBackendState] = useState('starting')
+  const [backendDiagnostic, setBackendDiagnostic] = useState<string | null>(null)
   const [broadcastStatus, setBroadcastStatus] = useState<Record<string, unknown>>({ state: 'idle' })
   const [loudnessStatus, setLoudnessStatus] = useState<Record<string, unknown>>({ replaygain_db: 0, live_leveling: false })
   const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus | null>(null)
@@ -146,6 +147,7 @@ export default function App() {
   }, [tabs, activeTab])
 
   useEffect(() => {
+    let playbackEventReceived = false
     const receivePlaybackStatus = (next: PlaybackStatus | null) => {
       if (playbackStatusRef.current?.media_id !== next?.media_id) {
         favoriteRequestEpoch.current += 1
@@ -157,21 +159,44 @@ export default function App() {
       setPlaybackStatus(next)
     }
     void window.mariana.backend.snapshot().then((snapshot) => {
-      if (snapshot.ready) setBackendState('ready')
+      if (snapshot.ready) {
+        setBackendState('ready')
+        setBackendDiagnostic(null)
+      } else if (snapshot.diagnostic) {
+        setBackendState('error')
+        setBackendDiagnostic(snapshot.diagnostic)
+      }
       setTimerStatus((current) => ({ ...current, active: snapshot.sleepActive }))
-      receivePlaybackStatus(snapshot.playback)
+      if (!playbackEventReceived) receivePlaybackStatus(snapshot.playback)
     })
     const backend = window.mariana.backend.onEvent((event: BackendEvent) => {
+      if (event.event === 'starting') {
+        playbackEventReceived = true
+        setBackendState('starting')
+        setBackendDiagnostic(null)
+        receivePlaybackStatus(null)
+      }
       if (event.event === 'ready') {
         setBackendState('ready')
+        setBackendDiagnostic(null)
         const name = String(event.payload.theme || '')
         if (name in themes) setThemeName(name as ThemeName)
       }
-      if (event.event === 'fatal-error') setBackendState('error')
+      if (event.event === 'fatal-error') {
+        setBackendState('error')
+        setBackendDiagnostic(
+          event.payload.message === 'Backend control channel did not become ready'
+            ? event.payload.message
+            : 'Backend reported a startup error',
+        )
+      }
       if (event.event === 'sleep') setTimerStatus(event.payload)
       if (event.event === 'broadcast') setBroadcastStatus(event.payload)
       if (event.event === 'loudness') setLoudnessStatus(event.payload)
-      if (event.event === 'playback') receivePlaybackStatus(event.payload)
+      if (event.event === 'playback') {
+        playbackEventReceived = true
+        receivePlaybackStatus(event.payload)
+      }
       if (event.event === 'station') setStationStatus(event.payload)
       if (event.event === 'queue') {
         setQueueTree(Array.isArray(event.payload.tree) ? event.payload.tree as QueueNode[] : [])
@@ -205,6 +230,7 @@ export default function App() {
     const exited = window.mariana.terminal.onExit((event) => {
       if (!event.intentional) {
         setBackendState('stopped')
+        setBackendDiagnostic('Backend process stopped')
         return
       }
       const currentTabs = tabsRef.current
@@ -221,6 +247,7 @@ export default function App() {
       setTabs(remaining)
       setActiveTab(nextActive)
       setBackendState('starting')
+      setBackendDiagnostic(null)
       void window.mariana.terminal.restart()
     })
     const shortcut = (event: KeyboardEvent) => {
@@ -344,6 +371,7 @@ export default function App() {
       <footer className="statusbar">
         <PlaybackStatusBar
           status={playbackStatus}
+          unavailableReason={backendDiagnostic}
           favoritePending={favoritePending}
           favoriteError={favoriteError}
           onToggleFavorite={() => void toggleFavorite()}

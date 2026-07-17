@@ -39,8 +39,10 @@ let backendReady = false
 let backendShutdownAcknowledged = false
 let backendExitClosesView = true
 let backendSafeOverride: boolean | null = null
+let backendDiagnostic: string | null = null
 let updateState: UpdateState = { state: app.isPackaged ? 'idle' : 'disabled' }
 let updatePreparationTimer: NodeJS.Timeout | null = null
+let backendStartupTimer: NodeJS.Timeout | null = null
 const pendingControlRequests = new Map<string, {
   resolve: (result: FavoriteToggleResult) => void
   timer: NodeJS.Timeout
@@ -116,6 +118,9 @@ function handleBackendEvent(event: BackendEvent) {
   if (event.event === 'update-safe') backendSafeOverride = Boolean(event.payload.safe)
   if (event.event === 'ready') {
     backendReady = true
+    backendDiagnostic = null
+    if (backendStartupTimer) clearTimeout(backendStartupTimer)
+    backendStartupTimer = null
     fs.writeFileSync(path.join(app.getPath('userData'), 'healthy.json'), JSON.stringify({
       version: app.getVersion(), timestamp: Date.now(),
     }))
@@ -156,10 +161,17 @@ async function createControlServer(): Promise<void> {
       pending = lines.pop() ?? ''
       for (const line of lines) {
         try {
-          const message = JSON.parse(line) as BackendEvent & { token?: string }
-          if (message.token === controlToken && typeof message.event === 'string') {
+          const message = JSON.parse(line) as (BackendEvent & { token?: string }) | {
+            token?: string
+            channel?: string
+          }
+          if (message.token !== controlToken) continue
+          if ('channel' in message && message.channel === 'requests') {
             if (controlSocket && controlSocket !== socket) controlSocket.destroy()
             controlSocket = socket
+            continue
+          }
+          if ('event' in message && typeof message.event === 'string') {
             handleBackendEvent(message)
           }
         } catch {
@@ -204,6 +216,10 @@ function startTerminal() {
   terminalProcess?.kill()
   controlSocket?.destroy()
   controlSocket = null
+  backendReady = false
+  backendDiagnostic = null
+  if (backendStartupTimer) clearTimeout(backendStartupTimer)
+  send('backend:event', { event: 'starting', payload: {}, timestamp: Date.now() / 1000 } satisfies BackendEvent)
   finishPendingControlRequests('Mariana backend restarted before confirming the favourite update')
   playbackState = 'idle'
   playbackStatus = null
@@ -227,6 +243,15 @@ function startTerminal() {
     },
   })
   terminalProcess = spawnedProcess
+  backendStartupTimer = setTimeout(() => {
+    if (terminalProcess !== spawnedProcess || backendReady) return
+    backendDiagnostic = 'Backend control channel did not become ready'
+    handleBackendEvent({
+      event: 'fatal-error',
+      payload: { message: backendDiagnostic },
+      timestamp: Date.now() / 1000,
+    })
+  }, 30_000)
   spawnedProcess.onData((data) => {
     const controlWindow = terminalControlTail + data
     const clearIndex = Math.max(controlWindow.lastIndexOf('\u001b[2J'), controlWindow.lastIndexOf('\u001b[3J'))
@@ -239,6 +264,8 @@ function startTerminal() {
   spawnedProcess.onExit(({ exitCode }) => {
     if (terminalProcess !== spawnedProcess) return
     terminalProcess = null
+    if (backendStartupTimer) clearTimeout(backendStartupTimer)
+    backendStartupTimer = null
     send('terminal:exit', {
       code: exitCode,
       intentional: backendShutdownAcknowledged && backendExitClosesView,
@@ -291,7 +318,13 @@ async function createWindow() {
 function registerIpc() {
   ipcMain.handle('backend:snapshot', async (event) => {
     if (!validateSender(event)) throw new Error('Invalid IPC sender')
-    return { ready: backendReady, playbackState, sleepActive, playback: playbackStatus }
+    return {
+      ready: backendReady,
+      diagnostic: backendDiagnostic,
+      playbackState,
+      sleepActive,
+      playback: playbackStatus,
+    }
   })
   ipcMain.handle('backend:favorite-toggle', async (event, mediaId: unknown) => {
     const hasControlCharacters = typeof mediaId === 'string'
@@ -398,6 +431,8 @@ else {
   })
   app.on('before-quit', () => {
     quitting = true
+    if (backendStartupTimer) clearTimeout(backendStartupTimer)
+    backendStartupTimer = null
     terminalProcess?.write('exit y\r')
     terminalProcess?.kill()
     controlSocket?.destroy()

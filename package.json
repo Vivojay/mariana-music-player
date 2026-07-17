@@ -7,7 +7,7 @@
   "main": "dist-electron/main.js",
   "private": true,
   "scripts": {
-    "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
+    "dev": "concurrently -k \"vite\" \"wait-on http-get://127.0.0.1:5173 && electron .\"",
     "dev:web": "vite",
     "typecheck": "tsc --noEmit -p desktop/tsconfig.json && tsc -p desktop/tsconfig.electron.json",
     "build": "npm run typecheck && vite build",
