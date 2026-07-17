@@ -227,6 +227,40 @@ def test_pause_resume_toggle_seek_restart_and_boundaries(controller, monkeypatch
         controller.notify_metadata_boundary()
 
 
+def test_seek_clean_eof_at_safe_end_completes_without_false_failure(controller, monkeypatch):
+    media = finite(duration=100)
+    controller._active = Session(media)
+    controller._state = PlaybackState.PLAYING
+    replacement = Session(media)
+    replacement.eof = True
+    replacement.buffered_seconds = 0
+    replacement.wait_for_buffer = lambda *_args, **_kwargs: False
+    monkeypatch.setattr(controller, "_new_session", lambda *_args, **_kwargs: replacement)
+
+    controller.seek(99.75)
+
+    snapshot = controller.snapshot()
+    assert snapshot.state == PlaybackState.IDLE
+    assert snapshot.media is media
+    assert snapshot.position == 100
+    assert replacement.stopped
+
+
+def test_seek_unbuffered_before_end_still_reports_decoder_failure(controller, monkeypatch):
+    media = finite(duration=100)
+    controller._active = Session(media)
+    controller._state = PlaybackState.PLAYING
+    replacement = Session(media)
+    replacement.eof = True
+    replacement.buffered_seconds = 0
+    replacement.error = "seek failed"
+    replacement.wait_for_buffer = lambda *_args, **_kwargs: False
+    monkeypatch.setattr(controller, "_new_session", lambda *_args, **_kwargs: replacement)
+
+    with pytest.raises(playback.PlaybackError, match="seek failed"):
+        controller.seek(99.74)
+
+
 def test_stop_close_recover_fingerprint_and_snapshot(controller):
     active, upcoming = Session(finite()), Session(finite("next"))
     controller._active, controller._next = active, upcoming

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import signal
@@ -20,6 +21,7 @@ import sounddevice
 
 from .models import MediaCapabilities, MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
 from .output_devices import OutputDeviceInfo, default_output_device
+from .seek import END_MARGIN_SECONDS
 from .sources import FailureCode, MediaFailure, ResolvedMedia, ResolverRegistry, redacted_uri
 
 SAMPLE_RATE = 48_000
@@ -911,9 +913,27 @@ class PlaybackController:
             self._active = replacement
             replacement.start()
         if not replacement.wait_for_buffer():
+            if self._seek_reached_clean_end(replacement, target):
+                self._finish_active(replacement)
+                return
             raise PlaybackError(replacement.error or "Seek produced no audio")
         with self._lock:
             self._state = PlaybackState.PAUSED if was_paused else PlaybackState.PLAYING
+
+    @staticmethod
+    def _seek_reached_clean_end(session: DecoderSession, target: float) -> bool:
+        """Return whether an unbuffered seek completed normally at the finite endpoint."""
+        duration = session.media.duration
+        if duration is None or session.media.capabilities.live or not session.eof:
+            return False
+        try:
+            duration = float(duration)
+        except (TypeError, ValueError):
+            return False
+        if not math.isfinite(duration) or duration <= 0 or getattr(session, "failed", False):
+            return False
+        margin = min(END_MARGIN_SECONDS, duration / 2)
+        return target >= duration - margin
 
     def restart_live(self) -> None:
         with self._lock:
