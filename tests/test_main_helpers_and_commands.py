@@ -1214,19 +1214,31 @@ def test_short_rename_rejects_placeholder_only_and_equivalent_names(monkeypatch,
         },
     }
     rename_calls = []
+    printed = []
     monkeypatch.setattr(main, "_media_info", lambda _args: (media, info))
     monkeypatch.setattr(main, "LIBRARY", SimpleNamespace(rename=lambda *args: rename_calls.append(args)))
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
 
     with pytest.raises(ValueError, match="Insufficient trusted metadata for safe rename"):
         main.rename_command(["short", "--dry-run"])
     assert rename_calls == []
 
     info["metadata"] = {
-        "source_title": "Actual Song",
-        "source_artist": "Actual Artist",
-        "youtube_id": "dYsg37kwCwM",
+        "source_title": "The Kid LAROI, Justin Bieber - Stay (Lyrics)",
+        "source_artist": "7clouds",
+        "youtube_id": "yWHrYNP6j4k",
+        "metadata_source": "youtube-download",
+        "metadata_confidence": "trusted",
     }
-    info["canonical_path"] = str(tmp_path / "Actual Artist - Actual Song [dYsg37kwCwM].mp3")
+    expected = tmp_path / "7clouds - The Kid LAROI, Justin Bieber - Stay (Lyrics) [yWHrYNP6j4k].mp3"
+    assert main.rename_command(["short", "--dry-run"]) == expected
+    assert expected.name.count("7clouds") == 1
+    assert expected.name.count("yWHrYNP6j4k") == 1
+    assert "Metadata confidence: high (cached source metadata)" in printed[-1]
+    assert "youtube.com" not in printed[-1]
+    assert str(tmp_path) not in printed[-1]
+
+    info["canonical_path"] = str(expected)
     with pytest.raises(ValueError, match="already matches"):
         main.rename_command(["short", "--dry-run"])
     assert rename_calls == []

@@ -7,7 +7,9 @@ from types import SimpleNamespace
 import pytest
 
 from mariana.database import SCHEMA_VERSION, MarianaDatabase
+from mariana.download_jobs import DownloadManager
 from mariana.library import LibraryCatalog, LibraryError, parse_library_file
+from mariana.models import MediaRef, MediaSource
 
 
 def write_library(path: Path, *roots: Path) -> None:
@@ -163,6 +165,147 @@ def test_probe_prefers_trusted_download_source_tags_over_placeholders(monkeypatc
         assert "youtube.com" not in f"{media.title} {media.artist}"
         assert str(song) not in f"{media.title} {media.artist}"
     finally:
+        database.close()
+
+
+def test_trusted_download_metadata_survives_library_reload_and_reprobe(monkeypatch, tmp_path: Path):
+    root = tmp_path / "music"
+    root.mkdir()
+    database, library = catalog(tmp_path, root)
+    manager = DownloadManager(database, autostart=False)
+    online = MediaRef(
+        MediaSource.YOUTUBE,
+        "https://www.youtube.com/watch?v=yWHrYNP6j4k",
+        title="The Kid LAROI, Justin Bieber - Stay (Lyrics)",
+        artist="7clouds",
+    )
+    job = manager.create(
+        [online],
+        destination=root,
+        metadata=[
+            {
+                "source_title": "The Kid LAROI, Justin Bieber - Stay (Lyrics)",
+                "source_artist": "7clouds",
+            }
+        ],
+    )
+    item = manager.items(job.job_id)[0]
+    trusted = {
+        **item.metadata,
+        "title": "The Kid LAROI, Justin Bieber - Stay (Lyrics)",
+        "artist": "7clouds",
+        "source_title": "The Kid LAROI, Justin Bieber - Stay (Lyrics)",
+        "source_artist": "7clouds",
+        "source_uploader": "7clouds",
+        "source_channel": "7clouds",
+        "metadata_source": "youtube-download",
+        "metadata_confidence": "trusted",
+    }
+    output = Path(item.output_path)
+    output.write_bytes(b"audio")
+    with database.transaction() as connection:
+        connection.execute(
+            "UPDATE download_items SET state='completed',metadata_json=? WHERE item_id=?",
+            (json.dumps(trusted), item.item_id),
+        )
+        connection.execute(
+            "UPDATE download_jobs SET state='completed',completed_items=1 WHERE job_id=?",
+            (job.job_id,),
+        )
+    payload = {
+        "format": {"duration": "180", "format_name": "mp3", "tags": {}},
+        "streams": [{"codec_type": "audio", "codec_name": "mp3"}],
+    }
+    monkeypatch.setattr("mariana.library.find_executable", lambda *_args: "ffprobe")
+    monkeypatch.setattr(
+        "mariana.library.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, json.dumps(payload), ""),
+    )
+    monkeypatch.setattr("mariana.library.MutagenFile", lambda *_args, **_kwargs: SimpleNamespace(tags={}))
+    try:
+        library.scan()
+        before_probe = library.info("1")["metadata"]
+        assert before_probe["source_title"] == "The Kid LAROI, Justin Bieber - Stay (Lyrics)"
+        assert before_probe["source_artist"] == "7clouds"
+        assert before_probe["source_uploader"] == "7clouds"
+        assert before_probe["source_channel"] == "7clouds"
+
+        assert library.process_jobs("probe") == 1
+        persisted = json.loads(
+            database.fetchone("SELECT metadata_json FROM library_files")["metadata_json"]
+        )
+        assert persisted["source_title"] == before_probe["source_title"]
+        assert persisted["source_artist"] == before_probe["source_artist"]
+
+        output.write_bytes(b"changed-audio")
+        assert library.scan("changed").changed == 1
+        assert library.process_jobs("probe") == 1
+        reloaded = library.info("1")["metadata"]
+        assert reloaded["source_title"] == before_probe["source_title"]
+        assert reloaded["source_artist"] == before_probe["source_artist"]
+        assert "youtube.com" not in json.dumps(reloaded)
+    finally:
+        manager.close()
+        database.close()
+
+
+def test_download_metadata_bridge_rejects_untrusted_mismatched_and_placeholder_records(tmp_path: Path):
+    root = tmp_path / "music"
+    root.mkdir()
+    database, library = catalog(tmp_path, root)
+    manager = DownloadManager(database, autostart=False)
+    online = MediaRef(
+        MediaSource.YOUTUBE,
+        "https://www.youtube.com/watch?v=yWHrYNP6j4k",
+        title="Actual Song",
+    )
+    job = manager.create([online], destination=root)
+    item = manager.items(job.job_id)[0]
+    output = Path(item.output_path)
+    base = {
+        "video_id": "yWHrYNP6j4k",
+        "source_title": "Actual Song",
+        "metadata_source": "youtube-download",
+        "metadata_confidence": "trusted",
+    }
+
+    def persist(metadata, *, output_path=output):
+        with database.transaction() as connection:
+            connection.execute(
+                "UPDATE download_items SET state='completed',output_path=?,metadata_json=? WHERE item_id=?",
+                (str(output_path), json.dumps(metadata), item.item_id),
+            )
+
+    try:
+        persist({**base, "metadata_source": "external"})
+        assert library._trusted_download_metadata(output, "yWHrYNP6j4k") == {}
+
+        persist({**base, "metadata_confidence": "placeholder"})
+        assert library._trusted_download_metadata(output, "yWHrYNP6j4k") == {}
+
+        persist({**base, "video_id": "dYsg37kwCwM"})
+        assert library._trusted_download_metadata(output, "yWHrYNP6j4k") == {}
+
+        persist({**base, "source_title": "YouTube audio"})
+        assert library._trusted_download_metadata(output, "yWHrYNP6j4k") == {}
+
+        path_only = root / "path-only.mp3"
+        persist(
+            {
+                "source_title": "Path-attributed song",
+                "metadata_source": "youtube-download",
+                "metadata_confidence": "trusted",
+            },
+            output_path=path_only,
+        )
+        assert library._trusted_download_metadata(path_only, None) == {
+            "title": "Path-attributed song",
+            "source_title": "Path-attributed song",
+            "metadata_source": "youtube-download",
+            "metadata_confidence": "trusted",
+        }
+    finally:
+        manager.close()
         database.close()
 
 

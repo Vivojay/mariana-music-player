@@ -28,7 +28,7 @@ from .loudness import (
     album_identity,
     profile_from_tags,
 )
-from .media_details import trusted_metadata_text
+from .media_details import extract_youtube_id, trusted_metadata_text
 from .models import MediaCapabilities, MediaRef, MediaSource
 from .playback import CREATE_NO_WINDOW, find_executable
 
@@ -410,6 +410,65 @@ class LibraryCatalog:
             )
         ]
 
+    def _trusted_download_metadata(self, path: Path, youtube_id: str | None) -> dict[str, Any]:
+        """Return only safe metadata from a completed Mariana download with strong provenance."""
+        output_path = str(path.resolve())
+        canonical_url = f"https://www.youtube.com/watch?v={youtube_id}" if youtube_id else ""
+        rows = self.database.fetchall(
+            "SELECT output_path,metadata_json FROM download_items "
+            "WHERE state='completed' AND (output_path=? OR canonical_url=?) "
+            "ORDER BY CASE WHEN output_path=? THEN 0 ELSE 1 END,item_id DESC LIMIT 20",
+            (output_path, canonical_url, output_path),
+        )
+        for row in rows:
+            metadata = json.loads(row["metadata_json"] or "{}")
+            if (
+                metadata.get("metadata_source") != "youtube-download"
+                or metadata.get("metadata_confidence") != "trusted"
+            ):
+                continue
+            stored_id = str(metadata.get("video_id") or metadata.get("youtube_id") or "")
+            if stored_id and not re.fullmatch(r"[A-Za-z0-9_-]{11}", stored_id):
+                continue
+            candidate_id = stored_id or extract_youtube_id(metadata, row["output_path"])
+            if youtube_id and candidate_id != youtube_id:
+                continue
+            title = trusted_metadata_text(
+                metadata.get("source_title") or metadata.get("title"),
+                youtube_id=candidate_id,
+            )
+            if not title:
+                continue
+            artist = trusted_metadata_text(
+                metadata.get("source_artist")
+                or metadata.get("artist")
+                or metadata.get("source_uploader")
+                or metadata.get("source_channel"),
+                youtube_id=candidate_id,
+            )
+            result = {
+                "title": title,
+                "source_title": title,
+                "metadata_source": "youtube-download",
+                "metadata_confidence": "trusted",
+            }
+            if artist:
+                result.update({"artist": artist, "source_artist": artist})
+            for key in ("source_uploader", "source_channel"):
+                if value := trusted_metadata_text(metadata.get(key), youtube_id=candidate_id):
+                    result[key] = value
+            if candidate_id:
+                result["youtube_id"] = candidate_id
+            return result
+        return {}
+
+    def _metadata_with_download_source(self, path: Path, metadata: dict[str, Any]) -> dict[str, Any]:
+        youtube_id = extract_youtube_id(metadata, path.name)
+        trusted = self._trusted_download_metadata(path, youtube_id)
+        if not trusted:
+            return metadata
+        return {**metadata, **trusted}
+
     def media_refs(self) -> list[MediaRef]:
         result = []
         for row in self.database.fetchall(
@@ -527,7 +586,7 @@ class LibraryCatalog:
             duration = float(raw_duration) if raw_duration is not None and raw_duration != "N/A" else None
         except (TypeError, ValueError):
             duration = None
-        youtube_id = tags.get("youtube_id")
+        youtube_id = extract_youtube_id(tags, job.path.name)
         source_title = trusted_metadata_text(tags.get("mariana_source_title"), youtube_id=youtube_id)
         source_artist = trusted_metadata_text(tags.get("mariana_source_artist"), youtube_id=youtube_id)
         source_uploader = trusted_metadata_text(tags.get("mariana_source_uploader"), youtube_id=youtube_id)
@@ -563,6 +622,7 @@ class LibraryCatalog:
             "channels": audio.get("channels"),
             "artwork_embedded": artwork,
         }
+        metadata = self._metadata_with_download_source(job.path, metadata)
         library_row = self.database.fetchone(
             "SELECT content_signature FROM library_files WHERE library_id=?", (job.library_id,)
         )
@@ -874,7 +934,11 @@ class LibraryCatalog:
         if not row:
             return None
         result = dict(row)
-        result["metadata"] = json.loads(result.pop("metadata_json") or "{}")
+        metadata = json.loads(result.pop("metadata_json") or "{}")
+        result["metadata"] = self._metadata_with_download_source(
+            Path(result["canonical_path"]),
+            metadata,
+        )
         result["features"] = json.loads(result.pop("features_json") or "{}")
         profile = self.loudness.get(result["library_id"])
         result["loudness"] = asdict(profile) if profile else None
