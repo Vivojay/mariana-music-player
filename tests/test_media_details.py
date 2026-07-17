@@ -11,6 +11,8 @@ from mariana.media_details import (
     extract_youtube_id,
     flattened_details,
     short_filename,
+    short_filename_plan,
+    trusted_metadata_text,
 )
 
 
@@ -25,7 +27,51 @@ def test_short_filename_uses_priority_order_and_optional_fields():
         "webpage_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     }) == "Artist - Song- One 2024 [dQw4w9WgXcQ].mp3"
     assert short_filename(path, {"releaser": "Label", "title": "Song"}) == "Label - Song.mp3"
-    assert short_filename(path, {"distributor": "Dist"}) == "Dist - old.mp3"
+    with pytest.raises(ValueError, match="Insufficient trusted metadata"):
+        short_filename(path, {"distributor": "Dist"})
+
+
+def test_short_filename_prefers_cached_source_metadata_and_deduplicates_identity():
+    path = Path("Unknown Artist - YouTube audio [dYsg37kwCwM].mp3")
+    plan = short_filename_plan(
+        path,
+        {
+            "title": "Unknown Artist - YouTube audio [dYsg37kwCwM]",
+            "artist": "Unknown Artist",
+            "source_title": "Actual Song [dYsg37kwCwM]",
+            "source_artist": "Actual Artist",
+            "youtube_id": "dYsg37kwCwM",
+        },
+    )
+
+    assert plan.filename == "Actual Artist - Actual Song [dYsg37kwCwM].mp3"
+    assert (plan.confidence, plan.source) == ("high", "cached source metadata")
+
+
+def test_short_filename_rejects_placeholder_only_metadata_and_deduplicates_embedded_artist():
+    path = Path("Unknown Artist - YouTube audio [dYsg37kwCwM].mp3")
+    placeholder = short_filename_plan(
+        path,
+        {
+            "title": "YouTube audio [dYsg37kwCwM]",
+            "artist": "Unknown Artist",
+            "youtube_id": "dYsg37kwCwM",
+        },
+    )
+    embedded = short_filename_plan(
+        path,
+        {
+            "title": "Actual Artist - Actual Song [dYsg37kwCwM]",
+            "artist": "Actual Artist",
+            "youtube_id": "dYsg37kwCwM",
+        },
+    )
+
+    assert placeholder.filename is None
+    assert placeholder.reason == "Insufficient trusted metadata for safe rename."
+    assert embedded.filename == "Actual Artist - Actual Song [dYsg37kwCwM].mp3"
+    assert trusted_metadata_text(r"C:\Users\Name\private.mp3") is None
+    assert trusted_metadata_text("https://signed.example/media?token=secret") is None
 
 
 def test_filename_helpers_reject_unsafe_characters_and_false_ids():

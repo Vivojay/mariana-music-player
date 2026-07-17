@@ -28,6 +28,7 @@ from .loudness import (
     album_identity,
     profile_from_tags,
 )
+from .media_details import trusted_metadata_text
 from .models import MediaCapabilities, MediaRef, MediaSource
 from .playback import CREATE_NO_WINDOW, find_executable
 
@@ -526,17 +527,28 @@ class LibraryCatalog:
             duration = float(raw_duration) if raw_duration is not None and raw_duration != "N/A" else None
         except (TypeError, ValueError):
             duration = None
+        youtube_id = tags.get("youtube_id")
+        source_title = trusted_metadata_text(tags.get("mariana_source_title"), youtube_id=youtube_id)
+        source_artist = trusted_metadata_text(tags.get("mariana_source_artist"), youtube_id=youtube_id)
+        source_uploader = trusted_metadata_text(tags.get("mariana_source_uploader"), youtube_id=youtube_id)
+        source_channel = trusted_metadata_text(tags.get("mariana_source_channel"), youtube_id=youtube_id)
         metadata = {
-            "title": tags.get("title"),
-            "artist": tags.get("artist"),
+            "title": source_title or tags.get("title"),
+            "artist": source_artist or source_uploader or source_channel or tags.get("artist"),
             "album": tags.get("album"),
             "album_artist": tags.get("album_artist") or tags.get("albumartist"),
             "releaser": tags.get("releaser") or tags.get("organization"),
             "distributor": tags.get("distributor"),
             "publisher": tags.get("publisher"),
             "label": tags.get("label") or tags.get("record_label"),
-            "youtube_id": tags.get("youtube_id"),
+            "youtube_id": youtube_id,
             "webpage_url": tags.get("purl") or tags.get("webpage_url"),
+            "source_title": source_title,
+            "source_artist": source_artist,
+            "source_uploader": source_uploader,
+            "source_channel": source_channel,
+            "metadata_source": tags.get("mariana_metadata_source"),
+            "metadata_confidence": tags.get("mariana_metadata_confidence"),
             "comment": tags.get("comment"),
             "disc": tags.get("disc") or tags.get("discnumber"),
             "release_mbid": tags.get("musicbrainz_albumid") or tags.get("musicbrainz_releaseid"),

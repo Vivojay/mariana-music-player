@@ -21,6 +21,7 @@ from yt_dlp import YoutubeDL
 from beta.youtube_media import integration_options
 
 from .database import MarianaDatabase
+from .media_details import deduplicate_media_title, trusted_metadata_text
 from .models import DownloadItem, DownloadJob, DownloadState, MediaRef, MediaSource, canonical_uri
 from .sources import sanitized_resolver_data
 
@@ -74,6 +75,52 @@ def canonical_youtube_url(value: str) -> tuple[str, str]:
     if not re.fullmatch(r"[A-Za-z0-9_-]{3,20}", video_id):
         raise DownloadJobError("A canonical YouTube video URL is required")
     return f"https://www.youtube.com/watch?v={video_id}", video_id
+
+
+def _first_trusted_download_value(*values: Any, youtube_id: str) -> str | None:
+    return next(
+        (trusted for value in values if (trusted := trusted_metadata_text(value, youtube_id=youtube_id))),
+        None,
+    )
+
+
+def resolved_download_metadata(item: DownloadItem, extracted: dict[str, Any]) -> dict[str, Any]:
+    """Prefer cached source/catalog metadata, replacing only low-confidence placeholders."""
+    metadata = dict(item.metadata)
+    video_id = str(metadata.get("video_id") or extracted.get("id") or item.media.resolver_data.get("video_id") or "")
+    title = _first_trusted_download_value(
+        metadata.get("source_title"),
+        metadata.get("title"),
+        item.media.title,
+        extracted.get("track"),
+        extracted.get("title"),
+        youtube_id=video_id,
+    )
+    artist = _first_trusted_download_value(
+        metadata.get("source_artist"),
+        metadata.get("artist"),
+        item.media.artist,
+        extracted.get("artist"),
+        extracted.get("uploader"),
+        extracted.get("channel"),
+        youtube_id=video_id,
+    )
+    uploader = _first_trusted_download_value(extracted.get("uploader"), youtube_id=video_id)
+    channel = _first_trusted_download_value(extracted.get("channel"), youtube_id=video_id)
+    metadata["video_id"] = video_id
+    if title:
+        metadata["title"] = title
+        metadata["source_title"] = title
+    if artist:
+        metadata["artist"] = artist
+        metadata["source_artist"] = artist
+    if uploader:
+        metadata["source_uploader"] = uploader
+    if channel:
+        metadata["source_channel"] = channel
+    metadata["metadata_source"] = "youtube-download"
+    metadata["metadata_confidence"] = "trusted" if title else "placeholder"
+    return metadata
 
 
 class DownloadManager:
@@ -195,8 +242,26 @@ class DownloadManager:
     @staticmethod
     def expected_output(destination: Path, media: MediaRef, metadata: dict[str, Any]) -> Path:
         video_id = sanitize_component(str(metadata.get("video_id") or media.resolver_data.get("video_id") or "video"))
-        title = sanitize_component(str(metadata.get("title") or media.title or "YouTube audio"))
-        artist = sanitize_component(str(metadata.get("artist") or media.artist or "Unknown Artist"))
+        trusted_title = _first_trusted_download_value(
+            metadata.get("source_title"),
+            metadata.get("title"),
+            media.title,
+            youtube_id=video_id,
+        )
+        trusted_artist = _first_trusted_download_value(
+            metadata.get("source_artist"),
+            metadata.get("artist"),
+            media.artist,
+            youtube_id=video_id,
+        )
+        title = sanitize_component(
+            deduplicate_media_title(
+                trusted_title or "YouTube audio",
+                creator=trusted_artist,
+                youtube_id=video_id,
+            )
+        )
+        artist = sanitize_component(trusted_artist or "Unknown Artist")
         album = metadata.get("album")
         album_artist = metadata.get("album_artist") or artist
         if album:
@@ -422,9 +487,22 @@ class DownloadManager:
 
     def _options(self, item: DownloadItem, staging: Path, quality: str) -> dict[str, Any]:
         metadata = item.metadata
+        video_id = str(metadata.get("video_id") or item.media.resolver_data.get("video_id") or "")
+        title = _first_trusted_download_value(
+            metadata.get("source_title"),
+            metadata.get("title"),
+            item.media.title,
+            youtube_id=video_id,
+        )
+        artist = _first_trusted_download_value(
+            metadata.get("source_artist"),
+            metadata.get("artist"),
+            item.media.artist,
+            youtube_id=video_id,
+        )
         tags = {
-            "title": metadata.get("title") or item.media.title,
-            "artist": metadata.get("artist") or item.media.artist,
+            "title": title,
+            "artist": artist,
             "album": metadata.get("album") or item.media.album,
             "album_artist": metadata.get("album_artist"),
             "track": metadata.get("track_number"),
@@ -432,7 +510,11 @@ class DownloadManager:
             "musicbrainz_recordingid": metadata.get("recording_mbid"),
             "musicbrainz_albumid": metadata.get("release_mbid"),
             "purl": item.media.original_uri,
-            "youtube_id": metadata.get("video_id"),
+            "youtube_id": video_id,
+            "mariana_source_title": title,
+            "mariana_source_artist": artist,
+            "mariana_metadata_source": "youtube-download" if title else None,
+            "mariana_metadata_confidence": "trusted" if title else "placeholder",
         }
         post_args = []
         for key, value in tags.items():
@@ -487,10 +569,7 @@ class DownloadManager:
             output = next((path for path in outputs if path.suffix.casefold() == ".mp3"), None)
             if output is None or output.stat().st_size == 0:
                 raise DownloadJobError("yt-dlp completed without producing an MP3 file")
-            metadata = dict(item.metadata)
-            metadata.setdefault("title", info.get("track") or info.get("title"))
-            metadata.setdefault("artist", info.get("artist") or info.get("uploader"))
-            metadata.setdefault("video_id", info.get("id"))
+            metadata = resolved_download_metadata(item, info)
             final = self.expected_output(destination, item.media, metadata)
             final.parent.mkdir(parents=True, exist_ok=True)
             temporary = final.with_suffix(final.suffix + ".tmp")
@@ -498,9 +577,14 @@ class DownloadManager:
             temporary.replace(final)
             with self.database.transaction() as connection:
                 connection.execute(
-                    "UPDATE download_items SET state='completed',progress=1,output_path=?,error=NULL,updated_at=? "
-                    "WHERE item_id=?",
-                    (str(final), time.time(), item.item_id),
+                    "UPDATE download_items SET state='completed',progress=1,output_path=?,metadata_json=?,"
+                    "error=NULL,updated_at=? WHERE item_id=?",
+                    (
+                        str(final),
+                        json.dumps(metadata, ensure_ascii=False, sort_keys=True),
+                        time.time(),
+                        item.item_id,
+                    ),
                 )
                 connection.execute(
                     "UPDATE download_jobs SET completed_items=completed_items+1,updated_at=? WHERE job_id=?",

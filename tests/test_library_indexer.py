@@ -123,6 +123,49 @@ def test_probe_and_fingerprint_jobs_are_leased_and_persisted(monkeypatch, tmp_pa
         database.close()
 
 
+def test_probe_prefers_trusted_download_source_tags_over_placeholders(monkeypatch, tmp_path: Path):
+    root = tmp_path / "music"
+    root.mkdir()
+    song = root / "Unknown Artist - YouTube audio [dYsg37kwCwM].mp3"
+    song.write_bytes(b"audio")
+    database, library = catalog(tmp_path, root)
+    payload = {
+        "format": {
+            "duration": "180",
+            "format_name": "mp3",
+            "tags": {
+                "title": "YouTube audio",
+                "artist": "Unknown Artist",
+                "youtube_id": "dYsg37kwCwM",
+                "purl": "https://www.youtube.com/watch?v=dYsg37kwCwM",
+                "mariana_source_title": "Actual Song",
+                "mariana_source_artist": "Actual Artist",
+                "mariana_metadata_source": "youtube-download",
+                "mariana_metadata_confidence": "trusted",
+            },
+        },
+        "streams": [{"codec_type": "audio", "codec_name": "mp3"}],
+    }
+    monkeypatch.setattr("mariana.library.find_executable", lambda *_args: "ffprobe")
+    monkeypatch.setattr(
+        "mariana.library.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, json.dumps(payload), ""),
+    )
+    monkeypatch.setattr("mariana.library.MutagenFile", lambda *_args, **_kwargs: SimpleNamespace(tags={}))
+    try:
+        library.scan()
+        assert library.process_jobs("probe") == 1
+        info = library.info("1")
+        media = library.media_refs()[0]
+        assert info["metadata"]["title"] == media.title == "Actual Song"
+        assert info["metadata"]["artist"] == media.artist == "Actual Artist"
+        assert info["metadata"]["metadata_source"] == "youtube-download"
+        assert "youtube.com" not in f"{media.title} {media.artist}"
+        assert str(song) not in f"{media.title} {media.artist}"
+    finally:
+        database.close()
+
+
 def test_failed_jobs_back_off_and_can_be_retried(monkeypatch, tmp_path: Path):
     root = tmp_path / "music"
     root.mkdir()

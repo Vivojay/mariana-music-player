@@ -11,9 +11,10 @@ from mariana.download_jobs import (
     DownloadJobError,
     DownloadManager,
     canonical_youtube_url,
+    resolved_download_metadata,
     sanitize_component,
 )
-from mariana.models import DownloadState, MediaRef, MediaSource
+from mariana.models import DownloadItem, DownloadState, MediaRef, MediaSource
 
 
 def youtube_media(video_id: str, title: str = "Song") -> MediaRef:
@@ -33,10 +34,12 @@ def youtube_media(video_id: str, title: str = "Song") -> MediaRef:
 class SuccessfulDownloader:
     active = 0
     maximum_active = 0
+    last_options = None
     lock = threading.Lock()
 
     def __init__(self, options):
         self.options = options
+        type(self).last_options = options
 
     def __enter__(self):
         with self.lock:
@@ -157,6 +160,101 @@ def test_single_and_album_jobs_are_sequential_atomic_and_secret_free(tmp_path: P
             assert events[-1]["state"] == "completed"
         finally:
             manager.close()
+
+
+def test_download_replaces_placeholders_with_extracted_source_metadata(tmp_path: Path):
+    placeholder = youtube_media(
+        "dYsg37kwCwM",
+        "Unknown Artist - YouTube audio [dYsg37kwCwM]",
+    )
+    placeholder.artist = "Unknown Artist"
+    with MarianaDatabase(tmp_path / "metadata.db") as database:
+        manager = DownloadManager(database, downloader_factory=SuccessfulDownloader)
+        try:
+            job = manager.create(
+                [placeholder],
+                destination=tmp_path / "downloads",
+                metadata=[
+                    {
+                        "title": "YouTube audio [dYsg37kwCwM]",
+                        "artist": "Unknown Artist",
+                    }
+                ],
+            )
+
+            assert manager.wait(job.job_id).state == DownloadState.COMPLETED
+            item = manager.items(job.job_id)[0]
+            assert Path(item.output_path).name == "Artist - Title [dYsg37kwCwM].mp3"
+            assert item.metadata["source_title"] == "Title dYsg37kwCwM"
+            assert item.metadata["source_artist"] == "Artist"
+            assert item.metadata["metadata_source"] == "youtube-download"
+            assert item.metadata["metadata_confidence"] == "trusted"
+            serialized_options = json.dumps(SuccessfulDownloader.last_options, default=str)
+            assert "title=YouTube audio" not in serialized_options
+            assert "artist=Unknown Artist" not in serialized_options
+        finally:
+            manager.close()
+
+
+def test_download_keeps_trusted_cached_source_metadata_over_generic_extraction(tmp_path: Path):
+    media = youtube_media("dYsg37kwCwM", "Generic result")
+    with MarianaDatabase(tmp_path / "cached.db") as database:
+        manager = DownloadManager(database, downloader_factory=SuccessfulDownloader)
+        try:
+            job = manager.create(
+                [media],
+                destination=tmp_path / "downloads",
+                metadata=[
+                    {
+                        "source_title": "Trusted Song",
+                        "source_artist": "Trusted Artist",
+                    }
+                ],
+            )
+
+            assert manager.wait(job.job_id).state == DownloadState.COMPLETED
+            item = manager.items(job.job_id)[0]
+            assert Path(item.output_path).name == "Trusted Artist - Trusted Song [dYsg37kwCwM].mp3"
+            assert item.metadata["source_title"] == "Trusted Song"
+            assert item.metadata["source_artist"] == "Trusted Artist"
+        finally:
+            manager.close()
+
+
+def test_resolved_download_metadata_marks_missing_values_and_keeps_source_attribution():
+    placeholder = youtube_media(
+        "dYsg37kwCwM",
+        "Unknown Artist - YouTube audio [dYsg37kwCwM]",
+    )
+    placeholder.artist = "Unknown Artist"
+    item = DownloadItem(
+        1,
+        "job",
+        1,
+        placeholder,
+        metadata={
+            "video_id": "dYsg37kwCwM",
+            "title": "YouTube audio",
+            "artist": "Unknown Artist",
+        },
+    )
+
+    missing = resolved_download_metadata(item, {})
+    attributed = resolved_download_metadata(
+        item,
+        {
+            "title": "Actual Song",
+            "uploader": "Uploader Name",
+            "channel": "Channel Name",
+        },
+    )
+
+    assert missing["metadata_confidence"] == "placeholder"
+    assert "source_title" not in missing and "source_artist" not in missing
+    assert attributed["source_title"] == "Actual Song"
+    assert attributed["source_artist"] == "Uploader Name"
+    assert attributed["source_uploader"] == "Uploader Name"
+    assert attributed["source_channel"] == "Channel Name"
 
 
 def test_failed_job_resumes_without_duplicate_completed_items(tmp_path: Path):

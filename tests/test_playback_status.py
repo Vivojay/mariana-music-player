@@ -170,6 +170,25 @@ def test_projection_rejects_unsafe_indexed_local_display_title():
     assert projected.title == "Local media"
 
 
+def test_projection_keeps_placeholder_local_title_safe_without_exposing_origin():
+    indexed = media(title="Unknown Artist - YouTube audio [dYsg37kwCwM]")
+    indexed.provenance = "library"
+    indexed.resolver_data.update(
+        {
+            "library_id": "37",
+            "webpage_url": "https://www.youtube.com/watch?v=dYsg37kwCwM&token=secret",
+        }
+    )
+
+    projected = project_playback_status(PlaybackSnapshot(PlaybackState.PLAYING, media=indexed))
+
+    assert projected.title == "Unknown Artist - YouTube audio [dYsg37kwCwM]"
+    serialized = str(projected.to_dict())
+    assert "youtube.com" not in serialized
+    assert "token=secret" not in serialized
+    assert "C:/private" not in serialized
+
+
 def test_projection_sanitizes_artist_error_and_invalid_numeric_values():
     unsafe = media(MediaSource.URL, title="https://private.example/song", artist="C:\\Users\\Name")
     projection = project_playback_status(
