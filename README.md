@@ -215,10 +215,11 @@ recommend [count]
 recommend autofill [count]
 recommend related [count]
 recommend train
-fav [favorite-index|current|!|+|-]
+fav [list|favorite-index|current|!|+|-]
 .fav <favorite-index>
 bl [!|+|-]
-favs|blacklist [count]
+favs [list|count]
+blacklist [count]
 like|dislike
 hist|history [count]
 include|exclude downloads

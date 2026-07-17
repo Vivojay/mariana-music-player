@@ -2689,12 +2689,13 @@ def _favorite_selection(index):
 
 def _favorite_display_label(entry: PreferenceEntry, media: MediaRef | None = None) -> str:
     """Return path- and URL-free text for favourite list and detail surfaces."""
-    title = sanitize_presence_text(media.title if media else entry.label)
-    artist = sanitize_presence_text(media.artist) if media else None
-    if title and artist and artist.casefold() not in title.casefold():
-        return f'{artist} — {title}'
-    if title:
-        return title
+    candidates = [media.title] if media else []
+    if media and media.source == MediaSource.LOCAL and media.provenance == 'library':
+        candidates.append(media.resolver_data.get('library_display_title'))
+    candidates.append(entry.label)
+    for candidate in candidates:
+        if title := sanitize_presence_text(candidate):
+            return title
     return {
         MediaSource.LOCAL: 'Local media',
         MediaSource.YOUTUBE: 'YouTube media',
@@ -2743,18 +2744,28 @@ def favorite_command(arguments, *, play=False):
             raise ValueError('Usage: .fav <favorite-index>')
         index = int(arguments[0])
         return _play_favorite_selection(index, *_favorite_selection(index))
-    if not arguments:
+    if not arguments or arguments == ['current']:
+        media = _preference_media(vas.controller.snapshot().media)
+        if media is None:
+            raise ValueError('No current media to favorite/check')
+        current = PREFERENCES.get(media)
+        IPrint(
+            'Current media is favorited'
+            if current == PreferenceState.FAVORITE
+            else 'Current media is not favorited',
+            visible=visible,
+        )
+        return current
+    if arguments == ['list']:
         return list_preferences(PreferenceState.FAVORITE, [], default_limit=None)
     if len(arguments) == 1 and arguments[0] in {'!', '+', '-'}:
         return preference_command(arguments, PreferenceState.FAVORITE)
-    if arguments == ['current']:
-        return preference_command([], PreferenceState.FAVORITE)
     if len(arguments) == 1 and arguments[0].isdigit() and int(arguments[0]) > 0:
         index = int(arguments[0])
         selection = _favorite_selection(index)
         _show_favorite_selection(index, *selection)
         return selection
-    raise ValueError('Usage: fav [favorite-index|current|!|+|-] | .fav <favorite-index>')
+    raise ValueError('Usage: fav [list|favorite-index|current|!|+|-] | .fav <favorite-index>')
 
 
 def list_preferences(state, arguments, *, default_limit=MAX_RESULT_COUNT):
@@ -5622,9 +5633,13 @@ def process(command):
 
         elif commandslist[0] in {'favs', 'blacklist'}:
             try:
+                arguments = commandslist[1:]
+                if commandslist[0] == 'favs' and arguments == ['list']:
+                    arguments = []
                 list_preferences(
                     PreferenceState.FAVORITE if commandslist[0] == 'favs' else PreferenceState.BLOCKED,
-                    commandslist[1:],
+                    arguments,
+                    default_limit=None if commandslist[0] == 'favs' else MAX_RESULT_COUNT,
                 )
             except ValueError as error:
                 SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
