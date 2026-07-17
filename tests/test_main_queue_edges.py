@@ -5,6 +5,7 @@ import pytest
 import main
 from mariana.database import MarianaDatabase
 from mariana.models import MediaCapabilities, MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
+from mariana.playback_status import project_playback_status
 from mariana.queueing import PersistentQueue, QueueError
 
 
@@ -26,6 +27,39 @@ def test_media_argument_and_open_in_youtube_edges(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "get_song_info", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(main, "SAY", lambda **_kwargs: None)
     assert main.open_in_youtube(song) == 1
+
+
+def test_indexed_local_playback_media_uses_catalog_metadata_and_safe_display_label(monkeypatch, tmp_path):
+    song = tmp_path / "maybe you miss me [932698612].mp3"
+    song.touch()
+    indexed = {
+        "library_id": "library-id",
+        "canonical_path": str(song),
+        "state": "available",
+        "metadata": {"artist": "Artist", "duration": 120},
+    }
+    monkeypatch.setattr(main.LIBRARY, "info", lambda value: indexed if value == str(song) else None)
+
+    enriched = main._indexed_local_playback_media(MediaRef(MediaSource.LOCAL, str(song)))
+
+    assert enriched is not None
+    assert enriched.stable_id == "library-id"
+    assert enriched.artist == "Artist" and enriched.duration == 120
+    assert enriched.title is None
+    assert enriched.resolver_data["library_display_title"] == "maybe you miss me [932698612]"
+    assert str(song) not in str(enriched.resolver_data)
+    assert project_playback_status(
+        PlaybackSnapshot(PlaybackState.PLAYING, media=enriched)
+    ).title == "maybe you miss me [932698612]"
+
+
+def test_unindexed_local_playback_media_keeps_generic_fallback(monkeypatch, tmp_path):
+    song = tmp_path / "outside.mp3"
+    song.touch()
+    monkeypatch.setattr(main.LIBRARY, "info", lambda _value: None)
+
+    original = MediaRef(MediaSource.LOCAL, str(song))
+    assert main._indexed_local_playback_media(original) is original
 
 
 def test_online_queue_play_retries_then_records_start(monkeypatch):

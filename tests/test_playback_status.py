@@ -18,7 +18,7 @@ from mariana.queueing import PersistentQueue
 def media(
     source=MediaSource.LOCAL,
     *,
-    title="Track",
+    title: str | None = "Track",
     artist="Artist",
     duration=100.0,
     finite=True,
@@ -145,8 +145,29 @@ def test_projection_uses_safe_source_fallbacks(source, title, expected):
         )
     )
     assert projected.title == expected
-    assert "private.example" not in projected.title
+    assert "private.example" not in (projected.title or "")
     assert "signed.example" not in projected.to_dict().values()
+
+
+def test_projection_uses_dedicated_indexed_local_display_title_without_exposing_a_path():
+    indexed = media(title=None)
+    indexed.provenance = "library"
+    indexed.resolver_data["library_display_title"] = "maybe you miss me [932698612]"
+
+    projected = project_playback_status(PlaybackSnapshot(PlaybackState.PLAYING, media=indexed))
+
+    assert projected.title == "maybe you miss me [932698612]"
+    assert "C:/private" not in str(projected.to_dict())
+
+
+def test_projection_rejects_unsafe_indexed_local_display_title():
+    indexed = media(title=None)
+    indexed.provenance = "library"
+    indexed.resolver_data["library_display_title"] = r"C:\\Users\\Vivan\\private-song.mp3"
+
+    projected = project_playback_status(PlaybackSnapshot(PlaybackState.PLAYING, media=indexed))
+
+    assert projected.title == "Local media"
 
 
 def test_projection_sanitizes_artist_error_and_invalid_numeric_values():

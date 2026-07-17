@@ -821,6 +821,37 @@ def _preference_media(media):
     return media
 
 
+def _indexed_local_playback_media(media):
+    """Attach trusted library metadata for local playback presentation only."""
+    if media is None or media.source != MediaSource.LOCAL:
+        return media
+    info = LIBRARY.info(media.original_uri)
+    if not info or info.get('state') != 'available':
+        return media
+    metadata = info.get('metadata') or {}
+    canonical_path = info.get('canonical_path')
+    library_id = info.get('library_id')
+    if not isinstance(canonical_path, str) or not isinstance(library_id, str):
+        return media
+    resolver_data = dict(media.resolver_data)
+    # The catalog already presents this indexed basename in library listings.
+    # Keep it separate from media.title so external presence never receives it.
+    resolver_data['library_display_title'] = Path(canonical_path).stem
+    return MediaRef(
+        MediaSource.LOCAL,
+        canonical_path,
+        stable_id=library_id,
+        title=media.title or metadata.get('title'),
+        artist=media.artist or metadata.get('artist'),
+        album=media.album or metadata.get('album'),
+        duration=media.duration or metadata.get('duration'),
+        resolver_data=resolver_data,
+        provenance='library',
+        capabilities=media.capabilities,
+        chapters=media.chapters,
+    )
+
+
 def _media_for_local_match(media):
     """Copy the active media only when playback supplied its finite duration."""
     if media is None or media.duration is not None:
@@ -3358,10 +3389,13 @@ def play_local_default_player(songpath, _songindex, is_queue=False, media=None):
             media = queue_item.media
         if not is_queue and queue_position is not None:
             QUEUE.jump(queue_position)
+        if media is None:
+            path = songpath[0] if isinstance(songpath, list) else songpath
+            media = MediaRef(MediaSource.LOCAL, str(Path(path).resolve()))
+        media = _indexed_local_playback_media(media)
         vas.set_media(_type='local', localpath=songpath)
-        if media is not None:
-            # Preserve the library/queue stable ID through decoder completion.
-            vas.current_media = media
+        # Preserve the library/queue stable ID through decoder completion.
+        vas.current_media = media
         vas.media_player(action='play')
         vas.player.audio_set_volume(int(cached_volume*100))
 

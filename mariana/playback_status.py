@@ -78,6 +78,18 @@ _SOURCE_FALLBACKS = {
 }
 
 
+def _indexed_local_display_title(media: object) -> object | None:
+    """Return the dedicated local-library label, never arbitrary resolver data."""
+    if getattr(media, "source", None) != MediaSource.LOCAL:
+        return None
+    if getattr(media, "provenance", "") != "library":
+        return None
+    resolver_data = getattr(media, "resolver_data", None)
+    if not isinstance(resolver_data, dict):
+        return None
+    return resolver_data.get("library_display_title")
+
+
 def _finite_nonnegative(value: object, *, default: float = 0.0) -> float:
     try:
         number = float(value)  # type: ignore[arg-type]
@@ -182,6 +194,8 @@ def project_playback_status(
         title = _clean_display_text(preferred_title, maximum=160)
         if title is None and live:
             title = _clean_display_text(media.title, maximum=160)
+        if title is None and not live:
+            title = _clean_display_text(_indexed_local_display_title(media), maximum=160)
         title = title or _SOURCE_FALLBACKS[media.source]
         artist = _clean_display_text(media.artist, maximum=120)
 
