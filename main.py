@@ -113,6 +113,7 @@ from mariana.playlists import PlaylistError, PlaylistStore
 from mariana.playback_status import (
     FavoriteStatusProjection,
     PlaybackChapterProjection,
+    PlaybackPolicyProjection,
     PlaybackStatusProjection,
     project_playback_status,
 )
@@ -375,7 +376,7 @@ RECOMMENDER = RecommendationEngine(
     DATABASE,
     exploration=SETTINGS.get('recommendations', {}).get('exploration', 0.10),
     mmr_lambda=SETTINGS.get('recommendations', {}).get('mmr diversity', 0.75),
-    blocked=lambda stable_id: PREFERENCES.get(stable_id) == PreferenceState.BLOCKED,
+    blocked=PREFERENCES.is_blocked,
 )
 ALBUMS = AlbumCatalog(
     DATABASE,
@@ -837,6 +838,39 @@ def _preference_media(media):
     return media
 
 
+class PlaybackBlockedError(ValueError):
+    """A safe refusal raised before a blocked item reaches playback."""
+
+
+def _is_media_blocked(media):
+    bound = _preference_media(media)
+    if bound is None:
+        return False
+    if checker := getattr(PREFERENCES, 'is_blocked', None):
+        return bool(checker(bound))
+    getter = getattr(PREFERENCES, 'get', None)
+    return bool(getter and getter(bound) == PreferenceState.BLOCKED)
+
+
+def _ensure_media_playable(media):
+    if _is_media_blocked(media):
+        raise PlaybackBlockedError('Playback blocked for this media; use "unblock <library-index>" first')
+    return media
+
+
+def _blocked_label(value, media):
+    return f'{value} [Blocked]' if _is_media_blocked(media) else value
+
+
+def _library_media(index):
+    if index not in range(1, len(_sound_files) + 1):
+        raise ValueError(f'Library number must be between 1 and {len(_sound_files)}')
+    media = _preference_media(MediaRef(MediaSource.LOCAL, str(Path(_sound_files[index - 1]).resolve())))
+    if media is None:
+        raise ValueError(f'Library item #{index} is unavailable')
+    return media
+
+
 def _indexed_local_playback_media(media):
     """Attach trusted library metadata for local playback presentation only."""
     if media is None or media.source != MediaSource.LOCAL:
@@ -932,6 +966,7 @@ def _show_local_copy_hint(media):
 def _play_queue_item(item):
     global currentsong, current_media_type, isplaying, currentsong_length
     media = item.media
+    _ensure_media_playable(media)
     items = QUEUE.items()
     position = next((index for index, queued in enumerate(items) if queued.queue_id == item.queue_id), -1)
     neighbors = [
@@ -959,7 +994,7 @@ def _play_queue_item(item):
         if action == 'retry':
             return _play_queue_item(item)
         if action == 'skip':
-            next_item = QUEUE.next()
+            next_item = _advance_queue_to_playable()
             if next_item:
                 return _play_queue_item(next_item)
         raise
@@ -996,11 +1031,48 @@ def _prefetch_after(item):
             candidate = items[position + 1]
         elif repeat_mode == 'all' and items:
             candidate = items[0]
-        if candidate and candidate.media.capabilities.finite:
+        if candidate and _is_media_blocked(candidate.media):
+            candidate = _queue_candidate_after(candidate)
+        if candidate and candidate.media.capabilities.finite and not _is_media_blocked(candidate.media):
             media = _indexed_local_playback_media(candidate.media) or candidate.media
             vas.controller.prefetch(media)
     except Exception:
         pass
+
+
+def _queue_candidate_after(item):
+    """Return the next unblocked item without moving the persistent cursor."""
+    items = QUEUE.items()
+    if not items:
+        return None
+    try:
+        start = next(index for index, candidate in enumerate(items) if candidate.queue_id == item.queue_id)
+    except StopIteration:
+        return None
+    state = QUEUE.state()
+    if state.get('repeat_mode') == 'one':
+        return item if not _is_media_blocked(item.media) else None
+    positions = list(range(start + 1, len(items)))
+    if state.get('repeat_mode') == 'all':
+        positions.extend(range(start + 1))
+    return next((items[index] for index in positions if not _is_media_blocked(items[index].media)), None)
+
+
+def _advance_queue_to_playable(*, previous=False):
+    """Move the queue cursor until one playable item is found, without looping."""
+    items = QUEUE.items()
+    if not items:
+        return None
+    initial = QUEUE.current()
+    for _ in items:
+        item = QUEUE.previous() if previous else QUEUE.next()
+        if item is None:
+            return None
+        if not _is_media_blocked(item.media):
+            return item
+        if initial is not None and item.queue_id == initial.queue_id:
+            return None
+    return None
 
 
 def _on_queue_item_complete(media):
@@ -1013,7 +1085,7 @@ def _on_queue_item_complete(media):
     if not AUTOPLAY_ENABLED:
         RECOMMENDER.retrain_if_due()
         return
-    next_item = QUEUE.next()
+    next_item = _advance_queue_to_playable()
     if next_item is None and QUEUE.state().get('autofill'):
         recommendations = RECOMMENDER.recommend(
             limit=1,
@@ -1315,7 +1387,12 @@ def queue_command(arguments):
     operation = arguments[0].lower() if arguments else 'list'
     if operation == 'list':
         rows = [
-            (index + 1, '*' if QUEUE.current() and QUEUE.current().queue_id == item.queue_id else '', item.priority, item.media.title or item.media.original_uri)
+            (
+                index + 1,
+                '*' if QUEUE.current() and QUEUE.current().queue_id == item.queue_id else '',
+                item.priority,
+                _blocked_label(item.media.title or 'Media', item.media),
+            )
             for index, item in enumerate(QUEUE.items())
         ]
         IPrint(tbl(rows, headers=('#', '', 'Priority', 'Media'), tablefmt='plain') if rows else '(queue empty)', visible=visible)
@@ -1348,7 +1425,12 @@ def queue_command(arguments):
     elif operation == 'swap':
         QUEUE.swap(int(arguments[1]) - 1, int(arguments[2]) - 1)
     elif operation == 'jump':
-        _play_queue_item(QUEUE.jump(int(arguments[1]) - 1))
+        position = int(arguments[1]) - 1
+        items = QUEUE.items()
+        if position not in range(len(items)):
+            raise QueueError('Queue position is out of range')
+        _ensure_media_playable(items[position].media)
+        _play_queue_item(QUEUE.jump(position))
     elif operation in {'next', 'previous'}:
         snapshot = vas.controller.snapshot()
         if operation == 'next' and snapshot.media:
@@ -1358,7 +1440,7 @@ def queue_command(arguments):
                 context={'position': snapshot.position, 'duration': snapshot.duration},
             )
             STATION.mark_played(snapshot.media)
-        item = QUEUE.next() if operation == 'next' else QUEUE.previous()
+        item = _advance_queue_to_playable(previous=operation == 'previous')
         if item:
             _play_queue_item(item)
         else:
@@ -2675,6 +2757,20 @@ def preference_command(arguments, state):
     if not media:
         raise ValueError('No active media')
     state = PreferenceState(state)
+    if state == PreferenceState.BLOCKED:
+        operation = arguments[0] if arguments else None
+        if operation is None:
+            blocked = PREFERENCES.is_blocked(media)
+        elif operation == '!':
+            blocked = PREFERENCES.toggle_blocked(media)
+        elif operation in {'+', '-'}:
+            blocked = operation == '+'
+            PREFERENCES.set_blocked(media, blocked)
+        else:
+            raise ValueError('Usage: bl [!|+|-]')
+        current = PreferenceState.BLOCKED if blocked else PreferenceState.NEUTRAL
+        IPrint(f'Preference: {current.value}', visible=visible)
+        return current
     operation = arguments[0] if arguments else None
     if operation is None:
         current = PREFERENCES.get(media)
@@ -2690,6 +2786,48 @@ def preference_command(arguments, state):
         raise ValueError('Usage: fav|bl [!|+|-]')
     IPrint(f'Preference: {current.value}', visible=visible)
     return current
+
+
+def block_command(arguments, *, unblock=False):
+    """Bind a block mutation to current media or an immutable library item."""
+    usage = 'unblock <library-index|current>' if unblock else 'block <current|library-index>'
+    if len(arguments) != 1:
+        raise ValueError(f'Usage: {usage}')
+    target = arguments[0].casefold()
+    library_index = None
+    if target == 'current':
+        media = _preference_media(vas.controller.snapshot().media)
+        if media is None:
+            raise ValueError('No current media to block' if not unblock else 'No current media to unblock')
+    elif target.isdigit() and int(target) > 0:
+        library_index = int(target)
+        media = _library_media(library_index)
+    else:
+        raise ValueError(f'Usage: {usage}')
+    blocked = not unblock
+    changed = PREFERENCES.set_blocked(media, blocked)
+    label = sanitize_presence_text(media.title)
+    if not label and media.source == MediaSource.LOCAL:
+        label = sanitize_presence_text(media.resolver_data.get('library_display_title'))
+    label = label or {
+        MediaSource.LOCAL: 'Local media',
+        MediaSource.YOUTUBE: 'YouTube media',
+        MediaSource.URL: 'Online media',
+        MediaSource.PODCAST: 'Podcast',
+        MediaSource.RADIO: 'Internet radio',
+        MediaSource.RECOMMENDATION: 'Recommended media',
+    }[media.source]
+    prefix = f'Library #{library_index}: ' if library_index is not None else ''
+    state = 'Playback blocked' if blocked else 'Playback unblocked'
+    IPrint(f'{state}: {prefix}{label}' if changed else f'{state} already set: {prefix}{label}', visible=visible)
+    return blocked
+
+
+def blocked_command(arguments):
+    if arguments not in ([], ['list']) and not (len(arguments) == 1 and arguments[0].isdigit()):
+        raise ValueError('Usage: blocked [list|count]')
+    values = [] if arguments == ['list'] else arguments
+    return list_preferences(PreferenceState.BLOCKED, values, default_limit=None)
 
 
 def _favorite_selection(index):
@@ -2752,7 +2890,8 @@ def _favorite_display_label(entry: PreferenceEntry, media: MediaRef | None = Non
 
 def _show_favorite_selection(index, entry, media, library_index):
     source = media.source.value.replace('_', ' ').title()
-    IPrint(f'Favorite #{index}: {_favorite_display_label(entry, media)}', visible=visible)
+    label = _blocked_label(_favorite_display_label(entry, media), media)
+    IPrint(f'Favorite #{index}: {label}', visible=visible)
     IPrint(f'Source: {source}', visible=visible)
     if media.source == MediaSource.LOCAL:
         IPrint(
@@ -2763,6 +2902,7 @@ def _show_favorite_selection(index, entry, media, library_index):
 
 def _play_favorite_selection(index, entry, media, library_index):
     """Play exactly the immutable media bound by ``_favorite_selection``."""
+    _ensure_media_playable(media)
     try:
         if media.source == MediaSource.LOCAL:
             play_local_default_player(
@@ -2845,7 +2985,11 @@ def list_preferences(state, arguments, *, default_limit=MAX_RESULT_COUNT):
     IPrint(
         tbl(
             [
-                (index + 1, _favorite_display_label(entry), reference(entry))
+                (
+                    index + 1,
+                    _blocked_label(_favorite_display_label(entry), PREFERENCES.media(entry.stable_id)),
+                    reference(entry),
+                )
                 for index, entry in enumerate(entries)
             ],
             headers=('#', 'Title', 'Source'),
@@ -2875,17 +3019,24 @@ def advanced_search_command(tokens):
     if not results:
         IPrint(colored.fg('hot_pink_1a') + '-- No results found --' + colored.attr('reset'), visible=visible)
         return []
+    marked_results = [
+        (index, _blocked_label(title, _library_media(index)))
+        for index, title in results
+    ]
     if request.action == SearchAction.FIRST:
         local_play_commands([None, str(results[0][0])])
     elif request.action == SearchAction.RANDOM:
-        local_play_commands([None, str(rand.choice(results)[0])])
+        playable = [result for result in results if not _is_media_blocked(_library_media(result[0]))]
+        if not playable:
+            raise ValueError('No playable search result is available; unblock an item first')
+        local_play_commands([None, str(rand.choice(playable)[0])])
     else:
         IPrint(
             f'Found {len(results)} match{("es" if len(results) != 1 else "")}: '
             f'{" ".join(request.query)}',
             visible=visible,
         )
-        IPrint(tbl(results, tablefmt='mysql', headers=('#', 'Song')), visible=visible)
+        IPrint(tbl(marked_results, tablefmt='mysql', headers=('#', 'Song')), visible=visible)
     return results
 
 
@@ -2961,7 +3112,7 @@ HELP_GROUPS = (
     ('Queue', 'queue list/tree/add/insert/remove/move/jump/order/repeat/reset, queue ys|youtube'),
     ('Search and online sources', 'find/rfind/lfind, /ys, /yl, /ml, album, station, pod/pods, /rss'),
     ('Downloads', 'download-yv|dl-yv, download-ya|dl-ya, download-ml|dl-ml'),
-    ('Library', 'library roots/status/scan/info/verify, reload, include/exclude downloads, rename short'),
+    ('Library', 'library roots/status/scan/info/verify, reload, include/exclude downloads, rename short, block/unblock'),
     ('Playlists', 'playlist list/create/show/add/remove/move/order/play/queue/import/export'),
     ('Lyrics', 'lyrics|lyr, lyrics edit|lyr edit, open lyrics'),
     ('Radio', 'radio search/list/play/add/info/metadata/resync/health/leveling'),
@@ -2984,7 +3135,7 @@ HELP_EXAMPLES = {
     'Queue': ('queue add 4', 'queue ys "artist title" 5', '/ysq "artist title"', 'queue next'),
     'Search and online sources': ('find artist title 10', '/ys artist title 5', '/yl <YouTube URL>', '/ml <URL>'),
     'Downloads': ('download-ya current --yes', 'download-ml <URL> mp3', 'download-ya status'),
-    'Library': ('library status', 'library scan changed', 'library info 4', 'include downloads'),
+    'Library': ('library status', 'library scan changed', 'block 4', 'blocked', 'unblock 4'),
     'Playlists': ('playlist list', 'playlist create "Road trip"', 'playlist add "Road trip" media 4'),
     'Lyrics': ('lyrics', 'lyrics edit', 'open lyrics'),
     'Radio': ('radio search jazz', 'radio list', 'radio play 1', 'radio metadata'),
@@ -3347,7 +3498,10 @@ def _favorite_status_projection(media: MediaRef | None) -> FavoriteStatusProject
             'This online source has no durable favourite identity',
         )
     try:
-        favorite = PREFERENCES.get(bound) == PreferenceState.FAVORITE
+        if checker := getattr(PREFERENCES, 'is_favorite', None):
+            favorite = bool(checker(bound))
+        else:
+            favorite = PREFERENCES.get(bound) == PreferenceState.FAVORITE
     except Exception:
         return FavoriteStatusProjection(
             False,
@@ -3367,12 +3521,18 @@ def _playback_status_projection() -> PlaybackStatusProjection:
     if snapshot.media is not None and snapshot.media.source == MediaSource.LOCAL:
         candidate = _library_song_index(snapshot.media.original_uri)
         library_index = candidate if isinstance(candidate, int) else None
+    blocked = _is_media_blocked(snapshot.media)
     return project_playback_status(
         snapshot,
         library_index=library_index,
         queue_position=queue_position,
         queue_count=queue_count,
         favorite=_favorite_status_projection(snapshot.media),
+        policy=PlaybackPolicyProjection(
+            blocked=blocked,
+            playable=not blocked,
+            unavailable_reason='Playback blocked for this media' if blocked else None,
+        ),
     )
 
 
@@ -3447,6 +3607,8 @@ def _status_summary(status: PlaybackStatusProjection, *, detailed: bool = False)
         parts.extend((f'{_status_time(status.position_seconds)} elapsed', 'duration unknown'))
 
     parts.append(status.display_state)
+    if status.policy.blocked:
+        parts.append('playback blocked')
     if status.queue_position is not None:
         parts.append(f'queue {status.queue_position}/{status.queue_count}')
     if detailed or status.live or status.duration_seconds is None:
@@ -3699,11 +3861,19 @@ def _navigate_active_queue(command, offset):
         return True
     target = items[target_position]
     if command.startswith('.'):
+        try:
+            _ensure_media_playable(target.media)
+        except PlaybackBlockedError as error:
+            SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+            return True
         _play_queue_item(QUEUE.jump(target_position))
         return True
     library_index = _library_song_index(target.media.original_uri)
     position_label = library_index if library_index != 'N/A' else f'queue {target_position + 1}'
-    title = target.media.title or Path(target.media.original_uri).stem or target.media.original_uri
+    title = _blocked_label(
+        target.media.title or ('Local media' if target.media.source == MediaSource.LOCAL else 'Media'),
+        target.media,
+    )
     IPrint(
         f'@{command[0]} {colored.fg("light_red")}{position_label}'
         f'{colored.fg("aquamarine_3")} | {title}{colored.attr("reset")}',
@@ -3726,6 +3896,7 @@ def play_local_default_player(songpath, _songindex, is_queue=False, media=None):
             path = songpath[0] if isinstance(songpath, list) else songpath
             media = MediaRef(MediaSource.LOCAL, str(Path(path).resolve()))
         media = _indexed_local_playback_media(media)
+        _ensure_media_playable(media)
         vas.set_media(_type='local', localpath=songpath)
         # Preserve the library/queue stable ID through decoder completion.
         vas.current_media = media
@@ -3795,6 +3966,8 @@ def play_local_default_player(songpath, _songindex, is_queue=False, media=None):
         if not is_queue and queue_item is not None:
             _prefetch_after(queue_item)
 
+    except PlaybackBlockedError:
+        raise
     except Exception:
         #raise
         SAY(visible=visible,
@@ -4058,49 +4231,40 @@ def local_play_commands(commandslist, _command=False):
     purge_old_lyrics_if_exist()
     lyrics_saved_for_song = None
 
-    if not _command:
-        if len(commandslist) == 2:
-            songindex = commandslist[1]
-            if songindex.isnumeric():
-                if int(songindex) in range(1, len(_sound_files)+1):
-                    currentsong_length = None
-                    play_local_default_player(songpath = _sound_files[int(songindex)-1],
-                                              _songindex = songindex)
-                else:
-                    if any(_sound_files):
-                        SAY(visible=visible,
-                            log_message='Out of bound audio index',
-                            display_message=f'Song number {songindex} does not exist. Please input audio number between 1 and {len(_sound_files)}',
-                            log_priority=3)
-
+    try:
+        if not _command:
+            if len(commandslist) == 2:
+                songindex = commandslist[1]
+                if songindex.isnumeric():
+                    if int(songindex) in range(1, len(_sound_files)+1):
+                        currentsong_length = None
+                        play_local_default_player(songpath = _sound_files[int(songindex)-1],
+                                                  _songindex = songindex)
                     else:
-                        SAY(visible=visible,
-                            log_message='User attempted to play local audio, even though there are no audios in library',
-                            display_message='There are no audios in library',
-                            log_priority=2)
+                        if any(_sound_files):
+                            SAY(visible=visible,
+                                log_message='Out of bound audio index',
+                                display_message=f'Song number {songindex} does not exist. Please input audio number between 1 and {len(_sound_files)}',
+                                log_priority=3)
 
-        else:
-            # TODO - Implement full queue functionality
-            # as per `future ideas{...}.md`
-            # Not yet implemented
-            # This is just a sekeleton code for future
+                        else:
+                            SAY(visible=visible,
+                                log_message='User attempted to play local audio, even though there are no audios in library',
+                                display_message='There are no audios in library',
+                                log_priority=2)
 
-            songindices = commandslist[1:]
-            _ = []
-            for songindex in songindices:
-                try:
+            else:
+                songindices = commandslist[1:]
+                indices = []
+                for songindex in songindices:
                     if songindex.isnumeric():
-                        _.append(songindex)
-                except Exception:
-                    pass
-
-            songindices = _
-            del _
-
-            enqueue(songindices)
-    else:
-        currentsong_length = None
-        play_local_default_player(songpath=_command[1:], _songindex=None)
+                        indices.append(songindex)
+                enqueue(indices)
+        else:
+            currentsong_length = None
+            play_local_default_player(songpath=_command[1:], _songindex=None)
+    except PlaybackBlockedError as error:
+        SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
 
 def timeinput_to_timeobj(rawtime):
     try:
@@ -4267,8 +4431,20 @@ def rand_song_index_generate():
         display_message='There are no audios in library',
         log_priority=2)
         return None
-    else:
-        return rand.randint(0, len(_sound_files_names_only)-1)
+    candidates = [
+        index
+        for index in range(len(_sound_files_names_only))
+        if not _is_media_blocked(_library_media(index + 1))
+    ]
+    if not candidates:
+        SAY(
+            visible=visible,
+            log_message='Every indexed library item is playback blocked',
+            display_message='No playable library media is available; unblock an item first',
+            log_priority=2,
+        )
+        return None
+    return rand.choice(candidates)
 
 
 def validate_time(rawtime):
@@ -4295,6 +4471,14 @@ def play_vas_media(media_url, single_video = None, media_name = None,
 
     prepared_media = None
     previous_media = vas.current_media
+
+    policy_source = {
+        'video': MediaSource.YOUTUBE,
+        'general': MediaSource.URL,
+        'redditsession': MediaSource.URL,
+    }.get(media_type)
+    if policy_source is not None:
+        _ensure_media_playable(MediaRef(policy_source, media_url, title=media_name))
 
     # Stop prev audios b4 loading VAS Media...
     stopsong()
@@ -4671,6 +4855,9 @@ def process(command):
             'download-ya': download_audio_command,
             'fav': favorite_command,
             '.fav': lambda values: favorite_command(values, play=True),
+            'block': block_command,
+            'unblock': lambda values: block_command(values, unblock=True),
+            'blocked': blocked_command,
         }
         if handler := routed.get(commandslist[0].casefold()):
             try:
@@ -4723,7 +4910,16 @@ def process(command):
             results_enum = enumerate(
                 _sound_files_names_only if commandslist == ['all*'] else _sound_files_names_only[:rescount]
             )
-            IPrint(tbl([(i+1, j) for i, j in results_enum], tablefmt='plain'), visible=visible)
+            IPrint(
+                tbl(
+                    [
+                        (index, _blocked_label(name, _library_media(index)))
+                        for index, name in ((i + 1, value) for i, value in results_enum)
+                    ],
+                    tablefmt='plain',
+                ),
+                visible=visible,
+            )
 
         # TODO: Need to display files in n columns (Mostly 3 cols) depending upon terminal size (dynamically...)
         if commandslist[0] in ['list', 'ls']:
@@ -4806,7 +5002,16 @@ def process(command):
 
                     if indices or len([i for i in commandslist if i.isnumeric()]) in [0, 1]:
                         if range_command_is_valid:
-                            IPrint(tbl([(i+1, j) for i, j in results_enum], tablefmt='plain'), visible=visible)
+                            IPrint(
+                                tbl(
+                                    [
+                                        (i + 1, _blocked_label(j, _library_media(i + 1)))
+                                        for i, j in results_enum
+                                    ],
+                                    tablefmt='plain',
+                                ),
+                                visible=visible,
+                            )
 
 
             else:
@@ -4853,7 +5058,10 @@ def process(command):
 
         elif commandslist == ['last']:
             last_index, last_name = _sound_files_names_enumerated[-1]
-            IPrint(f">| {last_index} | {last_name}", visible=visible)
+            IPrint(
+                f">| {last_index} | {_blocked_label(last_name, _library_media(last_index))}",
+                visible=visible,
+            )
 
         elif commandslist[0] in ['/rss', '/rss-link']:
             if len(commandslist) == 2:
@@ -5634,7 +5842,10 @@ def process(command):
                                colored.fg('orange_1')+\
                                ' | '+\
                                colored.fg('medium_orchid_1a')+\
-                               _sound_files_names_only[(song_index_entered)-1]+\
+                               _blocked_label(
+                                   _sound_files_names_only[(song_index_entered)-1],
+                                   _library_media(song_index_entered),
+                               )+\
                                colored.attr('reset'), visible=visible)
                     except IndexError:
                         SAY(visible=visible,
@@ -6119,6 +6330,8 @@ def process(command):
                 if ytv_choices:
                     choose_media_url(media_url_choices=ytv_choices)
 
+            except PlaybackBlockedError as error:
+                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
             except Exception as error:
                 report_youtube_error(error, 'search/playback')
 
@@ -6129,6 +6342,8 @@ def process(command):
                 if id_if_url_is_of_yt_format(media_url):
                     try:
                         play_vas_media(media_url=media_url, single_video=True)
+                    except PlaybackBlockedError as error:
+                        SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
                     except Exception as error:
                         report_youtube_error(error, 'playback')
 
@@ -6146,6 +6361,8 @@ def process(command):
                 if url_is_valid(user_aud_url):
                     try:
                         play_vas_media(media_url=commandslist[1], media_type='general')
+                    except PlaybackBlockedError as error:
+                        SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
                     except Exception as error:
                         stopsong()
                         if isinstance(error, MediaFailure) and error.code != FailureCode.DECODE:
@@ -6211,12 +6428,10 @@ def process(command):
         elif commandslist[0].lower() in {'like', 'dislike'}:
             media = _preference_media(vas.controller.snapshot().media)
             if media:
-                state = (
-                    PreferenceState.FAVORITE
-                    if commandslist[0].lower() == 'like'
-                    else PreferenceState.BLOCKED
-                )
-                changed = PREFERENCES.set(media, state)
+                if commandslist[0].lower() == 'like':
+                    changed = PREFERENCES.set(media, PreferenceState.FAVORITE)
+                else:
+                    changed = PREFERENCES.set_blocked(media)
                 if changed:
                     RECOMMENDER.record_event(media, commandslist[0].lower(), candidate=Candidate(media))
                 IPrint(f'{commandslist[0].title()} {"recorded" if changed else "already set"}', visible=visible)

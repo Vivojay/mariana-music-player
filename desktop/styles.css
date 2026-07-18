@@ -130,6 +130,7 @@ button { cursor: pointer; }
 .favorite-toggle { width: 25px; padding: 0; border: 0; background: transparent; font-size: 17px; line-height: 1; }
 .favorite-toggle.active { color: #ff6f9f !important; }
 .favorite-toggle:disabled { cursor: not-allowed; opacity: .42; }
+.playback-policy { color: #ff8d7a; font-weight: 700; }
 .playback-state[data-state='playing'], .playback-state[data-state='crossfading'] { color: var(--accent); }
 .playback-state[data-state='failed'], .playback-error { color: #ff8da6; }
 .playback-timing { display: flex; align-items: center; justify-content: flex-end; gap: 8px; color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; }

@@ -123,6 +123,12 @@ export function PlaybackStatusBar({
         {status.live ? 'LIVE' : state}
       </span>
 
+      {status.policy?.blocked && (
+        <span className="playback-policy" title={status.policy.unavailable_reason || 'Playback blocked'}>
+          Blocked
+        </span>
+      )}
+
       <span className="playback-timing">
         {status.live ? (
           <span>{elapsed} elapsed</span>

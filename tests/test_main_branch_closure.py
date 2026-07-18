@@ -413,7 +413,11 @@ def test_queue_command_and_group_dispatch_cover_every_operation(monkeypatch, tmp
         monkeypatch.setattr(main, "QUEUE", queue)
         monkeypatch.setattr(main, "RECOMMENDER", recommender)
         monkeypatch.setattr(main, "STATION", SimpleNamespace(mark_played=lambda media: events.append(media)))
-        monkeypatch.setattr(main, "LIBRARY", SimpleNamespace(media_refs=lambda: [local_media()]))
+        monkeypatch.setattr(
+            main,
+            "LIBRARY",
+            SimpleNamespace(media_refs=lambda: [local_media()], info=lambda _value: None),
+        )
         monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: output.append(str(value)))
         monkeypatch.setattr(main, "_emit_queue_desktop_state", lambda: None)
         monkeypatch.setattr(main, "_play_queue_item", played.append)
@@ -664,6 +668,8 @@ def test_queue_item_failure_retry_skip_and_online_play(monkeypatch):
         items=lambda: [local, online],
         mark_failure=lambda _queue_id: next(actions),
         next=lambda: online,
+        current=lambda: local,
+        state=lambda: {"repeat_mode": "off"},
     )
     monkeypatch.setattr(main, "QUEUE", queue)
     calls = {"count": 0}

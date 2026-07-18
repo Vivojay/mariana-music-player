@@ -4,7 +4,7 @@ import { PlaybackStatusBar } from './PlaybackStatusBar'
 import { formatChapterLabel, type PlaybackStatus } from './shared'
 
 const status = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus => ({
-  schema_version: 4,
+  schema_version: 5,
   state: 'playing',
   display_state: 'Playing',
   media_id: 'track-1',
@@ -26,6 +26,7 @@ const status = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus => ({
   replaygain_db: 0,
   live_leveling: false,
   safe_error: null,
+  policy: { blocked: false, playable: true, unavailable_reason: null },
   ...overrides,
 })
 

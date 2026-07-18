@@ -34,6 +34,11 @@ export type PlaybackStatus = {
   replaygain_db: number
   live_leveling: boolean
   safe_error: string | null
+  policy: {
+    blocked: boolean
+    playable: boolean
+    unavailable_reason: string | null
+  }
 }
 
 export function formatChapterLabel(chapter: PlaybackStatus['chapter']): string {

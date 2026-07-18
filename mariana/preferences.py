@@ -44,52 +44,88 @@ class MediaPreferences:
     def get(self, media_or_id: MediaRef | str) -> PreferenceState:
         stable_id = media_or_id.stable_id if isinstance(media_or_id, MediaRef) else media_or_id
         row = self.database.fetchone("SELECT state FROM media_preferences WHERE stable_id=?", (stable_id,))
-        return PreferenceState(row["state"]) if row else PreferenceState.NEUTRAL
+        if row and PreferenceState(row["state"]) == PreferenceState.FAVORITE:
+            return PreferenceState.FAVORITE
+        return PreferenceState.BLOCKED if self.is_blocked(stable_id) else PreferenceState.NEUTRAL
+
+    def is_favorite(self, media_or_id: MediaRef | str) -> bool:
+        stable_id = media_or_id.stable_id if isinstance(media_or_id, MediaRef) else media_or_id
+        row = self.database.fetchone("SELECT state FROM media_preferences WHERE stable_id=?", (stable_id,))
+        return bool(row and row["state"] == PreferenceState.FAVORITE.value)
+
+    def is_blocked(self, media_or_id: MediaRef | str) -> bool:
+        stable_id = media_or_id.stable_id if isinstance(media_or_id, MediaRef) else media_or_id
+        return self.database.fetchone(
+            "SELECT 1 FROM blocked_media WHERE stable_id=?", (stable_id,)
+        ) is not None
+
+    def set_blocked(self, media_or_id: MediaRef | str, blocked: bool = True) -> bool:
+        stable_id = media_or_id.stable_id if isinstance(media_or_id, MediaRef) else media_or_id
+        previous = self.is_blocked(stable_id)
+        with self.database.transaction() as connection:
+            if isinstance(media_or_id, MediaRef):
+                self._upsert_media(connection, media_or_id)
+            if blocked:
+                connection.execute(
+                    "INSERT INTO blocked_media(stable_id, updated_at) VALUES(?, ?) "
+                    "ON CONFLICT(stable_id) DO UPDATE SET updated_at=excluded.updated_at",
+                    (stable_id, time.time()),
+                )
+            else:
+                connection.execute("DELETE FROM blocked_media WHERE stable_id=?", (stable_id,))
+        return previous != blocked
+
+    def toggle_blocked(self, media_or_id: MediaRef | str) -> bool:
+        blocked = not self.is_blocked(media_or_id)
+        self.set_blocked(media_or_id, blocked)
+        return blocked
+
+    @staticmethod
+    def _upsert_media(connection, media: MediaRef) -> None:
+        connection.execute(
+            """
+            INSERT INTO media_items(
+                stable_id, source, original_uri, title, artist, album, duration,
+                capabilities_json, resolver_json, chapters_json, provenance, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(stable_id) DO UPDATE SET
+                source=excluded.source,
+                original_uri=excluded.original_uri,
+                title=COALESCE(excluded.title, media_items.title),
+                artist=COALESCE(excluded.artist, media_items.artist),
+                album=COALESCE(excluded.album, media_items.album),
+                duration=COALESCE(excluded.duration, media_items.duration),
+                capabilities_json=excluded.capabilities_json,
+                resolver_json=excluded.resolver_json,
+                chapters_json=excluded.chapters_json,
+                provenance=excluded.provenance,
+                updated_at=excluded.updated_at
+            """,
+            (
+                media.stable_id,
+                media.source.value,
+                media.original_uri,
+                media.title,
+                media.artist,
+                media.album,
+                media.duration,
+                media.capabilities.to_json(),
+                json.dumps(sanitized_resolver_data(media.resolver_data), ensure_ascii=False, sort_keys=True),
+                json.dumps([asdict(chapter) for chapter in media.chapters], ensure_ascii=False),
+                media.provenance,
+                time.time(),
+            ),
+        )
 
     def set(self, media_or_id: MediaRef | str, state: PreferenceState | str) -> bool:
         stable_id = media_or_id.stable_id if isinstance(media_or_id, MediaRef) else media_or_id
         state = PreferenceState(state)
+        if state == PreferenceState.BLOCKED:
+            return self.set_blocked(media_or_id)
         previous = self.get(stable_id)
         with self.database.transaction() as connection:
             if isinstance(media_or_id, MediaRef):
-                connection.execute(
-                    """
-                    INSERT INTO media_items(
-                        stable_id, source, original_uri, title, artist, album, duration,
-                        capabilities_json, resolver_json, chapters_json, provenance, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(stable_id) DO UPDATE SET
-                        source=excluded.source,
-                        original_uri=excluded.original_uri,
-                        title=COALESCE(excluded.title, media_items.title),
-                        artist=COALESCE(excluded.artist, media_items.artist),
-                        album=COALESCE(excluded.album, media_items.album),
-                        duration=COALESCE(excluded.duration, media_items.duration),
-                        capabilities_json=excluded.capabilities_json,
-                        resolver_json=excluded.resolver_json,
-                        chapters_json=excluded.chapters_json,
-                        provenance=excluded.provenance,
-                        updated_at=excluded.updated_at
-                    """,
-                    (
-                        media_or_id.stable_id,
-                        media_or_id.source.value,
-                        media_or_id.original_uri,
-                        media_or_id.title,
-                        media_or_id.artist,
-                        media_or_id.album,
-                        media_or_id.duration,
-                        media_or_id.capabilities.to_json(),
-                        json.dumps(
-                            sanitized_resolver_data(media_or_id.resolver_data),
-                            ensure_ascii=False,
-                            sort_keys=True,
-                        ),
-                        json.dumps([asdict(chapter) for chapter in media_or_id.chapters], ensure_ascii=False),
-                        media_or_id.provenance,
-                        time.time(),
-                    ),
-                )
+                self._upsert_media(connection, media_or_id)
             if previous != state:
                 connection.execute(
                     "INSERT INTO media_preferences(stable_id, state, updated_at) VALUES(?, ?, ?) "
@@ -100,21 +136,28 @@ class MediaPreferences:
 
     def toggle(self, media_or_id: MediaRef | str, state: PreferenceState | str) -> PreferenceState:
         state = PreferenceState(state)
+        if state == PreferenceState.BLOCKED:
+            return PreferenceState.BLOCKED if self.toggle_blocked(media_or_id) else PreferenceState.NEUTRAL
         target = PreferenceState.NEUTRAL if self.get(media_or_id) == state else state
         self.set(media_or_id, target)
         return target
 
     def list(self, state: PreferenceState | str, limit: int | None = None) -> list[PreferenceEntry]:
         state = PreferenceState(state)
+        preference_table = "blocked_media" if state == PreferenceState.BLOCKED else "media_preferences"
         sql = (
             "SELECT p.stable_id, p.state, p.updated_at, "
             "COALESCE(m.source, CASE WHEN f.library_id IS NOT NULL THEN 'local' END) source, "
             "m.original_uri, m.title, f.canonical_path, f.state availability "
-            "FROM media_preferences p LEFT JOIN media_items m ON m.stable_id=p.stable_id "
+            f"FROM {preference_table} p LEFT JOIN media_items m ON m.stable_id=p.stable_id "
             "LEFT JOIN library_files f ON f.library_id=p.stable_id WHERE p.state=? "
             "ORDER BY p.updated_at DESC, p.stable_id ASC"
         )
-        parameters: tuple = (state.value,)
+        if state == PreferenceState.BLOCKED:
+            sql = sql.replace("p.state,", "'blocked' state,").replace(" WHERE p.state=? ", " ")
+            parameters: tuple = ()
+        else:
+            parameters = (state.value,)
         if limit is not None:
             sql += " LIMIT ?"
             parameters += (max(0, limit),)

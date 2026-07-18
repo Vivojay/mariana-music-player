@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .models import MediaSource, PlaybackSnapshot, PlaybackState
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 MAX_ERROR_LENGTH = 160
 _GENERIC_ERROR = "Playback failed; see logs for details"
 _SPACE_PATTERN = re.compile(r"\s+")
@@ -42,6 +42,15 @@ class FavoriteStatusProjection:
 
 
 @dataclass(frozen=True, slots=True)
+class PlaybackPolicyProjection:
+    """Sanitized backend-owned playability state for presentation surfaces."""
+
+    blocked: bool = False
+    playable: bool = True
+    unavailable_reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class PlaybackStatusProjection:
     schema_version: int
     state: str
@@ -65,6 +74,7 @@ class PlaybackStatusProjection:
     replaygain_db: float
     live_leveling: bool
     safe_error: str | None
+    policy: PlaybackPolicyProjection = field(default_factory=PlaybackPolicyProjection)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe payload for local presentation surfaces."""
@@ -187,6 +197,7 @@ def project_playback_status(
     queue_position: int | None = None,
     queue_count: int = 0,
     favorite: FavoriteStatusProjection | None = None,
+    policy: PlaybackPolicyProjection | None = None,
 ) -> PlaybackStatusProjection:
     """Build a safe status projection without resolving or mutating media."""
     media = snapshot.media
@@ -196,11 +207,17 @@ def project_playback_status(
         toggle_enabled=False,
         unavailable_reason="Favourite state unavailable",
     )
+    policy_status = policy or PlaybackPolicyProjection()
     if media is None:
         favorite_status = FavoriteStatusProjection(
             available=False,
             is_favorite=False,
             toggle_enabled=False,
+            unavailable_reason="No active media",
+        )
+        policy_status = PlaybackPolicyProjection(
+            blocked=False,
+            playable=False,
             unavailable_reason="No active media",
         )
     capabilities = media.capabilities if media else None
@@ -267,4 +284,5 @@ def project_playback_status(
         replaygain_db=_finite_number(snapshot.replaygain_db),
         live_leveling=bool(snapshot.live_leveling),
         safe_error=_safe_error(snapshot.error),
+        policy=policy_status,
     )

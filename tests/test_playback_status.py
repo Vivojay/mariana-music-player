@@ -107,7 +107,7 @@ def test_projection_includes_safe_finite_metadata_and_chapter():
         queue_position=2,
         queue_count=5,
     )
-    assert projection.schema_version == 4
+    assert projection.schema_version == 5
     assert projection.title == "Track" and projection.artist == "Artist"
     assert projection.source == "local" and projection.media_id
     assert projection.finite and projection.seekable and not projection.live

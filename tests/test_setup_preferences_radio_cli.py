@@ -131,10 +131,15 @@ def test_preference_listing_download_root_and_recycle_helpers(monkeypatch, tmp_p
     printed, states, scans, reloads = [], [], [], []
     media = MediaRef(MediaSource.LOCAL, str(tmp_path / "song.mp3"), title="Song")
     controller = SimpleNamespace(snapshot=lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=media))
+    blocked = {"value": False}
     preferences = SimpleNamespace(
         get=lambda _media: PreferenceState.NEUTRAL,
         toggle=lambda _media, state: state,
         set=lambda *_args: True,
+        is_blocked=lambda _media: blocked["value"],
+        set_blocked=lambda _media, value=True: blocked.update(value=value) is None,
+        toggle_blocked=lambda _media: blocked.update(value=not blocked["value"]) or blocked["value"],
+        media=lambda _stable_id: media,
         list=lambda *_args: [
             PreferenceEntry(
                 media.stable_id,

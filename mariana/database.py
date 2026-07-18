@@ -15,7 +15,7 @@ from typing import Any
 
 from .paths import runtime_paths
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 
 SCHEMA = """
@@ -215,6 +215,10 @@ CREATE TABLE IF NOT EXISTS media_preferences (
     state TEXT NOT NULL CHECK(state IN ('favorite', 'neutral', 'blocked')),
     updated_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS blocked_media (
+    stable_id TEXT PRIMARY KEY,
+    updated_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS interaction_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     stable_id TEXT,
@@ -380,6 +384,16 @@ class MarianaDatabase:
     def migrate(self) -> None:
         self._connection.executescript(SCHEMA)
         with self.transaction() as connection:
+            # Schema 8 stored favourite and blocked as mutually exclusive states.
+            # Move legacy blocks to their independent policy table so future
+            # favourite changes cannot silently unblock media (or vice versa).
+            connection.execute(
+                "INSERT OR IGNORE INTO blocked_media(stable_id, updated_at) "
+                "SELECT stable_id, updated_at FROM media_preferences WHERE state='blocked'"
+            )
+            connection.execute(
+                "UPDATE media_preferences SET state='neutral' WHERE state='blocked'"
+            )
             root_columns = {
                 row["name"] for row in connection.execute("PRAGMA table_info(library_roots)").fetchall()
             }
