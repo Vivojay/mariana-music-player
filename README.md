@@ -695,6 +695,7 @@ must not be inferred from unit tests.
 - [Architecture](docs/ARCHITECTURE.md)
 - [Playback projection contract](docs/PLAYBACK_PROJECTION_CONTRACT.md)
 - [Destructive command safety audit](docs/DESTRUCTIVE_COMMAND_AUDIT.md)
+- [Autocomplete and command dropdown audit](docs/AUTOCOMPLETE_DROPDOWN_AUDIT.md)
 - [Security and privacy](docs/SECURITY.md)
 - [Known limitations](docs/KNOWN_LIMITATIONS.md)
 - [Repository hygiene and source map](docs/REPOSITORY_HYGIENE.md)
