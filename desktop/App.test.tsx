@@ -272,7 +272,9 @@ describe('Mariana desktop shell', () => {
       playback: playbackStatus(),
     }
     render(<App />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Add to favourites' }))
+    const favoriteButton = await screen.findByRole('button', { name: 'Add to favourites' })
+    await waitFor(() => expect(favoriteButton).toBeEnabled())
+    fireEvent.click(favoriteButton)
     expect(await screen.findByRole('alert')).toHaveTextContent('Current media changed; try again')
     await waitFor(() => expect(screen.getByRole('button', { name: 'Add to favourites' })).not.toBeDisabled())
     expect(write).not.toHaveBeenCalled()
