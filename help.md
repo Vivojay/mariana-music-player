@@ -149,7 +149,7 @@ does not persist cookie data.
 | `download-ya --album [current|album-ref|YouTube-playlist-URL] [--tracks <selector>] [--missing-only] [--allow-partial] [--quality best|worst] [--to <directory>] [y|yes|--yes]` | Create an explicit album download job |
 | `download-ya status [job-id]` | Inspect persistent download work |
 | `download-ya pause|resume|cancel <job-id>` | Control a download job |
-| `download-ml <URL> [mp3|flac|wav|m4a|opus] [output path]`, `dl-ml ...` | Download a public extractor-backed media page or direct media URL |
+| `download-ml <URL> [mp3|flac|wav|m4a|opus] [output path] [--yes]`, `dl-ml ...` | Download a public extractor-backed media page or direct media URL; an existing output requires confirmation |
 
 Plain `download-ya` means the active track, never the entire album. Complete
 album expansion requires `--album`. Downloads run in the current Mariana
@@ -205,7 +205,7 @@ tombstones until explicitly cleaned.
 | `playlist play <name>` | Replace the active queue and begin playback |
 | `playlist queue <name> [--at next|end|N] [--flatten]` | Add a snapshot to the current queue |
 | `playlist import <name> <m3u|m3u8|YouTube-playlist-URL>` | Import a snapshot without modifying its remote source |
-| `playlist export <name> <path.m3u8>` | Export canonical references as UTF-8 M3U8 |
+| `playlist export <name> <path.m3u8> [--yes]` | Export canonical references as UTF-8 M3U8; an existing file requires confirmation |
 
 ## Lyrics
 

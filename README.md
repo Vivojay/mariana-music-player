@@ -253,7 +253,7 @@ download-yv [YouTube URL] [y|yes|--yes]
 download-ya [current|YouTube URL] [--track] [--quality best|worst] [--to <directory>] [y|yes|--yes]
 download-ya --album [current|album-ref|YouTube-playlist-URL] [--tracks <selector>] [y|yes|--yes]
 download-ya status [job-id]|pause|resume|cancel <job-id>
-download-ml <URL> [mp3|flac|wav|m4a|opus] [output path]
+download-ml <URL> [mp3|flac|wav|m4a|opus] [output path] [--yes]
 refresh all [y|yes|--yes]
 exit|quit [y|yes|--yes]
 ```
@@ -330,8 +330,10 @@ Playlists are versioned snapshots managed in Mariana's SQLite database. They
 can retain nested groups, embed another playlist or complete album as a group,
 import M3U/M3U8 or an explicitly supplied YouTube playlist, and export portable
 UTF-8 M3U8. Remote playlist imports are snapshots; Mariana never edits a remote
-YouTube playlist. Existing `queue save/load` commands remain compatible and
-use the same snapshot store.
+YouTube playlist. Exporting over an existing file requires confirmation;
+`--yes` is the explicit non-interactive overwrite approval. The approved file
+identity is revalidated before replacement. Existing `queue save/load`
+commands remain compatible and use the same snapshot store.
 
 Album search keeps editions separate. Local release MBIDs and normalized album
 tags are preferred; hybrid search can add MusicBrainz releases, conservatively
@@ -347,7 +349,10 @@ one item at a time, show per-item and overall progress, and support
 pause/resume/cancel without starting another Mariana process. Local tracks are
 not downloaded again; `--missing-only` restricts an album job to its missing
 YouTube-backed tracks. Output uses portable
-`Album Artist/Album/Disc-Track Artist - Title [YouTube-ID].ext` naming.
+`Album Artist/Album/Disc-Track Artist - Title [YouTube-ID].ext` naming. Existing
+output files are listed in the confirmation and are replaced only when their
+bound filesystem identity still matches at activation; `--yes` approves that
+same checked overwrite non-interactively.
 
 `media info`/`media probe` show FFprobe and Mutagen fields, filesystem dates,
 codec/container details, and saved analysis state. `media fingerprint` reports

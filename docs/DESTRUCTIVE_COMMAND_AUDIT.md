@@ -29,7 +29,7 @@ mutations. It is not a claim that every mutation is irreversible.
 | Queue/playlist display labels | Queue list/tree and some desktop/playlist payloads fall back to `MediaRef.original_uri` when title is absent. That can expose a local path or online URL on a surface that only needs a safe label. It does not redirect mutations, but it violates the projection privacy rule. | **Needs follow-up** | `main.py::queue_command`, `_print_queue_tree`, `_queue_node_payload`, and `playlist_command`. Reuse a sanitized media-label projection and add path/URL leakage tests before expanding queue UI. |
 | Playlist delete/clear | Both require explicit playlist scope and confirmation. The command confirms a name, then `PlaylistStore.delete` or `clear` resolves that name again. Clear preserves a prior revision; delete removes the playlist and its revisions. There is no expected playlist ID/revision comparison between prompt and mutation. | **Needs follow-up** | `main.py::playlist_command`; `mariana/playlists.py::delete`, `clear`, `save_snapshot`; confirmation tests in `tests/test_hierarchy_album_download_edges.py`. Resolve name to playlist ID and revision before prompting, then delete/clear by that bound identity with a revision check. |
 | Playlist add/remove/move/order | Playlist name and node paths are explicitly playlist-scoped. A store method reads and validates one tree, resolves node/group IDs, and saves a new versioned snapshot. Group removal includes descendants. Concurrent writers can still overwrite a newer revision because `save_snapshot` has no compare-and-swap revision argument; recursive playlist-node removal has no confirmation, although the previous tree is versioned. | **Needs follow-up** | `main.py::playlist_command`; `mariana/playlists.py::_resolve`, `remove_node`, `move_node`, `order`, and `save_snapshot`; hierarchy tests in `tests/test_queue_strategies_and_playlist_editing.py` and `tests/test_hierarchy_album_download_edges.py`. Add expected-revision writes and expose revision restore before claiming concurrent edit safety. |
-| Playlist export | The playlist identity and destination are explicit, and output is staged, but `temporary.replace(path)` silently overwrites an existing `.m3u`/`.m3u8` file without confirmation or a bound overwrite target. Export necessarily contains source paths/URLs; that disclosure is intrinsic to the requested file, not suitable for UI events. | **Unsafe** | `main.py::playlist_command`; `mariana/playlists.py::export_m3u`; export tests do not cover an existing destination. Add default no-clobber behavior plus an explicit confirmed overwrite mode that revalidates the destination identity. |
+| Playlist export | `PlaylistExportTarget` binds the playlist ID/revision and `BoundOutputTarget` binds the canonical destination, parent identity, and existing-file signature before confirmation. New output uses atomic no-clobber activation. Existing output requires confirmation or command-scoped `--yes`; playlist revision and destination identity are revalidated before replacement. Export necessarily contains source paths/URLs, but that disclosure is confined to the explicitly requested file and overwrite prompt. | **Safe (fixed after this audit)** | `main.py::playlist_command`; `mariana/playlists.py::PlaylistExportTarget`, `bind_export`, `export_bound`, and `export_m3u`; `mariana/output_targets.py`; overwrite/cancel/stale-target coverage in `tests/test_hierarchy_album_download_edges.py` and `tests/test_output_targets.py`. |
 | Albums | There is no album delete/remove command. Search/fetch resolve catalog references; play/queue replace or extend only the authoritative queue; save creates a playlist and rejects name collisions. Album track selectors are scoped to the chosen edition. | **Safe for current surface** | `main.py::album_command`, `_album_reference`, `_album_tracks`; `mariana/albums.py`; `tests/test_album_cli.py`, `tests/test_albums.py`. |
 | Current-media favourites and blocks | `fav !|+|-` and `bl !|+|-` operate only on the `MediaRef` captured from the current controller snapshot. They do not accept a library/search number. The stable media identity is written transactionally and the action is reversible. | **Safe** | `main.py::preference_command`, `_preference_media`; `mariana/preferences.py::set` and `toggle`; `tests/test_preferences.py`. |
 | Favourite-list inspect/play | `fav N` and `.fav N` are explicitly favourite-list-local. `_favorite_selection` captures one `PreferenceEntry`, maps local entries back to an available indexed library identity, and rejects missing/tombstoned items. Search, queue, and current playback do not affect the selection. | **Safe** | `main.py::_favorite_selection`, `_play_favorite_selection`, and `favorite_command`; `tests/test_favorite_selection.py`, including search/queue poisoning and tombstone cases. |
@@ -37,10 +37,10 @@ mutations. It is not a claim that every mutation is irreversible.
 | Radio favourite | `radio favorite <station>` is explicitly radio-scoped. `RadioCatalog.get` resolves slug/ID to a stable station ID and the transaction updates only that row. | **Safe** | `main.py::radio_command`; `mariana/radio.py::favorite`; `tests/test_radio_catalog.py`. |
 | Broadcast/radio credential deletion | Profile/station input is resolved to a stable keychain reference before confirmation. Deletion uses that captured reference, not a post-prompt list index. Secrets are never printed. | **Safe** | `main.py::broadcast_command`, `radio_command`; `mariana/credentials.py`; tests in `tests/test_loudness_broadcast_cli.py` and `tests/test_setup_preferences_radio_cli.py`. |
 | Download job pause/resume/cancel | Commands require an explicit job UUID. State transitions use conditional transactional updates and refuse invalid/missing states. They do not use search, queue, or playback indices. | **Safe** | `main.py::download_audio_command`; `mariana/download_jobs.py::pause`, `resume`, `cancel`; `tests/test_download_cli.py`. |
-| Download output activation | `download-ml` accepts an explicit/default destination but has no confirmation, and both direct/extractor paths atomically replace an existing destination. Managed YouTube jobs also replace an existing expected filename unless `--missing-only` skips it. The confirmation identifies a destination directory, not a bound existing output file. | **Unsafe** | `main.py` `download-ml` and `download_audio_command`; `mariana/download.py::download_media`; `mariana/download_jobs.py::create` and `_run_item`; `tests/test_custom_download.py` and `tests/test_download_cli.py` lack complete no-clobber/confirmed-overwrite coverage. |
+| Download output activation | Direct/extractor downloads bind the normalized output before work, refuse unapproved existing files, use atomic no-clobber activation for new files, and revalidate confirmed overwrites. Managed jobs bind predictable outputs before their command confirmation, persist the private approval across worker delay/restart, constrain generated paths to the selected root, and refuse an existing final name that was not approved. `--yes` bypasses interaction but not binding or revalidation. | **Safe (fixed after this audit)** | `main.py` `download-ml`, `_download_album_job`, and `download_audio_command`; `mariana/download.py::prepare_download_target` and `download_media`; `mariana/download_jobs.py::bind_output_targets`, `create`, `_safe_output_path`, and `_run_item`; `mariana/output_targets.py`; tests in `tests/test_custom_download.py`, `tests/test_download_jobs.py`, `tests/test_download_cli.py`, and `tests/test_cli_command_matrix.py`. |
 | Setup restart and refresh/global configuration | `setup restart` and `refresh all` are confirmed global operations, not target selectors. Include/exclude downloads, theme, desktop close policy, ReplayGain mode, and radio leveling mutate named settings transactionally or through one backend authority. They cannot be redirected by search/queue state. | **Safe for target binding** | `main.py::setup_command`, refresh dispatch, `set_download_library_inclusion`, and settings commands. Their broader rollback/recovery behavior is covered by their subsystem tests rather than selector tests. |
 
-## Code fix made during this audit
+## Code fixes made from this audit
 
 `rename short` previously previewed a path, confirmed, then called
 `LibraryCatalog.rename(library_id, filename)`. That method re-read the current
@@ -54,25 +54,28 @@ refusal, database transaction, and filesystem rollback remain unchanged.
 
 No other runtime behavior was changed in this audit.
 
+The follow-up overwrite batch adds the shared `BoundOutputTarget` contract.
+Playlist exports and download activations now distinguish an absent destination
+from an explicitly approved existing file, bind the parent and file identities,
+and refuse activation when either changes. Generated download paths are also
+required to remain below the selected destination root. Internal download
+approval data is removed from public job-status payloads.
+
 ## Recommended follow-up batches
 
-1. **Prevent unconfirmed file replacement.** Make playlist export,
-   `download-ml`, and managed download activation no-clobber by default. Any
-   overwrite option must preview the exact destination, bind its identity or
-   absence, confirm, revalidate, and then activate atomically.
-2. **Bind playlist identity and revision.** Resolve delete/clear/edit targets to
+1. **Bind playlist identity and revision.** Resolve delete/clear/edit targets to
    playlist ID plus expected revision before prompting or editing. Use
    compare-and-swap updates, surface conflicts, and expose revision restore for
    recursive edits.
-3. **Bind global cleanup sets.** Capture the missing-library IDs approved by
+2. **Bind global cleanup sets.** Capture the missing-library IDs approved by
    `library clean --missing`, or clearly define and test execution-time global
    semantics.
-4. **Use atomic sidecar no-clobber creation.** Refuse if an `.lrc` target appears
+3. **Use atomic sidecar no-clobber creation.** Refuse if an `.lrc` target appears
    after confirmation instead of replacing it.
-5. **Sanitize collection labels.** Stop using `original_uri` as the generic
+4. **Sanitize collection labels.** Stop using `original_uri` as the generic
    queue/playlist/desktop label. Add explicit privacy tests for local paths,
    online URLs, and provider identifiers.
-6. **Extend poisoning/concurrency tests.** Cover search/queue/current-state
+5. **Extend poisoning/concurrency tests.** Cover search/queue/current-state
    interference for rename, library retry/rescan, playlist deletion, and
    concurrent playlist revisions. Keep all destructive filesystem tests inside
    temporary directories with mocked trash or activation APIs.
