@@ -1395,6 +1395,24 @@ def _queue_youtube_search(arguments):
     return item
 
 
+def _step_queue_playback(operation):
+    """Move queue playback once using the same policy for CLI and typed desktop controls."""
+    if operation not in {'next', 'previous'}:
+        raise QueueError('Queue playback step must be next or previous')
+    snapshot = vas.controller.snapshot()
+    if operation == 'next' and snapshot.media:
+        RECOMMENDER.record_event(
+            snapshot.media,
+            'early_skip',
+            context={'position': snapshot.position, 'duration': snapshot.duration},
+        )
+        STATION.mark_played(snapshot.media)
+    item = _advance_queue_to_playable(previous=operation == 'previous')
+    if item:
+        _play_queue_item(item)
+    return item
+
+
 def queue_command(arguments):
     operation = arguments[0].lower() if arguments else 'list'
     if operation == 'list':
@@ -1444,18 +1462,7 @@ def queue_command(arguments):
         _ensure_media_playable(items[position].media)
         _play_queue_item(QUEUE.jump(position))
     elif operation in {'next', 'previous'}:
-        snapshot = vas.controller.snapshot()
-        if operation == 'next' and snapshot.media:
-            RECOMMENDER.record_event(
-                snapshot.media,
-                'early_skip',
-                context={'position': snapshot.position, 'duration': snapshot.duration},
-            )
-            STATION.mark_played(snapshot.media)
-        item = _advance_queue_to_playable(previous=operation == 'previous')
-        if item:
-            _play_queue_item(item)
-        else:
+        if _step_queue_playback(operation) is None:
             IPrint('(end of queue)', visible=visible)
     elif operation == 'clear':
         yes, values = _confirmation_bypass(arguments[1:])
@@ -3679,6 +3686,42 @@ def _playback_status_projection() -> PlaybackStatusProjection:
 
 def _desktop_control_request(action: str, payload: dict[str, object]) -> dict[str, object]:
     """Apply one allowlisted desktop intent against authoritative backend state."""
+    playback_actions = {
+        'playback.play': 'play',
+        'playback.pause': 'pause',
+        'playback.previous': 'previous',
+        'playback.next': 'next',
+    }
+    if action in playback_actions:
+        expected_media_id = payload.get('media_id')
+        if not isinstance(expected_media_id, str) or not expected_media_id:
+            return {'ok': False, 'error': 'Playback target is unavailable'}
+        snapshot = vas.controller.snapshot()
+        if snapshot.media is None or snapshot.media.stable_id != expected_media_id:
+            return {'ok': False, 'error': 'Current media changed; try again'}
+        if _is_media_blocked(snapshot.media):
+            return {'ok': False, 'error': 'Playback is blocked for this media'}
+        operation = playback_actions[action]
+        try:
+            if operation == 'play':
+                if snapshot.state != PlaybackState.PAUSED:
+                    return {'ok': False, 'error': 'Play is unavailable in the current state'}
+                playpausetoggle(softtoggle=False)
+                if vas.controller.snapshot().state != PlaybackState.PLAYING:
+                    return {'ok': False, 'error': 'Could not resume playback'}
+            elif operation == 'pause':
+                if snapshot.state not in {PlaybackState.PLAYING, PlaybackState.CROSSFADING}:
+                    return {'ok': False, 'error': 'Pause is unavailable in the current state'}
+                playpausetoggle(softtoggle=False)
+                if vas.controller.snapshot().state != PlaybackState.PAUSED:
+                    return {'ok': False, 'error': 'Could not pause playback'}
+            elif _step_queue_playback(operation) is None:
+                return {'ok': False, 'error': f'No {operation} queue item is available'}
+        except Exception:
+            return {'ok': False, 'error': 'Could not apply playback control'}
+        DESKTOP_CONTROL.emit('playback', _playback_status_projection().to_dict())
+        return {'ok': True}
+
     if action != 'favorite.toggle':
         return {'ok': False, 'error': 'Unsupported desktop control request'}
     expected_media_id = payload.get('media_id')

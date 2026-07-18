@@ -98,10 +98,12 @@ export type MiniPlayerSnapshot = {
   playback: PlaybackStatus | null
 }
 
-export type FavoriteToggleResult = {
+export type DesktopControlResult = {
   ok: boolean
   error?: string
 }
+
+export type FavoriteToggleResult = DesktopControlResult
 
 function displayCells(value: string): number {
   return Array.from(value).reduce((total, character) => {
@@ -169,6 +171,10 @@ export type MarianaDesktopApi = {
 export type MarianaMiniPlayerApi = {
   snapshot(): Promise<MiniPlayerSnapshot>
   onSnapshot(callback: (snapshot: MiniPlayerSnapshot) => void): () => void
+  play(mediaId: string): Promise<DesktopControlResult>
+  pause(mediaId: string): Promise<DesktopControlResult>
+  previous(mediaId: string): Promise<DesktopControlResult>
+  next(mediaId: string): Promise<DesktopControlResult>
   showMain(): Promise<void>
   hide(): Promise<void>
   platform: string

@@ -185,6 +185,22 @@ button { cursor: pointer; }
 .mini-player .playback-queue { grid-area: queue; }
 .mini-player .playback-error { grid-area: error; }
 .mini-player .favorite-toggle { display: none; }
+.mini-player-controls {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.mini-player-controls button { min-width: 72px; }
+.mini-player-control-error {
+  margin: 6px 0 0;
+  overflow: hidden;
+  color: #ff8da6;
+  font-size: 11px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .chapter-status { max-width: 42vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-grow { flex: 1; }
 

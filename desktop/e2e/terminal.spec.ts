@@ -166,6 +166,17 @@ test('creates one Mini-player window and hides it instead of closing it', async 
     if (!miniPlayer) throw new Error('Mini-player window was not created')
     await expect(miniPlayer).toHaveTitle('Mariana Mini-player')
     await expect(miniPlayer.getByText('Mariana Mini-player', { exact: true })).toBeVisible()
+    await expect(miniPlayer.getByRole('button', { name: 'Play', exact: true })).toBeDisabled()
+    await expect(miniPlayer.getByRole('button', { name: 'Previous' })).toBeDisabled()
+    await expect(miniPlayer.getByRole('button', { name: 'Next' })).toBeDisabled()
+    expect(await miniPlayer.evaluate(() => Object.keys(window.marianaMini).sort())).toEqual([
+      'hide', 'next', 'onSnapshot', 'pause', 'platform', 'play', 'previous', 'showMain', 'snapshot',
+    ])
+    expect(await miniPlayer.evaluate(() => typeof window.mariana)).toBe('undefined')
+    expect(await miniPlayer.evaluate(() => window.marianaMini.next('missing-media'))).toEqual({
+      ok: false,
+      error: 'Current media changed; try again',
+    })
 
     await application.evaluate(({ BrowserWindow }) => {
       BrowserWindow.getAllWindows().find((window) => window.getTitle() === 'Mariana Mini-player')?.close()

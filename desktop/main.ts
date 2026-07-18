@@ -61,7 +61,26 @@ let backendStartupTimer: NodeJS.Timeout | null = null
 const pendingControlRequests = new Map<string, {
   resolve: (result: FavoriteToggleResult) => void
   timer: NodeJS.Timeout
+  safeError: string
 }>()
+
+type ControlRequestMessages = {
+  timeout: string
+  send: string
+  safeError: string
+}
+
+const favoriteControlMessages: ControlRequestMessages = {
+  timeout: 'Mariana backend did not confirm the favourite update',
+  send: 'Could not send the favourite update',
+  safeError: 'Favourite update failed',
+}
+
+const playbackControlMessages: ControlRequestMessages = {
+  timeout: 'Mariana backend did not confirm the playback control',
+  send: 'Could not send the playback control',
+  safeError: 'Playback control failed',
+}
 
 const safeToInstall = () => (
   backendSafeOverride ?? (['idle', 'paused', 'failed'].includes(playbackState) && !sleepActive)
@@ -143,7 +162,17 @@ function validateMiniPlayerSender(event: Electron.IpcMainInvokeEvent): boolean {
   return Boolean(miniPlayerWindow && event.sender === miniPlayerWindow.webContents)
 }
 
-function safeControlError(value: unknown): string {
+function validControlMediaId(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= 256
+    && !Array.from(value).some((character) => {
+      const code = character.charCodeAt(0)
+      return code < 32 || code === 127
+    })
+}
+
+function safeControlError(value: unknown, fallback = favoriteControlMessages.safeError): string {
   const text = typeof value === 'string'
     ? Array.from(value, (character) => {
         const code = character.charCodeAt(0)
@@ -151,7 +180,7 @@ function safeControlError(value: unknown): string {
       }).join('').replace(/\s+/g, ' ').trim()
     : ''
   if (!text || /(?:https?:\/\/|[a-z]:[\\/]|\\\\|\b(?:cookie|token|secret|authorization)\b)/i.test(text)) {
-    return 'Favourite update failed'
+    return fallback
   }
   return text.slice(0, 160)
 }
@@ -164,7 +193,11 @@ function finishPendingControlRequests(error: string) {
   pendingControlRequests.clear()
 }
 
-function requestBackendControl(action: string, payload: Record<string, unknown>): Promise<FavoriteToggleResult> {
+function requestBackendControl(
+  action: string,
+  payload: Record<string, unknown>,
+  messages = favoriteControlMessages,
+): Promise<FavoriteToggleResult> {
   const socket = controlSocket
   if (!backendReady || !socket || socket.destroyed || !socket.writable) {
     return Promise.resolve({ ok: false, error: 'Mariana backend is unavailable' })
@@ -173,16 +206,16 @@ function requestBackendControl(action: string, payload: Record<string, unknown>)
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       pendingControlRequests.delete(requestId)
-      resolve({ ok: false, error: 'Mariana backend did not confirm the favourite update' })
+      resolve({ ok: false, error: messages.timeout })
     }, 3_000)
-    pendingControlRequests.set(requestId, { resolve, timer })
+    pendingControlRequests.set(requestId, { resolve, timer, safeError: messages.safeError })
     socket.write(`${JSON.stringify({ token: controlToken, request_id: requestId, action, payload })}\n`, (error) => {
       if (!error) return
       const pending = pendingControlRequests.get(requestId)
       if (!pending) return
       clearTimeout(pending.timer)
       pendingControlRequests.delete(requestId)
-      pending.resolve({ ok: false, error: 'Could not send the favourite update' })
+      pending.resolve({ ok: false, error: messages.send })
     })
   })
 }
@@ -218,7 +251,10 @@ function handleBackendEvent(event: BackendEvent) {
         clearTimeout(pending.timer)
         pendingControlRequests.delete(requestId)
         const ok = event.payload.ok === true
-        pending.resolve(ok ? { ok: true } : { ok: false, error: safeControlError(event.payload.error) })
+        pending.resolve(ok ? { ok: true } : {
+          ok: false,
+          error: safeControlError(event.payload.error, pending.safeError),
+        })
       }
     }
   }
@@ -479,18 +515,7 @@ function registerIpc() {
     }
   })
   ipcMain.handle('backend:favorite-toggle', async (event, mediaId: unknown) => {
-    const hasControlCharacters = typeof mediaId === 'string'
-      && Array.from(mediaId).some((character) => {
-        const code = character.charCodeAt(0)
-        return code < 32 || code === 127
-      })
-    if (
-      !validateSender(event)
-      || typeof mediaId !== 'string'
-      || !mediaId
-      || mediaId.length > 256
-      || hasControlCharacters
-    ) {
+    if (!validateSender(event) || !validControlMediaId(mediaId)) {
       return { ok: false, error: 'Favourite target is unavailable' } satisfies FavoriteToggleResult
     }
     return requestBackendControl('favorite.toggle', { media_id: mediaId })
@@ -532,6 +557,20 @@ function registerIpc() {
     if (!validateMiniPlayerSender(event)) throw new Error('Invalid IPC sender')
     return miniPlayerSnapshot()
   })
+  const miniPlaybackControl = (
+    event: Electron.IpcMainInvokeEvent,
+    mediaId: unknown,
+    action: 'playback.play' | 'playback.pause' | 'playback.previous' | 'playback.next',
+  ) => {
+    if (!validateMiniPlayerSender(event) || !validControlMediaId(mediaId)) {
+      return Promise.resolve({ ok: false, error: 'Playback target is unavailable' })
+    }
+    return requestBackendControl(action, { media_id: mediaId }, playbackControlMessages)
+  }
+  ipcMain.handle('mini:play', (event, mediaId) => miniPlaybackControl(event, mediaId, 'playback.play'))
+  ipcMain.handle('mini:pause', (event, mediaId) => miniPlaybackControl(event, mediaId, 'playback.pause'))
+  ipcMain.handle('mini:previous', (event, mediaId) => miniPlaybackControl(event, mediaId, 'playback.previous'))
+  ipcMain.handle('mini:next', (event, mediaId) => miniPlaybackControl(event, mediaId, 'playback.next'))
   ipcMain.handle('mini:show-main', async (event) => {
     if (!validateMiniPlayerSender(event)) throw new Error('Invalid IPC sender')
     trayActions.show()
