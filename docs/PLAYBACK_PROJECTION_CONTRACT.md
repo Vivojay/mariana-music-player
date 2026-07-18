@@ -154,6 +154,9 @@ targets. Commands that mutate files, preferences, queues, or future playback
 policies must resolve a locator once to a stable backend object and bind the
 operation to that object.
 
+The current command-by-command findings are recorded in the
+[destructive command audit](DESTRUCTIVE_COMMAND_AUDIT.md).
+
 - A destructive command resolves the explicit library target, records its
   stable library identity and canonical path internally, and shows that same
   target in confirmation.
