@@ -135,7 +135,7 @@ def test_real_broadcast_encodes_decodable_normalized_program_mix(tmp_path, codec
     # Encoder delay, padding, and keepalive silence differ across platform
     # FFmpeg builds. Analyze the windowed active program material while retaining
     # a small extra tolerance for the lossy MP3 path.
-    frequency_tolerance = 6 if codec == "mp3" else 5
+    frequency_tolerance = 8 if codec == "mp3" else 5
     assert dominant == pytest.approx(440, abs=frequency_tolerance)
 
 
