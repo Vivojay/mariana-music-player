@@ -109,7 +109,7 @@ def test_queue_play_skip_and_prefetch_modes(monkeypatch):
 
     monkeypatch.setattr(main.vas.supervisor, "play", play)
     monkeypatch.setattr(main.QUEUE, "mark_failure", lambda _queue_id: "skip")
-    monkeypatch.setattr(main.QUEUE, "next", lambda: second)
+    monkeypatch.setattr(main, "_advance_queue_to_playable", lambda: second)
     monkeypatch.setattr(main.RECOMMENDER, "record_event", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(main, "_prefetch_after", lambda item: calls.append(item))
     main._play_queue_item(first)
