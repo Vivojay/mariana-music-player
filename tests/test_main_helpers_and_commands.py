@@ -1264,7 +1264,16 @@ def test_short_rename_preview_cancel_and_apply(monkeypatch, tmp_path):
     events = []
     monkeypatch.setattr(main, "_media_info", lambda _args: (media, info))
     monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
-    monkeypatch.setattr(main, "LIBRARY", SimpleNamespace(rename=lambda *_args: renamed))
+    bound_target = SimpleNamespace(library_id="stable", path=source)
+    rename_calls = []
+    monkeypatch.setattr(
+        main,
+        "LIBRARY",
+        SimpleNamespace(
+            bind_rename=lambda _library_id: bound_target,
+            rename_bound=lambda target, filename: rename_calls.append((target, filename)) or renamed,
+        ),
+    )
     monkeypatch.setattr(main, "reload_sounds", lambda **kwargs: events.append(("reload", kwargs)))
     monkeypatch.setattr(main, "stopsong", lambda: events.append("stop"))
     monkeypatch.setattr(
@@ -1285,6 +1294,7 @@ def test_short_rename_preview_cancel_and_apply(monkeypatch, tmp_path):
     )
     for token in ("y", "yes", "--yes"):
         assert main.rename_command(["short", "current", token]) == renamed
+    assert all(target is bound_target for target, _filename in rename_calls)
     assert "stop" in events and main.currentsong == str(renamed)
     assert any(isinstance(event, tuple) and event[0] == "reload" for event in events)
     with pytest.raises(ValueError, match="Usage: rename"):
@@ -1299,6 +1309,7 @@ def test_short_rename_rejects_placeholder_only_and_equivalent_names(monkeypatch,
     placeholder_path.write_bytes(b"audio")
     media = main.MediaRef(main.MediaSource.LOCAL, str(placeholder_path), stable_id="placeholder")
     info = {
+        "library_id": "placeholder",
         "canonical_path": str(placeholder_path),
         "state": "available",
         "metadata": {
@@ -1308,9 +1319,17 @@ def test_short_rename_rejects_placeholder_only_and_equivalent_names(monkeypatch,
         },
     }
     rename_calls = []
+    bound_target = SimpleNamespace(library_id="placeholder", path=placeholder_path)
     printed = []
     monkeypatch.setattr(main, "_media_info", lambda _args: (media, info))
-    monkeypatch.setattr(main, "LIBRARY", SimpleNamespace(rename=lambda *args: rename_calls.append(args)))
+    monkeypatch.setattr(
+        main,
+        "LIBRARY",
+        SimpleNamespace(
+            bind_rename=lambda _library_id: bound_target,
+            rename_bound=lambda *args: rename_calls.append(args),
+        ),
+    )
     monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
 
     with pytest.raises(ValueError, match="Insufficient trusted metadata for safe rename"):
@@ -1333,7 +1352,36 @@ def test_short_rename_rejects_placeholder_only_and_equivalent_names(monkeypatch,
     assert str(tmp_path) not in printed[-1]
 
     info["canonical_path"] = str(expected)
+    bound_target.path = expected
     with pytest.raises(ValueError, match="already matches"):
+        main.rename_command(["short", "--dry-run"])
+    assert rename_calls == []
+
+
+def test_short_rename_refuses_a_target_changed_before_preview(monkeypatch, tmp_path):
+    source = tmp_path / "original.mp3"
+    changed = tmp_path / "changed.mp3"
+    source.write_bytes(b"audio")
+    changed.write_bytes(b"other")
+    media = main.MediaRef(main.MediaSource.LOCAL, str(source), stable_id="stable")
+    info = {
+        "library_id": "stable",
+        "canonical_path": str(source),
+        "state": "available",
+        "metadata": {"artist": "Artist", "title": "Track"},
+    }
+    rename_calls = []
+    monkeypatch.setattr(main, "_media_info", lambda _args: (media, info))
+    monkeypatch.setattr(
+        main,
+        "LIBRARY",
+        SimpleNamespace(
+            bind_rename=lambda _library_id: SimpleNamespace(library_id="stable", path=changed),
+            rename_bound=lambda *args: rename_calls.append(args),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Rename target changed"):
         main.rename_command(["short", "--dry-run"])
     assert rename_calls == []
 

@@ -60,6 +60,15 @@ class LibraryJob:
     attempts: int
 
 
+@dataclass(frozen=True, slots=True)
+class LibraryRenameTarget:
+    """Immutable filesystem identity captured before rename confirmation."""
+
+    library_id: str
+    path: Path
+    file_signature: tuple[int, int, int, int]
+
+
 def path_key(path: Path | str) -> str:
     return os.path.normcase(os.path.abspath(os.fspath(path))).casefold()
 
@@ -880,14 +889,42 @@ class LibraryCatalog:
             if cursor.rowcount != 1:
                 raise LibraryError(f"Unknown library item: {library_id}")
 
-    def rename(self, library_id: str, filename: str) -> Path:
-        """Rename one indexed occurrence, rolling the file back if SQLite rejects it."""
+    @staticmethod
+    def _rename_signature(file_stat: os.stat_result) -> tuple[int, int, int, int]:
+        return (
+            int(getattr(file_stat, "st_dev", 0)),
+            int(getattr(file_stat, "st_ino", 0)),
+            int(file_stat.st_size),
+            int(file_stat.st_mtime_ns),
+        )
+
+    def bind_rename(self, library_id: str) -> LibraryRenameTarget:
+        """Bind one available library row to its current path and file identity."""
         row = self.database.fetchone("SELECT * FROM library_files WHERE library_id=?", (library_id,))
         if not row or row["state"] != "available":
             raise LibraryError(f"Available library item not found: {library_id}")
         source = Path(row["canonical_path"])
+        try:
+            file_stat = source.stat()
+        except OSError as error:
+            raise LibraryError("Only available, non-symlink media files can be renamed") from error
         if not source.is_file() or source.is_symlink():
             raise LibraryError("Only available, non-symlink media files can be renamed")
+        return LibraryRenameTarget(
+            str(row["library_id"]),
+            source.resolve(),
+            self._rename_signature(file_stat),
+        )
+
+    def rename_bound(self, target: LibraryRenameTarget, filename: str) -> Path:
+        """Rename exactly one confirmed target, refusing any intervening change."""
+        try:
+            current = self.bind_rename(target.library_id)
+        except LibraryError as error:
+            raise LibraryError("Rename target changed after confirmation; run the command again") from error
+        if current != target:
+            raise LibraryError("Rename target changed after confirmation; run the command again")
+        source = current.path
         if Path(filename).name != filename or not filename.strip():
             raise LibraryError("The replacement must be a filename, not a path")
         destination = source.with_name(filename)
@@ -912,12 +949,12 @@ class LibraryCatalog:
                         stat.st_size,
                         stat.st_mtime_ns,
                         time.time(),
-                        library_id,
+                        target.library_id,
                     ),
                 )
                 connection.execute(
                     "UPDATE media_items SET original_uri=?, updated_at=? WHERE stable_id=?",
-                    (str(destination.absolute()), time.time(), library_id),
+                    (str(destination.absolute()), time.time(), target.library_id),
                 )
         except Exception as error:
             if destination.exists() and not source.exists():
@@ -929,6 +966,10 @@ class LibraryCatalog:
                     ) from error
             raise LibraryError(f"Could not rename indexed media: {error}") from error
         return destination
+
+    def rename(self, library_id: str, filename: str) -> Path:
+        """Rename one immediately bound occurrence for non-interactive callers."""
+        return self.rename_bound(self.bind_rename(library_id), filename)
 
     def verify(self) -> dict[str, Any]:
         integrity = self.database.fetchone("PRAGMA integrity_check")

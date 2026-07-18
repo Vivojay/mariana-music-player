@@ -185,3 +185,34 @@ def test_library_rename_rolls_file_back_when_database_update_fails(monkeypatch, 
     assert not (root / "new.mp3").exists()
     monkeypatch.setattr(database, "transaction", real_transaction)
     database.close()
+
+
+def test_bound_library_rename_refuses_replaced_or_moved_target(tmp_path):
+    database = MarianaDatabase(tmp_path / "catalog.sqlite3")
+    root = tmp_path / "music"
+    root.mkdir()
+    source = root / "old.mp3"
+    source.write_bytes(b"media")
+    library_file = tmp_path / "lib.lib"
+    library_file.write_text(str(root), encoding="utf-8")
+    catalog = LibraryCatalog(database, library_file=library_file, supported_extensions=(".mp3",))
+    catalog.scan("changed")
+    item = catalog.info(str(source))
+
+    replaced_target = catalog.bind_rename(item["library_id"])
+    source.write_bytes(b"replacement media with different identity")
+    with pytest.raises(LibraryError, match="changed after confirmation"):
+        catalog.rename_bound(replaced_target, "new.mp3")
+    assert source.is_file()
+    assert not (root / "new.mp3").exists()
+
+    catalog.scan("changed")
+    moved_target = catalog.bind_rename(item["library_id"])
+    moved = root / "moved.mp3"
+    source.replace(moved)
+    catalog.scan("changed")
+    with pytest.raises(LibraryError, match="changed after confirmation"):
+        catalog.rename_bound(moved_target, "new.mp3")
+    assert moved.is_file()
+    assert not (root / "new.mp3").exists()
+    database.close()

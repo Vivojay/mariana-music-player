@@ -3251,7 +3251,13 @@ def rename_command(arguments):
     media, info = _media_info([target])
     if media.source != MediaSource.LOCAL or info.get('state') != 'available':
         raise ValueError('Only an available, indexed local media file can be renamed')
-    source = Path(info['canonical_path'])
+    bound_target = LIBRARY.bind_rename(info['library_id'])
+    source = Path(info['canonical_path']).resolve()
+    if os.path.normcase(os.path.abspath(source)).casefold() != os.path.normcase(
+        os.path.abspath(bound_target.path)
+    ).casefold():
+        raise ValueError('Rename target changed; run the command again')
+    source = bound_target.path
     plan = short_filename_plan(source, info.get('metadata') or {})
     if plan.filename is None:
         raise ValueError(plan.reason or 'Insufficient trusted metadata for safe rename.')
@@ -3272,7 +3278,7 @@ def rename_command(arguments):
     snapshot = vas.controller.snapshot()
     if snapshot.media and snapshot.media.stable_id == media.stable_id:
         stopsong()
-    renamed = LIBRARY.rename(info['library_id'], filename)
+    renamed = LIBRARY.rename_bound(bound_target, filename)
     if currentsong and os.path.normcase(os.path.abspath(str(currentsong))).casefold() == os.path.normcase(
         os.path.abspath(str(source))
     ).casefold():
