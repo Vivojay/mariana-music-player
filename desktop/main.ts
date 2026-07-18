@@ -6,12 +6,15 @@ import net from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as pty from 'node-pty'
-import type { BackendEvent, FavoriteToggleResult, PlaybackStatus, UpdateState } from './shared.js'
+import type { BackendEvent, FavoriteToggleResult, MiniPlayerSnapshot, PlaybackStatus, UpdateState } from './shared.js'
 import {
   createTrayActions,
+  ensureSingleWindow,
   ensureSingleTray,
+  handleAuxiliaryWindowClose,
   handleWindowClose,
   normalizeCloseButtonBehavior,
+  showWindow,
   type CloseButtonBehavior,
 } from './windowLifecycle.js'
 
@@ -33,6 +36,7 @@ const controlEndpoint = process.platform === 'win32'
   : path.join(app.getPath('temp'), `mariana-${process.pid}-${randomBytes(8).toString('hex')}.sock`)
 
 let mainWindow: BrowserWindow | null = null
+let miniPlayerWindow: BrowserWindow | null = null
 let terminalProcess: pty.IPty | null = null
 let controlServer: net.Server | null = null
 let controlSocket: net.Socket | null = null
@@ -65,6 +69,18 @@ const safeToInstall = () => (
 
 const send = <T>(channel: string, value: T) => {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, value)
+}
+
+const miniPlayerSnapshot = (): MiniPlayerSnapshot => ({
+  ready: backendReady,
+  diagnostic: backendDiagnostic,
+  playback: playbackStatus,
+})
+
+const sendMiniPlayerSnapshot = () => {
+  if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
+    miniPlayerWindow.webContents.send('mini:snapshot-updated', miniPlayerSnapshot())
+  }
 }
 
 const trayActions = createTrayActions(
@@ -121,6 +137,10 @@ const setUpdateState = (next: UpdateState) => {
 
 function validateSender(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): boolean {
   return Boolean(mainWindow && event.sender === mainWindow.webContents)
+}
+
+function validateMiniPlayerSender(event: Electron.IpcMainInvokeEvent): boolean {
+  return Boolean(miniPlayerWindow && event.sender === miniPlayerWindow.webContents)
 }
 
 function safeControlError(value: unknown): string {
@@ -210,6 +230,7 @@ function handleBackendEvent(event: BackendEvent) {
     setTimeout(() => autoUpdater.quitAndInstall(false, true), 1200)
   }
   send('backend:event', event)
+  sendMiniPlayerSnapshot()
   if (updateState.state === 'downloaded') setUpdateState(updateState)
 }
 
@@ -286,6 +307,7 @@ function startTerminal() {
   finishPendingControlRequests('Mariana backend restarted before confirming the favourite update')
   playbackState = 'idle'
   playbackStatus = null
+  sendMiniPlayerSnapshot()
   backendShutdownAcknowledged = false
   backendExitClosesView = true
   const command = backendCommand()
@@ -380,7 +402,67 @@ async function createWindow() {
     if (!mainWindow) return
     handleWindowClose(event, mainWindow, closeButtonBehavior, trayAvailable, quitting)
   })
-  mainWindow.on('closed', () => { mainWindow = null })
+  mainWindow.on('closed', () => {
+    mainWindow = null
+    if (!quitting) trayActions.quit()
+  })
+}
+
+function configureRestrictedNavigation(window: BrowserWindow) {
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  window.webContents.on('will-navigate', (event, url) => {
+    const allowed = usesViteRenderer
+      ? new URL(url).origin === 'http://127.0.0.1:5173'
+      : url.startsWith('file:') && fileURLToPath(url).startsWith(path.join(__dirname, '..', 'dist'))
+    if (!allowed) event.preventDefault()
+  })
+}
+
+async function ensureMiniPlayerWindow(): Promise<BrowserWindow> {
+  let created = false
+  const window = ensureSingleWindow(miniPlayerWindow, () => {
+    created = true
+    return new BrowserWindow({
+      width: 400,
+      height: 172,
+      minWidth: 340,
+      minHeight: 150,
+      maxWidth: 600,
+      maxHeight: 240,
+      show: false,
+      frame: false,
+      resizable: true,
+      skipTaskbar: false,
+      alwaysOnTop: false,
+      backgroundColor: '#15151d',
+      title: 'Mariana Mini-player',
+      webPreferences: {
+        preload: path.join(__dirname, 'miniPreload.cjs'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        webSecurity: true,
+      },
+    })
+  })
+  miniPlayerWindow = window
+  if (!created) return window
+
+  configureRestrictedNavigation(window)
+  window.on('close', (event) => {
+    handleAuxiliaryWindowClose(event, window, quitting)
+  })
+  window.on('closed', () => {
+    if (miniPlayerWindow === window) miniPlayerWindow = null
+  })
+  if (usesViteRenderer) await window.loadURL('http://127.0.0.1:5173/?surface=mini')
+  else await window.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { query: { surface: 'mini' } })
+  return window
+}
+
+async function showMiniPlayer(): Promise<void> {
+  const window = await ensureMiniPlayerWindow()
+  if (!window.isDestroyed()) showWindow(window)
 }
 
 function registerIpc() {
@@ -441,6 +523,22 @@ function registerIpc() {
   ipcMain.handle('app:close', async (event) => {
     if (!validateSender(event)) throw new Error('Invalid IPC sender')
     trayActions.quit()
+  })
+  ipcMain.handle('app:show-mini-player', async (event) => {
+    if (!validateSender(event)) throw new Error('Invalid IPC sender')
+    await showMiniPlayer()
+  })
+  ipcMain.handle('mini:snapshot', async (event) => {
+    if (!validateMiniPlayerSender(event)) throw new Error('Invalid IPC sender')
+    return miniPlayerSnapshot()
+  })
+  ipcMain.handle('mini:show-main', async (event) => {
+    if (!validateMiniPlayerSender(event)) throw new Error('Invalid IPC sender')
+    trayActions.show()
+  })
+  ipcMain.handle('mini:hide', async (event) => {
+    if (!validateMiniPlayerSender(event)) throw new Error('Invalid IPC sender')
+    miniPlayerWindow?.hide()
   })
   ipcMain.handle('shell:open-external', async (event, value: unknown) => {
     if (!validateSender(event) || typeof value !== 'string') throw new Error('Invalid external URL')

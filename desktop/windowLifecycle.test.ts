@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   createTrayActions,
+  ensureSingleWindow,
   ensureSingleTray,
+  handleAuxiliaryWindowClose,
   handleWindowClose,
   normalizeCloseButtonBehavior,
+  showWindow,
+  type AuxiliaryWindowPort,
   type WindowPort,
 } from './windowLifecycle'
 
@@ -15,6 +19,13 @@ function windowPort() {
     restore: vi.fn<() => void>(),
     show: vi.fn<() => void>(),
   } satisfies WindowPort
+}
+
+function auxiliaryWindowPort(destroyed = false) {
+  return {
+    ...windowPort(),
+    isDestroyed: () => destroyed,
+  } satisfies AuxiliaryWindowPort
 }
 
 describe('desktop window lifecycle', () => {
@@ -70,5 +81,40 @@ describe('desktop window lifecycle', () => {
 
     expect(second).toBe(first)
     expect(create).toHaveBeenCalledOnce()
+  })
+
+  it('creates one live auxiliary window and replaces a destroyed instance', () => {
+    const first = auxiliaryWindowPort()
+    const replacement = auxiliaryWindowPort()
+    const create = vi.fn(() => replacement)
+
+    expect(ensureSingleWindow(first, create)).toBe(first)
+    expect(create).not.toHaveBeenCalled()
+    expect(ensureSingleWindow(auxiliaryWindowPort(true), create)).toBe(replacement)
+    expect(create).toHaveBeenCalledOnce()
+  })
+
+  it('restores, shows, and focuses an auxiliary window', () => {
+    const window = auxiliaryWindowPort()
+    window.isMinimized = () => true
+
+    showWindow(window)
+
+    expect(window.restore).toHaveBeenCalledOnce()
+    expect(window.show).toHaveBeenCalledOnce()
+    expect(window.focus).toHaveBeenCalledOnce()
+  })
+
+  it('hides an auxiliary close unless the application is quitting', () => {
+    const event = { preventDefault: vi.fn() }
+    const window = auxiliaryWindowPort()
+
+    expect(handleAuxiliaryWindowClose(event, window, false)).toBe('hidden')
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(window.hide).toHaveBeenCalledOnce()
+
+    const quittingEvent = { preventDefault: vi.fn() }
+    expect(handleAuxiliaryWindowClose(quittingEvent, window, true)).toBe('closed')
+    expect(quittingEvent.preventDefault).not.toHaveBeenCalled()
   })
 })

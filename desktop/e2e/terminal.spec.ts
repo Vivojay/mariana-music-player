@@ -150,3 +150,41 @@ test('hides window close to tray by default and honors the quit preference', asy
     await application.close()
   }
 })
+
+test('creates one Mini-player window and hides it instead of closing it', async () => {
+  const application = await electron.launch({
+    args: ['.'],
+    env: { ...process.env, MARIANA_E2E: '1', MARIANA_E2E_USE_DIST: '1' },
+  })
+  try {
+    const page = await application.firstWindow()
+    await expect(page.locator('.backend-dot.ready')).toBeVisible({ timeout: 30_000 })
+
+    await page.getByRole('button', { name: 'Open Mini-player' }).click()
+    await expect.poll(() => application.windows().length).toBe(2)
+    const miniPlayer = application.windows().find((window) => window.url().includes('surface=mini'))
+    if (!miniPlayer) throw new Error('Mini-player window was not created')
+    await expect(miniPlayer).toHaveTitle('Mariana Mini-player')
+    await expect(miniPlayer.getByText('Mariana Mini-player', { exact: true })).toBeVisible()
+
+    await application.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows().find((window) => window.getTitle() === 'Mariana Mini-player')?.close()
+    })
+    await expect.poll(() => application.evaluate(({ BrowserWindow }) => (
+      BrowserWindow.getAllWindows().find((window) => window.getTitle() === 'Mariana Mini-player')?.isVisible()
+    ))).toBe(false)
+
+    await page.getByRole('button', { name: 'Open Mini-player' }).click()
+    await expect.poll(() => application.windows().length).toBe(2)
+    await expect.poll(() => application.evaluate(({ BrowserWindow }) => (
+      BrowserWindow.getAllWindows().find((window) => window.getTitle() === 'Mariana Mini-player')?.isVisible()
+    ))).toBe(true)
+
+    await miniPlayer.getByRole('button', { name: 'Hide Mini-player' }).click()
+    await expect.poll(() => application.evaluate(({ BrowserWindow }) => (
+      BrowserWindow.getAllWindows().find((window) => window.getTitle() === 'Mariana Mini-player')?.isVisible()
+    ))).toBe(false)
+  } finally {
+    await application.close()
+  }
+})

@@ -16,6 +16,7 @@ const check = vi.fn(async () => undefined)
 const install = vi.fn(async () => undefined)
 const restart = vi.fn(async () => undefined)
 const closeApp = vi.fn(async () => undefined)
+const showMiniPlayer = vi.fn(async () => undefined)
 const toggleFavorite = vi.fn(async (): Promise<FavoriteToggleResult> => ({ ok: true }))
 let backendEvent: ((event: BackendEvent) => void) | undefined
 let updateEvent: ((event: { state: string; version?: string; safeToInstall?: boolean; percent?: number }) => void) | undefined
@@ -58,6 +59,7 @@ beforeEach(() => {
   install.mockClear()
   restart.mockClear()
   closeApp.mockClear()
+  showMiniPlayer.mockClear()
   toggleFavorite.mockClear()
   toggleFavorite.mockResolvedValue({ ok: true })
   backendEvent = undefined
@@ -82,7 +84,7 @@ beforeEach(() => {
         onEvent: (callback: typeof backendEvent) => { backendEvent = callback; return () => {} },
       },
       updates: { check, install, onState: (callback: typeof updateEvent) => { updateEvent = callback; return () => {} } },
-      app: { close: closeApp },
+      app: { close: closeApp, showMiniPlayer },
       openExternal: vi.fn(),
       platform: 'win32',
     },
@@ -100,6 +102,15 @@ describe('Mariana desktop shell', () => {
     expect([...options].map((option) => option.textContent)).toEqual([
       'Mariana Aurora', 'Windows Terminal Acrylic', 'Kitty / Catppuccin', 'Gruvbox Dark',
     ])
+  })
+
+  it('opens the Mini-player through the typed app boundary', () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Mini-player' }))
+
+    expect(showMiniPlayer).toHaveBeenCalledOnce()
+    expect(write).not.toHaveBeenCalled()
   })
 
   it('keeps favourite control disabled until structured backend readiness arrives', async () => {

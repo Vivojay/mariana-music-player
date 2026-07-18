@@ -146,6 +146,45 @@ button { cursor: pointer; }
 .playback-progress-placeholder { width: 100%; height: 3px; border-radius: 999px; background: color-mix(in srgb, var(--muted) 30%, transparent); }
 .playback-progress-placeholder.is-live { background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 20%, transparent)); }
 .playback-error { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.mini-player {
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: 12px;
+  overflow: hidden;
+  color: #e9edff;
+  background: #15151d;
+}
+.mini-player-titlebar {
+  -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.mini-player-actions {
+  -webkit-app-region: no-drag;
+  display: flex;
+  gap: 6px;
+}
+.mini-player-actions button { padding: 4px 8px; }
+.mini-player .playback-status {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "identity state"
+    "timing queue"
+    "progress progress"
+    "error error";
+}
+.mini-player .playback-identity { grid-area: identity; }
+.mini-player .playback-state,
+.mini-player .playback-policy { grid-area: state; }
+.mini-player .playback-timing { grid-area: timing; }
+.mini-player .playback-progress-slot { grid-area: progress; }
+.mini-player .playback-queue { grid-area: queue; }
+.mini-player .playback-error { grid-area: error; }
+.mini-player .favorite-toggle { display: none; }
 .chapter-status { max-width: 42vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-grow { flex: 1; }
 

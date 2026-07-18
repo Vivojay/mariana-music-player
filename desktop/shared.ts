@@ -92,6 +92,12 @@ export type BackendSnapshot = {
   playback: PlaybackStatus | null
 }
 
+export type MiniPlayerSnapshot = {
+  ready: boolean
+  diagnostic: string | null
+  playback: PlaybackStatus | null
+}
+
 export type FavoriteToggleResult = {
   ok: boolean
   error?: string
@@ -154,7 +160,16 @@ export type MarianaDesktopApi = {
   }
   app: {
     close(): Promise<void>
+    showMiniPlayer(): Promise<void>
   }
   openExternal(url: string): Promise<void>
+  platform: string
+}
+
+export type MarianaMiniPlayerApi = {
+  snapshot(): Promise<MiniPlayerSnapshot>
+  onSnapshot(callback: (snapshot: MiniPlayerSnapshot) => void): () => void
+  showMain(): Promise<void>
+  hide(): Promise<void>
   platform: string
 }

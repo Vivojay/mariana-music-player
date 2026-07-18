@@ -353,6 +353,7 @@ export default function App() {
             ◷ {timerStatus.active ? formatRemaining(timerStatus.remaining_seconds) : 'Sleep'}
           </button>
           <button className={mediaOpen ? 'active' : ''} aria-label="Open media workspace" onClick={() => setMediaOpen((open) => !open)}>Media</button>
+          <button type="button" aria-label="Open Mini-player" onClick={() => void window.mariana.app.showMiniPlayer()}>Mini</button>
           <button title="Restart Mariana session" onClick={() => void window.mariana.terminal.restart()}>↻</button>
         </div>
       </header>

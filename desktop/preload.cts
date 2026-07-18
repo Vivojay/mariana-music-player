@@ -31,6 +31,7 @@ const api: MarianaDesktopApi = {
   },
   app: {
     close: () => ipcRenderer.invoke('app:close'),
+    showMiniPlayer: () => ipcRenderer.invoke('app:show-mini-player'),
   },
   openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
   platform: process.platform,
