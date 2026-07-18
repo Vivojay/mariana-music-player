@@ -99,6 +99,10 @@ after a later empty snapshot.
   The backend compares it with the current snapshot before mutation, then the
   UI reconciles from the next authoritative projection. Renderer-only or
   permanently optimistic favourite state is forbidden.
+- Playback-policy projection contains only whether the current item is blocked,
+  whether a fresh play request is allowed, and a sanitized unavailable reason.
+  Blocking is independent from favourite state and never removes an item from
+  the library, search results, favourites, or queue.
 
 ## Privacy boundary
 
@@ -172,13 +176,13 @@ Paths may appear only where an existing explicit local-file inspection or
 destructive confirmation requires them. They do not enter playback projection,
 desktop events, presence, history, or remote surfaces.
 
-## Future playback policies
+## Playback policies
 
-Blocked-media and preferred play-region policy services should remain backend
-authorities keyed by durable media identity. If a UI needs policy state:
+Blocked-media policy is a backend authority keyed by durable media identity.
+Preferred play-region policy remains future work. Policy surfaces must:
 
-- add a versioned, sanitized projection field or a separate typed policy
-  projection rather than exposing persistence rows;
+- use the versioned, sanitized policy projection rather than exposing
+  persistence rows;
 - describe only the current media's effective policy and whether a control is
   available;
 - send policy changes as typed intent with the expected `media_id`;

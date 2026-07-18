@@ -181,12 +181,19 @@ database.
 | `fav list`, `favs`, `favs list` | List all favorites using stable favorite-local numbering |
 | `fav <favorite-index>` | Inspect that favorite without interpreting the number as a library index |
 | `.fav <favorite-index>` | Immediately play that favorite |
-| `fav [!|+|-]`, `bl [!|+|-]` | Toggle, set, or clear favorite/blocked state for active media |
-| `like`, `dislike` | Set the active item to favorite or blocked |
-| `favs [count]`, `blacklist [count]` | List persistent media preferences; a numeric count limits the output |
+| `fav [!|+|-]` | Toggle, set, or clear favourite state for active media |
+| `block current`, `block <library-index>` | Block future playback without hiding, deleting, or unfavouriting the media |
+| `unblock <library-index|current>` | Restore playback eligibility |
+| `blocked`, `blocked list`, `blocked <count>` | List playback-blocked media; legacy `blacklist` remains an alias |
+| `bl [!|+|-]`, `like`, `dislike` | Compatibility forms for active-media preference changes |
 
 Unavailable roots do not block startup. Missing media remains as history-aware
 tombstones until explicitly cleaned.
+
+Blocking is a playback policy, not deletion or hiding. Blocked items remain in
+the library, searches, favourites, and queue with a `Blocked` marker. Direct
+play refuses them; random and automatic queue traversal skip them. Bare numeric
+targets in `block N` and `unblock N` always mean library indices.
 
 ## Playlists
 

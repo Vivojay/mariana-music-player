@@ -21,7 +21,7 @@ is unsigned Windows x64 only. It is not the stable release.
 | Recommendations | Ranking, negatives, diversity, persistence, explanations | Long-session taste review | Manual pending |
 | Discord Rich Presence | Four privacy modes, projection redaction, embedded-path rejection, dormant permanent failures, startup/restart recovery, coalescing, refresh, and bounded shutdown; public Application ID and packaged dependency contracts | Live Discord Desktop visibility, Activity Privacy behavior, and packaged lifecycle acceptance | Source deterministic passed; live/package pending |
 | Setup | Atomic state/lock, interruption, corruption, tool discovery/provisioning, optional-step failure, existing-install migration, relaunch | Four Windows packaged first-run/recovery scenarios plus native verified-tool bootstrap | Cross-platform package pending |
-| Preferences/removal | Tri-state migration/idempotence, recommendation filtering, trash-only failure/recovery | Native recycle-bin restoration | Native restore pending |
+| Preferences/playback policy/removal | Independent favourite/block persistence and legacy migration, block target isolation, visible blocked markers, direct-play refusal, random/queue skipping, recommendation filtering, trash-only failure/recovery | Native recycle-bin restoration and blocked-media session smoke | Native smoke/restore pending |
 | Electron/PTTY | 12 Vitest tests and 2 development PTY scenarios | 6 Windows packaged scenarios; native PTY passed on Windows, macOS ARM64, and Linux; signed multi-OS package pending | Source-native and Windows unpacked passed; signing pending |
 | OTA/update | Preflight, safety state, checksum and migration contracts | Signed N to N+1 on every target | Signing pending |
 
@@ -40,7 +40,7 @@ reachable command family is classified below; none is unreviewed.
 | `all`, `all*`, `list`, `ls`, numeric input, `play` | Native | Database-backed library projection and FFmpeg playback |
 | `. <path>`, dotted numeric/path forms, `/open`, `open`, `view`, `path` | Modernized | Capability validation and cross-platform open/reveal adapters |
 | `fav`, `fav !`, `fav +/-`, `favs` | Modernized | Persistent favorite/neutral state in SQLite |
-| `bl`, `blacklisted`, `bl !`, `bl +/-`, `blacklist` | Modernized | Persistent blocked/neutral state; blocked items excluded from autofill |
+| `block`, `unblock`, `blocked`; legacy `bl`, `blacklisted`, `blacklist` | Modernized | Persistent playback policy independent from favourites; visible items are refused or skipped before playback |
 | `last`, `last played`, `recent`, `recents`, `hist`, `history`, `open history` | Modernized | Writable persistent history/recents |
 | `pod`, `podbean`, `pods`, `podbeans`, RSS forms | Modernized | Feedparser adapter, conditional caching, typed failures |
 | `include/exclude downloads`; all historical `reload` spellings | Modernized | Separately identified managed download-library root; `lib.lib` preserved |

@@ -217,9 +217,12 @@ recommend related [count]
 recommend train
 fav [list|favorite-index|current|!|+|-]
 .fav <favorite-index>
-bl [!|+|-]
+block current|<library-index>
+unblock current|<library-index>
+blocked [list|count]
+bl [!|+|-]                 # compatibility alias for current media
 favs [list|count]
-blacklist [count]
+blacklist [count]          # compatibility alias for blocked list
 like|dislike
 hist|history [count]
 include|exclude downloads
@@ -580,6 +583,9 @@ Historical aliases—including `.`, `.*`, `+`, `-`, the `arand` family,
 `vh`/`volh`/`volumeh`, and `dl-yv`/`dl-ya`/`dl-ml`—route to current implementations.
 Advanced `find`/`rfind`/`lfind`, history, managed-download inclusion, persistent
 favorites/blocks, local lyric editing, and trash-only `rm`/`del` are retained.
+Favourites and playback blocks are independent persistent states. Blocked media
+stays visible and marked in library, search, favourite, and queue surfaces;
+manual play is refused while random and automatic queue traversal skip it.
 RPAN aliases remain recognized but report service retirement. VLC, pygame,
 ShazamIO, PRAW credentials, generated metadata, expired hard-coded URLs, and
 binary runtime state were deliberately not imported. The exhaustive audit is
