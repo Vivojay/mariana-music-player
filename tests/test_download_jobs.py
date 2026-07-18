@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import mariana.download_jobs as download_jobs_module
 from mariana.database import SCHEMA_VERSION, MarianaDatabase
 from mariana.download_jobs import (
     DownloadJobError,
@@ -124,6 +125,57 @@ def test_canonical_urls_and_portable_filename_sanitization():
     assert sanitize_component('A<B>:"Song"?*') == "A_B___Song___"
     assert sanitize_component("CON") == "_CON"
     assert sanitize_component("...") == "Unknown"
+
+
+def test_download_validation_binds_unique_cardinal_outputs(monkeypatch, tmp_path: Path):
+    """Reject ambiguous job plans before any worker or overwrite can start."""
+    monkeypatch.setattr(
+        download_jobs_module,
+        "canonical_uri",
+        lambda _source, value: value,
+    )
+    assert canonical_youtube_url("https://youtu.be/abc123/extra") == (
+        "https://www.youtube.com/watch?v=abc123",
+        "abc123",
+    )
+
+    with MarianaDatabase(tmp_path / "validation.db") as database:
+        manager = DownloadManager(database, autostart=False)
+        media = youtube_media("unique")
+        try:
+            with pytest.raises(DownloadJobError, match="metadata does not align"):
+                manager.bind_output_targets(
+                    [media], destination=tmp_path / "downloads", metadata=[]
+                )
+
+            targets = manager.bind_output_targets(
+                [media], destination=tmp_path / "downloads"
+            )
+            with pytest.raises(DownloadJobError, match="duplicate destinations"):
+                manager.create(
+                    [media],
+                    destination=tmp_path / "downloads",
+                    output_targets=[targets[0], targets[0]],
+                )
+
+            with pytest.raises(DownloadJobError, match="same output file"):
+                manager.create(
+                    [media, media],
+                    destination=tmp_path / "downloads",
+                )
+
+            expected = manager.expected_output(
+                tmp_path / "downloads",
+                media,
+                {"video_id": "unique", "title": "Song", "artist": "Artist"},
+            )
+            expected.parent.mkdir(parents=True, exist_ok=True)
+            expected.write_bytes(b"existing")
+            assert manager.bind_output_targets(
+                [media], destination=tmp_path / "downloads", missing_only=True
+            ) == []
+        finally:
+            manager.close()
 
 
 def test_single_and_album_jobs_are_sequential_atomic_and_secret_free(tmp_path: Path):

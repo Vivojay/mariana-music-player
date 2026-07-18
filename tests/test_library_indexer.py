@@ -8,7 +8,7 @@ import pytest
 
 from mariana.database import SCHEMA_VERSION, MarianaDatabase
 from mariana.download_jobs import DownloadManager
-from mariana.library import LibraryCatalog, LibraryError, parse_library_file
+from mariana.library import PROBE_VERSION, LibraryCatalog, LibraryError, parse_library_file
 from mariana.models import MediaChapter, MediaRef, MediaSource
 
 
@@ -56,6 +56,36 @@ def test_incremental_scan_skips_unchanged_and_preserves_identity_on_move(tmp_pat
         assert third.changed == 1
         assert library.info("1")["library_id"] == original["library_id"]
         assert library.paths() == [str(moved.absolute())]
+    finally:
+        database.close()
+
+
+def test_unchanged_current_probe_schema_does_not_reschedule_probe(monkeypatch, tmp_path: Path):
+    root = tmp_path / "music"
+    root.mkdir()
+    song = root / "current.mp3"
+    song.write_bytes(b"audio")
+    database, library = catalog(tmp_path, root)
+    try:
+        library.scan()
+        with database.transaction() as connection:
+            connection.execute(
+                "UPDATE library_files SET probe_version=?",
+                (PROBE_VERSION,),
+            )
+        scheduled: list[tuple[str, str]] = []
+        monkeypatch.setattr(
+            library,
+            "_schedule",
+            lambda _connection, library_id, stage, priority=0: scheduled.append(
+                (library_id, stage)
+            ),
+        )
+
+        result = library.scan("changed")
+
+        assert (result.discovered, result.changed) == (1, 0)
+        assert scheduled == []
     finally:
         database.close()
 
