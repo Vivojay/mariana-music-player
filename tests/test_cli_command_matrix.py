@@ -78,6 +78,9 @@ def cli(monkeypatch, tmp_path):
         main,
         "DOWNLOADS",
         SimpleNamespace(
+            bind_output_targets=lambda *args, **kwargs: (
+                actions.append(("bind-download-outputs", args, kwargs)) or []
+            ),
             create=lambda *args, **kwargs: (
                 actions.append(("persistent-download", args, kwargs))
                 or SimpleNamespace(job_id="download-job", state=SimpleNamespace(value="queued"))
@@ -355,6 +358,38 @@ def test_command_matrix_never_requires_external_side_effects(cli, command):
 )
 def test_extended_command_matrix_never_performs_real_io(cli, command):
     main.process(command)
+
+
+def test_custom_download_overwrite_confirmation_cancel_and_confirm(cli, monkeypatch):
+    destination = cli.tmp_path / "existing.mp3"
+    destination.write_bytes(b"keep")
+    command = f'download-ml https://example.test/audio mp3 "{destination}"'
+
+    main.process(command)
+    assert not any(action[0] == "download-media" for action in cli.actions)
+    assert destination.read_bytes() == b"keep"
+    assert "Download cancelled" in cli.printed
+
+    monkeypatch.setattr("builtins.input", lambda *_args: "y")
+    main.process(command)
+    download = next(action for action in cli.actions if action[0] == "download-media")
+    assert download[2]["output_target"].path == destination.resolve()
+
+
+def test_custom_download_overwrite_yes_flag_is_command_scoped(cli, monkeypatch):
+    destination = cli.tmp_path / "existing.mp3"
+    destination.write_bytes(b"keep")
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda *_args: pytest.fail("explicit download overwrite approval prompted"),
+    )
+
+    main.process(
+        f'download-ml https://example.test/audio mp3 "{destination}" --yes'
+    )
+
+    download = next(action for action in cli.actions if action[0] == "download-media")
+    assert download[2]["output_target"].existed is True
 
 
 @pytest.mark.parametrize(

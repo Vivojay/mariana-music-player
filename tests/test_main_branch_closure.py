@@ -523,6 +523,7 @@ def test_download_command_validation_cancellation_and_album_edges(monkeypatch, t
     album = AlbumRef("album", "Album", album_artist="Artist", tracks=[unresolved, local])
     jobs = SimpleNamespace(
         status=lambda *_args: [],
+        bind_output_targets=lambda *_args, **_kwargs: [],
         create=lambda *_args, **_kwargs: SimpleNamespace(job_id="job", state=SimpleNamespace(value="queued")),
         pause=lambda value: SimpleNamespace(job_id=value, state=SimpleNamespace(value="paused")),
         resume=lambda value: SimpleNamespace(job_id=value, state=SimpleNamespace(value="queued")),

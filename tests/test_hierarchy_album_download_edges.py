@@ -150,6 +150,61 @@ def test_playlist_m3u_boundaries_and_atomic_export(tmp_path: Path):
         assert exported.is_file() and not exported.with_suffix(".m3u8.tmp").exists()
 
 
+def test_playlist_export_requires_bound_overwrite_and_rejects_stale_target(tmp_path: Path):
+    with MarianaDatabase(tmp_path / "playlists.db") as database:
+        store = PlaylistStore(database)
+        store.create("Mix", tree=PlaylistStore.snapshot_from_media([media("one")]))
+        destination = tmp_path / "mix.m3u8"
+        destination.write_text("old", encoding="utf-8")
+
+        with pytest.raises(PlaylistError, match="overwrite approval"):
+            store.export_m3u("Mix", destination)
+
+        approved = store.bind_export("Mix", destination)
+        assert approved.destination.existed
+        store.export_bound(approved)
+        assert destination.read_text(encoding="utf-8").startswith("#EXTM3U\n")
+
+        stale = store.bind_export("Mix", destination)
+        replacement = tmp_path / "replacement.m3u8"
+        replacement.write_text("changed", encoding="utf-8")
+        replacement.replace(destination)
+        with pytest.raises(PlaylistError, match="changed after approval"):
+            store.export_bound(stale)
+        assert destination.read_text(encoding="utf-8") == "changed"
+
+
+def test_playlist_export_confirmation_cancel_and_stale_refusal(monkeypatch, tmp_path: Path):
+    output: list[str] = []
+    with MarianaDatabase(tmp_path / "playlist-command.db") as database:
+        queue = PersistentQueue(database)
+        queue.playlists.create("Mix", tree=PlaylistStore.snapshot_from_media([media("one")]))
+        destination = tmp_path / "mix.m3u8"
+        destination.write_text("old", encoding="utf-8")
+        monkeypatch.setattr(main, "QUEUE", queue)
+        monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: output.append(str(value)))
+        monkeypatch.setattr(main, "_emit_queue_desktop_state", lambda: None)
+
+        monkeypatch.setattr("builtins.input", lambda _prompt="": "n")
+        main.playlist_command(["export", "Mix", str(destination)])
+        assert destination.read_text(encoding="utf-8") == "old"
+        assert output[-1] == "Playlist export cancelled"
+
+        def replace_then_confirm(_prompt=""):
+            replacement = tmp_path / "replacement.m3u8"
+            replacement.write_text("changed", encoding="utf-8")
+            replacement.replace(destination)
+            return "y"
+
+        monkeypatch.setattr("builtins.input", replace_then_confirm)
+        with pytest.raises(PlaylistError, match="changed after approval"):
+            main.playlist_command(["export", "Mix", str(destination)])
+        assert destination.read_text(encoding="utf-8") == "changed"
+
+        main.playlist_command(["export", "Mix", str(destination), "--yes"])
+        assert destination.read_text(encoding="utf-8").startswith("#EXTM3U\n")
+
+
 def test_queue_hierarchy_rejects_item_parents_and_corrupt_snapshots(tmp_path: Path):
     with MarianaDatabase(tmp_path / "queue.db") as database:
         queue = PersistentQueue(database)

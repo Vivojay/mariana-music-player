@@ -372,6 +372,94 @@ def test_recovery_and_missing_only_do_not_overwrite_existing_output(tmp_path: Pa
             recovered.close()
 
 
+def test_download_activation_requires_approved_existing_output(tmp_path: Path):
+    with MarianaDatabase(tmp_path / "downloads.db") as database:
+        manager = DownloadManager(
+            database, downloader_factory=SuccessfulDownloader, autostart=False
+        )
+        try:
+            media = youtube_media("existing", "Existing")
+            metadata = [{"title": "Existing", "artist": "Artist"}]
+            expected = manager.expected_output(
+                tmp_path, media, {"video_id": "existing", **metadata[0]}
+            )
+            expected.write_bytes(b"old")
+
+            with pytest.raises(DownloadJobError, match="overwrite approval"):
+                manager.create([media], destination=tmp_path, metadata=metadata)
+
+            targets = manager.bind_output_targets(
+                [media], destination=tmp_path, metadata=metadata
+            )
+            job = manager.create(
+                [media], destination=tmp_path, metadata=metadata, output_targets=targets
+            )
+            with database.transaction() as connection:
+                connection.execute(
+                    "UPDATE download_jobs SET state='running' WHERE job_id=?", (job.job_id,)
+                )
+            manager._run_item(manager.items(job.job_id)[0])
+
+            assert expected.read_bytes() == b"mp3"
+            assert manager.items(job.job_id)[0].state == DownloadState.COMPLETED
+            status = manager.status(job.job_id)[0]
+            assert "_mariana_internal_output_target" not in json.dumps(status)
+        finally:
+            manager.close()
+
+
+def test_download_activation_refuses_output_changed_after_approval(tmp_path: Path):
+    with MarianaDatabase(tmp_path / "downloads.db") as database:
+        manager = DownloadManager(
+            database, downloader_factory=SuccessfulDownloader, autostart=False
+        )
+        try:
+            media = youtube_media("stale", "Stale")
+            metadata = [{"title": "Stale", "artist": "Artist"}]
+            expected = manager.expected_output(
+                tmp_path, media, {"video_id": "stale", **metadata[0]}
+            )
+            expected.write_bytes(b"old")
+            targets = manager.bind_output_targets(
+                [media], destination=tmp_path, metadata=metadata
+            )
+            job = manager.create(
+                [media], destination=tmp_path, metadata=metadata, output_targets=targets
+            )
+            replacement = tmp_path / "replacement.mp3"
+            replacement.write_bytes(b"changed")
+            replacement.replace(expected)
+            with database.transaction() as connection:
+                connection.execute(
+                    "UPDATE download_jobs SET state='running' WHERE job_id=?", (job.job_id,)
+                )
+
+            manager._run_item(manager.items(job.job_id)[0])
+
+            assert expected.read_bytes() == b"changed"
+            assert manager.items(job.job_id)[0].state == DownloadState.FAILED
+            assert "changed after approval" in (manager.job(job.job_id).error or "")
+        finally:
+            manager.close()
+
+
+def test_download_output_must_remain_inside_selected_destination(tmp_path: Path, monkeypatch):
+    with MarianaDatabase(tmp_path / "downloads.db") as database:
+        manager = DownloadManager(database, autostart=False)
+        monkeypatch.setattr(
+            manager,
+            "expected_output",
+            lambda *_args, **_kwargs: tmp_path.parent / "escaped.mp3",
+        )
+        try:
+            with pytest.raises(DownloadJobError, match="escaped"):
+                manager.bind_output_targets(
+                    [youtube_media("escape")], destination=tmp_path
+                )
+        finally:
+            manager.close()
+
+
 def test_local_media_and_invalid_controls_are_rejected(tmp_path: Path):
     with MarianaDatabase(tmp_path / "downloads.db") as database:
         manager = DownloadManager(database, autostart=False)

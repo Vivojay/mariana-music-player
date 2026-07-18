@@ -86,7 +86,7 @@ from mariana.command_parser import CommandSyntaxError, split_command
 from mariana.credentials import CredentialError, CredentialStore
 from mariana.database import MarianaDatabase
 from mariana.desktop_control import DesktopControl
-from mariana.download import DownloadError, download_media
+from mariana.download import DownloadError, download_media, prepare_download_target
 from mariana.download_jobs import DownloadJobError, DownloadManager
 from mariana.identity import AcoustIDClient, IdentificationService, LRCLIBClient, MusicBrainzClient
 from mariana.library import LibraryCatalog, LibraryError
@@ -1566,8 +1566,20 @@ def playlist_command(arguments):
     elif operation == 'import' and len(values) == 2:
         playlist = _playlist_import(values[0], values[1])
         IPrint(f'Imported playlist: {playlist.name} ({len(store.flattened_media(playlist.tree))} tracks)', visible=visible)
-    elif operation == 'export' and len(values) == 2:
-        IPrint(f'Exported playlist: {store.export_m3u(values[0], values[1])}', visible=visible)
+    elif operation == 'export':
+        if values.count('--yes') > 1:
+            raise PlaylistError('Use --yes only once for playlist export overwrite approval')
+        yes, values = _command_flag(values, '--yes')
+        if len(values) != 2:
+            raise PlaylistError('Usage: playlist export "<name>" <path.m3u8> [--yes]')
+        target = store.bind_export(values[0], values[1])
+        if target.destination.existed and not _confirm_action(
+            f'Overwrite existing playlist export "{target.destination.path}"?',
+            assume_yes=yes,
+        ):
+            IPrint('Playlist export cancelled', visible=visible)
+            return
+        IPrint(f'Exported playlist: {store.export_bound(target)}', visible=visible)
     else:
         raise PlaylistError(f'Invalid playlist command: {operation}')
     _emit_queue_desktop_state()
@@ -1782,6 +1794,14 @@ def _confirm_download(message, *, assume_yes=False):
     return _confirm_action(message, assume_yes=assume_yes)
 
 
+def _download_overwrite_message(targets):
+    existing = [target.path for target in targets if target.existed]
+    if not existing:
+        return ''
+    destinations = '\n'.join(f'  - {path}' for path in existing)
+    return f'\nOverwrite {len(existing)} existing download file(s):\n{destinations}'
+
+
 def _download_album_job(reference, values, *, quality, destination, yes):
     selector, values = _command_option(values, '--tracks')
     missing_only, values = _command_flag(values, '--missing-only')
@@ -1804,14 +1824,6 @@ def _download_album_job(reference, values, *, quality, destination, yes):
     edition = ' / '.join(
         value for value in (album.date, album.country, album.disambiguation) if value
     ) or 'edition unspecified'
-    if not _confirm_download(
-        f'Download album {album.album_artist or "Unknown artist"} — {album.title} '
-        f'({edition}); {len(downloadable)} track(s), {len(unresolved)} unresolved; '
-        f'destination {destination}?',
-        assume_yes=yes,
-    ):
-        IPrint('Album download cancelled', visible=visible)
-        return None
     metadata = [
         {
             'title': track.title,
@@ -1826,14 +1838,30 @@ def _download_album_job(reference, values, *, quality, destination, yes):
         }
         for track in downloadable
     ]
+    media_items = [track.media for track in downloadable if track.media is not None]
+    output_targets = DOWNLOADS.bind_output_targets(
+        media_items,
+        destination=destination,
+        metadata=metadata,
+        missing_only=missing_only,
+    )
+    if not _confirm_download(
+        f'Download album {album.album_artist or "Unknown artist"} — {album.title} '
+        f'({edition}); {len(downloadable)} track(s), {len(unresolved)} unresolved; '
+        f'destination {destination}?{_download_overwrite_message(output_targets)}',
+        assume_yes=yes,
+    ):
+        IPrint('Album download cancelled', visible=visible)
+        return None
     return DOWNLOADS.create(
-        [track.media for track in downloadable],
+        media_items,
         kind='album',
         quality=quality,
         destination=destination,
         album_id=album.album_id,
         metadata=metadata,
         missing_only=missing_only,
+        output_targets=output_targets,
     )
 
 
@@ -1897,8 +1925,13 @@ def download_audio_command(arguments):
             raise DownloadJobError('Usage: download-ya [current|<YouTube-video-URL>] [--track] [options]')
         target = values[0] if values else 'current'
         media = _current_youtube_media() if target == 'current' else MediaRef(MediaSource.YOUTUBE, target)
+        metadata = [{'title': media.title, 'artist': media.artist}]
+        output_targets = DOWNLOADS.bind_output_targets(
+            [media], destination=destination, metadata=metadata
+        )
         if not _confirm_download(
-            f'Download YouTube audio {media.title or media.original_uri} to {destination}?',
+            f'Download YouTube audio {media.title or media.original_uri} to {destination}?'
+            f'{_download_overwrite_message(output_targets)}',
             assume_yes=yes,
         ):
             IPrint('Audio download cancelled', visible=visible)
@@ -1908,7 +1941,8 @@ def download_audio_command(arguments):
             kind='track',
             quality=quality,
             destination=destination,
-            metadata=[{'title': media.title, 'artist': media.artist}],
+            metadata=metadata,
+            output_targets=output_targets,
         )
     del track_mode
     if job:
@@ -5464,22 +5498,40 @@ def process(command):
                     start_youtube_download(download_parmeters)
 
         elif commandslist[0].lower() == 'download-ml':
-            if len(commandslist) not in (2, 3, 4):
-                IPrint('Usage: download-ml <URL> [mp3|flac|wav|m4a|opus] [output path]', visible=visible)
+            values = list(commandslist[1:])
+            yes = False
+            if values.count('--yes') > 1:
+                IPrint('Use --yes only once for download overwrite approval', visible=visible)
+                return
             else:
-                media_url = commandslist[1]
-                output_format = commandslist[2].lower() if len(commandslist) >= 3 else 'mp3'
-                if len(commandslist) == 4:
-                    destination = Path(commandslist[3]).expanduser()
+                yes, values = _command_flag(values, '--yes')
+            if len(values) not in (1, 2, 3):
+                IPrint(
+                    'Usage: download-ml <URL> [mp3|flac|wav|m4a|opus] [output path] [--yes]',
+                    visible=visible,
+                )
+            else:
+                media_url = values[0]
+                output_format = values[1].lower() if len(values) >= 2 else 'mp3'
+                if len(values) == 3:
+                    destination = Path(values[2]).expanduser()
                 else:
                     downloads = Path(SETTINGS['download']['downloads folder']).expanduser()
                     destination = downloads / f'mariana-download-{int(time.time())}.{output_format}'
                 try:
+                    target = prepare_download_target(destination, output_format=output_format)
+                    if target.existed and not _confirm_action(
+                        f'Overwrite existing download file "{target.path}"?',
+                        assume_yes=yes,
+                    ):
+                        IPrint('Download cancelled', visible=visible)
+                        return
                     result = download_media(
                         media_url,
                         destination,
                         output_format=output_format,
                         ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'),
+                        output_target=target,
                     )
                     IPrint(f'Downloaded: {result}', visible=visible)
                 except DownloadError as error:

@@ -212,6 +212,50 @@ def test_download_confirmation_rejection_and_local_current(monkeypatch, tmp_path
         main.download_audio_command(["--yes"])
 
 
+def test_download_existing_output_cancel_confirm_and_stale_refusal(
+    monkeypatch, tmp_path: Path, download_cli
+):
+    manager, _album, _printed = download_cli
+    media = yt("existing", "Existing")
+    metadata = {"video_id": "existing", "title": "Existing", "artist": "Artist"}
+    expected = manager.expected_output(tmp_path, media, metadata)
+    expected.write_bytes(b"keep")
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=media),
+    )
+
+    prompts: list[str] = []
+    monkeypatch.setattr(
+        "builtins.input", lambda prompt="": prompts.append(prompt) or "n"
+    )
+    assert main.download_audio_command(["--to", str(tmp_path)]) is None
+    assert expected.read_bytes() == b"keep"
+    assert "Overwrite 1 existing download file" in prompts[0]
+    assert str(expected) in prompts[0]
+    assert manager.status() == []
+
+    monkeypatch.setattr("builtins.input", lambda *_args: "y")
+    job = main.download_audio_command(["--to", str(tmp_path)])
+    assert job is not None
+    assert manager.items(job.job_id)[0].output_path == str(expected)
+
+    manager.cancel(job.job_id)
+    expected.write_bytes(b"original")
+
+    def replace_then_confirm(_prompt=""):
+        replacement = tmp_path / "replacement.mp3"
+        replacement.write_bytes(b"changed")
+        replacement.replace(expected)
+        return "y"
+
+    monkeypatch.setattr("builtins.input", replace_then_confirm)
+    with pytest.raises(DownloadJobError, match="changed after approval"):
+        main.download_audio_command(["--to", str(tmp_path)])
+    assert expected.read_bytes() == b"changed"
+
+
 def test_download_status_pause_resume_cancel(tmp_path: Path, download_cli):
     manager, _album, printed = download_cli
     job = main.download_audio_command(

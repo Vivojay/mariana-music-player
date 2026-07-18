@@ -24,6 +24,7 @@ from .chapters import normalize_chapters
 from .database import MarianaDatabase
 from .media_details import deduplicate_media_title, trusted_metadata_text
 from .models import DownloadItem, DownloadJob, DownloadState, MediaRef, MediaSource, canonical_uri
+from .output_targets import BoundOutputTarget, OutputTargetError, bind_output_target
 from .sources import sanitized_resolver_data
 
 WINDOWS_RESERVED_NAMES = {
@@ -34,6 +35,8 @@ WINDOWS_RESERVED_NAMES = {
     *(f"COM{number}" for number in range(1, 10)),
     *(f"LPT{number}" for number in range(1, 10)),
 }
+
+_OUTPUT_TARGET_METADATA = "_mariana_internal_output_target"
 
 
 class DownloadJobError(RuntimeError):
@@ -198,6 +201,7 @@ class DownloadManager:
         album_id: str | None = None,
         metadata: list[dict[str, Any]] | None = None,
         missing_only: bool = False,
+        output_targets: list[BoundOutputTarget] | None = None,
     ) -> DownloadJob:
         if kind not in {"track", "album"}:
             raise DownloadJobError("Download job kind must be track or album")
@@ -208,15 +212,37 @@ class DownloadManager:
         if metadata is not None and len(metadata) != len(media_items):
             raise DownloadJobError("Download metadata does not align with media items")
         destination_path = Path(destination).expanduser().resolve()
+        destination_path.mkdir(parents=True, exist_ok=True)
+        approved_targets = {str(target.path): target for target in output_targets or []}
+        if len(approved_targets) != len(output_targets or []):
+            raise DownloadJobError("Download output approvals contain duplicate destinations")
         job_id = uuid.uuid4().hex
         items = []
+        expected_paths: set[str] = set()
         for position, media in enumerate(media_items, 1):
             safe_media, canonical, video_id = self._safe_media(media)
             item_metadata = dict(metadata[position - 1] if metadata else {})
             item_metadata["video_id"] = video_id
             expected = self.expected_output(destination_path, safe_media, item_metadata)
+            expected = self._safe_output_path(destination_path, expected)
             if missing_only and expected.is_file():
                 continue
+            key = str(expected)
+            if key in expected_paths:
+                raise DownloadJobError("Selected downloads resolve to the same output file")
+            expected_paths.add(key)
+            target = approved_targets.get(key)
+            try:
+                if target is None:
+                    target = bind_output_target(expected)
+                    if target.existed:
+                        raise DownloadJobError(
+                            "Download output already exists; overwrite approval is required"
+                        )
+                target.revalidate()
+            except OutputTargetError as error:
+                raise DownloadJobError(str(error)) from error
+            item_metadata[_OUTPUT_TARGET_METADATA] = target.to_dict()
             items.append((position, safe_media, canonical, item_metadata, expected))
         if not items:
             raise DownloadJobError("All selected downloads already exist")
@@ -253,6 +279,49 @@ class DownloadManager:
         self._wake.set()
         self._emit(job_id)
         return self.job(job_id)
+
+    def bind_output_targets(
+        self,
+        media_items: list[MediaRef],
+        *,
+        destination: Path | str,
+        metadata: list[dict[str, Any]] | None = None,
+        missing_only: bool = False,
+    ) -> list[BoundOutputTarget]:
+        """Bind the predictable outputs that a command can approve before queueing."""
+        if metadata is not None and len(metadata) != len(media_items):
+            raise DownloadJobError("Download metadata does not align with media items")
+        destination_path = Path(destination).expanduser().resolve()
+        destination_path.mkdir(parents=True, exist_ok=True)
+        targets: list[BoundOutputTarget] = []
+        paths: set[str] = set()
+        for position, media in enumerate(media_items, 1):
+            safe_media, _canonical, video_id = self._safe_media(media)
+            item_metadata = dict(metadata[position - 1] if metadata else {})
+            item_metadata["video_id"] = video_id
+            expected = self._safe_output_path(
+                destination_path,
+                self.expected_output(destination_path, safe_media, item_metadata),
+            )
+            if missing_only and expected.is_file():
+                continue
+            key = str(expected)
+            if key in paths:
+                raise DownloadJobError("Selected downloads resolve to the same output file")
+            paths.add(key)
+            try:
+                targets.append(bind_output_target(expected))
+            except OutputTargetError as error:
+                raise DownloadJobError(str(error)) from error
+        return targets
+
+    @staticmethod
+    def _safe_output_path(destination: Path, output: Path) -> Path:
+        root = destination.resolve()
+        target = output.resolve(strict=False)
+        if not target.is_relative_to(root) or target == root:
+            raise DownloadJobError("Download output escaped the selected destination")
+        return target
 
     @staticmethod
     def expected_output(destination: Path, media: MediaRef, metadata: dict[str, Any]) -> Path:
@@ -361,6 +430,7 @@ class DownloadManager:
             item_payload = asdict(item)
             item_payload["state"] = item.state.value
             item_payload["media"] = item.media.to_dict()
+            item_payload["metadata"].pop(_OUTPUT_TARGET_METADATA, None)
             payload["items"].append(item_payload)
         return payload
 
@@ -573,6 +643,7 @@ class DownloadManager:
                 "UPDATE download_jobs SET current_position=?,updated_at=? WHERE job_id=?",
                 (item.position, time.time(), item.job_id),
             )
+        temporary: Path | None = None
         try:
             with self.downloader_factory(self._options(item, staging, job.quality)) as downloader:
                 info = downloader.extract_info(item.media.original_uri, download=True)
@@ -586,10 +657,32 @@ class DownloadManager:
                 raise DownloadJobError("yt-dlp completed without producing an MP3 file")
             metadata = resolved_download_metadata(item, info)
             final = self.expected_output(destination, item.media, metadata)
+            final = self._safe_output_path(destination, final)
             final.parent.mkdir(parents=True, exist_ok=True)
-            temporary = final.with_suffix(final.suffix + ".tmp")
+            raw_target = item.metadata.get(_OUTPUT_TARGET_METADATA)
+            try:
+                approved = (
+                    BoundOutputTarget.from_dict(raw_target)
+                    if isinstance(raw_target, dict)
+                    else None
+                )
+                if approved is not None and approved.path == final:
+                    target = approved
+                else:
+                    target = bind_output_target(final)
+                    if target.existed:
+                        raise DownloadJobError(
+                            "Download output already exists and was not approved for overwrite"
+                        )
+            except OutputTargetError as error:
+                raise DownloadJobError(str(error)) from error
+            temporary = final.with_name(f".{final.name}.{uuid.uuid4().hex}.tmp")
             output.replace(temporary)
-            temporary.replace(final)
+            try:
+                target.activate(temporary)
+            except OutputTargetError as error:
+                raise DownloadJobError(str(error)) from error
+            metadata.pop(_OUTPUT_TARGET_METADATA, None)
             with self.database.transaction() as connection:
                 connection.execute(
                     "UPDATE download_items SET state='completed',progress=1,output_path=?,metadata_json=?,"
@@ -626,6 +719,8 @@ class DownloadManager:
                     (message, time.time(), item.job_id),
                 )
         finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
             self._last_progress.pop(cast(int, item.item_id), None)
             try:
                 if staging.is_dir() and not any(staging.iterdir()):

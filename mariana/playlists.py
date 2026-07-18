@@ -9,18 +9,27 @@ import time
 import unicodedata
 import uuid
 from collections import defaultdict, deque
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 from .database import MarianaDatabase
 from .models import MediaRef, MediaSource, Playlist, QueueStrategy
+from .output_targets import BoundOutputTarget, OutputTargetError, bind_output_target
 
 MAX_PLAYLIST_DEPTH = 8
 
 
 class PlaylistError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class PlaylistExportTarget:
+    playlist_id: str
+    revision: int
+    destination: BoundOutputTarget
 
 
 def playlist_name(value: str) -> str:
@@ -619,17 +628,37 @@ class PlaylistStore:
             title = None
         return self.create(name, tree=self.snapshot_from_media(media_items))
 
-    def export_m3u(self, name_or_id: str, destination: Path | str) -> Path:
+    def bind_export(self, name_or_id: str, destination: Path | str) -> PlaylistExportTarget:
         playlist = self.get(name_or_id)
-        path = Path(destination).expanduser().resolve()
+        path = Path(destination).expanduser()
         if path.suffix.casefold() not in {".m3u", ".m3u8"}:
             raise PlaylistError("Playlist export path must end in .m3u or .m3u8")
-        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            target = bind_output_target(path)
+        except OutputTargetError as error:
+            raise PlaylistError(str(error)) from error
+        return PlaylistExportTarget(playlist.playlist_id, playlist.revision, target)
+
+    def export_bound(self, target: PlaylistExportTarget) -> Path:
+        playlist = self.get(target.playlist_id)
+        if playlist.revision != target.revision:
+            raise PlaylistError("Playlist changed after export approval; refusing export")
+        path = target.destination.path
         lines = ["#EXTM3U"]
         for media in self.flattened_media(playlist.tree):
             duration = int(media.duration) if media.duration is not None else -1
             lines.extend((f"#EXTINF:{duration},{media.artist + ' - ' if media.artist else ''}{media.title or ''}", media.original_uri))
-        temporary = path.with_suffix(path.suffix + ".tmp")
-        temporary.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        temporary.replace(path)
-        return path
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            temporary.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            return target.destination.activate(temporary)
+        except OutputTargetError as error:
+            raise PlaylistError(str(error)) from error
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def export_m3u(self, name_or_id: str, destination: Path | str) -> Path:
+        target = self.bind_export(name_or_id, destination)
+        if target.destination.existed:
+            raise PlaylistError("Playlist export destination already exists; overwrite approval is required")
+        return self.export_bound(target)

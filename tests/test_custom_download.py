@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from mariana.download import DownloadError, download_media
+from mariana.download import DownloadError, download_media, prepare_download_target
 
 
 def test_download_validates_url_and_format(tmp_path: Path):
@@ -28,6 +28,43 @@ def test_download_is_atomic_and_uses_explicit_codec(tmp_path: Path, monkeypatch)
     assert result.read_bytes() == b"audio"
     assert "flac" in captured["command"]
     assert captured["kwargs"]["timeout"] == 3
+
+
+def test_download_existing_destination_requires_bound_approval(tmp_path: Path, monkeypatch):
+    destination = tmp_path / "song.mp3"
+    destination.write_bytes(b"old")
+    with pytest.raises(DownloadError, match="overwrite approval"):
+        download_media("https://example.test/audio", destination)
+
+    target = prepare_download_target(destination)
+
+    def run(command, **_kwargs):
+        Path(command[-1]).write_bytes(b"new")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr("mariana.download.find_executable", lambda *_args: "ffmpeg")
+    monkeypatch.setattr("mariana.download.subprocess.run", run)
+    assert download_media(
+        "https://example.test/audio", destination, output_target=target
+    ).read_bytes() == b"new"
+
+
+def test_download_refuses_destination_changed_after_approval(tmp_path: Path, monkeypatch):
+    destination = tmp_path / "song.mp3"
+    destination.write_bytes(b"old")
+    target = prepare_download_target(destination)
+    replacement = tmp_path / "replacement.mp3"
+    replacement.write_bytes(b"changed")
+    replacement.replace(destination)
+    monkeypatch.setattr(
+        "mariana.download.subprocess.run",
+        lambda *_args, **_kwargs: pytest.fail("download ran for a stale output approval"),
+    )
+
+    with pytest.raises(DownloadError, match="changed after approval"):
+        download_media("https://example.test/audio", destination, output_target=target)
+
+    assert destination.read_bytes() == b"changed"
 
 
 @pytest.mark.parametrize(
