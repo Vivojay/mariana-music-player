@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from mariana import playback
-from mariana.models import MediaCapabilities, MediaChapter, MediaRef, MediaSource, PlaybackState
+from mariana.models import MediaCapabilities, MediaChapter, MediaRef, MediaSource, PlaybackState, PlayRegion
 
 RealDecoderSession = playback.DecoderSession
 
@@ -171,6 +171,122 @@ def test_play_prefetch_replace_and_failure(controller):
     with pytest.raises(playback.PlaybackError, match="decode failed"):
         controller.prefetch(finite("broken"), probe=False)
     assert Session.created[-1].stopped
+
+
+def test_preferred_region_applies_to_play_prefetch_completion_and_snapshot(controller):
+    regions = {
+        "track": PlayRegion("track", 2.5, 8.0),
+        "next": PlayRegion("next", 3.0, None),
+    }
+    controller.play_region_provider = lambda media: regions.get(media.stable_id)
+    current = finite(duration=10)
+    current.stable_id = "track"
+    upcoming = finite("next", duration=12)
+    upcoming.stable_id = "next"
+
+    controller.play(current, probe=False)
+    assert controller._active.start_at == 2.5
+    snapshot = controller.snapshot()
+    assert snapshot.region_start_seconds == 2.5
+    assert snapshot.region_end_seconds == 8.0
+
+    controller.prefetch(upcoming, probe=False)
+    assert controller._next.start_at == 3.0
+    controller._active.position = 7.999
+    controller._audio_callback(bytearray(1024 * playback.BYTES_PER_FRAME), 1024, None, None)
+
+    assert controller._active is controller._next or controller.snapshot().media is upcoming
+    promoted = controller.snapshot()
+    assert promoted.media is upcoming
+    assert promoted.region_start_seconds == 3.0
+    assert promoted.region_end_seconds is None
+
+
+def test_preferred_region_clamps_seek_and_completes_at_end(controller):
+    media = finite(duration=10)
+    media.stable_id = "bounded"
+    controller.play_region_provider = lambda _media: PlayRegion("bounded", 2.0, 8.0)
+    controller.play(media, probe=False)
+
+    controller.seek(0)
+    assert controller._active.start_at == 2.0
+    controller.seek(99)
+
+    snapshot = controller.snapshot()
+    assert snapshot.state == PlaybackState.IDLE
+    assert snapshot.position == 8.0
+    assert snapshot.duration == 10
+    assert snapshot.region_start_seconds == 2.0
+    assert snapshot.region_end_seconds == 8.0
+
+
+def test_start_only_region_and_absent_region_provider_paths(controller):
+    media = finite(duration=10)
+    media.stable_id = "start-only"
+    controller.play_region_provider = lambda source: (
+        PlayRegion(source.stable_id, 2.0, None) if source.stable_id == "start-only" else None
+    )
+
+    controller.play(media, probe=False)
+    assert controller._active.start_at == 2.0
+    assert controller.snapshot().region_end_seconds is None
+    assert controller._play_region(finite("unbounded")) is None
+
+
+@pytest.mark.parametrize(
+    ("media", "region", "message"),
+    [
+        (live(), PlayRegion("live", 1, None), "finite media"),
+        (finite(duration="invalid"), PlayRegion("invalid", 1, None), "valid media duration"),
+        (finite(duration=float("nan")), PlayRegion("nan", 1, None), "valid media duration"),
+    ],
+)
+def test_preferred_region_rejects_inapplicable_media(controller, media, region, message):
+    controller.play_region_provider = lambda _media: region
+    with pytest.raises(playback.UnsupportedAction, match=message):
+        controller._play_region(media)
+
+
+@pytest.mark.parametrize("numpy_output", [False, True])
+def test_callback_completes_immediately_when_region_end_is_reached(controller, numpy_output):
+    media = finite(duration=10)
+    active = Session(media)
+    active.position = 4.0
+    controller._active = active
+    controller._active_region = PlayRegion(media.stable_id, None, 4.0)
+    controller._state = PlaybackState.PLAYING
+    output = (
+        playback.np.ones((8, playback.CHANNELS), dtype=playback.np.float32)
+        if numpy_output
+        else bytearray(8 * playback.BYTES_PER_FRAME)
+    )
+
+    controller._audio_callback(output, 8, None, None)
+
+    assert controller.snapshot().state == PlaybackState.IDLE
+    assert not output.any() if numpy_output else output == bytes(len(output))
+
+
+@pytest.mark.parametrize(
+    "region",
+    [
+        PlayRegion("bad", 1, 1),
+        PlayRegion("bad", -1, 2),
+        PlayRegion("bad", 0, 11),
+    ],
+)
+def test_invalid_saved_region_is_refused_before_playback_replacement(controller, region):
+    prior = finite("prior")
+    controller.play(prior, probe=False)
+    active = controller._active
+    media = finite("bad", duration=10)
+    media.stable_id = "bad"
+    controller.play_region_provider = lambda _media: region
+
+    with pytest.raises(playback.UnsupportedAction, match=r"preferred playback|Preferred playback|Saved preferred"):
+        controller.play(media, probe=False)
+
+    assert controller._active is active
 
 
 def test_play_buffer_failure_is_typed(controller):

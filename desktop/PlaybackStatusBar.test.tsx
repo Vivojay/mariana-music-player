@@ -27,6 +27,7 @@ const status = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus => ({
   live_leveling: false,
   safe_error: null,
   policy: { blocked: false, playable: true, unavailable_reason: null },
+  region: { active: false, start_seconds: null, end_seconds: null },
   ...overrides,
 })
 

@@ -9,7 +9,7 @@ from typing import Any
 
 from .models import MediaSource, PlaybackSnapshot, PlaybackState
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 MAX_ERROR_LENGTH = 160
 _GENERIC_ERROR = "Playback failed; see logs for details"
 _SPACE_PATTERN = re.compile(r"\s+")
@@ -51,6 +51,15 @@ class PlaybackPolicyProjection:
 
 
 @dataclass(frozen=True, slots=True)
+class PlaybackRegionProjection:
+    """Sanitized preferred bounds active in the authoritative playback session."""
+
+    active: bool = False
+    start_seconds: float | None = None
+    end_seconds: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class PlaybackStatusProjection:
     schema_version: int
     state: str
@@ -75,6 +84,7 @@ class PlaybackStatusProjection:
     live_leveling: bool
     safe_error: str | None
     policy: PlaybackPolicyProjection = field(default_factory=PlaybackPolicyProjection)
+    region: PlaybackRegionProjection = field(default_factory=PlaybackRegionProjection)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-safe payload for local presentation surfaces."""
@@ -261,6 +271,15 @@ def project_playback_status(
         title = title or _SOURCE_FALLBACKS[media.source]
         artist = _clean_display_text(media.artist, maximum=120)
 
+    region_start = (
+        _finite_nonnegative(snapshot.region_start_seconds, default=-1.0)
+        if snapshot.region_start_seconds is not None
+        else None
+    )
+    if region_start is not None and region_start < 0:
+        region_start = None
+    region_end = _positive_finite(snapshot.region_end_seconds)
+
     return PlaybackStatusProjection(
         schema_version=SCHEMA_VERSION,
         state=snapshot.state.value,
@@ -285,4 +304,9 @@ def project_playback_status(
         live_leveling=bool(snapshot.live_leveling),
         safe_error=_safe_error(snapshot.error),
         policy=policy_status,
+        region=PlaybackRegionProjection(
+            active=region_start is not None or region_end is not None,
+            start_seconds=region_start,
+            end_seconds=region_end,
+        ),
     )

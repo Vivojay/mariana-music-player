@@ -39,6 +39,11 @@ export type PlaybackStatus = {
     playable: boolean
     unavailable_reason: string | null
   }
+  region: {
+    active: boolean
+    start_seconds: number | null
+    end_seconds: number | null
+  }
 }
 
 export function formatChapterLabel(chapter: PlaybackStatus['chapter']): string {

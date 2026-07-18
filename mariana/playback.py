@@ -19,7 +19,7 @@ from typing import Any, Protocol, cast
 import numpy as np
 import sounddevice
 
-from .models import MediaCapabilities, MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
+from .models import MediaCapabilities, MediaRef, MediaSource, PlaybackSnapshot, PlaybackState, PlayRegion
 from .output_devices import OutputDeviceInfo, default_output_device
 from .seek import END_MARGIN_SECONDS
 from .sources import FailureCode, MediaFailure, ResolvedMedia, ResolverRegistry, redacted_uri
@@ -484,6 +484,7 @@ class PlaybackController:
         live_true_peak_dbtp: float = -1.0,
         live_lra: float = 11.0,
         output_device_provider: Callable[[], OutputDeviceInfo] | None = None,
+        play_region_provider: Callable[[MediaRef], PlayRegion | None] | None = None,
     ):
         self.ffmpeg_bin = ffmpeg_bin
         self.ffprobe_bin = ffprobe_bin
@@ -505,10 +506,13 @@ class PlaybackController:
             if output_factory is None
             else lambda: OutputDeviceInfo("custom-output", "Custom output", None, "Custom output", "test")
         )
+        self.play_region_provider = play_region_provider
         self._lock = threading.RLock()
         self._output_switch_lock = threading.Lock()
         self._active: DecoderSession | None = None
         self._next: DecoderSession | None = None
+        self._active_region: PlayRegion | None = None
+        self._next_region: PlayRegion | None = None
         self._stream: OutputStream | None = None
         self._output_device: OutputDeviceInfo | None = None
         self._state = PlaybackState.IDLE
@@ -521,6 +525,7 @@ class PlaybackController:
         self._completed_media: MediaRef | None = None
         self._completed_position = 0.0
         self._completed_duration: float | None = None
+        self._completed_region: PlayRegion | None = None
         self.on_complete: Callable[[MediaRef], None] | None = None
         self.on_failure: Callable[[MediaRef, MediaFailure], None] | None = None
         self._watch_stop = threading.Event()
@@ -562,6 +567,31 @@ class PlaybackController:
             program_gain_db=self._program_gain_db(media),
         )
 
+    def _play_region(self, media: MediaRef) -> PlayRegion | None:
+        if self.play_region_provider is None:
+            return None
+        region = self.play_region_provider(media)
+        if region is None or not region.active:
+            return None
+        duration = media.duration
+        if media.capabilities.live or not media.capabilities.finite or duration is None:
+            raise UnsupportedAction("Preferred playback bounds require finite media with a known duration")
+        try:
+            duration = float(duration)
+        except (TypeError, ValueError, OverflowError) as error:
+            raise UnsupportedAction("Preferred playback bounds require a valid media duration") from error
+        start = region.start_seconds
+        end = region.end_seconds
+        if not math.isfinite(duration) or duration <= 0:
+            raise UnsupportedAction("Preferred playback bounds require a valid media duration")
+        if start is not None and (not math.isfinite(start) or start < 0 or start >= duration):
+            raise UnsupportedAction("Saved preferred playback start is invalid for this media")
+        if end is not None and (not math.isfinite(end) or end <= 0 or end > duration):
+            raise UnsupportedAction("Saved preferred playback end is invalid for this media")
+        if start is not None and end is not None and end <= start:
+            raise UnsupportedAction("Saved preferred playback bounds are invalid for this media")
+        return region
+
     def prepare(self, media: MediaRef, *, probe: bool = True) -> MediaRef:
         with self._lock:
             self._state = PlaybackState.RESOLVING
@@ -569,6 +599,7 @@ class PlaybackController:
             self._completed_media = None
             self._completed_position = 0.0
             self._completed_duration = None
+            self._completed_region = None
         try:
             resolved = self.resolvers.resolve(media)
             media.capabilities = resolved.capabilities
@@ -618,6 +649,11 @@ class PlaybackController:
         if self._prepared is None:
             raise PlaybackError("No media has been prepared")
         prepared, resolved = self._prepared, self._resolved
+        region = self._play_region(prepared)
+        if region is not None:
+            start_at = max(float(start_at), region.start_seconds or 0.0)
+            if region.end_seconds is not None:
+                start_at = min(start_at, region.end_seconds)
         self.stop()
         self._prepared, self._resolved = prepared, resolved
         media = prepared
@@ -626,6 +662,7 @@ class PlaybackController:
             session = self._new_session(media, start_at=start_at)
             session.on_metadata = lambda title, source=session: self._handle_stream_metadata(source, title)
             self._active = session
+            self._active_region = region
             session.start()
         if not session.wait_for_buffer():
             error = session.error or "FFmpeg produced no playable audio"
@@ -655,10 +692,12 @@ class PlaybackController:
             if probe
             else media
         )
+        region = self._play_region(media)
         session = DecoderSession(
             media,
             resolved=resolved,
             ffmpeg_bin=self.ffmpeg_bin,
+            start_at=region.start_seconds if region and region.start_seconds is not None else 0.0,
             audio_filter=self._live_filter(media),
             program_gain_db=self._program_gain_db(media),
         )
@@ -672,6 +711,7 @@ class PlaybackController:
             if self._next:
                 self._next.stop()
             self._next = session
+            self._next_region = region
         return media
 
     def clear_prefetch(self) -> None:
@@ -679,6 +719,7 @@ class PlaybackController:
         with self._lock:
             session = self._next
             self._next = None
+            self._next_region = None
         if session:
             session.stop()
 
@@ -742,6 +783,7 @@ class PlaybackController:
             active = self._active
             next_session = self._next
             state = self._state
+            active_region = self._active_region
             local_gain = 0.0 if self._muted else self._volume * self._automation_gain
         if _status:
             with self._lock:
@@ -756,15 +798,29 @@ class PlaybackController:
             return
         crossfade = False
         fraction = 0.0
+        region_end = active_region.end_seconds if active_region else None
+        effective_end = region_end if region_end is not None else active.media.duration
+        read_frames = frames
+        if region_end is not None:
+            remaining_frames = max(0, math.ceil((region_end - active.position) * SAMPLE_RATE))
+            read_frames = min(frames, remaining_frames)
+            if read_frames == 0:
+                if numpy_output:
+                    outdata.fill(0)
+                else:
+                    outdata[:] = b"\0" * size
+                self._publish_program(outdata, frames)
+                self._finish_active(active)
+                return
         if (
             next_session
             and self.crossfade_seconds > 0
-            and active.media.duration is not None
-            and active.media.duration - active.position <= self.crossfade_seconds
+            and effective_end is not None
+            and effective_end - active.position <= self.crossfade_seconds
         ):
             crossfade = True
-            fraction = min(1.0, max(0.0, 1 - (active.media.duration - active.position) / self.crossfade_seconds))
-        first = active.read(frames)
+            fraction = min(1.0, max(0.0, 1 - (effective_end - active.position) / self.crossfade_seconds))
+        first = active.read(read_frames)
         if numpy_output:
             outdata.fill(0)
             first_samples = np.frombuffer(first, dtype=np.float32).reshape(-1, CHANNELS)
@@ -807,7 +863,9 @@ class PlaybackController:
         else:
             payload = _scale_pcm(payload, local_gain)
             outdata[:] = payload[:size]
-        if active.eof and active.buffered_seconds == 0:
+        if (region_end is not None and active.position >= region_end) or (
+            active.eof and active.buffered_seconds == 0
+        ):
             self._finish_active(active)
 
     def _finish_active(self, active: DecoderSession) -> None:
@@ -822,6 +880,7 @@ class PlaybackController:
                 if self._active is not active:
                     return
                 self._active = None
+                self._active_region = None
                 self._state = PlaybackState.FAILED
                 self._error = str(failure)
             threading.Thread(target=active.stop, name="mariana-decoder-cleanup", daemon=True).start()
@@ -840,22 +899,30 @@ class PlaybackController:
             if self._active is not expected:
                 return
             completed = expected
+            completed_region = self._active_region
             if self._next:
                 self._active = self._next
                 self._next = None
+                self._active_region = self._next_region
+                self._next_region = None
                 self._state = PlaybackState.PLAYING
                 self._completed_media = None
                 self._completed_position = 0.0
                 self._completed_duration = None
+                self._completed_region = None
             else:
                 self._completed_media = completed.media
                 self._completed_duration = completed.media.duration
                 self._completed_position = (
-                    completed.media.duration
+                    completed_region.end_seconds
+                    if completed_region and completed_region.end_seconds is not None
+                    else completed.media.duration
                     if completed.media.duration is not None
                     else completed.position
                 )
+                self._completed_region = completed_region
                 self._active = None
+                self._active_region = None
                 self._state = PlaybackState.IDLE
         threading.Thread(target=completed.stop, name="mariana-decoder-cleanup", daemon=True).start()
         if self.on_complete:
@@ -870,9 +937,12 @@ class PlaybackController:
         while not self._watch_stop.wait(0.1):
             with self._lock:
                 active = self._active
+                region = self._active_region
             if active is None:
                 return
-            if active.eof and active.buffered_seconds == 0:
+            if (region and region.end_seconds is not None and active.position >= region.end_seconds) or (
+                active.eof and active.buffered_seconds == 0
+            ):
                 self._finish_active(active)
                 return
 
@@ -904,6 +974,12 @@ class PlaybackController:
             target = max(0.0, float(seconds))
             if active.media.duration is not None:
                 target = min(target, active.media.duration)
+            region = self._active_region
+            if region and region.start_seconds is not None:
+                target = max(target, region.start_seconds)
+            if region and region.end_seconds is not None and target >= region.end_seconds:
+                self._finish_active(active)
+                return
             was_paused = self._state == PlaybackState.PAUSED
             self._state = PlaybackState.SEEKING
             media = active.media
@@ -1078,11 +1154,14 @@ class PlaybackController:
             active, next_session = self._active, self._next
             self._active = None
             self._next = None
+            self._active_region = None
+            self._next_region = None
             self._resolved = None
             self._stream_metadata = {}
             self._completed_media = None
             self._completed_position = 0.0
             self._completed_duration = None
+            self._completed_region = None
             if active or next_session:
                 self._state = PlaybackState.STOPPING
         for session in (active, next_session):
@@ -1112,6 +1191,7 @@ class PlaybackController:
         with self._lock:
             active = self._active
             completed = self._completed_media if active is None else None
+            region = self._active_region if active else self._completed_region
             media = active.media if active else completed or self._prepared
             position = active.position if active else self._completed_position
             return PlaybackSnapshot(
@@ -1130,6 +1210,8 @@ class PlaybackController:
                 output_device=self._output_device.name if self._output_device else None,
                 output_backend=self._output_device.route if self._output_device else None,
                 current_chapter=media.chapter_at(position) if media else None,
+                region_start_seconds=region.start_seconds if region else None,
+                region_end_seconds=region.end_seconds if region else None,
             )
 
 

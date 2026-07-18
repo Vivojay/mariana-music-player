@@ -200,6 +200,19 @@ class MediaRef:
 
 
 @dataclass(frozen=True, slots=True)
+class PlayRegion:
+    """Durable, non-destructive preferred playback bounds."""
+
+    stable_id: str
+    start_seconds: float | None = None
+    end_seconds: float | None = None
+
+    @property
+    def active(self) -> bool:
+        return self.start_seconds is not None or self.end_seconds is not None
+
+
+@dataclass(frozen=True, slots=True)
 class PlaybackSnapshot:
     state: PlaybackState
     position: float = 0.0
@@ -216,6 +229,8 @@ class PlaybackSnapshot:
     output_device: str | None = None
     output_backend: str | None = None
     current_chapter: MediaChapter | None = None
+    region_start_seconds: float | None = None
+    region_end_seconds: float | None = None
 
 
 @dataclass(slots=True)

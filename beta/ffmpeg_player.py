@@ -31,6 +31,7 @@ def configure(
     browser_profile=None,
     replaygain=None,
     live_leveling=None,
+    play_region_provider=None,
 ):
     global controller, supervisor, radio_catalog
     supervisor.close()
@@ -62,6 +63,7 @@ def configure(
         live_target_lufs=live_leveling.get("target lufs", -18),
         live_true_peak_dbtp=live_leveling.get("true peak dbtp", -1),
         live_lra=live_leveling.get("lra", 11),
+        play_region_provider=play_region_provider,
     )
     supervisor = PlaybackSupervisor(controller, resolvers=resolvers)
 

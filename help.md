@@ -185,6 +185,11 @@ database.
 | `block current`, `block <library-index>` | Block future playback without hiding, deleting, or unfavouriting the media |
 | `unblock <library-index|current>` | Restore playback eligibility |
 | `blocked`, `blocked list`, `blocked <count>` | List playback-blocked media; legacy `blacklist` remains an alias |
+| `region <current|library-index> <start> <end>` | Save both non-destructive preferred playback bounds |
+| `region <current|library-index> start|end <time>` | Set one bound while preserving the other |
+| `region show <current|library-index>` | Show the saved preferred play region |
+| `region clear|clear-start|clear-end <current|library-index>` | Clear both bounds or one bound |
+| `regions` | List saved preferred play regions without revealing paths |
 | `bl [!|+|-]`, `like`, `dislike` | Compatibility forms for active-media preference changes |
 
 Unavailable roots do not block startup. Missing media remains as history-aware
@@ -194,6 +199,15 @@ Blocking is a playback policy, not deletion or hiding. Blocked items remain in
 the library, searches, favourites, and queue with a `Blocked` marker. Direct
 play refuses them; random and automatic queue traversal skip them. Bare numeric
 targets in `block N` and `unblock N` always mean library indices.
+
+Preferred play regions do not trim or rewrite media. A start-only region begins
+at its saved timestamp; an end-only region completes through the normal queue
+path at that timestamp; two bounds do both. Times accept `5.180`, `5.180s`,
+`00:05.180`, `1:05:03.180`, `1h5m3.180s`, or spaced forms such as `1h 5m 3s
+180ms`. Quote a spaced timestamp when using the two-bound form. Region commands
+require finite media with a known duration, bind bare numbers to library indices,
+and never alter the source file. Blocking remains independent and takes
+precedence over a saved region.
 
 ## Playlists
 

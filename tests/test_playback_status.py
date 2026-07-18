@@ -107,7 +107,7 @@ def test_projection_includes_safe_finite_metadata_and_chapter():
         queue_position=2,
         queue_count=5,
     )
-    assert projection.schema_version == 5
+    assert projection.schema_version == 6
     assert projection.title == "Track" and projection.artist == "Artist"
     assert projection.source == "local" and projection.media_id
     assert projection.finite and projection.seekable and not projection.live
@@ -127,6 +127,42 @@ def test_projection_includes_safe_finite_metadata_and_chapter():
         "index": 2,
         "count": 3,
     }
+
+
+def test_projection_exposes_only_normalized_preferred_region_bounds():
+    projection = project_playback_status(
+        PlaybackSnapshot(
+            PlaybackState.PLAYING,
+            media=media(),
+            duration=100,
+            region_start_seconds=5.18,
+            region_end_seconds=65.18,
+        )
+    )
+
+    assert projection.region.active
+    assert projection.region.start_seconds == 5.18
+    assert projection.region.end_seconds == 65.18
+    assert projection.to_dict()["region"] == {
+        "active": True,
+        "start_seconds": 5.18,
+        "end_seconds": 65.18,
+    }
+
+
+def test_projection_ignores_invalid_region_numbers():
+    projection = project_playback_status(
+        PlaybackSnapshot(
+            PlaybackState.PLAYING,
+            media=media(),
+            region_start_seconds=math.nan,
+            region_end_seconds=math.inf,
+        )
+    )
+
+    assert not projection.region.active
+    assert projection.region.start_seconds is None
+    assert projection.region.end_seconds is None
 
 
 def test_projection_carries_only_sanitized_favorite_state():

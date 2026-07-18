@@ -15,7 +15,7 @@ from typing import Any
 
 from .paths import runtime_paths
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 
 SCHEMA = """
@@ -218,6 +218,16 @@ CREATE TABLE IF NOT EXISTS media_preferences (
 CREATE TABLE IF NOT EXISTS blocked_media (
     stable_id TEXT PRIMARY KEY,
     updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS media_play_regions (
+    stable_id TEXT PRIMARY KEY,
+    start_ms INTEGER,
+    end_ms INTEGER,
+    updated_at REAL NOT NULL,
+    CHECK(start_ms IS NULL OR start_ms >= 0),
+    CHECK(end_ms IS NULL OR end_ms > 0),
+    CHECK(start_ms IS NULL OR end_ms IS NULL OR end_ms > start_ms),
+    CHECK(start_ms IS NOT NULL OR end_ms IS NOT NULL)
 );
 CREATE TABLE IF NOT EXISTS interaction_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

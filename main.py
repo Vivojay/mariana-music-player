@@ -117,6 +117,12 @@ from mariana.playback_status import (
     PlaybackStatusProjection,
     project_playback_status,
 )
+from mariana.play_regions import (
+    PlayRegionError,
+    PlayRegionStore,
+    format_region_time,
+    parse_region_time,
+)
 from mariana.preferences import MediaPreferences, PreferenceEntry, PreferenceState
 from mariana.presence import PresenceCoordinator, PresencePrivacyMode, sanitize_presence_text
 from mariana.queueing import PersistentQueue, QueueError
@@ -355,6 +361,7 @@ LOCAL_MATCHER = LocalMediaMatcher(DATABASE)
 _LOCAL_COPY_HINTED_MEDIA_IDS: set[str] = set()
 _LOCAL_COPY_HINT_LOCK = threading.Lock()
 PREFERENCES = MediaPreferences(DATABASE)
+PLAY_REGIONS = PlayRegionStore(DATABASE)
 REPLAYGAIN_SETTINGS = {
     **SETTINGS.get('replaygain', {}),
     **DATABASE.get_state('replaygain', {}),
@@ -396,6 +403,7 @@ vas.configure(
     browser_profile=SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile'),
     replaygain=REPLAYGAIN_SETTINGS,
     live_leveling=LIVE_LEVELING_SETTINGS,
+    play_region_provider=PLAY_REGIONS.get,
 )
 get_lyrics.configure(IDENTITY, vas.controller)
 DESKTOP_CONTROL = DesktopControl()
@@ -609,6 +617,7 @@ def refresh_runtime_configuration(*, show_report=False):
         browser_profile=browser_profile,
         replaygain=REPLAYGAIN_SETTINGS,
         live_leveling=LIVE_LEVELING_SETTINGS,
+        play_region_provider=PLAY_REGIONS.get,
     )
     IDENTITY.fpcalc_bin = MEDIA_TOOLS.get('fpcalc bin')
     LIBRARY.ffmpeg_bin = MEDIA_TOOLS.get('ffmpeg bin')
@@ -833,7 +842,10 @@ def _preference_media(media):
                 title=(info.get('metadata') or {}).get('title'),
                 artist=(info.get('metadata') or {}).get('artist'),
                 album=(info.get('metadata') or {}).get('album'),
+                duration=(info.get('metadata') or {}).get('duration') or media.duration,
                 provenance='library',
+                capabilities=media.capabilities,
+                chapters=list(media.chapters),
             )
     return media
 
@@ -2830,6 +2842,131 @@ def blocked_command(arguments):
     return list_preferences(PreferenceState.BLOCKED, values, default_limit=None)
 
 
+def _region_target(value, *, require_finite=True):
+    """Bind one region command target to current identity or library index."""
+    snapshot = vas.controller.snapshot()
+    library_index = None
+    if value.casefold() in {'current', 'now'}:
+        media = _preference_media(snapshot.media)
+        if media is None:
+            raise PlayRegionError('No current media is available')
+        duration = snapshot.duration or media.duration
+    elif value.isdigit() and int(value) > 0:
+        library_index = int(value)
+        media = _library_media(library_index)
+        info = LIBRARY.info(media.stable_id) or {}
+        duration = media.duration or (info.get('metadata') or {}).get('duration')
+    else:
+        raise PlayRegionError('Region target must be current or a library index')
+    if require_finite and (
+        media.capabilities.live or not media.capabilities.finite or media.source == MediaSource.RADIO
+    ):
+        raise PlayRegionError('Live or non-finite media cannot have preferred playback bounds')
+    try:
+        duration_value = float(duration) if duration is not None else None
+    except (TypeError, ValueError, OverflowError):
+        duration_value = None
+    if require_finite and (
+        duration_value is None or not math.isfinite(duration_value) or duration_value <= 0
+    ):
+        raise PlayRegionError('A finite known media duration is required for playback bounds')
+    if media.duration is None and duration_value is not None:
+        media.duration = duration_value
+    return media, duration_value, library_index
+
+
+def _region_label(media, library_index=None):
+    label = sanitize_presence_text(media.title)
+    if not label and media.source == MediaSource.LOCAL:
+        label = sanitize_presence_text(media.resolver_data.get('library_display_title'))
+    label = label or {
+        MediaSource.LOCAL: 'Local media',
+        MediaSource.YOUTUBE: 'YouTube media',
+        MediaSource.URL: 'Online media',
+        MediaSource.PODCAST: 'Podcast',
+        MediaSource.RADIO: 'Internet radio',
+        MediaSource.RECOMMENDATION: 'Recommended media',
+    }[media.source]
+    return f'Library #{library_index}: {label}' if library_index is not None else label
+
+
+def _region_description(region):
+    if region is None or not region.active:
+        return 'full media (no preferred bounds)'
+    return f'{format_region_time(region.start_seconds)} -> {format_region_time(region.end_seconds)}'
+
+
+def region_command(arguments):
+    """Inspect or mutate non-destructive preferred playback bounds."""
+    usage = (
+        'region <current|library-index> <start> <end> | region <target> start|end <time> | '
+        'region show|clear|clear-start|clear-end <target>'
+    )
+    if not arguments:
+        raise PlayRegionError(f'Usage: {usage}')
+    operation = arguments[0].casefold()
+    if operation in {'show', 'clear', 'clear-start', 'clear-end'}:
+        if len(arguments) != 2:
+            raise PlayRegionError(f'Usage: region {operation} <current|library-index>')
+        media, _duration, library_index = _region_target(arguments[1], require_finite=False)
+        if operation == 'clear':
+            PLAY_REGIONS.clear(media)
+        elif operation in {'clear-start', 'clear-end'}:
+            PLAY_REGIONS.clear_bound(media, operation.removeprefix('clear-'))
+        region = PLAY_REGIONS.get(media)
+        IPrint(f'Play region for {_region_label(media, library_index)}: {_region_description(region)}', visible=visible)
+        return region
+
+    media, duration, library_index = _region_target(arguments[0])
+    current = PLAY_REGIONS.get(media)
+    values = arguments[1:]
+    if len(values) >= 2 and values[0].casefold() in {'start', 'end'}:
+        bound = values[0].casefold()
+        timestamp = parse_region_time(' '.join(values[1:]))
+        start = timestamp if bound == 'start' else current.start_seconds if current else None
+        end = timestamp if bound == 'end' else current.end_seconds if current else None
+    elif len(values) == 2:
+        start = parse_region_time(values[0])
+        end = parse_region_time(values[1])
+    else:
+        raise PlayRegionError(f'Usage: {usage}')
+    region = PLAY_REGIONS.set(
+        media,
+        start_seconds=start,
+        end_seconds=end,
+        duration=duration,
+    )
+    IPrint(
+        f'Preferred play region saved for {_region_label(media, library_index)}: '
+        f'{_region_description(region)}. It applies on the next playback start.',
+        visible=visible,
+    )
+    return region
+
+
+def regions_command(arguments):
+    if arguments:
+        raise PlayRegionError('Usage: regions')
+    rows = []
+    for index, entry in enumerate(PLAY_REGIONS.list(), 1):
+        media = PREFERENCES.media(entry.stable_id)
+        if media is None:
+            info = LIBRARY.info(entry.stable_id)
+            if info:
+                metadata = info.get('metadata') or {}
+                media = MediaRef(
+                    MediaSource.LOCAL,
+                    '',
+                    stable_id=entry.stable_id,
+                    title=metadata.get('title'),
+                    provenance='library',
+                )
+        label = _region_label(media) if media is not None else 'Saved media'
+        rows.append((index, label, _region_description(entry)))
+    IPrint(tbl(rows, headers=('#', 'Media', 'Preferred play region'), tablefmt='plain') if rows else '(no preferred play regions)', visible=visible)
+    return rows
+
+
 def _favorite_selection(index):
     """Bind one favourite-local index to one durable media identity."""
     entries = PREFERENCES.list(PreferenceState.FAVORITE)
@@ -3112,7 +3249,10 @@ HELP_GROUPS = (
     ('Queue', 'queue list/tree/add/insert/remove/move/jump/order/repeat/reset, queue ys|youtube'),
     ('Search and online sources', 'find/rfind/lfind, /ys, /yl, /ml, album, station, pod/pods, /rss'),
     ('Downloads', 'download-yv|dl-yv, download-ya|dl-ya, download-ml|dl-ml'),
-    ('Library', 'library roots/status/scan/info/verify, reload, include/exclude downloads, rename short, block/unblock'),
+    (
+        'Library',
+        'library roots/status/scan/info/verify, reload, rename short, block/unblock, region/regions',
+    ),
     ('Playlists', 'playlist list/create/show/add/remove/move/order/play/queue/import/export'),
     ('Lyrics', 'lyrics|lyr, lyrics edit|lyr edit, open lyrics'),
     ('Radio', 'radio search/list/play/add/info/metadata/resync/health/leveling'),
@@ -3135,7 +3275,7 @@ HELP_EXAMPLES = {
     'Queue': ('queue add 4', 'queue ys "artist title" 5', '/ysq "artist title"', 'queue next'),
     'Search and online sources': ('find artist title 10', '/ys artist title 5', '/yl <YouTube URL>', '/ml <URL>'),
     'Downloads': ('download-ya current --yes', 'download-ml <URL> mp3', 'download-ya status'),
-    'Library': ('library status', 'library scan changed', 'block 4', 'blocked', 'unblock 4'),
+    'Library': ('library status', 'library scan changed', 'block 4', 'region show 4', 'regions'),
     'Playlists': ('playlist list', 'playlist create "Road trip"', 'playlist add "Road trip" media 4'),
     'Lyrics': ('lyrics', 'lyrics edit', 'open lyrics'),
     'Radio': ('radio search jazz', 'radio list', 'radio play 1', 'radio metadata'),
@@ -3379,6 +3519,7 @@ def media_command(arguments):
     media, info = _media_info(target_arguments)
     if operation in {'info', 'probe', 'metadata'}:
         rows = flattened_details(info)
+        rows.append(('Preferred play region', _region_description(PLAY_REGIONS.get(media))))
         if media.source == MediaSource.LOCAL and Path(media.original_uri).is_file():
             stat = Path(media.original_uri).stat()
             rows.extend((('Filesystem created/changed', time.ctime(stat.st_ctime)),
@@ -3609,6 +3750,8 @@ def _status_summary(status: PlaybackStatusProjection, *, detailed: bool = False)
     parts.append(status.display_state)
     if status.policy.blocked:
         parts.append('playback blocked')
+    if status.region.active:
+        parts.append(f'region {_region_description(status.region)}')
     if status.queue_position is not None:
         parts.append(f'queue {status.queue_position}/{status.queue_count}')
     if detailed or status.live or status.duration_seconds is None:
@@ -3679,6 +3822,8 @@ def _playback_status_lines(
     else:
         lines.append(f'Progress: {_status_time(status.position_seconds)} elapsed | duration unknown')
     lines.append(f'Seekable: {"yes" if status.seekable else "no"}')
+    if status.region.active:
+        lines.append(f'Preferred play region: {_region_description(status.region)}')
     if status.queue_position is not None:
         lines.append(f'Queue: {status.queue_position}/{status.queue_count}')
     if chapter_label := _status_chapter_label(status.chapter):
@@ -4858,6 +5003,8 @@ def process(command):
             'block': block_command,
             'unblock': lambda values: block_command(values, unblock=True),
             'blocked': blocked_command,
+            'region': region_command,
+            'regions': regions_command,
         }
         if handler := routed.get(commandslist[0].casefold()):
             try:

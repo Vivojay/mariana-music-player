@@ -220,6 +220,10 @@ fav [list|favorite-index|current|!|+|-]
 block current|<library-index>
 unblock current|<library-index>
 blocked [list|count]
+region current|<library-index> <start> <end>
+region current|<library-index> start|end <time>
+region show|clear|clear-start|clear-end current|<library-index>
+regions
 bl [!|+|-]                 # compatibility alias for current media
 favs [list|count]
 blacklist [count]          # compatibility alias for blocked list
@@ -358,7 +362,8 @@ bound filesystem identity still matches at activation; `--yes` approves that
 same checked overwrite non-interactively.
 
 `media info`/`media probe` show FFprobe and Mutagen fields, filesystem dates,
-codec/container details, and saved analysis state. `media fingerprint` reports
+codec/container details, saved analysis state, and any preferred play region.
+`media fingerprint` reports
 the stored Chromaprint object (use `--full` only when the raw value is needed),
 while `media identify` queries the configured AcoustID/MusicBrainz path and
 returns an explicit unavailable, ambiguous, or no-match status instead of a guess.
@@ -366,6 +371,17 @@ returns an explicit unavailable, ambiguous, or no-match status instead of a gues
 indexed library items. It reports a result only when exactly one strong source,
 cached fingerprint, confirmed recording, or corroborated metadata match survives;
 it does not print a path by default or substitute local playback automatically.
+
+Preferred play regions are non-destructive playback policy. Use `region current
+5.180 1:05:03.180` (or a library number in place of `current`) to start and
+complete at saved bounds; `region <target> start|end <time>` sets one bound.
+`region clear`, `region clear-start`, and `region clear-end` remove bounds, while
+`regions` lists them without exposing paths. Timestamps accept fractional
+seconds, clock notation, compact labels such as `1h5m3.180s`, and spaced labels
+such as `1h 5m 3s 180ms`. Bounds are stored by stable media identity in SQLite;
+the source file is never edited, copied, shortened, or re-encoded. Manual seeks
+are clamped to the active region, and its end follows the normal queue
+completion path. Live and unknown-duration media cannot have regions.
 
 Sequential playback (`autoplay` and `autonext` are equivalent) is enabled by
 default. A fresh queue mirrors every indexed library item in library order and
