@@ -74,6 +74,9 @@ def test_station_lifecycle_queue_snapshot_events_and_restart(tmp_path: Path):
         manager.mark_played(recommendations[0])
         assert manager.session().ready_ahead in {9, 10}
         manager.pause()
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and manager.session().state != StationState.PAUSED:
+            time.sleep(0.01)
         assert manager.session().state == StationState.PAUSED
         manager.close()
 
@@ -325,6 +328,10 @@ def test_station_replacement_timeout_paused_completion_and_callback_errors(tmp_p
         second = manager.start(youtube("second"))
         assert second.session_id != first.session_id
         manager.pause()
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and manager.session().state != StationState.PAUSED:
+            time.sleep(0.01)
+        assert manager.session().state == StationState.PAUSED
         manager.mark_played(youtube("none"))
         assert manager.session().state == StationState.PAUSED
         manager.resume()
