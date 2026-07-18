@@ -5,6 +5,17 @@ export type FavoriteStatus = {
   unavailable_reason: string | null
 }
 
+export type PlaybackChapterMarker = {
+  title: string
+  start_time: number
+  end_time: number
+  start_percent: number
+  end_percent: number
+  index: number
+  count: number
+  current: boolean
+}
+
 export type PlaybackStatus = {
   schema_version: number
   state: string
@@ -31,6 +42,8 @@ export type PlaybackStatus = {
     index?: number | null
     count?: number | null
   } | null
+  /** Optional while restoring snapshots emitted by pre-v7 backends. */
+  chapter_markers?: PlaybackChapterMarker[]
   replaygain_db: number
   live_leveling: boolean
   safe_error: string | null

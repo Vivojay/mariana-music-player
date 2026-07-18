@@ -9,7 +9,7 @@ from typing import Any
 
 from .models import MediaSource, PlaybackSnapshot, PlaybackState
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 MAX_ERROR_LENGTH = 160
 _GENERIC_ERROR = "Playback failed; see logs for details"
 _SPACE_PATTERN = re.compile(r"\s+")
@@ -29,6 +29,20 @@ class PlaybackChapterProjection:
     end_time: float
     index: int | None = None
     count: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PlaybackChapterMarkerProjection:
+    """Sanitized source-timeline chapter segment for passive progress displays."""
+
+    title: str
+    start_time: float
+    end_time: float
+    start_percent: float
+    end_percent: float
+    index: int
+    count: int
+    current: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +94,7 @@ class PlaybackStatusProjection:
     queue_count: int
     favorite: FavoriteStatusProjection
     chapter: PlaybackChapterProjection | None
+    chapter_markers: list[PlaybackChapterMarkerProjection]
     replaygain_db: float
     live_leveling: bool
     safe_error: str | None
@@ -200,6 +215,52 @@ def _chapter(snapshot: PlaybackSnapshot) -> PlaybackChapterProjection | None:
     return PlaybackChapterProjection(title, start, end, index, count)
 
 
+def _chapter_markers(
+    snapshot: PlaybackSnapshot,
+    duration: float | None,
+) -> list[PlaybackChapterMarkerProjection]:
+    """Return safe, ordered chapter segments on the original media timeline."""
+    if duration is None or snapshot.media is None or not snapshot.media.chapters:
+        return []
+
+    candidates: list[tuple[float, float, str]] = []
+    for chapter in snapshot.media.chapters:
+        start = _finite_number(chapter.start_time, default=-1.0)
+        end = _finite_number(chapter.end_time, default=-1.0)
+        if start < 0 or end <= start or start >= duration:
+            continue
+        end = min(end, duration)
+        if end <= start:
+            continue
+        title = _clean_display_text(chapter.title, maximum=160) or "Chapter"
+        candidates.append((start, end, title))
+
+    ordered: list[tuple[float, float, str]] = []
+    previous_end = -1.0
+    for candidate in sorted(candidates, key=lambda value: (value[0], value[1], value[2])):
+        start, end, _title = candidate
+        if start < previous_end:
+            continue
+        ordered.append(candidate)
+        previous_end = end
+
+    count = len(ordered)
+    position = _finite_nonnegative(snapshot.position)
+    return [
+        PlaybackChapterMarkerProjection(
+            title=title if title != "Chapter" else f"Chapter {index}",
+            start_time=start,
+            end_time=end,
+            start_percent=min(100.0, max(0.0, start / duration * 100.0)),
+            end_percent=min(100.0, max(0.0, end / duration * 100.0)),
+            index=index,
+            count=count,
+            current=start <= position < end,
+        )
+        for index, (start, end, title) in enumerate(ordered, start=1)
+    ]
+
+
 def project_playback_status(
     snapshot: PlaybackSnapshot,
     *,
@@ -300,6 +361,7 @@ def project_playback_status(
         queue_count=count,
         favorite=favorite_status,
         chapter=_chapter(snapshot),
+        chapter_markers=_chapter_markers(snapshot, duration),
         replaygain_db=_finite_number(snapshot.replaygain_db),
         live_leveling=bool(snapshot.live_leveling),
         safe_error=_safe_error(snapshot.error),

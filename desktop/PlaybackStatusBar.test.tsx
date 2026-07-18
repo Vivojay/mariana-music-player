@@ -4,7 +4,7 @@ import { PlaybackStatusBar } from './PlaybackStatusBar'
 import { formatChapterLabel, type PlaybackStatus } from './shared'
 
 const status = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus => ({
-  schema_version: 5,
+  schema_version: 7,
   state: 'playing',
   display_state: 'Playing',
   media_id: 'track-1',
@@ -23,6 +23,7 @@ const status = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus => ({
   queue_count: 8,
   favorite: { available: true, is_favorite: false, toggle_enabled: true, unavailable_reason: null },
   chapter: null,
+  chapter_markers: [],
   replaygain_db: 0,
   live_leveling: false,
   safe_error: null,
@@ -89,6 +90,47 @@ describe('PlaybackStatusBar', () => {
     rerender(<PlaybackStatusBar status={status({ percent: -20 })} />)
     expect(screen.getByRole('progressbar')).toHaveAttribute('value', '0')
     expect(screen.getByText('0%')).toBeInTheDocument()
+  })
+
+  it('renders proportional chapter boundaries and highlights the current segment', () => {
+    const { container } = render(<PlaybackStatusBar status={status({
+      chapter: { title: 'Bridge', start_time: 60, end_time: 120, index: 2, count: 3 },
+      region: { active: true, start_seconds: 30, end_seconds: 240 },
+      chapter_markers: [
+        { title: 'Intro', start_time: 0, end_time: 60, start_percent: 0, end_percent: 20, index: 1, count: 3, current: false },
+        { title: 'Bridge', start_time: 60, end_time: 120, start_percent: 20, end_percent: 40, index: 2, count: 3, current: true },
+        { title: 'Outro', start_time: 120, end_time: 300, start_percent: 40, end_percent: 100, index: 3, count: 3, current: false },
+      ],
+    })} />)
+
+    const boundaries = container.querySelectorAll('.playback-chapter-boundary')
+    expect(boundaries).toHaveLength(2)
+    expect(boundaries[0]).toHaveStyle({ left: '20%' })
+    expect(boundaries[1]).toHaveStyle({ left: '40%' })
+    const current = container.querySelector('.playback-chapter-current')
+    expect(current).toHaveAttribute('data-chapter-index', '2')
+    expect(current).toHaveStyle({ left: '20%', width: '20%' })
+    expect(container.querySelector('.playback-chapter-markers')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByRole('progressbar')).toHaveAttribute('value', '25')
+  })
+
+  it('defensively ignores invalid, overlapping, and unavailable chapter markers', () => {
+    const invalidMarkers = [
+      { title: 'Invalid', start_time: 0, end_time: 1, start_percent: -5, end_percent: 10, index: 1, count: 3, current: false },
+      { title: 'First', start_time: 0, end_time: 60, start_percent: 0, end_percent: 20, index: 2, count: 3, current: true },
+      { title: 'Overlap', start_time: 30, end_time: 90, start_percent: 10, end_percent: 30, index: 3, count: 3, current: false },
+    ]
+    const { container, rerender } = render(<PlaybackStatusBar status={status({ chapter_markers: invalidMarkers })} />)
+    expect(container.querySelectorAll('.playback-chapter-boundary')).toHaveLength(0)
+    expect(container.querySelectorAll('.playback-chapter-current')).toHaveLength(1)
+
+    rerender(<PlaybackStatusBar status={status({
+      finite: false, live: true, duration_seconds: null, percent: null, chapter_markers: invalidMarkers,
+    })} />)
+    expect(container.querySelector('.playback-chapter-markers')).not.toBeInTheDocument()
+
+    rerender(<PlaybackStatusBar status={status({ duration_seconds: null, percent: null, chapter_markers: invalidMarkers })} />)
+    expect(container.querySelector('.playback-chapter-markers')).not.toBeInTheDocument()
   })
 
   it('renders live media without numeric progress', () => {

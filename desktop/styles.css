@@ -135,10 +135,14 @@ button { cursor: pointer; }
 .playback-state[data-state='failed'], .playback-error { color: #ff8da6; }
 .playback-timing { display: flex; align-items: center; justify-content: flex-end; gap: 8px; color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .playback-progress-slot { display: flex; align-items: center; min-width: 0; }
+.playback-progress-track { position: relative; display: flex; align-items: center; width: 100%; min-width: 0; }
 .playback-progress { width: 100%; height: 7px; border: 0; accent-color: var(--accent); pointer-events: none; }
 .playback-progress::-webkit-progress-bar { border-radius: 999px; background: color-mix(in srgb, var(--muted) 20%, transparent); }
 .playback-progress::-webkit-progress-value { border-radius: 999px; background: var(--accent); }
 .playback-progress::-moz-progress-bar { border-radius: 999px; background: var(--accent); }
+.playback-chapter-markers { position: absolute; inset: 0; overflow: hidden; border-radius: 999px; pointer-events: none; }
+.playback-chapter-current { position: absolute; top: 0; bottom: 0; border: 1px solid color-mix(in srgb, var(--text) 72%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.playback-chapter-boundary { position: absolute; top: 0; bottom: 0; width: 1px; transform: translateX(-.5px); background: color-mix(in srgb, var(--panel) 88%, var(--text) 12%); box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 22%, transparent); }
 .playback-progress-placeholder { width: 100%; height: 3px; border-radius: 999px; background: color-mix(in srgb, var(--muted) 30%, transparent); }
 .playback-progress-placeholder.is-live { background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 20%, transparent)); }
 .playback-error { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

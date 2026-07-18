@@ -13,6 +13,7 @@ from mariana.models import (
 )
 from mariana.playback_status import (
     FavoriteStatusProjection,
+    PlaybackChapterMarkerProjection,
     PlaybackChapterProjection,
     project_playback_status,
 )
@@ -107,13 +108,18 @@ def test_projection_includes_safe_finite_metadata_and_chapter():
         queue_position=2,
         queue_count=5,
     )
-    assert projection.schema_version == 6
+    assert projection.schema_version == 7
     assert projection.title == "Track" and projection.artist == "Artist"
     assert projection.source == "local" and projection.media_id
     assert projection.finite and projection.seekable and not projection.live
     assert projection.queue_position == 2 and projection.queue_count == 5
     assert projection.buffered_seconds == 3 and projection.replaygain_db == -2.5
     assert projection.chapter == PlaybackChapterProjection("Verse One", 20, 40, 2, 3)
+    assert projection.chapter_markers == [
+        PlaybackChapterMarkerProjection("Intro", 0, 20, 0, 20, 1, 3, False),
+        PlaybackChapterMarkerProjection("Verse One", 20, 40, 20, 40, 2, 3, True),
+        PlaybackChapterMarkerProjection("Outro", 40, 100, 40, 100, 3, 3, False),
+    ]
     assert projection.favorite == FavoriteStatusProjection(
         False,
         False,
@@ -127,6 +133,64 @@ def test_projection_includes_safe_finite_metadata_and_chapter():
         "index": 2,
         "count": 3,
     }
+
+
+def test_projection_sanitizes_chapter_markers_on_the_source_timeline():
+    chaptered = media()
+    chaptered.chapters = [
+        MediaChapter("Outro", 40, 120),
+        MediaChapter("Intro", 0, 20),
+        MediaChapter("Overlapping", 10, 30),
+        MediaChapter(r"C:\\Users\\Name\\private chapter", 20, 40),
+        MediaChapter("Negative", -5, 5),
+        MediaChapter("Past duration", 120, 130),
+        MediaChapter("Not finite", math.nan, 30),
+    ]
+
+    projection = project_playback_status(
+        PlaybackSnapshot(
+            PlaybackState.PLAYING,
+            media=chaptered,
+            position=25,
+            duration=100,
+            region_start_seconds=10,
+            region_end_seconds=90,
+        )
+    )
+
+    assert [(marker.index, marker.count) for marker in projection.chapter_markers] == [
+        (1, 3),
+        (2, 3),
+        (3, 3),
+    ]
+    assert [marker.title for marker in projection.chapter_markers] == [
+        "Intro",
+        "Chapter 2",
+        "Outro",
+    ]
+    assert [
+        (marker.start_percent, marker.end_percent, marker.current)
+        for marker in projection.chapter_markers
+    ] == [(0, 20, False), (20, 40, True), (40, 100, False)]
+    assert projection.region.start_seconds == 10
+    assert projection.region.end_seconds == 90
+    assert "Users" not in str(projection.to_dict())
+
+
+def test_projection_omits_chapter_markers_when_the_timeline_cannot_support_them():
+    no_chapters = PlaybackSnapshot(PlaybackState.PLAYING, media=media(), duration=100)
+    live = media(MediaSource.RADIO, finite=False, live=True, seekable=False)
+    live.chapters = [MediaChapter("Intro", 0, 20)]
+    unknown_duration = media()
+    unknown_duration.chapters = [MediaChapter("Intro", 0, 20)]
+
+    assert project_playback_status(no_chapters).chapter_markers == []
+    assert project_playback_status(
+        PlaybackSnapshot(PlaybackState.PLAYING, media=live, duration=100)
+    ).chapter_markers == []
+    assert project_playback_status(
+        PlaybackSnapshot(PlaybackState.PLAYING, media=unknown_duration, duration=None)
+    ).chapter_markers == []
 
 
 def test_projection_exposes_only_normalized_preferred_region_bounds():

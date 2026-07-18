@@ -1,4 +1,4 @@
-import type { PlaybackStatus } from './shared'
+import type { PlaybackChapterMarker, PlaybackStatus } from './shared'
 
 type PlaybackStatusBarProps = {
   status: PlaybackStatus | null
@@ -43,6 +43,25 @@ function stateLabel(status: PlaybackStatus): string {
   return status.display_state?.trim()
     || status.state?.replaceAll('_', ' ').replace(/^./, (character) => character.toUpperCase())
     || 'Unknown'
+}
+
+function safeChapterMarkers(status: PlaybackStatus): PlaybackChapterMarker[] {
+  if (!status.finite || status.live || !finiteNumber(status.duration_seconds)) return []
+  const ordered = [...(status.chapter_markers ?? [])]
+    .filter((marker) => {
+      const start = finiteNumber(marker.start_percent)
+      const end = finiteNumber(marker.end_percent)
+      return start !== null && end !== null && start >= 0 && end <= 100 && end > start
+    })
+    .sort((left, right) => left.start_percent - right.start_percent)
+
+  const accepted: PlaybackChapterMarker[] = []
+  for (const marker of ordered) {
+    const previous = accepted.at(-1)
+    if (previous && marker.start_percent < previous.end_percent) continue
+    accepted.push(marker)
+  }
+  return accepted
 }
 
 export function PlaybackStatusBar({
@@ -99,6 +118,8 @@ export function PlaybackStatusBar({
   const favoriteTitle = favoriteEnabled
     ? favoriteLabel
     : favorite?.unavailable_reason || 'Favourite state unavailable'
+  const chapterMarkers = progress === null ? [] : safeChapterMarkers(status)
+  const currentChapterMarker = chapterMarkers.find((marker) => marker.current)
 
   return (
     <section className={`playback-status playback-status-${status.state || 'unknown'}`} aria-label="Playback status">
@@ -144,13 +165,37 @@ export function PlaybackStatusBar({
 
       <span className="playback-progress-slot">
         {progress !== null ? (
-          <progress
-            className="playback-progress"
-            aria-label={`Playback progress for ${displayTitle}`}
-            aria-valuetext={`${Math.round(progress)}%`}
-            max="100"
-            value={progress}
-          />
+          <span className="playback-progress-track">
+            <progress
+              className="playback-progress"
+              aria-label={`Playback progress for ${displayTitle}`}
+              aria-valuetext={`${Math.round(progress)}%`}
+              max="100"
+              value={progress}
+            />
+            {chapterMarkers.length > 0 && (
+              <span className="playback-chapter-markers" aria-hidden="true">
+                {currentChapterMarker && (
+                  <span
+                    className="playback-chapter-current"
+                    data-chapter-index={currentChapterMarker.index}
+                    style={{
+                      left: `${currentChapterMarker.start_percent}%`,
+                      width: `${currentChapterMarker.end_percent - currentChapterMarker.start_percent}%`,
+                    }}
+                  />
+                )}
+                {chapterMarkers.filter((marker) => marker.start_percent > 0).map((marker) => (
+                  <span
+                    key={`${marker.index}-${marker.start_percent}`}
+                    className="playback-chapter-boundary"
+                    data-chapter-index={marker.index}
+                    style={{ left: `${marker.start_percent}%` }}
+                  />
+                ))}
+              </span>
+            )}
+          </span>
         ) : (
           <span
             className={`playback-progress-placeholder ${status.live ? 'is-live' : 'is-unknown'}`}
