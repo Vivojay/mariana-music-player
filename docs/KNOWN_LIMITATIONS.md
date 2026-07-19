@@ -48,3 +48,8 @@
 - Output search uses xterm.js scrollback retained by the desktop host. Retained
   history is bounded to one million characters and resets on a full terminal
   clear sequence.
+- Desktop autocomplete is currently a safe command explorer backed by the
+  sanitized command catalog. Selecting a suggestion updates only its controlled
+  field; it does not edit terminal input, write to the PTY, or execute a
+  command. Tab completion, argument completion, dynamic media/path suggestions,
+  and command submission require a future backend-owned line-editor contract.

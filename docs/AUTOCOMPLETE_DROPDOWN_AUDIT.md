@@ -2,17 +2,37 @@
 
 ## Scope and conclusion
 
-This document records the command-completion architecture as of `dev-6`. It is
-an audit and design only; no parser, command, terminal, or desktop behavior was
-changed.
+This document began as the command-completion audit for `dev-6`. It now also
+records the safe runtime foundation completed on
+`feature/autocomplete-runtime-boundary` through `ee39c87`.
 
 Autocomplete is feasible, but an Electron dropdown must not be built by
 reconstructing command state from terminal output or renderer keystrokes. The
 safe sequence is to establish backend-owned command metadata and a pure
 completion engine first, then add terminal and desktop presentation adapters.
-The existing typed desktop control channel can eventually carry bounded
-completion queries, but it does not currently provide line-editing state or a
-completion action.
+The typed desktop control channel now carries a bounded, sanitized command
+catalog request. It still does not provide authoritative terminal line-editing
+state, replacement spans, command submission, or a completion action.
+
+## Completed safe runtime batch
+
+- **Command catalog foundation:** an immutable backend catalog describes safe
+  canonical commands, aliases, categories, forms, availability, and risk.
+- **Runtime catalog boundary:** Electron can request validated serialized
+  catalog metadata through the narrow `backend.commandCatalog` boundary.
+- **Renderer projection:** pure TypeScript helpers validate, filter, rank, cap,
+  and generation-bind display-only suggestions.
+- **Visible dropdown shell:** the desktop title bar renders an accessible
+  combobox/listbox without parsing terminal output.
+- **Safe selection:** keyboard or pointer selection updates only the controlled
+  autocomplete field. It does not execute, submit, or write to the PTY.
+- **Keyboard and accessibility hardening:** active-option state, deterministic
+  arrow navigation, Escape, loading, empty, stale, and live-status behavior are
+  covered by focused tests and Electron development E2E.
+
+This is intentionally a command explorer, not terminal-line autocomplete.
+Actual Tab completion or insertion into the terminal remains blocked on an
+authoritative backend line-editor contract.
 
 ## Current command architecture
 
@@ -35,10 +55,10 @@ Command processing currently has five distinct layers:
    reference describe commands independently of dispatch.
 
 The reusable pieces are the tokenizer, compatibility-alias table, search
-request parser, and individual family parsers. There is no complete registry
-from which dispatch, help, validation, and completion can all be derived.
-Consequently, scraping `main.py`, parsing `Usage:` strings, or treating
-`HELP_GROUPS` as grammar would be incomplete and unsafe.
+request parser, individual family parsers, and the new safe static command
+catalog. The catalog is not yet a complete source for dispatch, help, or every
+argument grammar. Consequently, scraping `main.py`, parsing `Usage:` strings,
+or treating `HELP_GROUPS` as grammar remains incomplete and unsafe.
 
 ### Existing grammar characteristics
 
@@ -61,9 +81,9 @@ Consequently, scraping `main.py`, parsing `Usage:` strings, or treating
 
 ## Recommended command metadata
 
-Add a backend-only static registry before adding any completion UI. A command
-specification should describe syntax and presentation, not contain serialized
-handlers or mutable application state.
+The implemented backend-only static registry describes syntax and presentation
+without serialized handlers or mutable application state. Future catalog
+expansion should preserve the following model.
 
 | Field | Purpose |
 | --- | --- |
@@ -218,23 +238,24 @@ or backend prompt redraws. It is not a safe parser or completion buffer.
 xterm can display an HTML dropdown over or adjacent to the terminal, but a
 clean inline implementation requires authoritative line/cursor state and
 careful positioning through resize, wrapping, scrolling, DPI, and font
-changes. The first desktop dropdown should be anchored consistently near the
-active prompt/footer rather than relying on private xterm renderer internals.
-Pixel-near-cursor placement can follow after resize and wrapped-line E2E tests.
+changes. The implemented desktop shell therefore anchors a separate command
+explorer in the title bar rather than relying on private xterm renderer
+internals.
 
-The desktop should:
+The desktop now:
 
-- obtain catalog and suggestion results from a typed, authenticated backend
-  request, extending the boundary in `mariana/desktop_control.py`,
-  `desktop/main.ts`, `desktop/preload.cts`, and `desktop/shared.ts`;
-- render suggestions only, with no independent grammar or mutable command
-  catalog;
-- receive sanitized replacement spans and labels;
-- send typed completion-navigation/accept intent to the backend-owned line
-  editor when that boundary exists;
-- never inject a selected command into the terminal as a playback/control
-  mechanism and never execute it merely because a suggestion was accepted;
-- discard responses whose request generation or prompt session is stale.
+- obtains catalog metadata from a typed backend request spanning
+  `mariana/desktop_control.py`, `desktop/main.ts`, `desktop/preload.cts`, and
+  `desktop/shared.ts`;
+- validates and projects suggestions without independent command definitions;
+- rejects responses whose request generation or typed prefix is stale;
+- supports keyboard and pointer selection only within a controlled renderer
+  field; and
+- never injects a selected command into the terminal or executes it.
+
+A future terminal-line completer still needs sanitized replacement spans and a
+typed accept intent owned by an authoritative backend line editor. The current
+renderer must not infer those from xterm bytes.
 
 A future command palette and terminal dropdown should consume the same catalog
 and completion service. They may use different layouts, but must not carry
@@ -243,18 +264,21 @@ required for autocomplete and should not be introduced as a shortcut.
 
 ## Accessibility and interaction
 
-- The dropdown uses a combobox/listbox relationship with an accessible name,
-  active-descendant state, selected option, result count, and risk text.
-- Keyboard use must be complete; pointer use is optional and must not steal
-  terminal focus unexpectedly.
-- Screen-reader announcements should be concise and should not repeat on every
-  playback/status event.
+- The implemented dropdown uses a stable combobox/listbox relationship with an
+  accessible name, linked live status, busy state, active descendant, selected
+  option, result count, and risk text.
+- `ArrowUp` and `ArrowDown` wrap deterministically and reopen a closed list at
+  the last or first result. `Escape` closes without changing the field.
+- `Enter` and pointer selection update only the controlled command-explorer
+  field and explicitly do not execute or write to the PTY.
+- Loading, unavailable, empty, and stale states expose no active option.
+- Screen-reader announcements are isolated from playback/status events.
 - Reduced-motion mode disables animated opening or selection movement.
 - Long labels are display-trimmed while their sanitized full label remains
   accessible.
-- Closing the dropdown restores terminal focus and preserves the exact input.
-- Multiple desktop terminal views share the backend but keep separate prompt
-  session IDs so a result from one view cannot modify another.
+- Closing preserves the controlled field. Restoring or editing terminal input
+  remains deferred until a backend-owned line editor supplies prompt-session
+  identity and replacement spans.
 
 ## Risks and edge cases
 
@@ -282,46 +306,47 @@ required for autocomplete and should not be introduced as a shortcut.
 
 ## Staged implementation plan
 
-1. **Static command metadata registry.** Add canonical top-level commands,
-   categories, forms, literal arguments, alias status, risk, and privacy labels.
-   Validate uniqueness and compatibility-alias coverage. Do not change dispatch.
-2. **CLI/help registry adoption.** Generate the compact runtime help surface
+1. **Completed - static command metadata registry.** Canonical top-level
+   commands, categories, forms, alias status, risk, privacy validation,
+   deterministic ordering, and compatibility coverage are implemented without
+   changing dispatch.
+2. **Pending - CLI/help registry adoption.** Generate the compact runtime help surface
    from the registry and add consistency checks against `help.md`; migrate
    command families incrementally rather than rewriting `process` at once.
-3. **Basic command-name Tab completion.** Add a backend line-editor adapter and
+3. **Pending - basic command-name Tab completion.** Add a backend line-editor adapter and
    pure completion engine for canonical top-level names and native aliases,
    retaining ordinary `input()` as fallback until packaged acceptance passes.
-4. **Context-aware arguments.** Add subcommand/literal completion, then bounded
+4. **Pending - context-aware arguments.** Add subcommand/literal completion, then bounded
    sanitized providers for scoped library, favorite, queue, playlist, album,
    and station contexts.
-5. **Desktop dropdown.** Add typed catalog/query events and an accessible
-   renderer-only listbox. It consumes backend replacement spans and does not
-   execute commands or mutate playback.
-6. **Fuzzy ranking.** Add deterministic non-destructive command-name ranking
+5. **Completed safe subset - desktop dropdown.** The typed catalog boundary,
+   pure renderer projection, visible listbox, safe controlled-field selection,
+   stale rejection, and keyboard/accessibility behavior are implemented. It
+   intentionally has no terminal replacement spans or execution path.
+6. **Pending - fuzzy ranking.** Add deterministic non-destructive command-name ranking
    after prefix behavior and accessibility are stable.
-7. **Richer typed integration.** Add cancellable dynamic queries, prompt-session
+7. **Pending - richer typed integration.** Add cancellable dynamic queries, prompt-session
    generations, and shared command-palette presentation only where a concrete
    user workflow requires them.
 
 ### First safe implementation slice
 
-The first slice should add `mariana/command_catalog.py` with immutable command
-and argument specifications for canonical top-level names, native and
-compatibility aliases, help categories, literal subcommands, and risk labels.
-It should add tests for duplicate canonical names, alias collisions, unknown
-categories, unsafe serialized fields, deterministic ordering, and coverage of
-the existing `ALIAS_COMPATIBILITY` table. It should not alter `process`, input,
-help output, desktop IPC, or packaged dependencies.
+The first slice is complete in `mariana/command_catalog.py`, with immutable
+specifications and tests for duplicate names, alias collisions, categories,
+unsafe serialized fields, deterministic ordering, and compatibility coverage.
+It did not alter command dispatch or packaged dependencies.
 
-This slice produces a reviewable source of truth without pretending the legacy
-dispatcher has already been migrated. Runtime help adoption is a separate
-commit after the registry is complete enough to avoid hiding valid commands.
+The completed runtime batch builds on that source without pretending the
+legacy dispatcher or terminal line editor has been migrated. Runtime help
+adoption and actual terminal completion remain separate future work.
 
 ## Explicitly out of scope
 
-- Runtime autocomplete, dropdown UI, command palette, or command execution.
+- Terminal-line Tab completion, command submission/execution, and a command
+  palette. The implemented dropdown is a controlled command explorer only.
 - Renderer-owned parsing or command definitions.
-- Terminal text injection as a typed control substitute.
+- Terminal text injection, PTY writes, or reconstructed command insertion as a
+  typed-control substitute.
 - Filesystem, URL, credential, browser-profile, lyrics, or free-text
   suggestions.
 - Network-backed suggestions, provider searches, or recommendation queries.
@@ -339,7 +364,7 @@ commit after the registry is complete enough to avoid hiding valid commands.
 - Desktop boundary: `desktop/main.ts::requestBackendControl`,
   `desktop/preload.cts`, `desktop/shared.ts`, and
   `mariana/desktop_control.py::DesktopControl`.
-- Current typed backend action: `main.py::_desktop_control_request`, currently
-  allowlisting favourite toggle only.
-
-No runtime code fix was made during this audit.
+- Typed backend routing: `main.py::_desktop_control_request`, including the
+  bounded command-catalog request rather than a generic execution API.
+- Renderer projection and interaction: `desktop/commandCatalog.ts` and
+  `desktop/App.tsx`, with focused Vitest and Electron development E2E evidence.
