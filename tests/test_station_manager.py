@@ -312,6 +312,16 @@ def test_unlimited_window_prunes_only_played_items(tmp_path: Path, monkeypatch):
 
 
 def test_station_replacement_timeout_paused_completion_and_callback_errors(tmp_path: Path):
+    second_discovery_started = threading.Event()
+    release_second_discovery = threading.Event()
+
+    class PauseGatedDiscovery(Discovery):
+        def discover(self, seed, **kwargs):
+            if seed.title == "second":
+                second_discovery_started.set()
+                assert release_second_discovery.wait(2), "second station discovery gate timed out"
+            return super().discover(seed, **kwargs)
+
     def fail():
         raise RuntimeError("device unavailable")
 
@@ -319,7 +329,7 @@ def test_station_replacement_timeout_paused_completion_and_callback_errors(tmp_p
         manager = StationManager(
             database,
             PersistentQueue(database),
-            Discovery([]),
+            PauseGatedDiscovery([]),
             pause_playback=fail,
             resume_playback=fail,
         )
@@ -327,12 +337,15 @@ def test_station_replacement_timeout_paused_completion_and_callback_errors(tmp_p
         assert manager.wait_initial(0).session_id == first.session_id
         second = manager.start(youtube("second"))
         assert second.session_id != first.session_id
+        assert second_discovery_started.wait(1), "second discovery never reached pause gate"
+        worker = manager._worker
+        assert worker is not None
         manager.pause()
-        deadline = time.monotonic() + 2
-        while time.monotonic() < deadline and manager.session().state != StationState.PAUSED:
-            time.sleep(0.01)
         assert manager.session().state == StationState.PAUSED
         manager.mark_played(youtube("none"))
+        release_second_discovery.set()
+        worker.join(timeout=2)
+        assert not worker.is_alive()
         assert manager.session().state == StationState.PAUSED
         manager.resume()
         manager.close()
