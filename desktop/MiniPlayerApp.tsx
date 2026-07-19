@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { PlaybackStatusBar } from './PlaybackStatusBar'
+import { MiniPlayerNowPlaying } from './MiniPlayerNowPlaying'
 import { projectMiniPlayerControls } from './miniPlayerControls'
 import type { DesktopControlResult, MiniPlayerSnapshot } from './shared'
 
@@ -80,7 +80,7 @@ export default function MiniPlayerApp() {
           <button type="button" aria-label="Hide Mini-player" onClick={() => void window.marianaMini.hide()}>Hide</button>
         </span>
       </header>
-      <PlaybackStatusBar status={snapshot.playback} unavailableReason={unavailableReason} />
+      <MiniPlayerNowPlaying status={snapshot.playback} unavailableReason={unavailableReason} />
       <section className="mini-player-controls" aria-label="Mini-player playback controls">
         <button
           type="button"

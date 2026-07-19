@@ -161,7 +161,7 @@ button { cursor: pointer; }
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 .mini-player-actions {
   -webkit-app-region: no-drag;
@@ -169,6 +169,26 @@ button { cursor: pointer; }
   gap: 6px;
 }
 .mini-player-actions button { padding: 4px 8px; }
+.mini-player-now-playing {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
+  min-width: 0;
+}
+.mini-player-artwork-placeholder {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  min-height: 54px;
+  overflow: hidden;
+  border: 1px solid #ffffff1f;
+  border-radius: 10px;
+  color: #b9c4e8;
+  background: linear-gradient(145deg, #292b3d, #181925);
+  font-size: 24px;
+  user-select: none;
+}
 .mini-player .playback-status {
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
@@ -176,8 +196,18 @@ button { cursor: pointer; }
     "timing queue"
     "progress progress"
     "error error";
+  row-gap: 4px;
+  min-width: 0;
+  border-bottom: 0;
 }
-.mini-player .playback-identity { grid-area: identity; }
+.mini-player .playback-identity {
+  grid-area: identity;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+.mini-player .playback-title { max-width: 100%; font-size: 12px; }
+.mini-player .playback-source { font-size: 10px; }
 .mini-player .playback-state,
 .mini-player .playback-policy { grid-area: state; }
 .mini-player .playback-timing { grid-area: timing; }
@@ -185,13 +215,28 @@ button { cursor: pointer; }
 .mini-player .playback-queue { grid-area: queue; }
 .mini-player .playback-error { grid-area: error; }
 .mini-player .favorite-toggle { display: none; }
+.mini-player .playback-progress { height: 6px; }
+.mini-player .playback-timing,
+.mini-player .playback-queue,
+.mini-player .playback-state { font-size: 10px; }
 .mini-player-controls {
   display: flex;
   justify-content: center;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 9px;
 }
-.mini-player-controls button { min-width: 72px; }
+.mini-player-controls button {
+  min-width: 72px;
+  min-height: 28px;
+  border: 1px solid #ffffff1f;
+  border-radius: 7px;
+  background: #ffffff0a;
+}
+.mini-player-controls button:focus-visible {
+  outline: 2px solid #74dfc2;
+  outline-offset: 2px;
+}
+.mini-player-controls button:disabled { cursor: not-allowed; opacity: .45; }
 .mini-player-control-error {
   margin: 6px 0 0;
   overflow: hidden;
