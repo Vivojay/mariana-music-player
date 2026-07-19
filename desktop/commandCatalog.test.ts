@@ -113,6 +113,24 @@ describe('renderer command suggestion projection', () => {
     expect(withCompatibility.suggestions[0]).not.toHaveProperty('action')
   })
 
+  it('preserves destructive risk as display-only metadata', () => {
+    const destructive = {
+      ...catalogEntry('playlist delete', 'Playlists'),
+      risk: 'destructive' as const,
+    }
+    const projected = projectCommandSuggestions(
+      catalog(destructive),
+      { typedPrefix: 'playlist d', generation: 3 },
+    )
+
+    expect(projected.suggestions).toEqual([
+      expect.objectContaining({ canonical: 'playlist delete', risk: 'destructive' }),
+    ])
+    expect(projected.suggestions[0]).not.toHaveProperty('action')
+    expect(projected.suggestions[0]).not.toHaveProperty('confirmation_handler')
+    expect(projected.suggestions[0]).not.toHaveProperty('insertion_text')
+  })
+
   it('sorts equal matches deterministically without mutating catalog order', () => {
     const entries = [
       catalogEntry('zoom', 'Settings'),

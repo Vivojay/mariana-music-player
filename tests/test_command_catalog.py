@@ -85,6 +85,54 @@ def test_command_catalog_preserves_scoped_argument_namespaces_and_risk():
     assert specs["fav"].category is CommandCategory.FAVORITES
 
 
+def test_command_catalog_classifies_guarded_compound_commands_without_mislabeling_safe_ones():
+    specs = {spec.canonical: spec for spec in COMMAND_CATALOG}
+
+    for canonical in (
+        "library clean --missing",
+        "playlist clear",
+        "playlist delete",
+        "rm",
+        "del",
+        "rename",
+    ):
+        assert specs[canonical].risk is CommandRisk.DESTRUCTIVE
+
+    for canonical in ("help", "library", "lyrics", "now", "progress"):
+        assert specs[canonical].risk is CommandRisk.READ_ONLY
+
+    assert specs["library scan"].risk is CommandRisk.STATE_CHANGING
+    assert specs["lyrics edit"].risk is CommandRisk.STATE_CHANGING
+    assert specs["queue clear"].risk is CommandRisk.STATE_CHANGING
+    assert specs["playlist export"].risk is CommandRisk.EXTERNAL_ACTION
+    for canonical in (
+        "library clean --missing",
+        "lyrics edit",
+        "playlist clear",
+        "playlist delete",
+        "queue clear",
+    ):
+        assert specs[canonical].forms[0].flags == ("--yes",)
+
+
+def test_serialized_destructive_aliases_retain_risk_without_execution_metadata():
+    rows = {row["canonical"]: row for row in serialize_command_catalog(include_compatibility=True)}
+
+    assert rows["rm"]["risk"] == rows["del"]["risk"] == "destructive"
+    assert rows["playlist delete"]["risk"] == "destructive"
+    assert rows["lyrics"]["risk"] == "read-only"
+    serialized = repr(tuple(rows.values())).casefold()
+    for private_name in (
+        "confirmation_handler",
+        "execute",
+        "handler",
+        "insertion_text",
+        "private_id",
+        "resolver_data",
+    ):
+        assert private_name not in serialized
+
+
 @pytest.mark.parametrize(
     ("catalog", "message"),
     [

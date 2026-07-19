@@ -34,6 +34,9 @@ Targeted UX and media-management checks can be run with:
 
 ```powershell
 python -m pytest -q tests/test_media_details.py tests/test_tool_setup.py tests/test_lyrics_ui.py
+python -m pytest -q tests/test_command_catalog.py tests/test_cli_command_matrix.py `
+  tests/test_hierarchical_queue_and_playlists.py tests/test_hierarchy_album_download_edges.py `
+  tests/test_output_targets.py
 npm test -- --run desktop/App.test.tsx desktop/commandCatalog.test.ts desktop/TerminalSurface.test.tsx
 ```
 
@@ -41,7 +44,9 @@ These cover safe metadata-derived renames, stable library identity, tool-bundle
 validation/progress, the non-recursive lyrics-window path, multiple terminal
 views, directional output search, CLI/UI theme synchronization, sanitized
 command-catalog projection, stale autocomplete rejection, ARIA active-option
-state, deterministic keyboard navigation, and non-executing selection.
+state, deterministic keyboard navigation, non-executing selection, bound
+playlist deletion/clearing, atomic lyrics-sidecar no-clobber behavior, and
+privacy-safe destructive risk labels.
 
 On Windows, rebuilding `node-pty` requires the Visual Studio C++ build tools.
 The development and packaged PTY tests may use a verified prebuilt binary, but

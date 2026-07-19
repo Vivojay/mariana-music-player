@@ -53,3 +53,12 @@
   field; it does not edit terminal input, write to the PTY, or execute a
   command. Tab completion, argument completion, dynamic media/path suggestions,
   and command submission require a future backend-owned line-editor contract.
+- Command-catalog risk labels are informational. They do not replace runtime
+  validation or confirmation, and autocomplete cannot approve or execute a
+  destructive command.
+- Playlist delete/clear are revision-bound, but add/remove/move/order still do
+  not use compare-and-swap revisions for concurrent writers. Revision restore
+  should be exposed before claiming full concurrent-edit recovery.
+- `library clean --missing` is confirmed as a global operation but currently
+  evaluates the missing-record set at execution time rather than binding the
+  exact tombstone IDs displayed before confirmation.

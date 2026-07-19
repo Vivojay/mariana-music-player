@@ -23,6 +23,14 @@
   library roots. It rejects URLs, directories, symlinks, missing/outside files,
   requires confirmation, and uses the native trash API with no permanent-delete
   fallback.
+- Playlist delete/clear bind the displayed playlist ID, name, and revision
+  before confirmation and transactionally refuse a renamed, removed, or edited
+  target. Lyrics sidecar creation binds an absent destination and uses atomic
+  no-clobber activation, preserving a file created by another process.
+- The command catalog exposes only static command names, categories, risk
+  labels, aliases, form kinds, and flags. It contains no paths, credentials,
+  private identifiers, handlers, insertion text, or confirmation callbacks.
+  Desktop autocomplete is display-only and cannot execute or approve commands.
 - Audio and listening history stay local unless an optional integration such as
   ListenBrainz is explicitly enabled.
 
@@ -40,5 +48,6 @@ Third-party exception text is replaced with fixed sanitized status text, and
 Discord transport failure is isolated from playback and shutdown.
 
 Security regressions are tested for URL redaction, credential persistence,
-subprocess arguments, events, logs, malformed archives, IPC boundaries, and
-failed transactional activation.
+subprocess arguments, events, logs, malformed archives, IPC boundaries,
+destructive target races, alias-equivalent guards, and failed transactional
+activation.
