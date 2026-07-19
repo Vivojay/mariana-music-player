@@ -22,7 +22,7 @@ mutations. It is not a claim that every mutation is irreversible.
 | --- | --- | --- | --- |
 | `rm|del <library-index|indexed-path>` | A numeric argument is resolved through the current available-library view, never the last search or queue. `RemovalTarget` binds library ID, resolved path, display index/title, and file signature. The service revalidates all fields immediately before `send2trash`, journals the filesystem/database boundary, and reconciles queue/library state. The explicit confirmation is the only normal surface where the canonical path is shown. | **Safe** | `main.py::recycle_library_media`; `mariana/media_removal.py::RemovalTarget`, `MediaRemovalService.resolve`, `_validate_bound_target`, and `remove`; `tests/test_media_removal.py`; `tests/test_main_helpers_and_commands.py::test_search_results_do_not_redirect_numeric_removal`. Global `remove` and `delete` are not aliases; only `rm` and `del` route here. |
 | `rename short` and `--dry-run` | Library numbers use `LibraryCatalog.info`, independent of search/queue state. The command now binds library ID, resolved path, device/inode, size, and modification time before preview. Apply revalidates the same `LibraryRenameTarget`; a moved, replaced, missing, or reindexed file is refused. Rename remains same-directory/same-extension and rolls the filesystem back if the database transaction fails. | **Safe (fixed in this audit)** | `main.py::rename_command`; `mariana/library.py::LibraryRenameTarget`, `bind_rename`, `rename_bound`, and `rename`; `tests/test_media_details.py::test_bound_library_rename_refuses_replaced_or_moved_target`; rename tests in `tests/test_main_helpers_and_commands.py`. |
-| Lyrics sidecar creation | `lyrics edit` binds the current local `MediaRef`, verifies the media file, confirms creation when the `.lrc` file is absent, writes a temporary file, and atomically replaces the destination. It does not overwrite an already-present sidecar during the initial check, but destination creation is not an atomic no-clobber operation if another process creates the sidecar during identification/confirmation. | **Needs follow-up** | `main.py::edit_current_lyrics`; confirmation coverage in `tests/test_cli_command_matrix.py`. Add an atomic create-if-absent boundary and a race regression test. |
+| Lyrics sidecar creation | `lyrics edit` binds the current local `MediaRef` and absent `.lrc` destination before confirmation, writes a complete temporary file, and uses `BoundOutputTarget` no-clobber activation. If another process creates the sidecar after approval, Mariana preserves it and refuses the edit. Existing sidecars still open normally. | **Safe (fixed after this audit)** | `main.py::edit_current_lyrics`; `mariana/output_targets.py::BoundOutputTarget`; confirmation, bypass, alias, and competing-creator coverage in `tests/test_cli_command_matrix.py`. |
 | `library clean --missing` | This is an explicitly global, confirmed database cleanup and never deletes media files. It removes all rows that are missing at execution time, including a tombstone created while the prompt is open; no pre-confirmation ID set or generation is bound. A later scan can recreate occurrences. | **Needs follow-up** | `main.py::library_command`; `mariana/library.py::clean_missing`; `tests/test_library_cli.py` and `tests/test_library_indexer.py`. Bind the confirmed tombstone ID set or label the operation explicitly as execution-time global state. |
 | Library job/loudness mutations | `library retry <target>` and `replaygain rescan <target>` resolve library numbers/paths through `LibraryCatalog.info`, then mutate by stable library ID. Missing targets fail. Loudness removal is regenerable. Explicit `library info/errors` may show paths because they are local inspection commands. | **Safe** | `main.py::library_command`, `replaygain_command`; `mariana/library.py::retry`; `mariana/loudness.py::delete`. Add a search-state poisoning regression test for numeric rescan/retry for parity with removal. |
 | Queue item/group mutations | `queue remove/move/swap/jump` positions and hierarchical paths are explicitly queue-scoped. Queue methods capture queue/group IDs, mutate in SQLite transactions, validate range/group/cycle/depth, and record undo history. Search and bare library numbering do not participate. `queue clear` is confirmed; reset/load/order/dedupe are explicit queue-wide operations with history where structural state changes. | **Safe** | `main.py::queue_command`, `_queue_group_command`; `mariana/queueing.py::remove`, `move`, `swap`, `remove_group`, `clear`, and `undo`; `tests/test_main_queue_edges.py`; hierarchy/property coverage in `tests/test_hierarchical_queue_and_playlists.py` and `tests/test_hierarchy_album_download_edges.py`. |
@@ -67,6 +67,10 @@ revision before confirmation, then revalidate that identity transactionally
 before mutation. A concurrent rename, edit, deletion, or replacement is
 refused instead of redirecting the confirmed action.
 
+The next slice applies the shared `BoundOutputTarget` contract to lyrics
+sidecar creation. The destination is bound before confirmation and activated
+without replacement, so a competing `.lrc` file is never silently overwritten.
+
 ## Recommended follow-up batches
 
 1. **Add compare-and-swap playlist edits.** Delete/clear are now bound; add
@@ -75,12 +79,10 @@ refused instead of redirecting the confirmed action.
 2. **Bind global cleanup sets.** Capture the missing-library IDs approved by
    `library clean --missing`, or clearly define and test execution-time global
    semantics.
-3. **Use atomic sidecar no-clobber creation.** Refuse if an `.lrc` target appears
-   after confirmation instead of replacing it.
-4. **Sanitize collection labels.** Stop using `original_uri` as the generic
+3. **Sanitize collection labels.** Stop using `original_uri` as the generic
    queue/playlist/desktop label. Add explicit privacy tests for local paths,
    online URLs, and provider identifiers.
-5. **Extend poisoning/concurrency tests.** Cover search/queue/current-state
+4. **Extend poisoning/concurrency tests.** Cover search/queue/current-state
    interference for rename, library retry/rescan, playlist deletion, and
    concurrent playlist revisions. Keep all destructive filesystem tests inside
    temporary directories with mocked trash or activation APIs.

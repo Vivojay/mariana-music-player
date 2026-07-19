@@ -908,3 +908,46 @@ def test_durable_lyrics_edit_creates_sidecar_only_after_confirmation(cli, monkey
         lambda *_args: pytest.fail("lyrics-sidecar confirmation bypass prompted"),
     )
     assert REAL_EDIT_CURRENT_LYRICS(assume_yes=True) == bypassed.with_suffix(".lrc")
+
+
+@pytest.mark.parametrize("command", ["lyrics edit", "lyr edit"])
+def test_lyrics_edit_aliases_refuse_sidecar_created_after_confirmation(
+    cli,
+    monkeypatch,
+    command,
+):
+    song = cli.tmp_path / f"raced-{command.split()[0]}.mp3"
+    song.write_bytes(b"audio")
+    sidecar = song.with_suffix(".lrc")
+    media = MediaRef(MediaSource.LOCAL, str(song))
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=media),
+    )
+    monkeypatch.setattr(main.vas.controller, "fingerprint_pcm", lambda: b"pcm")
+    monkeypatch.setattr(main, "_preference_media", lambda value: value)
+    monkeypatch.setattr(main, "edit_current_lyrics", REAL_EDIT_CURRENT_LYRICS)
+    monkeypatch.setattr(main, "DEFAULT_EDITOR", None)
+    monkeypatch.setattr(
+        main.IDENTITY,
+        "identify",
+        lambda *_args, **_kwargs: SimpleNamespace(),
+    )
+    monkeypatch.setattr(
+        main.IDENTITY,
+        "lyrics",
+        lambda *_args, **_kwargs: SimpleNamespace(synced="[00:01.00]Generated", plain=None),
+    )
+
+    def competing_creator(_prompt=""):
+        sidecar.write_text("[00:01.00]External\n", encoding="utf-8")
+        return "y"
+
+    monkeypatch.setattr("builtins.input", competing_creator)
+    main.process(command)
+
+    assert sidecar.read_text(encoding="utf-8") == "[00:01.00]External\n"
+    errors = [message.get("display_message", "") for message in cli.messages]
+    assert "Output destination appeared after approval; refusing overwrite" in errors
+    assert all(str(song) not in error and str(sidecar) not in error for error in errors)

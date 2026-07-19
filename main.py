@@ -108,6 +108,7 @@ from mariana.models import (
     truncate_display_cells,
 )
 from mariana.output_devices import OutputDeviceError, default_output_device
+from mariana.output_targets import OutputTargetError, bind_output_target
 from mariana.paths import initialize_runtime_paths
 from mariana.platform import open_path, reveal_path
 from mariana.playlists import PlaylistError, PlaylistStore
@@ -3197,6 +3198,12 @@ def edit_current_lyrics(*, assume_yes=False):
         raise ValueError('The current local media file is unavailable')
     sidecar = source.with_suffix('.lrc')
     if not sidecar.exists():
+        try:
+            output_target = bind_output_target(sidecar)
+        except OutputTargetError as error:
+            raise ValueError('Lyrics sidecar destination is unsafe') from error
+        if output_target.existed:
+            raise ValueError('Lyrics sidecar appeared while preparing the edit; retry the command')
         identity = IDENTITY.identify(media, pcm=vas.controller.fingerprint_pcm())
         result = IDENTITY.lyrics(media, identity)
         content = result.synced or result.plain
@@ -3212,7 +3219,10 @@ def edit_current_lyrics(*, assume_yes=False):
                 stream.write(content.rstrip() + '\n')
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temporary, sidecar)
+            try:
+                output_target.activate(temporary)
+            except OutputTargetError as error:
+                raise ValueError(str(error)) from error
         finally:
             temporary.unlink(missing_ok=True)
     if DEFAULT_EDITOR:
