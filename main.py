@@ -1583,19 +1583,21 @@ def playlist_command(arguments):
         yes, values = _confirmation_bypass(values, preserve_single_bare=True)
         if len(values) != 1:
             raise PlaylistError('Usage: playlist delete "<name>" [y|yes|--yes]')
-        if not _confirm_action(f'Delete playlist "{values[0]}"?', assume_yes=yes):
+        target = store.bind_mutation(values[0])
+        if not _confirm_action(f'Delete playlist "{target.name}"?', assume_yes=yes):
             IPrint('Playlist deletion cancelled', visible=visible)
             return
-        IPrint(f'Deleted playlist: {store.delete(values[0]).name}', visible=visible)
+        IPrint(f'Deleted playlist: {store.delete_bound(target).name}', visible=visible)
     elif operation == 'clear':
         yes, values = _confirmation_bypass(values, preserve_single_bare=True)
         if len(values) != 1:
             raise PlaylistError('Usage: playlist clear "<name>" [y|yes|--yes]')
-        if not _confirm_action(f'Clear every item from playlist "{values[0]}"?', assume_yes=yes):
+        target = store.bind_mutation(values[0])
+        if not _confirm_action(f'Clear every item from playlist "{target.name}"?', assume_yes=yes):
             IPrint('Playlist clear cancelled', visible=visible)
             return
-        store.clear(values[0])
-        IPrint(f'Cleared playlist: {values[0]}', visible=visible)
+        playlist = store.clear_bound(target)
+        IPrint(f'Cleared playlist: {playlist.name}', visible=visible)
     elif operation == 'add':
         at, values = _command_option(values, '--at')
         if len(values) != 3:

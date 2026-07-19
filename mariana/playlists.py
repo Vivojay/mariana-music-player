@@ -32,6 +32,13 @@ class PlaylistExportTarget:
     destination: BoundOutputTarget
 
 
+@dataclass(frozen=True, slots=True)
+class PlaylistMutationTarget:
+    playlist_id: str
+    name: str
+    revision: int
+
+
 def playlist_name(value: str) -> str:
     name = unicodedata.normalize("NFC", value).strip()
     if not name:
@@ -172,18 +179,60 @@ class PlaylistStore:
             raise PlaylistError(f"Playlist already exists: {normalized}") from error
         return self.get(playlist.playlist_id)
 
-    def delete(self, name_or_id: str) -> Playlist:
+    def bind_mutation(self, name_or_id: str) -> PlaylistMutationTarget:
         playlist = self.get(name_or_id)
-        with self.database.transaction() as connection:
-            connection.execute("DELETE FROM playlists WHERE playlist_id=?", (playlist.playlist_id,))
+        return PlaylistMutationTarget(playlist.playlist_id, playlist.name, playlist.revision)
+
+    def _bound_mutation_playlist(self, connection, target: PlaylistMutationTarget) -> Playlist:
+        row = connection.execute(
+            "SELECT * FROM playlists WHERE playlist_id=?",
+            (target.playlist_id,),
+        ).fetchone()
+        if row is None:
+            raise PlaylistError("Playlist target is no longer available")
+        playlist = self._playlist(row)
+        if playlist.name != target.name or playlist.revision != target.revision:
+            raise PlaylistError("Playlist changed after confirmation; retry the command")
         return playlist
 
-    def clear(self, name_or_id: str) -> Playlist:
-        playlist = self.get(name_or_id)
-        return self.save_snapshot(
-            playlist.name,
-            {"version": 1, "groups": [], "items": [], "state": {}},
+    def delete_bound(self, target: PlaylistMutationTarget) -> Playlist:
+        with self.database.transaction() as connection:
+            playlist = self._bound_mutation_playlist(connection, target)
+            cursor = connection.execute(
+                "DELETE FROM playlists WHERE playlist_id=? AND revision=?",
+                (target.playlist_id, target.revision),
+            )
+            if cursor.rowcount != 1:
+                raise PlaylistError("Playlist changed after confirmation; retry the command")
+        return playlist
+
+    def delete(self, name_or_id: str) -> Playlist:
+        return self.delete_bound(self.bind_mutation(name_or_id))
+
+    def clear_bound(self, target: PlaylistMutationTarget) -> Playlist:
+        tree = self._normalized_tree(
+            {"version": 1, "groups": [], "items": [], "state": {}}
         )
+        payload = json.dumps(tree, ensure_ascii=False)
+        now = time.time()
+        with self.database.transaction() as connection:
+            playlist = self._bound_mutation_playlist(connection, target)
+            connection.execute(
+                "INSERT OR IGNORE INTO playlist_revisions(playlist_id,revision,tree_json,created_at) "
+                "VALUES(?,?,?,?)",
+                (playlist.playlist_id, playlist.revision, json.dumps(playlist.tree, ensure_ascii=False), now),
+            )
+            cursor = connection.execute(
+                "UPDATE playlists SET tree_json=?,revision=revision+1,updated_at=? "
+                "WHERE playlist_id=? AND revision=?",
+                (payload, now, target.playlist_id, target.revision),
+            )
+            if cursor.rowcount != 1:
+                raise PlaylistError("Playlist changed after confirmation; retry the command")
+        return self.get(target.playlist_id)
+
+    def clear(self, name_or_id: str) -> Playlist:
+        return self.clear_bound(self.bind_mutation(name_or_id))
 
     def revisions(self, name_or_id: str) -> list[int]:
         playlist = self.get(name_or_id)

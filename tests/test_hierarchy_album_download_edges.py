@@ -889,3 +889,37 @@ def test_playlist_clear_rejection_preserves_contents_and_validates_usage(monkeyp
         assert len(queue.playlists.flattened_media(queue.playlists.get("Keep me").tree)) == 1
         with pytest.raises(PlaylistError, match="Usage"):
             main.playlist_command(["clear"])
+
+
+@pytest.mark.parametrize("operation", ["delete", "clear"])
+def test_playlist_destructive_confirmation_binds_target_revision(
+    monkeypatch,
+    tmp_path: Path,
+    operation: str,
+):
+    with MarianaDatabase(tmp_path / f"playlist-{operation}-binding.db") as database:
+        queue = PersistentQueue(database)
+        original = queue.playlists.create(
+            "Mutable",
+            tree=PlaylistStore.snapshot_from_media([media("original")]),
+        )
+        monkeypatch.setattr(main, "QUEUE", queue)
+        monkeypatch.setattr(main, "IPrint", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(main, "_emit_queue_desktop_state", lambda: None)
+
+        def mutate_before_confirmation(_prompt: str, *, assume_yes: bool = False) -> bool:
+            assert assume_yes is False
+            queue.playlists.save_snapshot(
+                "Mutable",
+                PlaylistStore.snapshot_from_media([media("replacement")]),
+            )
+            return True
+
+        monkeypatch.setattr(main, "_confirm_action", mutate_before_confirmation)
+        with pytest.raises(PlaylistError, match="changed after confirmation"):
+            main.playlist_command([operation, "Mutable"])
+
+        current = queue.playlists.get(original.playlist_id)
+        assert [item.title for item in queue.playlists.flattened_media(current.tree)] == [
+            "replacement"
+        ]

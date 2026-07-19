@@ -154,6 +154,37 @@ def test_playlist_crud_versions_and_queue_compatibility(tmp_path: Path):
             store.get("Night Drive")
 
 
+def test_bound_playlist_delete_and_clear_refuse_changed_targets(tmp_path: Path):
+    with MarianaDatabase(tmp_path / "playlist-mutation.db") as database:
+        store = PlaylistStore(database)
+        playlist = store.create(
+            "Bound",
+            tree=PlaylistStore.snapshot_from_media([media("one")]),
+        )
+
+        stale_clear = store.bind_mutation(playlist.playlist_id)
+        store.save_snapshot("Bound", PlaylistStore.snapshot_from_media([media("two")]))
+        with pytest.raises(PlaylistError, match="changed after confirmation"):
+            store.clear_bound(stale_clear)
+        assert [item.title for item in store.flattened_media(store.get("Bound").tree)] == ["two"]
+
+        stale_delete = store.bind_mutation(playlist.playlist_id)
+        store.rename("Bound", "Renamed")
+        with pytest.raises(PlaylistError, match="changed after confirmation"):
+            store.delete_bound(stale_delete)
+        assert store.get("Renamed").playlist_id == playlist.playlist_id
+
+
+def test_bound_playlist_mutation_refuses_missing_target(tmp_path: Path):
+    with MarianaDatabase(tmp_path / "playlist-missing.db") as database:
+        store = PlaylistStore(database)
+        target = store.bind_mutation(store.create("Temporary").playlist_id)
+        store.delete(target.playlist_id)
+
+        with pytest.raises(PlaylistError, match="no longer available"):
+            store.delete_bound(target)
+
+
 def test_corrupt_playlist_payload_is_typed(tmp_path: Path):
     with MarianaDatabase(tmp_path / "queue.db") as database:
         store = PlaylistStore(database)
