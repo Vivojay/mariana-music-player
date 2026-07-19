@@ -107,6 +107,7 @@ export default function App() {
   const [search, setSearch] = useState('')
   const autocompleteGenerationRef = useRef(0)
   const autocompleteRequestRef = useRef({ typedPrefix: '', generation: 0 })
+  const autocompleteInitialSelectionRef = useRef<'first' | 'last'>('first')
   const [autocompleteRequest, setAutocompleteRequest] = useState({ typedPrefix: '', generation: 0 })
   const [autocompleteOpen, setAutocompleteOpen] = useState(false)
   const [autocompletePending, setAutocompletePending] = useState(false)
@@ -312,7 +313,11 @@ export default function App() {
       const projection = projectCommandSuggestions(result.catalog, request)
       if (!isCommandSuggestionProjectionCurrent(projection, current.typedPrefix, current.generation)) return
       setAutocompleteProjection(projection)
-      setAutocompleteActiveIndex(0)
+      setAutocompleteActiveIndex(
+        autocompleteInitialSelectionRef.current === 'last'
+          ? Math.max(0, projection.suggestions.length - 1)
+          : 0,
+      )
       setAutocompletePending(false)
     }).catch(() => {
       if (cancelled) return
@@ -378,10 +383,11 @@ export default function App() {
     window.dispatchEvent(new CustomEvent('mariana-search', { detail: { query, direction, tabId: activeTab } }))
   }
 
-  const requestCommandSuggestions = (typedPrefix: string) => {
+  const requestCommandSuggestions = (typedPrefix: string, initialSelection: 'first' | 'last' = 'first') => {
     const request = { typedPrefix, generation: autocompleteGenerationRef.current + 1 }
     autocompleteGenerationRef.current = request.generation
     autocompleteRequestRef.current = request
+    autocompleteInitialSelectionRef.current = initialSelection
     setAutocompleteRequest(request)
     setAutocompleteProjection(null)
     setAutocompleteActiveIndex(0)
@@ -469,6 +475,13 @@ export default function App() {
   const activeSuggestionId = autocompleteOpen && commandSuggestions.length
     ? `command-suggestion-${autocompleteRequest.generation}-${autocompleteActiveIndex}`
     : undefined
+  const commandSuggestionStatus = (() => {
+    if (autocompletePending) return 'Loading command suggestions'
+    if (autocompleteError) return 'Command suggestions unavailable'
+    if (!commandSuggestions.length) return 'No command suggestions'
+    const label = commandSuggestions.length === 1 ? 'suggestion' : 'suggestions'
+    return `${commandSuggestions.length} command ${label}. Enter selects without running.`
+  })()
 
   return (
     <main className={`app platform-${window.mariana.platform} theme-${themeName}`} style={style}>
@@ -484,15 +497,21 @@ export default function App() {
               role="combobox"
               aria-label="Command suggestions"
               aria-autocomplete="list"
+              aria-haspopup="listbox"
               aria-expanded={autocompleteOpen}
-              aria-controls="command-suggestion-list"
+              aria-controls={autocompleteOpen ? 'command-suggestion-list' : undefined}
               aria-activedescendant={activeSuggestionId}
+              aria-busy={autocompletePending || undefined}
+              aria-describedby={autocompleteOpen ? 'command-suggestion-status' : undefined}
               autoComplete="off"
               spellCheck={false}
               placeholder="Explore commands"
               value={autocompleteRequest.typedPrefix}
               onFocus={() => {
                 if (!autocompleteOpen) requestCommandSuggestions(autocompleteRequestRef.current.typedPrefix)
+              }}
+              onBlur={() => {
+                if (autocompleteOpen) closeCommandSuggestions()
               }}
               onChange={(event) => requestCommandSuggestions(event.target.value)}
               onKeyDown={(event) => {
@@ -509,6 +528,13 @@ export default function App() {
                 }
                 if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
                   event.preventDefault()
+                  if (!autocompleteOpen) {
+                    requestCommandSuggestions(
+                      autocompleteRequestRef.current.typedPrefix,
+                      event.key === 'ArrowUp' ? 'last' : 'first',
+                    )
+                    return
+                  }
                   if (!commandSuggestions.length) return
                   const direction = event.key === 'ArrowDown' ? 1 : -1
                   setAutocompleteActiveIndex((index) => (
@@ -519,40 +545,40 @@ export default function App() {
             />
             {autocompleteOpen && (
               <div className="command-suggestion-popover">
-                {autocompletePending ? (
-                  <p role="status">Loading command suggestions</p>
-                ) : autocompleteError ? (
-                  <p role="status">Command suggestions unavailable</p>
-                ) : commandSuggestions.length ? (
-                  <>
-                    <p className="command-suggestion-count" aria-live="polite">
-                      {commandSuggestions.length} command suggestions
-                    </p>
-                    <ul id="command-suggestion-list" role="listbox" aria-label="Available commands">
-                      {commandSuggestions.map((suggestion, index) => (
-                        <li
-                          id={`command-suggestion-${autocompleteRequest.generation}-${index}`}
-                          key={suggestion.key}
-                          role="option"
-                          aria-selected={index === autocompleteActiveIndex}
-                          className={index === autocompleteActiveIndex ? 'active' : ''}
-                          onMouseEnter={() => setAutocompleteActiveIndex(index)}
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => acceptCommandSuggestion(suggestion.key, autocompleteRequest)}
-                        >
-                          <span className="command-suggestion-identity">
-                            <strong>{suggestion.display_label}</strong>
-                            {suggestion.matched_alias && <code>{suggestion.matched_alias}</code>}
-                          </span>
-                          <span>{suggestion.detail}</span>
-                          <small>{suggestion.category} / {suggestion.risk}</small>
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                ) : (
-                  <p role="status">No command suggestions</p>
-                )}
+                <p
+                  id="command-suggestion-status"
+                  className="command-suggestion-count"
+                  role="status"
+                  aria-live="polite"
+                >
+                  {commandSuggestionStatus}
+                </p>
+                <ul
+                  id="command-suggestion-list"
+                  role="listbox"
+                  aria-label="Available commands"
+                  aria-busy={autocompletePending || undefined}
+                >
+                  {!autocompletePending && !autocompleteError && commandSuggestions.map((suggestion, index) => (
+                    <li
+                      id={`command-suggestion-${autocompleteRequest.generation}-${index}`}
+                      key={suggestion.key}
+                      role="option"
+                      aria-selected={index === autocompleteActiveIndex}
+                      className={index === autocompleteActiveIndex ? 'active' : ''}
+                      onMouseEnter={() => setAutocompleteActiveIndex(index)}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => acceptCommandSuggestion(suggestion.key, autocompleteRequest)}
+                    >
+                      <span className="command-suggestion-identity">
+                        <strong>{suggestion.display_label}</strong>
+                        {suggestion.matched_alias && <code>{suggestion.matched_alias}</code>}
+                      </span>
+                      <span>{suggestion.detail}</span>
+                      <small>{suggestion.category} / {suggestion.risk}</small>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
           </div>

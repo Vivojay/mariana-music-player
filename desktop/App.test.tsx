@@ -88,7 +88,7 @@ beforeEach(() => {
   toggleFavorite.mockResolvedValue({ ok: true })
   seek.mockClear()
   seek.mockResolvedValue({ ok: true })
-  commandCatalog.mockClear()
+  commandCatalog.mockReset()
   commandCatalog.mockResolvedValue(safeCommandCatalog)
   backendEvent = undefined
   updateEvent = undefined
@@ -130,13 +130,24 @@ describe('Mariana desktop shell', () => {
 
     fireEvent.focus(input)
     await waitFor(() => expect(commandCatalog).toHaveBeenCalledWith({ typedPrefix: '' }))
-    const listbox = await screen.findByRole('listbox', { name: 'Available commands' })
+    const listbox = screen.getByRole('listbox', { name: 'Available commands' })
+    await waitFor(() => expect(within(listbox).getAllByRole('option')).toHaveLength(3))
     expect(listbox).toBeVisible()
-    expect(within(listbox).getAllByRole('option').map((option) => option.textContent)).toEqual([
+    expect(input).toHaveAttribute('aria-haspopup', 'listbox')
+    expect(input).toHaveAttribute('aria-expanded', 'true')
+    expect(input).toHaveAttribute('aria-controls', 'command-suggestion-list')
+    expect(input).toHaveAttribute('aria-describedby', 'command-suggestion-status')
+    expect(input).not.toHaveAttribute('aria-busy')
+    expect(listbox).toHaveAttribute('id', 'command-suggestion-list')
+    const options = within(listbox).getAllByRole('option')
+    expect(options.map((option) => option.textContent)).toEqual([
       expect.stringContaining('pause'),
       expect.stringContaining('play'),
       expect.stringContaining('playlist'),
     ])
+    expect(options.map((option) => option.getAttribute('aria-selected'))).toEqual(['true', 'false', 'false'])
+    expect(input).toHaveAttribute('aria-activedescendant', options[0].id)
+    expect(screen.getByRole('status')).toHaveTextContent('3 command suggestions. Enter selects without running.')
     expect(write).not.toHaveBeenCalled()
   })
 
@@ -145,13 +156,16 @@ describe('Mariana desktop shell', () => {
     const input = screen.getByRole('combobox', { name: 'Command suggestions' })
 
     fireEvent.change(input, { target: { value: 'pla' } })
-    await screen.findByRole('listbox', { name: 'Available commands' })
-    const options = screen.getAllByRole('option')
+    const listbox = screen.getByRole('listbox', { name: 'Available commands' })
+    await within(listbox).findByText('Play library media')
+    const options = within(listbox).getAllByRole('option')
     expect(options[0]).toHaveAttribute('aria-selected', 'true')
     fireEvent.keyDown(input, { key: 'ArrowUp' })
     expect(options[1]).toHaveAttribute('aria-selected', 'true')
+    expect(input).toHaveAttribute('aria-activedescendant', options[1].id)
     fireEvent.keyDown(input, { key: 'ArrowDown' })
     expect(options[0]).toHaveAttribute('aria-selected', 'true')
+    expect(input).toHaveAttribute('aria-activedescendant', options[0].id)
     fireEvent.keyDown(input, { key: 'ArrowDown' })
     expect(options[1]).toHaveAttribute('aria-selected', 'true')
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -164,12 +178,66 @@ describe('Mariana desktop shell', () => {
     expect(seek).not.toHaveBeenCalled()
   })
 
+  it('reopens deterministically from the keyboard after Escape', async () => {
+    render(<App />)
+    const input = screen.getByRole('combobox', { name: 'Command suggestions' })
+
+    fireEvent.change(input, { target: { value: 'pla' } })
+    await within(screen.getByRole('listbox', { name: 'Available commands' })).findByText('Play library media')
+    fireEvent.keyDown(input, { key: 'Escape' })
+    fireEvent.keyDown(input, { key: 'ArrowUp' })
+
+    let listbox = screen.getByRole('listbox', { name: 'Available commands' })
+    await waitFor(() => expect(within(listbox).getAllByRole('option')).toHaveLength(2))
+    let options = within(listbox).getAllByRole('option')
+    expect(options.at(-1)).toHaveAttribute('aria-selected', 'true')
+    expect(input).toHaveAttribute('aria-activedescendant', options.at(-1)?.id)
+
+    fireEvent.keyDown(input, { key: 'Escape' })
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    listbox = screen.getByRole('listbox', { name: 'Available commands' })
+    await waitFor(() => expect(within(listbox).getAllByRole('option')).toHaveLength(2))
+    options = within(listbox).getAllByRole('option')
+    expect(options[0]).toHaveAttribute('aria-selected', 'true')
+    expect(input).toHaveAttribute('aria-activedescendant', options[0].id)
+  })
+
+  it('exposes safe loading and no-result states without a stale active option', async () => {
+    let resolveCatalog: ((result: CommandCatalogResult) => void) | undefined
+    commandCatalog.mockImplementationOnce(() => new Promise((resolve) => { resolveCatalog = resolve }))
+    render(<App />)
+    const input = screen.getByRole('combobox', { name: 'Command suggestions' })
+
+    fireEvent.focus(input)
+    expect(await screen.findByRole('status')).toHaveTextContent('Loading command suggestions')
+    expect(input).toHaveAttribute('aria-busy', 'true')
+    expect(input).toHaveAttribute('aria-controls', 'command-suggestion-list')
+    expect(input).not.toHaveAttribute('aria-activedescendant')
+    expect(screen.getByRole('listbox', { name: 'Available commands' })).toHaveAttribute('aria-busy', 'true')
+    let listbox = screen.getByRole('listbox', { name: 'Available commands' })
+    expect(within(listbox).queryByRole('option')).not.toBeInTheDocument()
+
+    await act(async () => { resolveCatalog?.(safeCommandCatalog) })
+    await within(listbox).findByText('Pause playback')
+    fireEvent.change(input, { target: { value: 'zzz' } })
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('No command suggestions'))
+    expect(input).not.toHaveAttribute('aria-busy')
+    expect(input).toHaveAttribute('aria-controls', 'command-suggestion-list')
+    expect(input).not.toHaveAttribute('aria-activedescendant')
+    listbox = screen.getByRole('listbox', { name: 'Available commands' })
+    expect(listbox).not.toHaveAttribute('aria-busy')
+    expect(within(listbox).queryByRole('option')).not.toBeInTheDocument()
+    expect(write).not.toHaveBeenCalled()
+  })
+
   it('accepts a pointer selection into the controlled field without executing it', async () => {
     render(<App />)
     const input = screen.getByRole('combobox', { name: 'Command suggestions' })
 
     fireEvent.change(input, { target: { value: 'pla' } })
-    const listbox = await screen.findByRole('listbox', { name: 'Available commands' })
+    await screen.findByText('Play library media')
+    const listbox = screen.getByRole('listbox', { name: 'Available commands' })
     fireEvent.click(within(listbox).getByText('Play library media').closest('[role="option"]') as HTMLElement)
 
     expect(input).toHaveValue('play')
@@ -189,16 +257,19 @@ describe('Mariana desktop shell', () => {
     const input = screen.getByRole('combobox', { name: 'Command suggestions' })
 
     fireEvent.focus(input)
-    await screen.findByRole('listbox', { name: 'Available commands' })
+    await within(screen.getByRole('listbox', { name: 'Available commands' })).findByText('Pause playback')
     fireEvent.change(input, { target: { value: 'pla' } })
     await screen.findByText('Loading command suggestions')
     fireEvent.keyDown(input, { key: 'Enter' })
 
     expect(input).toHaveValue('pla')
     expect(input).toHaveAttribute('aria-expanded', 'true')
+    expect(input).not.toHaveAttribute('aria-activedescendant')
     expect(write).not.toHaveBeenCalled()
     await act(async () => { resolveLatest?.(safeCommandCatalog) })
-    expect(await screen.findByRole('listbox', { name: 'Available commands' })).toBeVisible()
+    expect(await within(screen.getByRole('listbox', { name: 'Available commands' })).findByText(
+      'Play library media',
+    )).toBeVisible()
   })
 
   it('closes suggestions with Escape while preserving the display query', async () => {
@@ -206,11 +277,14 @@ describe('Mariana desktop shell', () => {
     const input = screen.getByRole('combobox', { name: 'Command suggestions' })
 
     fireEvent.change(input, { target: { value: 'pla' } })
-    await screen.findByRole('listbox', { name: 'Available commands' })
+    await within(screen.getByRole('listbox', { name: 'Available commands' })).findByText('Play library media')
     fireEvent.keyDown(input, { key: 'Escape' })
 
     expect(input).toHaveValue('pla')
     expect(input).toHaveAttribute('aria-expanded', 'false')
+    expect(input).not.toHaveAttribute('aria-controls')
+    expect(input).not.toHaveAttribute('aria-activedescendant')
+    expect(input).not.toHaveAttribute('aria-describedby')
     expect(screen.queryByRole('listbox', { name: 'Available commands' })).not.toBeInTheDocument()
     expect(write).not.toHaveBeenCalled()
   })
