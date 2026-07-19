@@ -142,6 +142,23 @@ def test_observer_schedules_only_healthy_local_roots_and_closes(monkeypatch):
     assert observer.started and observer.stopped and observer.joined
 
 
+def test_observer_stays_dormant_without_healthy_local_roots(monkeypatch):
+    class FakeObserver:
+        def schedule(self, *_args, **_kwargs):
+            raise AssertionError("no unavailable root should be scheduled")
+
+        def start(self):
+            raise AssertionError("observer must not start without a scheduled root")
+
+    observer = FakeObserver()
+    monkeypatch.setattr("mariana.library_service.Observer", lambda **_kwargs: observer)
+    service = LibraryProfilerService(Catalog(), watch=True)
+
+    service._start_observer()
+
+    assert service._observer is None
+
+
 def test_coordinator_and_worker_record_errors_and_timer_scan():
     class Broken(Catalog):
         online_enrichment = True
