@@ -9,6 +9,40 @@ const ENTRY_KEYS = ['aliases', 'availability', 'canonical', 'category', 'forms',
 const FORM_KEYS = ['argument_kinds', 'flags', 'tokens']
 const RISKS = new Set(['read-only', 'state-changing', 'destructive', 'external-action'])
 const PRIVATE_TEXT = /(?:https?:\/\/|[a-z]:[\\/]|\\\\)/iu
+const DEFAULT_SUGGESTION_LIMIT = 8
+const MAXIMUM_SUGGESTION_LIMIT = 20
+
+export type CommandSuggestionMatch =
+  | 'canonical-exact'
+  | 'canonical-prefix'
+  | 'alias-exact'
+  | 'alias-prefix'
+
+export type CommandSuggestion = Readonly<{
+  key: string
+  canonical: string
+  display_label: string
+  detail: string
+  category: string
+  risk: CommandCatalogEntry['risk']
+  aliases: readonly string[]
+  matched_alias: string | null
+  match_kind: CommandSuggestionMatch
+}>
+
+export type CommandSuggestionRequest = Readonly<{
+  typedPrefix: string
+  generation: number
+  limit?: number
+}>
+
+export type CommandSuggestionProjection = Readonly<{
+  valid: boolean
+  catalog_schema_version: 1
+  request_generation: number | null
+  typed_prefix: string | null
+  suggestions: readonly CommandSuggestion[]
+}>
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -100,4 +134,118 @@ export function projectCommandCatalog(value: unknown): CommandCatalogSnapshot | 
   const entries = value.entries.map(projectEntry)
   if (entries.some((entry) => entry === null)) return null
   return { schema_version: 1, entries: entries as CommandCatalogEntry[] }
+}
+
+function normalizedMatchText(value: string): string {
+  return value.normalize('NFKC').toLowerCase()
+}
+
+function compareText(left: string, right: string): number {
+  if (left < right) return -1
+  if (left > right) return 1
+  return 0
+}
+
+function suggestionLimit(value: number | undefined): number | null {
+  if (value === undefined) return DEFAULT_SUGGESTION_LIMIT
+  if (!Number.isSafeInteger(value) || value < 0) return null
+  return Math.min(value, MAXIMUM_SUGGESTION_LIMIT)
+}
+
+function matchEntry(entry: CommandCatalogEntry, prefix: string): {
+  rank: number
+  matchedAlias: string | null
+  kind: CommandSuggestionMatch
+} | null {
+  const canonical = normalizedMatchText(entry.canonical)
+  if (prefix && canonical === prefix) return { rank: 0, matchedAlias: null, kind: 'canonical-exact' }
+  if (canonical.startsWith(prefix)) return { rank: 1, matchedAlias: null, kind: 'canonical-prefix' }
+
+  const aliases = entry.aliases
+    .map((alias) => ({ alias, normalized: normalizedMatchText(alias) }))
+    .filter(({ normalized }) => normalized.startsWith(prefix))
+    .sort((left, right) => {
+      const exactDifference = Number(left.normalized !== prefix) - Number(right.normalized !== prefix)
+      return exactDifference || compareText(left.normalized, right.normalized) || compareText(left.alias, right.alias)
+    })
+  const matched = aliases[0]
+  if (!matched) return null
+  const exact = matched.normalized === prefix
+  return {
+    rank: exact ? 2 : 3,
+    matchedAlias: matched.alias,
+    kind: exact ? 'alias-exact' : 'alias-prefix',
+  }
+}
+
+/**
+ * Convert validated backend catalog rows into bounded display metadata only.
+ * The result intentionally contains no insertion text, replacement span, or action.
+ */
+export function projectCommandSuggestions(
+  catalog: CommandCatalogSnapshot,
+  request: CommandSuggestionRequest,
+): CommandSuggestionProjection {
+  const limit = suggestionLimit(request.limit)
+  if (
+    catalog.schema_version !== 1
+    || !Number.isSafeInteger(request.generation)
+    || request.generation < 0
+    || !safeText(request.typedPrefix, 64, true)
+    || limit === null
+  ) {
+    return {
+      valid: false,
+      catalog_schema_version: 1,
+      request_generation: null,
+      typed_prefix: null,
+      suggestions: [],
+    }
+  }
+
+  const prefix = normalizedMatchText(request.typedPrefix)
+  const suggestions = catalog.entries
+    .map((entry) => ({ entry, match: matchEntry(entry, prefix) }))
+    .filter((candidate): candidate is typeof candidate & { match: NonNullable<typeof candidate.match> } => (
+      candidate.match !== null
+    ))
+    .sort((left, right) => (
+      left.match.rank - right.match.rank
+      || compareText(normalizedMatchText(left.entry.category), normalizedMatchText(right.entry.category))
+      || compareText(normalizedMatchText(left.entry.canonical), normalizedMatchText(right.entry.canonical))
+      || compareText(left.entry.key, right.entry.key)
+    ))
+    .slice(0, limit)
+    .map(({ entry, match }) => ({
+      key: entry.key,
+      canonical: entry.canonical,
+      display_label: entry.canonical,
+      detail: entry.summary,
+      category: entry.category,
+      risk: entry.risk,
+      aliases: [...entry.aliases],
+      matched_alias: match.matchedAlias,
+      match_kind: match.kind,
+    }))
+
+  return {
+    valid: true,
+    catalog_schema_version: 1,
+    request_generation: request.generation,
+    typed_prefix: request.typedPrefix,
+    suggestions,
+  }
+}
+
+export function isCommandSuggestionProjectionCurrent(
+  projection: CommandSuggestionProjection,
+  typedPrefix: string,
+  generation: number,
+): boolean {
+  return projection.valid
+    && Number.isSafeInteger(generation)
+    && generation >= 0
+    && safeText(typedPrefix, 64, true)
+    && projection.request_generation === generation
+    && projection.typed_prefix === typedPrefix
 }
