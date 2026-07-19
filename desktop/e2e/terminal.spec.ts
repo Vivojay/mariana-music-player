@@ -45,6 +45,14 @@ test('hosts the real Mariana PTY in the riced terminal shell', async () => {
       expect(compatibilityCatalog.catalog.entries.find((entry) => entry.canonical === 'now')?.aliases).toEqual(['.'])
       expect(compatibilityCatalog.catalog.entries.some((entry) => entry.canonical === '/rs')).toBe(false)
     }
+    const commandSuggestions = page.getByRole('combobox', { name: 'Command suggestions' })
+    await commandSuggestions.fill('pla')
+    await expect(page.getByRole('listbox', { name: 'Available commands' })).toBeVisible()
+    await expect(page.getByRole('option', { name: /play/i }).first()).toBeVisible()
+    await commandSuggestions.press('ArrowDown')
+    await expect(commandSuggestions).toHaveAttribute('aria-activedescendant', /command-suggestion-/)
+    await commandSuggestions.press('Escape')
+    await expect(page.getByRole('listbox', { name: 'Available commands' })).toBeHidden()
     expect(await page.evaluate(() => window.mariana.backend.seek('missing-media', 10))).toEqual({
       ok: false,
       error: 'Current media changed; try again',

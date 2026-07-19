@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
+import {
+  isCommandSuggestionProjectionCurrent,
+  projectCommandSuggestions,
+  type CommandSuggestionProjection,
+} from './commandCatalog'
 import { PlaybackStatusBar } from './PlaybackStatusBar'
 import { validateSeekIntent } from './playbackSeek'
 import { TerminalSurface } from './TerminalSurface'
@@ -100,6 +105,14 @@ export default function App() {
   const [timerAction, setTimerAction] = useState<'pause' | 'stop'>('pause')
   const [timerStatus, setTimerStatus] = useState<Record<string, unknown>>({ active: false })
   const [search, setSearch] = useState('')
+  const autocompleteGenerationRef = useRef(0)
+  const autocompleteRequestRef = useRef({ typedPrefix: '', generation: 0 })
+  const [autocompleteRequest, setAutocompleteRequest] = useState({ typedPrefix: '', generation: 0 })
+  const [autocompleteOpen, setAutocompleteOpen] = useState(false)
+  const [autocompletePending, setAutocompletePending] = useState(false)
+  const [autocompleteError, setAutocompleteError] = useState(false)
+  const [autocompleteProjection, setAutocompleteProjection] = useState<CommandSuggestionProjection | null>(null)
+  const [autocompleteActiveIndex, setAutocompleteActiveIndex] = useState(0)
   const [tabs, setTabs] = useState([{ id: 1, title: 'View 1' }])
   const [activeTab, setActiveTab] = useState(1)
   const tabsRef = useRef(tabs)
@@ -282,6 +295,36 @@ export default function App() {
     return () => { backend(); updater(); exited(); window.removeEventListener('keydown', shortcut) }
   }, [])
 
+  useEffect(() => {
+    if (!autocompleteOpen) return
+    const request = autocompleteRequest
+    let cancelled = false
+    void window.mariana.backend.commandCatalog({ typedPrefix: request.typedPrefix }).then((result) => {
+      if (cancelled) return
+      const current = autocompleteRequestRef.current
+      if (current.generation !== request.generation || current.typedPrefix !== request.typedPrefix) return
+      if (!result.ok) {
+        setAutocompleteProjection(null)
+        setAutocompletePending(false)
+        setAutocompleteError(true)
+        return
+      }
+      const projection = projectCommandSuggestions(result.catalog, request)
+      if (!isCommandSuggestionProjectionCurrent(projection, current.typedPrefix, current.generation)) return
+      setAutocompleteProjection(projection)
+      setAutocompleteActiveIndex(0)
+      setAutocompletePending(false)
+    }).catch(() => {
+      if (cancelled) return
+      const current = autocompleteRequestRef.current
+      if (current.generation !== request.generation || current.typedPrefix !== request.typedPrefix) return
+      setAutocompleteProjection(null)
+      setAutocompletePending(false)
+      setAutocompleteError(true)
+    })
+    return () => { cancelled = true }
+  }, [autocompleteOpen, autocompleteRequest])
+
   const startTimer = (duration: string) => {
     sendCommand(`sleep ${duration} ${timerAction}`)
     setTimerOpen(false)
@@ -335,6 +378,31 @@ export default function App() {
     window.dispatchEvent(new CustomEvent('mariana-search', { detail: { query, direction, tabId: activeTab } }))
   }
 
+  const requestCommandSuggestions = (typedPrefix: string) => {
+    const request = { typedPrefix, generation: autocompleteGenerationRef.current + 1 }
+    autocompleteGenerationRef.current = request.generation
+    autocompleteRequestRef.current = request
+    setAutocompleteRequest(request)
+    setAutocompleteProjection(null)
+    setAutocompleteActiveIndex(0)
+    setAutocompletePending(true)
+    setAutocompleteError(false)
+    setAutocompleteOpen(true)
+  }
+
+  const closeCommandSuggestions = () => {
+    autocompleteGenerationRef.current += 1
+    autocompleteRequestRef.current = {
+      typedPrefix: autocompleteRequestRef.current.typedPrefix,
+      generation: autocompleteGenerationRef.current,
+    }
+    setAutocompleteOpen(false)
+    setAutocompletePending(false)
+    setAutocompleteError(false)
+    setAutocompleteProjection(null)
+    setAutocompleteActiveIndex(0)
+  }
+
   const addTab = () => {
     const id = Math.max(0, ...tabs.map((tab) => tab.id)) + 1
     setTabs((current) => [...current, { id, title: `View ${id}` }])
@@ -360,6 +428,17 @@ export default function App() {
     playbackStatus?.position_seconds,
     backendState === 'ready',
   ).ok
+  const commandSuggestions = autocompleteProjection
+    && isCommandSuggestionProjectionCurrent(
+      autocompleteProjection,
+      autocompleteRequest.typedPrefix,
+      autocompleteRequest.generation,
+    )
+    ? autocompleteProjection.suggestions
+    : []
+  const activeSuggestionId = autocompleteOpen && commandSuggestions.length
+    ? `command-suggestion-${autocompleteRequest.generation}-${autocompleteActiveIndex}`
+    : undefined
 
   return (
     <main className={`app platform-${window.mariana.platform} theme-${themeName}`} style={style}>
@@ -369,6 +448,79 @@ export default function App() {
           <span className={`backend-dot ${backendState}`} title={`Backend: ${backendState}`} />
         </div>
         <div className="title-actions">
+          <div className="command-autocomplete">
+            <span aria-hidden="true">&gt;</span>
+            <input
+              role="combobox"
+              aria-label="Command suggestions"
+              aria-autocomplete="list"
+              aria-expanded={autocompleteOpen}
+              aria-controls="command-suggestion-list"
+              aria-activedescendant={activeSuggestionId}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Explore commands"
+              value={autocompleteRequest.typedPrefix}
+              onFocus={() => {
+                if (!autocompleteOpen) requestCommandSuggestions(autocompleteRequestRef.current.typedPrefix)
+              }}
+              onChange={(event) => requestCommandSuggestions(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  closeCommandSuggestions()
+                  return
+                }
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  return
+                }
+                if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                  event.preventDefault()
+                  if (!commandSuggestions.length) return
+                  const direction = event.key === 'ArrowDown' ? 1 : -1
+                  setAutocompleteActiveIndex((index) => (
+                    (index + direction + commandSuggestions.length) % commandSuggestions.length
+                  ))
+                }
+              }}
+            />
+            {autocompleteOpen && (
+              <div className="command-suggestion-popover">
+                {autocompletePending ? (
+                  <p role="status">Loading command suggestions</p>
+                ) : autocompleteError ? (
+                  <p role="status">Command suggestions unavailable</p>
+                ) : commandSuggestions.length ? (
+                  <>
+                    <p className="command-suggestion-count" aria-live="polite">
+                      {commandSuggestions.length} command suggestions
+                    </p>
+                    <ul id="command-suggestion-list" role="listbox" aria-label="Available commands">
+                      {commandSuggestions.map((suggestion, index) => (
+                        <li
+                          id={`command-suggestion-${autocompleteRequest.generation}-${index}`}
+                          key={suggestion.key}
+                          role="option"
+                          aria-selected={index === autocompleteActiveIndex}
+                          className={index === autocompleteActiveIndex ? 'active' : ''}
+                        >
+                          <span className="command-suggestion-identity">
+                            <strong>{suggestion.display_label}</strong>
+                            {suggestion.matched_alias && <code>{suggestion.matched_alias}</code>}
+                          </span>
+                          <span>{suggestion.detail}</span>
+                          <small>{suggestion.category} / {suggestion.risk}</small>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <p role="status">No command suggestions</p>
+                )}
+              </div>
+            )}
+          </div>
           <div className="search-box">
             <span aria-hidden="true">⌕</span>
             <input

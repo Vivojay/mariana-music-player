@@ -1,10 +1,11 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import {
   trimDisplayCells,
   type BackendEvent,
   type BackendSnapshot,
+  type CommandCatalogResult,
   type FavoriteToggleResult,
   type PlaybackStatus,
   type SeekResult,
@@ -20,6 +21,27 @@ const closeApp = vi.fn(async () => undefined)
 const showMiniPlayer = vi.fn(async () => undefined)
 const toggleFavorite = vi.fn(async (): Promise<FavoriteToggleResult> => ({ ok: true }))
 const seek = vi.fn(async (): Promise<SeekResult> => ({ ok: true }))
+const safeCommandCatalog: CommandCatalogResult = {
+  ok: true,
+  catalog: {
+    schema_version: 1,
+    entries: [
+      {
+        key: 'pause', canonical: 'pause', category: 'Playback', summary: 'Pause playback', risk: 'state-changing',
+        aliases: [], forms: [], availability: [],
+      },
+      {
+        key: 'play', canonical: 'play', category: 'Playback', summary: 'Play library media', risk: 'state-changing',
+        aliases: [], forms: [], availability: ['indexed-library'],
+      },
+      {
+        key: 'playlist', canonical: 'playlist', category: 'Playlists', summary: 'Manage playlists', risk: 'state-changing',
+        aliases: [], forms: [], availability: [],
+      },
+    ],
+  },
+}
+const commandCatalog = vi.fn(async (): Promise<CommandCatalogResult> => safeCommandCatalog)
 let backendEvent: ((event: BackendEvent) => void) | undefined
 let updateEvent: ((event: { state: string; version?: string; safeToInstall?: boolean; percent?: number }) => void) | undefined
 let exitEvent: ((event: { code: number; intentional: boolean }) => void) | undefined
@@ -66,6 +88,8 @@ beforeEach(() => {
   toggleFavorite.mockResolvedValue({ ok: true })
   seek.mockClear()
   seek.mockResolvedValue({ ok: true })
+  commandCatalog.mockClear()
+  commandCatalog.mockResolvedValue(safeCommandCatalog)
   backendEvent = undefined
   updateEvent = undefined
   exitEvent = undefined
@@ -84,6 +108,7 @@ beforeEach(() => {
       terminal: { write, resize: vi.fn(), restart, history: async () => '', onData: () => () => {}, onExit: (callback: typeof exitEvent) => { exitEvent = callback; return () => {} } },
       backend: {
         snapshot: async () => backendSnapshot,
+        commandCatalog,
         toggleFavorite,
         seek,
         onEvent: (callback: typeof backendEvent) => { backendEvent = callback; return () => {} },
@@ -99,6 +124,106 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('Mariana desktop shell', () => {
+  it('renders display-only command suggestions from the typed catalog boundary', async () => {
+    render(<App />)
+    const input = screen.getByRole('combobox', { name: 'Command suggestions' })
+
+    fireEvent.focus(input)
+    await waitFor(() => expect(commandCatalog).toHaveBeenCalledWith({ typedPrefix: '' }))
+    const listbox = await screen.findByRole('listbox', { name: 'Available commands' })
+    expect(listbox).toBeVisible()
+    expect(within(listbox).getAllByRole('option').map((option) => option.textContent)).toEqual([
+      expect.stringContaining('pause'),
+      expect.stringContaining('play'),
+      expect.stringContaining('playlist'),
+    ])
+    expect(write).not.toHaveBeenCalled()
+  })
+
+  it('navigates suggestions without executing or injecting terminal text', async () => {
+    render(<App />)
+    const input = screen.getByRole('combobox', { name: 'Command suggestions' })
+
+    fireEvent.focus(input)
+    await screen.findByRole('listbox', { name: 'Available commands' })
+    const options = screen.getAllByRole('option')
+    expect(options[0]).toHaveAttribute('aria-selected', 'true')
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(options[1]).toHaveAttribute('aria-selected', 'true')
+    fireEvent.keyDown(input, { key: 'ArrowUp' })
+    expect(options[0]).toHaveAttribute('aria-selected', 'true')
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(screen.getByRole('listbox', { name: 'Available commands' })).toBeVisible()
+    expect(write).not.toHaveBeenCalled()
+    expect(toggleFavorite).not.toHaveBeenCalled()
+    expect(seek).not.toHaveBeenCalled()
+  })
+
+  it('closes suggestions with Escape while preserving the display query', async () => {
+    render(<App />)
+    const input = screen.getByRole('combobox', { name: 'Command suggestions' })
+
+    fireEvent.change(input, { target: { value: 'pla' } })
+    await screen.findByRole('listbox', { name: 'Available commands' })
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    expect(input).toHaveValue('pla')
+    expect(input).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('listbox', { name: 'Available commands' })).not.toBeInTheDocument()
+    expect(write).not.toHaveBeenCalled()
+  })
+
+  it('discards a stale catalog response after the input changes', async () => {
+    let resolveFirst: ((result: CommandCatalogResult) => void) | undefined
+    let resolveSecond: ((result: CommandCatalogResult) => void) | undefined
+    commandCatalog
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve }))
+    render(<App />)
+    const input = screen.getByRole('combobox', { name: 'Command suggestions' })
+
+    fireEvent.focus(input)
+    await waitFor(() => expect(commandCatalog).toHaveBeenCalledTimes(1))
+    fireEvent.change(input, { target: { value: 'pla' } })
+    await waitFor(() => expect(commandCatalog).toHaveBeenCalledTimes(2))
+    await act(async () => {
+      resolveSecond?.({
+        ok: true,
+        catalog: {
+          schema_version: 1,
+          entries: [
+            {
+              key: 'play', canonical: 'play', category: 'Playback', summary: 'Play library media',
+              risk: 'state-changing', aliases: [], forms: [], availability: ['indexed-library'],
+            },
+            {
+              key: 'playlist', canonical: 'playlist', category: 'Playlists', summary: 'Manage playlists',
+              risk: 'state-changing', aliases: [], forms: [], availability: [],
+            },
+          ],
+        },
+      })
+    })
+    expect(await screen.findByText('Play library media')).toBeVisible()
+
+    await act(async () => {
+      resolveFirst?.({
+        ok: true,
+        catalog: {
+          schema_version: 1,
+          entries: [{
+            key: 'now', canonical: 'now', category: 'Playback', summary: 'Stale command', risk: 'read-only',
+            aliases: [], forms: [], availability: [],
+          }],
+        },
+      })
+    })
+    expect(screen.queryByText('Stale command')).not.toBeInTheDocument()
+    expect(input).toHaveValue('pla')
+    expect(write).not.toHaveBeenCalled()
+  })
+
   it('renders the PTY surface and all visual presets', () => {
     const { container } = render(<App />)
     expect(screen.getByTestId('terminal')).toBeInTheDocument()
