@@ -92,6 +92,31 @@ describe('PlaybackStatusBar', () => {
     expect(screen.getByText('0%')).toBeInTheDocument()
   })
 
+  it('maps one main-surface click to one absolute seek target', () => {
+    const seek = vi.fn()
+    render(<PlaybackStatusBar status={status()} seekEnabled onSeek={seek} />)
+    const target = screen.getByRole('button', { name: 'Seek playback position' })
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue({
+      x: 100, y: 0, left: 100, right: 500, top: 0, bottom: 10, width: 400, height: 10,
+      toJSON: () => ({}),
+    })
+    fireEvent.click(target, { clientX: 300, detail: 1 })
+    expect(seek).toHaveBeenCalledOnce()
+    expect(seek).toHaveBeenCalledWith(150)
+  })
+
+  it('keeps read-only and ineligible progress surfaces noninteractive', () => {
+    const seek = vi.fn()
+    const { rerender } = render(<PlaybackStatusBar status={status()} />)
+    expect(screen.queryByRole('button', { name: 'Seek playback position' })).not.toBeInTheDocument()
+
+    rerender(<PlaybackStatusBar status={status({
+      policy: { blocked: true, playable: false, unavailable_reason: 'Playback blocked' },
+    })} seekEnabled={false} onSeek={seek} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Seek playback position' }))
+    expect(seek).not.toHaveBeenCalled()
+  })
+
   it('renders proportional chapter boundaries and highlights the current segment', () => {
     const { container } = render(<PlaybackStatusBar status={status({
       chapter: { title: 'Bridge', start_time: 60, end_time: 120, index: 2, count: 3 },

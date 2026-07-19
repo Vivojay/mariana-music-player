@@ -136,6 +136,9 @@ button { cursor: pointer; }
 .playback-timing { display: flex; align-items: center; justify-content: flex-end; gap: 8px; color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .playback-progress-slot { display: flex; align-items: center; min-width: 0; }
 .playback-progress-track { position: relative; display: flex; align-items: center; width: 100%; min-width: 0; }
+.playback-seek-target { padding: 0; border: 0; background: transparent; color: inherit; }
+.playback-seek-target.is-seekable { cursor: pointer; }
+.playback-seek-target:disabled { cursor: not-allowed; opacity: .65; }
 .playback-progress { width: 100%; height: 7px; border: 0; accent-color: var(--accent); pointer-events: none; }
 .playback-progress::-webkit-progress-bar { border-radius: 999px; background: color-mix(in srgb, var(--muted) 20%, transparent); }
 .playback-progress::-webkit-progress-value { border-radius: 999px; background: var(--accent); }

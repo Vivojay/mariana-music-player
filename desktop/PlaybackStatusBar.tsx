@@ -1,3 +1,5 @@
+import type { MouseEvent } from 'react'
+import { seekTargetFromPointer } from './playbackSeek'
 import type { PlaybackChapterMarker, PlaybackStatus } from './shared'
 
 type PlaybackStatusBarProps = {
@@ -6,6 +8,10 @@ type PlaybackStatusBarProps = {
   favoritePending?: boolean
   favoriteError?: string | null
   onToggleFavorite?: () => void
+  seekEnabled?: boolean
+  seekPending?: boolean
+  seekError?: string | null
+  onSeek?: (targetSeconds: number) => void
 }
 
 function finiteNumber(value: unknown): number | null {
@@ -70,6 +76,10 @@ export function PlaybackStatusBar({
   favoritePending = false,
   favoriteError = null,
   onToggleFavorite,
+  seekEnabled = false,
+  seekPending = false,
+  seekError = null,
+  onSeek,
 }: PlaybackStatusBarProps) {
   if (!status) {
     return (
@@ -120,6 +130,48 @@ export function PlaybackStatusBar({
     : favorite?.unavailable_reason || 'Favourite state unavailable'
   const chapterMarkers = progress === null ? [] : safeChapterMarkers(status)
   const currentChapterMarker = chapterMarkers.find((marker) => marker.current)
+  const seekInteractive = Boolean(progress !== null && seekEnabled && onSeek)
+  const progressContents = (
+    <>
+      <progress
+        className="playback-progress"
+        aria-label={`Playback progress for ${displayTitle}`}
+        aria-valuetext={`${Math.round(progress ?? 0)}%`}
+        max="100"
+        value={progress ?? 0}
+      />
+      {chapterMarkers.length > 0 && (
+        <span className="playback-chapter-markers" aria-hidden="true">
+          {currentChapterMarker && (
+            <span
+              className="playback-chapter-current"
+              data-chapter-index={currentChapterMarker.index}
+              style={{
+                left: `${currentChapterMarker.start_percent}%`,
+                width: `${currentChapterMarker.end_percent - currentChapterMarker.start_percent}%`,
+              }}
+            />
+          )}
+          {chapterMarkers.filter((marker) => marker.start_percent > 0).map((marker) => (
+            <span
+              key={`${marker.index}-${marker.start_percent}`}
+              className="playback-chapter-boundary"
+              data-chapter-index={marker.index}
+              style={{ left: `${marker.start_percent}%` }}
+            />
+          ))}
+        </span>
+      )}
+    </>
+  )
+
+  const handleSeekClick = (event: MouseEvent<HTMLButtonElement>) => {
+    // Keyboard seeking remains deliberately out of scope; do not turn Enter into a seek-to-zero.
+    if (!seekInteractive || seekPending || event.detail === 0) return
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const target = seekTargetFromPointer(status, event.clientX, bounds.left, bounds.width)
+    if (target !== null) onSeek?.(target)
+  }
 
   return (
     <section className={`playback-status playback-status-${status.state || 'unknown'}`} aria-label="Playback status">
@@ -165,37 +217,21 @@ export function PlaybackStatusBar({
 
       <span className="playback-progress-slot">
         {progress !== null ? (
-          <span className="playback-progress-track">
-            <progress
-              className="playback-progress"
-              aria-label={`Playback progress for ${displayTitle}`}
-              aria-valuetext={`${Math.round(progress)}%`}
-              max="100"
-              value={progress}
-            />
-            {chapterMarkers.length > 0 && (
-              <span className="playback-chapter-markers" aria-hidden="true">
-                {currentChapterMarker && (
-                  <span
-                    className="playback-chapter-current"
-                    data-chapter-index={currentChapterMarker.index}
-                    style={{
-                      left: `${currentChapterMarker.start_percent}%`,
-                      width: `${currentChapterMarker.end_percent - currentChapterMarker.start_percent}%`,
-                    }}
-                  />
-                )}
-                {chapterMarkers.filter((marker) => marker.start_percent > 0).map((marker) => (
-                  <span
-                    key={`${marker.index}-${marker.start_percent}`}
-                    className="playback-chapter-boundary"
-                    data-chapter-index={marker.index}
-                    style={{ left: `${marker.start_percent}%` }}
-                  />
-                ))}
-              </span>
-            )}
-          </span>
+          onSeek ? (
+            <button
+              type="button"
+              className={`playback-progress-track playback-seek-target ${seekInteractive ? 'is-seekable' : ''}`}
+              aria-label="Seek playback position"
+              title={seekInteractive ? 'Click to seek' : 'Seeking is unavailable'}
+              disabled={!seekInteractive || seekPending}
+              tabIndex={-1}
+              onClick={handleSeekClick}
+            >
+              {progressContents}
+            </button>
+          ) : (
+            <span className="playback-progress-track">{progressContents}</span>
+          )
         ) : (
           <span
             className={`playback-progress-placeholder ${status.live ? 'is-live' : 'is-unknown'}`}
@@ -210,13 +246,13 @@ export function PlaybackStatusBar({
         </span>
       )}
 
-      {((isFailed && status.safe_error) || favoriteError) && (
+      {((isFailed && status.safe_error) || favoriteError || seekError) && (
         <span
           className="playback-error"
-          role={favoriteError ? 'alert' : undefined}
-          title={favoriteError || status.safe_error || undefined}
+          role={favoriteError || seekError ? 'alert' : undefined}
+          title={seekError || favoriteError || status.safe_error || undefined}
         >
-          {favoriteError || status.safe_error}
+          {seekError || favoriteError || status.safe_error}
         </span>
       )}
     </section>

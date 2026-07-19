@@ -6,7 +6,8 @@ import net from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as pty from 'node-pty'
-import type { BackendEvent, FavoriteToggleResult, MiniPlayerSnapshot, PlaybackStatus, UpdateState } from './shared.js'
+import { validateSeekIntent } from './playbackSeek.js'
+import type { BackendEvent, DesktopControlResult, MiniPlayerSnapshot, PlaybackStatus, UpdateState } from './shared.js'
 import {
   createTrayActions,
   ensureSingleWindow,
@@ -59,27 +60,38 @@ let updateState: UpdateState = { state: app.isPackaged ? 'idle' : 'disabled' }
 let updatePreparationTimer: NodeJS.Timeout | null = null
 let backendStartupTimer: NodeJS.Timeout | null = null
 const pendingControlRequests = new Map<string, {
-  resolve: (result: FavoriteToggleResult) => void
+  resolve: (result: DesktopControlResult) => void
   timer: NodeJS.Timeout
   safeError: string
+  interrupted: string
 }>()
 
 type ControlRequestMessages = {
   timeout: string
   send: string
   safeError: string
+  interrupted: string
 }
 
 const favoriteControlMessages: ControlRequestMessages = {
   timeout: 'Mariana backend did not confirm the favourite update',
   send: 'Could not send the favourite update',
   safeError: 'Favourite update failed',
+  interrupted: 'Mariana backend interrupted the favourite update',
 }
 
 const playbackControlMessages: ControlRequestMessages = {
   timeout: 'Mariana backend did not confirm the playback control',
   send: 'Could not send the playback control',
   safeError: 'Playback control failed',
+  interrupted: 'Mariana backend interrupted the playback control',
+}
+
+const seekControlMessages: ControlRequestMessages = {
+  timeout: 'Mariana backend did not confirm the seek',
+  send: 'Could not send the seek',
+  safeError: 'Seek failed',
+  interrupted: 'Mariana backend interrupted the seek',
 }
 
 const safeToInstall = () => (
@@ -185,10 +197,10 @@ function safeControlError(value: unknown, fallback = favoriteControlMessages.saf
   return text.slice(0, 160)
 }
 
-function finishPendingControlRequests(error: string) {
-  for (const { resolve, timer } of pendingControlRequests.values()) {
+function finishPendingControlRequests() {
+  for (const { resolve, timer, interrupted } of pendingControlRequests.values()) {
     clearTimeout(timer)
-    resolve({ ok: false, error })
+    resolve({ ok: false, error: interrupted })
   }
   pendingControlRequests.clear()
 }
@@ -197,7 +209,7 @@ function requestBackendControl(
   action: string,
   payload: Record<string, unknown>,
   messages = favoriteControlMessages,
-): Promise<FavoriteToggleResult> {
+): Promise<DesktopControlResult> {
   const socket = controlSocket
   if (!backendReady || !socket || socket.destroyed || !socket.writable) {
     return Promise.resolve({ ok: false, error: 'Mariana backend is unavailable' })
@@ -208,7 +220,12 @@ function requestBackendControl(
       pendingControlRequests.delete(requestId)
       resolve({ ok: false, error: messages.timeout })
     }, 3_000)
-    pendingControlRequests.set(requestId, { resolve, timer, safeError: messages.safeError })
+    pendingControlRequests.set(requestId, {
+      resolve,
+      timer,
+      safeError: messages.safeError,
+      interrupted: messages.interrupted,
+    })
     socket.write(`${JSON.stringify({ token: controlToken, request_id: requestId, action, payload })}\n`, (error) => {
       if (!error) return
       const pending = pendingControlRequests.get(requestId)
@@ -302,7 +319,7 @@ async function createControlServer(): Promise<void> {
     socket.on('close', () => {
       if (controlSocket !== socket) return
       controlSocket = null
-      finishPendingControlRequests('Mariana backend disconnected before confirming the favourite update')
+      finishPendingControlRequests()
     })
   })
   await new Promise<void>((resolve, reject) => {
@@ -340,7 +357,7 @@ function startTerminal() {
   backendDiagnostic = null
   if (backendStartupTimer) clearTimeout(backendStartupTimer)
   send('backend:event', { event: 'starting', payload: {}, timestamp: Date.now() / 1000 } satisfies BackendEvent)
-  finishPendingControlRequests('Mariana backend restarted before confirming the favourite update')
+  finishPendingControlRequests()
   playbackState = 'idle'
   playbackStatus = null
   sendMiniPlayerSnapshot()
@@ -516,9 +533,21 @@ function registerIpc() {
   })
   ipcMain.handle('backend:favorite-toggle', async (event, mediaId: unknown) => {
     if (!validateSender(event) || !validControlMediaId(mediaId)) {
-      return { ok: false, error: 'Favourite target is unavailable' } satisfies FavoriteToggleResult
+      return { ok: false, error: 'Favourite target is unavailable' } satisfies DesktopControlResult
     }
     return requestBackendControl('favorite.toggle', { media_id: mediaId })
+  })
+  ipcMain.handle('backend:seek', async (event, mediaId: unknown, targetSeconds: unknown) => {
+    if (!validateSender(event) || !validControlMediaId(mediaId)) {
+      return { ok: false, error: 'Playback target is unavailable' } satisfies DesktopControlResult
+    }
+    const validation = validateSeekIntent(playbackStatus, mediaId, targetSeconds, backendReady)
+    if (!validation.ok) return validation
+    return requestBackendControl(
+      'playback.seek',
+      { media_id: mediaId, target_seconds: validation.targetSeconds },
+      seekControlMessages,
+    )
   })
   ipcMain.on('terminal:write', (event, data: unknown) => {
     if (validateSender(event) && typeof data === 'string' && data.length <= 1_000_000) terminalProcess?.write(data)
@@ -642,7 +671,7 @@ else {
     terminalProcess?.kill()
     controlSocket?.destroy()
     controlSocket = null
-    finishPendingControlRequests('Mariana closed before confirming the favourite update')
+    finishPendingControlRequests()
     tray?.destroy()
     tray = null
     trayAvailable = false

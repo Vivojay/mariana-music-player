@@ -3686,6 +3686,44 @@ def _playback_status_projection() -> PlaybackStatusProjection:
 
 def _desktop_control_request(action: str, payload: dict[str, object]) -> dict[str, object]:
     """Apply one allowlisted desktop intent against authoritative backend state."""
+    if action == 'playback.seek':
+        expected_media_id = payload.get('media_id')
+        if not isinstance(expected_media_id, str) or not expected_media_id:
+            return {'ok': False, 'error': 'Playback target is unavailable'}
+        raw_target = payload.get('target_seconds')
+        if isinstance(raw_target, bool) or not isinstance(raw_target, (int, float)):
+            return {'ok': False, 'error': 'Seek target is invalid'}
+        target = float(raw_target)
+        if not math.isfinite(target) or target < 0:
+            return {'ok': False, 'error': 'Seek target is invalid'}
+
+        snapshot = vas.controller.snapshot()
+        if snapshot.media is None or snapshot.media.stable_id != expected_media_id:
+            return {'ok': False, 'error': 'Current media changed; try again'}
+        if _is_media_blocked(snapshot.media):
+            return {'ok': False, 'error': 'Playback is blocked for this media'}
+        if snapshot.state not in {PlaybackState.PLAYING, PlaybackState.PAUSED}:
+            return {'ok': False, 'error': 'Seek is unavailable in the current state'}
+        capabilities = snapshot.media.capabilities
+        duration = snapshot.duration
+        if (
+            not capabilities.finite
+            or capabilities.live
+            or not capabilities.seekable
+            or isinstance(duration, bool)
+            or not isinstance(duration, (int, float))
+            or not math.isfinite(float(duration))
+            or float(duration) <= 0
+        ):
+            return {'ok': False, 'error': 'Current media is not seekable'}
+
+        try:
+            vas.controller.seek(min(target, float(duration)))
+        except Exception:
+            return {'ok': False, 'error': 'Could not seek playback'}
+        DESKTOP_CONTROL.emit('playback', _playback_status_projection().to_dict())
+        return {'ok': True}
+
     playback_actions = {
         'playback.play': 'play',
         'playback.pause': 'pause',

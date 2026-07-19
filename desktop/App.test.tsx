@@ -7,6 +7,7 @@ import {
   type BackendSnapshot,
   type FavoriteToggleResult,
   type PlaybackStatus,
+  type SeekResult,
 } from './shared'
 
 vi.mock('./TerminalSurface', () => ({ TerminalSurface: () => <div data-testid="terminal" /> }))
@@ -18,6 +19,7 @@ const restart = vi.fn(async () => undefined)
 const closeApp = vi.fn(async () => undefined)
 const showMiniPlayer = vi.fn(async () => undefined)
 const toggleFavorite = vi.fn(async (): Promise<FavoriteToggleResult> => ({ ok: true }))
+const seek = vi.fn(async (): Promise<SeekResult> => ({ ok: true }))
 let backendEvent: ((event: BackendEvent) => void) | undefined
 let updateEvent: ((event: { state: string; version?: string; safeToInstall?: boolean; percent?: number }) => void) | undefined
 let exitEvent: ((event: { code: number; intentional: boolean }) => void) | undefined
@@ -62,6 +64,8 @@ beforeEach(() => {
   showMiniPlayer.mockClear()
   toggleFavorite.mockClear()
   toggleFavorite.mockResolvedValue({ ok: true })
+  seek.mockClear()
+  seek.mockResolvedValue({ ok: true })
   backendEvent = undefined
   updateEvent = undefined
   exitEvent = undefined
@@ -81,6 +85,7 @@ beforeEach(() => {
       backend: {
         snapshot: async () => backendSnapshot,
         toggleFavorite,
+        seek,
         onEvent: (callback: typeof backendEvent) => { backendEvent = callback; return () => {} },
       },
       updates: { check, install, onState: (callback: typeof updateEvent) => { updateEvent = callback; return () => {} } },
@@ -288,6 +293,64 @@ describe('Mariana desktop shell', () => {
     fireEvent.click(favoriteButton)
     expect(await screen.findByRole('alert')).toHaveTextContent('Current media changed; try again')
     await waitFor(() => expect(screen.getByRole('button', { name: 'Add to favourites' })).not.toBeDisabled())
+    expect(write).not.toHaveBeenCalled()
+  })
+
+  it('sends one typed seek request and waits for authoritative playback projection', async () => {
+    let resolveSeek: ((value: SeekResult) => void) | undefined
+    seek.mockImplementationOnce(() => new Promise((resolve) => { resolveSeek = resolve }))
+    backendSnapshot = {
+      ready: true,
+      diagnostic: null,
+      desktopNotice: null,
+      closeButtonBehavior: 'tray',
+      playbackState: 'playing',
+      sleepActive: false,
+      playback: playbackStatus(),
+    }
+    render(<App />)
+
+    const target = await screen.findByRole('button', { name: 'Seek playback position' })
+    await waitFor(() => expect(target).toBeEnabled())
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, left: 0, right: 200, top: 0, bottom: 10, width: 200, height: 10,
+      toJSON: () => ({}),
+    })
+    fireEvent.click(target, { clientX: 100, detail: 1 })
+    fireEvent.click(target, { clientX: 150, detail: 1 })
+    expect(seek).toHaveBeenCalledOnce()
+    expect(seek).toHaveBeenCalledWith('track-1', 50)
+    expect(screen.getByRole('progressbar')).toHaveAttribute('value', '10')
+    expect(write).not.toHaveBeenCalled()
+
+    act(() => backendEvent?.({
+      event: 'playback', payload: playbackStatus({ position_seconds: 50, percent: 50 }), timestamp: 2,
+    }))
+    expect(screen.getByRole('progressbar')).toHaveAttribute('value', '50')
+    await act(async () => { resolveSeek?.({ ok: true }) })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Seek playback position' })).toBeEnabled())
+  })
+
+  it('shows a safe seek error without moving authoritative progress', async () => {
+    seek.mockResolvedValueOnce({ ok: false, error: 'Current media changed; try again' })
+    backendSnapshot = {
+      ready: true,
+      diagnostic: null,
+      desktopNotice: null,
+      closeButtonBehavior: 'tray',
+      playbackState: 'playing',
+      sleepActive: false,
+      playback: playbackStatus(),
+    }
+    render(<App />)
+    const target = await screen.findByRole('button', { name: 'Seek playback position' })
+    vi.spyOn(target, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, left: 0, right: 100, top: 0, bottom: 10, width: 100, height: 10,
+      toJSON: () => ({}),
+    })
+    fireEvent.click(target, { clientX: 50, detail: 1 })
+    expect(await screen.findByRole('alert')).toHaveTextContent('Current media changed; try again')
+    expect(screen.getByRole('progressbar')).toHaveAttribute('value', '10')
     expect(write).not.toHaveBeenCalled()
   })
 

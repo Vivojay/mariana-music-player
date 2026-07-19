@@ -26,6 +26,13 @@ test('hosts the real Mariana PTY in the riced terminal shell', async () => {
       queue_position: null,
       queue_count: expect.any(Number),
     })
+    expect(await page.evaluate(() => Object.keys(window.mariana.backend).sort())).toEqual([
+      'onEvent', 'seek', 'snapshot', 'toggleFavorite',
+    ])
+    expect(await page.evaluate(() => window.mariana.backend.seek('missing-media', 10))).toEqual({
+      ok: false,
+      error: 'Current media changed; try again',
+    })
     await expect(page.getByLabel('Playback status')).toContainText('Nothing playing')
     await expect(page.getByLabel('Desktop operational status')).toContainText('PTY')
     await expect(page.getByLabel('Terminal theme')).toHaveValue('aurora')

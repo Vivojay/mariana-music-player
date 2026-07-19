@@ -105,6 +105,8 @@ export type DesktopControlResult = {
 
 export type FavoriteToggleResult = DesktopControlResult
 
+export type SeekResult = DesktopControlResult
+
 function displayCells(value: string): number {
   return Array.from(value).reduce((total, character) => {
     if (/\p{Mark}/u.test(character)) return total
@@ -150,6 +152,7 @@ export type MarianaDesktopApi = {
   backend: {
     snapshot(): Promise<BackendSnapshot>
     toggleFavorite(mediaId: string): Promise<FavoriteToggleResult>
+    seek(mediaId: string, targetSeconds: number): Promise<SeekResult>
     onEvent(callback: (event: BackendEvent) => void): () => void
   }
   updates: {

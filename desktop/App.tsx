@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { PlaybackStatusBar } from './PlaybackStatusBar'
+import { validateSeekIntent } from './playbackSeek'
 import { TerminalSurface } from './TerminalSurface'
 import { themes, type ThemeName } from './themes'
 import { formatChapterLabel, trimDisplayCells, type BackendEvent, type PlaybackStatus, type UpdateState } from './shared'
@@ -115,6 +116,10 @@ export default function App() {
   const favoriteRequestEpoch = useRef(0)
   const [favoritePending, setFavoritePending] = useState(false)
   const [favoriteError, setFavoriteError] = useState<string | null>(null)
+  const seekPendingRef = useRef(false)
+  const seekRequestEpoch = useRef(0)
+  const [seekPending, setSeekPending] = useState(false)
+  const [seekError, setSeekError] = useState<string | null>(null)
   const [stationStatus, setStationStatus] = useState<Record<string, unknown>>({ state: 'stopped', next: [] })
   const [stationOpen, setStationOpen] = useState(false)
   const [mediaOpen, setMediaOpen] = useState(false)
@@ -154,9 +159,13 @@ export default function App() {
         favoriteRequestEpoch.current += 1
         favoritePendingRef.current = false
         setFavoritePending(false)
+        seekRequestEpoch.current += 1
+        seekPendingRef.current = false
+        setSeekPending(false)
       }
       playbackStatusRef.current = next
       setFavoriteError(null)
+      setSeekError(null)
       setPlaybackStatus(next)
     }
     void window.mariana.backend.snapshot().then((snapshot) => {
@@ -185,6 +194,10 @@ export default function App() {
         if (name in themes) setThemeName(name as ThemeName)
       }
       if (event.event === 'fatal-error') {
+        seekRequestEpoch.current += 1
+        seekPendingRef.current = false
+        setSeekPending(false)
+        setSeekError(null)
         setBackendState('error')
         setBackendDiagnostic(
           event.payload.message === 'Backend control channel did not become ready'
@@ -293,6 +306,31 @@ export default function App() {
     if (!result.ok) setFavoriteError(result.error || 'Favourite update failed')
   }
 
+  const seekPlayback = async (targetSeconds: number) => {
+    const status = playbackStatusRef.current
+    const validation = validateSeekIntent(
+      status,
+      status?.media_id,
+      targetSeconds,
+      backendState === 'ready',
+    )
+    if (!validation.ok || seekPendingRef.current || !status?.media_id) return
+    seekPendingRef.current = true
+    const epoch = seekRequestEpoch.current
+    setSeekPending(true)
+    setSeekError(null)
+    let result
+    try {
+      result = await window.mariana.backend.seek(status.media_id, validation.targetSeconds)
+    } catch {
+      result = { ok: false, error: 'Seek failed' }
+    }
+    if (epoch !== seekRequestEpoch.current) return
+    seekPendingRef.current = false
+    setSeekPending(false)
+    if (!result.ok) setSeekError(result.error || 'Seek failed')
+  }
+
   const requestSearch = (direction: 'incremental' | 'next' | 'previous', query = search) => {
     window.dispatchEvent(new CustomEvent('mariana-search', { detail: { query, direction, tabId: activeTab } }))
   }
@@ -316,6 +354,12 @@ export default function App() {
     ? stationStatus.next as Array<{ id?: string; title?: string; artist?: string; reasons?: string[] }>
     : []
   const activeDownloads = downloads.filter((job) => ['queued', 'running', 'paused'].includes(job.state)).length
+  const seekEnabled = validateSeekIntent(
+    playbackStatus,
+    playbackStatus?.media_id,
+    playbackStatus?.position_seconds,
+    backendState === 'ready',
+  ).ok
 
   return (
     <main className={`app platform-${window.mariana.platform} theme-${themeName}`} style={style}>
@@ -385,6 +429,10 @@ export default function App() {
           favoritePending={favoritePending}
           favoriteError={favoriteError}
           onToggleFavorite={() => void toggleFavorite()}
+          seekEnabled={seekEnabled}
+          seekPending={seekPending}
+          seekError={seekError}
+          onSeek={(targetSeconds) => void seekPlayback(targetSeconds)}
         />
         <div className="statusbar-operations" aria-label="Desktop operational status">
           <span><b>PTY</b> {backendState}</span><span>{window.mariana.platform}</span>
