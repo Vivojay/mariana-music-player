@@ -140,24 +140,65 @@ describe('Mariana desktop shell', () => {
     expect(write).not.toHaveBeenCalled()
   })
 
-  it('navigates suggestions without executing or injecting terminal text', async () => {
+  it('accepts a keyboard selection into the controlled field without executing or injecting terminal text', async () => {
+    render(<App />)
+    const input = screen.getByRole('combobox', { name: 'Command suggestions' })
+
+    fireEvent.change(input, { target: { value: 'pla' } })
+    await screen.findByRole('listbox', { name: 'Available commands' })
+    const options = screen.getAllByRole('option')
+    expect(options[0]).toHaveAttribute('aria-selected', 'true')
+    fireEvent.keyDown(input, { key: 'ArrowUp' })
+    expect(options[1]).toHaveAttribute('aria-selected', 'true')
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(options[0]).toHaveAttribute('aria-selected', 'true')
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(options[1]).toHaveAttribute('aria-selected', 'true')
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(input).toHaveValue('playlist')
+    expect(input).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('listbox', { name: 'Available commands' })).not.toBeInTheDocument()
+    expect(write).not.toHaveBeenCalled()
+    expect(toggleFavorite).not.toHaveBeenCalled()
+    expect(seek).not.toHaveBeenCalled()
+  })
+
+  it('accepts a pointer selection into the controlled field without executing it', async () => {
+    render(<App />)
+    const input = screen.getByRole('combobox', { name: 'Command suggestions' })
+
+    fireEvent.change(input, { target: { value: 'pla' } })
+    const listbox = await screen.findByRole('listbox', { name: 'Available commands' })
+    fireEvent.click(within(listbox).getByText('Play library media').closest('[role="option"]') as HTMLElement)
+
+    expect(input).toHaveValue('play')
+    expect(input).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('listbox', { name: 'Available commands' })).not.toBeInTheDocument()
+    expect(write).not.toHaveBeenCalled()
+    expect(toggleFavorite).not.toHaveBeenCalled()
+    expect(seek).not.toHaveBeenCalled()
+  })
+
+  it('rejects Enter acceptance while the visible projection is stale', async () => {
+    let resolveLatest: ((result: CommandCatalogResult) => void) | undefined
+    commandCatalog
+      .mockResolvedValueOnce(safeCommandCatalog)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveLatest = resolve }))
     render(<App />)
     const input = screen.getByRole('combobox', { name: 'Command suggestions' })
 
     fireEvent.focus(input)
     await screen.findByRole('listbox', { name: 'Available commands' })
-    const options = screen.getAllByRole('option')
-    expect(options[0]).toHaveAttribute('aria-selected', 'true')
-    fireEvent.keyDown(input, { key: 'ArrowDown' })
-    expect(options[1]).toHaveAttribute('aria-selected', 'true')
-    fireEvent.keyDown(input, { key: 'ArrowUp' })
-    expect(options[0]).toHaveAttribute('aria-selected', 'true')
+    fireEvent.change(input, { target: { value: 'pla' } })
+    await screen.findByText('Loading command suggestions')
     fireEvent.keyDown(input, { key: 'Enter' })
 
-    expect(screen.getByRole('listbox', { name: 'Available commands' })).toBeVisible()
+    expect(input).toHaveValue('pla')
+    expect(input).toHaveAttribute('aria-expanded', 'true')
     expect(write).not.toHaveBeenCalled()
-    expect(toggleFavorite).not.toHaveBeenCalled()
-    expect(seek).not.toHaveBeenCalled()
+    await act(async () => { resolveLatest?.(safeCommandCatalog) })
+    expect(await screen.findByRole('listbox', { name: 'Available commands' })).toBeVisible()
   })
 
   it('closes suggestions with Escape while preserving the display query', async () => {

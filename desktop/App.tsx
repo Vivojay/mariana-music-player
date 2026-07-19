@@ -403,6 +403,36 @@ export default function App() {
     setAutocompleteActiveIndex(0)
   }
 
+  const acceptCommandSuggestion = (
+    suggestionKey: string,
+    expectedRequest: { typedPrefix: string; generation: number },
+  ) => {
+    const current = autocompleteRequestRef.current
+    const projection = autocompleteProjection
+    if (
+      !autocompleteOpen
+      || !projection
+      || current.generation !== expectedRequest.generation
+      || current.typedPrefix !== expectedRequest.typedPrefix
+      || !isCommandSuggestionProjectionCurrent(projection, current.typedPrefix, current.generation)
+    ) return
+    const suggestion = projection.suggestions.find((candidate) => candidate.key === suggestionKey)
+    if (!suggestion) return
+
+    const accepted = {
+      typedPrefix: suggestion.display_label,
+      generation: autocompleteGenerationRef.current + 1,
+    }
+    autocompleteGenerationRef.current = accepted.generation
+    autocompleteRequestRef.current = accepted
+    setAutocompleteRequest(accepted)
+    setAutocompleteOpen(false)
+    setAutocompletePending(false)
+    setAutocompleteError(false)
+    setAutocompleteProjection(null)
+    setAutocompleteActiveIndex(0)
+  }
+
   const addTab = () => {
     const id = Math.max(0, ...tabs.map((tab) => tab.id)) + 1
     setTabs((current) => [...current, { id, title: `View ${id}` }])
@@ -473,6 +503,8 @@ export default function App() {
                 }
                 if (event.key === 'Enter') {
                   event.preventDefault()
+                  const suggestion = commandSuggestions[autocompleteActiveIndex]
+                  if (suggestion) acceptCommandSuggestion(suggestion.key, autocompleteRequest)
                   return
                 }
                 if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -504,6 +536,9 @@ export default function App() {
                           role="option"
                           aria-selected={index === autocompleteActiveIndex}
                           className={index === autocompleteActiveIndex ? 'active' : ''}
+                          onMouseEnter={() => setAutocompleteActiveIndex(index)}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => acceptCommandSuggestion(suggestion.key, autocompleteRequest)}
                         >
                           <span className="command-suggestion-identity">
                             <strong>{suggestion.display_label}</strong>

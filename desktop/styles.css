@@ -25,6 +25,8 @@ button { cursor: pointer; }
 
 .titlebar {
   -webkit-app-region: drag;
+  position: relative;
+  z-index: 30;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -77,9 +79,11 @@ button { cursor: pointer; }
 .command-suggestion-popover ul { max-height: 300px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
 .command-suggestion-popover li {
   display: grid; grid-template-columns: minmax(90px, auto) minmax(0, 1fr) auto; gap: 9px; align-items: center;
-  min-height: 34px; padding: 5px 7px; border-radius: 6px; color: var(--muted); font-size: 10px;
+  min-height: 34px; padding: 5px 7px; border-radius: 6px; color: var(--muted); cursor: pointer; font-size: 10px;
 }
-.command-suggestion-popover li.active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--text); }
+.command-suggestion-popover li.active, .command-suggestion-popover li:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--text);
+}
 .command-suggestion-identity { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .command-suggestion-identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .command-suggestion-identity code { color: var(--accent); }
