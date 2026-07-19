@@ -27,8 +27,24 @@ test('hosts the real Mariana PTY in the riced terminal shell', async () => {
       queue_count: expect.any(Number),
     })
     expect(await page.evaluate(() => Object.keys(window.mariana.backend).sort())).toEqual([
-      'onEvent', 'seek', 'snapshot', 'toggleFavorite',
+      'commandCatalog', 'onEvent', 'seek', 'snapshot', 'toggleFavorite',
     ])
+    const commandCatalog = await page.evaluate(() => window.mariana.backend.commandCatalog())
+    expect(commandCatalog.ok).toBe(true)
+    if (commandCatalog.ok) {
+      expect(commandCatalog.catalog.schema_version).toBe(1)
+      expect(commandCatalog.catalog.entries.length).toBeGreaterThan(20)
+      expect(commandCatalog.catalog.entries.find((entry) => entry.canonical === 'now')?.aliases).toEqual([])
+      expect(JSON.stringify(commandCatalog)).not.toMatch(/https?:\/\/|[a-z]:[\\/]|\\\\/i)
+    }
+    const compatibilityCatalog = await page.evaluate(() => (
+      window.mariana.backend.commandCatalog({ includeCompatibility: true })
+    ))
+    expect(compatibilityCatalog.ok).toBe(true)
+    if (compatibilityCatalog.ok) {
+      expect(compatibilityCatalog.catalog.entries.find((entry) => entry.canonical === 'now')?.aliases).toEqual(['.'])
+      expect(compatibilityCatalog.catalog.entries.some((entry) => entry.canonical === '/rs')).toBe(false)
+    }
     expect(await page.evaluate(() => window.mariana.backend.seek('missing-media', 10))).toEqual({
       ok: false,
       error: 'Current media changed; try again',

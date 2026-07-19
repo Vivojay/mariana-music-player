@@ -74,6 +74,7 @@ from config_manager import load_system_settings, load_user_settings, save_user_s
 from mariana.albums import AlbumCatalog, AlbumError
 from mariana.broadcast import BroadcastError, BroadcastState, IcecastBroadcaster
 from mariana.chapters import normalize_chapters
+from mariana.command_catalog import serialize_command_catalog
 from mariana.commands import (
     DOWNLOAD_TYPOS,
     SEARCH_COMMANDS,
@@ -3686,6 +3687,29 @@ def _playback_status_projection() -> PlaybackStatusProjection:
 
 def _desktop_control_request(action: str, payload: dict[str, object]) -> dict[str, object]:
     """Apply one allowlisted desktop intent against authoritative backend state."""
+    if action == 'autocomplete.catalog':
+        allowed_fields = {'include_compatibility', 'typed_prefix'}
+        if not set(payload).issubset(allowed_fields):
+            return {'ok': False, 'error': 'Command catalog request is invalid'}
+        include_compatibility = payload.get('include_compatibility', False)
+        typed_prefix = payload.get('typed_prefix', '')
+        if type(include_compatibility) is not bool or not isinstance(typed_prefix, str):
+            return {'ok': False, 'error': 'Command catalog request is invalid'}
+        if len(typed_prefix) > 64 or any(
+            ord(character) < 32 or ord(character) == 127 for character in typed_prefix
+        ):
+            return {'ok': False, 'error': 'Command catalog request is invalid'}
+        return {
+            'ok': True,
+            'catalog': {
+                'schema_version': 1,
+                'entries': serialize_command_catalog(
+                    include_compatibility=include_compatibility,
+                    typed_prefix=typed_prefix,
+                ),
+            },
+        }
+
     if action == 'playback.seek':
         expected_media_id = payload.get('media_id')
         if not isinstance(expected_media_id, str) or not expected_media_id:

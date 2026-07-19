@@ -18,6 +18,7 @@ const api: MarianaDesktopApi = {
   },
   backend: {
     snapshot: () => ipcRenderer.invoke('backend:snapshot'),
+    commandCatalog: (options) => ipcRenderer.invoke('backend:command-catalog', options),
     toggleFavorite: (mediaId) => ipcRenderer.invoke('backend:favorite-toggle', mediaId),
     seek: (mediaId, targetSeconds) => ipcRenderer.invoke('backend:seek', mediaId, targetSeconds),
     onEvent: (callback) => subscribe<BackendEvent>('backend:event', callback),

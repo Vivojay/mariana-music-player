@@ -6,8 +6,17 @@ import net from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as pty from 'node-pty'
+import { projectCommandCatalog, validateCommandCatalogOptions } from './commandCatalog.js'
 import { validateSeekIntent } from './playbackSeek.js'
-import type { BackendEvent, DesktopControlResult, MiniPlayerSnapshot, PlaybackStatus, UpdateState } from './shared.js'
+import type {
+  BackendEvent,
+  CommandCatalogOptions,
+  CommandCatalogResult,
+  DesktopControlResult,
+  MiniPlayerSnapshot,
+  PlaybackStatus,
+  UpdateState,
+} from './shared.js'
 import {
   createTrayActions,
   ensureSingleWindow,
@@ -64,6 +73,10 @@ const pendingControlRequests = new Map<string, {
   timer: NodeJS.Timeout
   safeError: string
   interrupted: string
+}>()
+const pendingCommandCatalogRequests = new Map<string, {
+  resolve: (result: CommandCatalogResult) => void
+  timer: NodeJS.Timeout
 }>()
 
 type ControlRequestMessages = {
@@ -203,6 +216,45 @@ function finishPendingControlRequests() {
     resolve({ ok: false, error: interrupted })
   }
   pendingControlRequests.clear()
+  for (const { resolve, timer } of pendingCommandCatalogRequests.values()) {
+    clearTimeout(timer)
+    resolve({ ok: false, error: 'Mariana backend interrupted the command catalog request' })
+  }
+  pendingCommandCatalogRequests.clear()
+}
+
+function requestCommandCatalog(options: CommandCatalogOptions): Promise<CommandCatalogResult> {
+  const socket = controlSocket
+  if (!backendReady || !socket || socket.destroyed || !socket.writable) {
+    return Promise.resolve({ ok: false, error: 'Mariana backend is unavailable' })
+  }
+  const requestId = randomBytes(16).toString('hex')
+  const payload = {
+    ...(options.includeCompatibility === undefined
+      ? {}
+      : { include_compatibility: options.includeCompatibility }),
+    ...(options.typedPrefix === undefined ? {} : { typed_prefix: options.typedPrefix }),
+  }
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      pendingCommandCatalogRequests.delete(requestId)
+      resolve({ ok: false, error: 'Mariana backend did not return the command catalog' })
+    }, 3_000)
+    pendingCommandCatalogRequests.set(requestId, { resolve, timer })
+    socket.write(`${JSON.stringify({
+      token: controlToken,
+      request_id: requestId,
+      action: 'autocomplete.catalog',
+      payload,
+    })}\n`, (error) => {
+      if (!error) return
+      const pending = pendingCommandCatalogRequests.get(requestId)
+      if (!pending) return
+      clearTimeout(pending.timer)
+      pendingCommandCatalogRequests.delete(requestId)
+      pending.resolve({ ok: false, error: 'Could not request the command catalog' })
+    })
+  })
 }
 
 function requestBackendControl(
@@ -263,15 +315,28 @@ function handleBackendEvent(event: BackendEvent) {
   if (event.event === 'control-result') {
     const requestId = event.payload.request_id
     if (typeof requestId === 'string') {
-      const pending = pendingControlRequests.get(requestId)
-      if (pending) {
-        clearTimeout(pending.timer)
-        pendingControlRequests.delete(requestId)
-        const ok = event.payload.ok === true
-        pending.resolve(ok ? { ok: true } : {
+      const catalogPending = pendingCommandCatalogRequests.get(requestId)
+      if (catalogPending) {
+        clearTimeout(catalogPending.timer)
+        pendingCommandCatalogRequests.delete(requestId)
+        const catalog = event.payload.ok === true
+          ? projectCommandCatalog(event.payload.catalog)
+          : null
+        catalogPending.resolve(catalog ? { ok: true, catalog } : {
           ok: false,
-          error: safeControlError(event.payload.error, pending.safeError),
+          error: safeControlError(event.payload.error, 'Command catalog is unavailable'),
         })
+      } else {
+        const pending = pendingControlRequests.get(requestId)
+        if (pending) {
+          clearTimeout(pending.timer)
+          pendingControlRequests.delete(requestId)
+          const ok = event.payload.ok === true
+          pending.resolve(ok ? { ok: true } : {
+            ok: false,
+            error: safeControlError(event.payload.error, pending.safeError),
+          })
+        }
       }
     }
   }
@@ -282,7 +347,7 @@ function handleBackendEvent(event: BackendEvent) {
     terminalProcess?.write('exit y\r')
     setTimeout(() => autoUpdater.quitAndInstall(false, true), 1200)
   }
-  send('backend:event', event)
+  if (event.event !== 'control-result') send('backend:event', event)
   sendMiniPlayerSnapshot()
   if (updateState.state === 'downloaded') setUpdateState(updateState)
 }
@@ -530,6 +595,16 @@ function registerIpc() {
       sleepActive,
       playback: playbackStatus,
     }
+  })
+  ipcMain.handle('backend:command-catalog', async (event, rawOptions: unknown) => {
+    if (!validateSender(event)) {
+      return { ok: false, error: 'Command catalog request is invalid' } satisfies CommandCatalogResult
+    }
+    const options = validateCommandCatalogOptions(rawOptions)
+    if (options === null) {
+      return { ok: false, error: 'Command catalog request is invalid' } satisfies CommandCatalogResult
+    }
+    return requestCommandCatalog(options)
   })
   ipcMain.handle('backend:favorite-toggle', async (event, mediaId: unknown) => {
     if (!validateSender(event) || !validControlMediaId(mediaId)) {

@@ -107,6 +107,43 @@ export type FavoriteToggleResult = DesktopControlResult
 
 export type SeekResult = DesktopControlResult
 
+export type CommandCatalogRisk = 'read-only' | 'state-changing' | 'destructive' | 'external-action'
+
+export type CommandCatalogForm = {
+  tokens: string[]
+  argument_kinds: string[]
+  flags: string[]
+}
+
+export type CommandCatalogEntry = {
+  key: string
+  canonical: string
+  category: string
+  summary: string
+  risk: CommandCatalogRisk
+  aliases: string[]
+  forms: CommandCatalogForm[]
+  availability: string[]
+}
+
+export type CommandCatalogSnapshot = {
+  schema_version: 1
+  entries: CommandCatalogEntry[]
+}
+
+export type CommandCatalogOptions = {
+  includeCompatibility?: boolean
+  typedPrefix?: string
+}
+
+export type CommandCatalogResult = {
+  ok: true
+  catalog: CommandCatalogSnapshot
+} | {
+  ok: false
+  error: string
+}
+
 function displayCells(value: string): number {
   return Array.from(value).reduce((total, character) => {
     if (/\p{Mark}/u.test(character)) return total
@@ -151,6 +188,7 @@ export type MarianaDesktopApi = {
   }
   backend: {
     snapshot(): Promise<BackendSnapshot>
+    commandCatalog(options?: CommandCatalogOptions): Promise<CommandCatalogResult>
     toggleFavorite(mediaId: string): Promise<FavoriteToggleResult>
     seek(mediaId: string, targetSeconds: number): Promise<SeekResult>
     onEvent(callback: (event: BackendEvent) => void): () => void
