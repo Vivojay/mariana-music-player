@@ -1,20 +1,34 @@
 # Mariana architecture
 
-Mariana has one command surface and two hosts. `main.py` owns the interactive
-REPL. A direct terminal runs it normally; Electron runs the same process in a
-native PTY and renders it with xterm.js. CLI-shaped UI actions send ordinary
-commands to the PTY. The authenticated side channel reports state and accepts
-only allowlisted typed control intents.
+Mariana has one backend/command authority and two host modes. `main.py` owns the
+interactive REPL. A direct terminal runs it normally; Electron runs the same
+process in a native PTY and renders it with xterm.js. Terminal-originated
+commands stay on that PTY. Dedicated desktop controls use an authenticated side
+channel that reports sanitized state and accepts only allowlisted typed intents;
+it is not a generic command executor.
 
 The [playback projection contract](PLAYBACK_PROJECTION_CONTRACT.md) defines how
-authoritative backend playback state becomes safe CLI, desktop, presence, and
-future control-surface data.
+authoritative backend playback state becomes safe CLI, main-window,
+Mini-player, and presence data.
 
 Electron may render several terminal tabs, but they are views of that one PTY,
 not additional Mariana processes. The host retains a bounded ANSI stream for
 new views and resets it on terminal-clear sequences. Search is performed by
 each view's xterm.js SearchAddon. Theme selection is a normal CLI command and a
 structured state event keeps the settings file and React selector synchronized.
+
+The auxiliary Mini-player creates no PTY, resolver, queue, or playback
+controller. It receives the same runtime-validated playback projection through
+a dedicated least-privilege preload and sends only identity-bound
+Play/Pause/Previous/Next intents. The main progress surface similarly sends one
+typed absolute seek target; Electron and the backend revalidate media identity,
+seekability, duration, policy, and preferred-region bounds before the
+`PlaybackController` mutates playback. The Mini-player timeline remains
+read-only.
+
+Desktop autocomplete is a separate read-only catalog projection. The renderer
+may filter and select safe catalog labels, but it cannot write the selection to
+the PTY, execute it, or approve a destructive command.
 
 Media references are persisted using canonical, non-secret identifiers. Source
 resolvers create short-lived playback URLs immediately before use. The playback

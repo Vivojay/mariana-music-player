@@ -489,6 +489,26 @@ Escape-to-clear. Theme changes made in the selector issue the same `theme`
 command as the CLI, keeping runtime settings, the preset selector, and future
 launches synchronized.
 
+The title-bar command dropdown is a sanitized command explorer, not a command
+runner. It supports deterministic prefix/alias suggestions, keyboard and
+pointer selection, stale-result rejection, and accessible combobox/listbox
+state, but intentionally does not edit terminal input, write to the PTY, or
+execute commands.
+
+For eligible finite media, clicking or tapping the main desktop progress track
+sends one identity-bound absolute seek request through the typed backend
+control path. The backend revalidates current media, state, seekability,
+duration, playback policy, and preferred-region bounds; live, blocked,
+unknown-duration, and unavailable states remain noninteractive. Drag,
+hover-preview, and keyboard seeking are not implemented.
+
+The **Mini** button opens one auxiliary Mini-player window without creating a
+second PTY or playback authority. It shows sanitized title/source/queue and
+finite progress, chapter/current-segment markers, preferred-region context,
+and safe live/unknown/unavailable states. Play/Pause/Previous/Next use its
+least-privilege typed control bridge. Closing it hides it; its progress track is
+read-only and it currently uses a local artwork placeholder.
+
 The desktop close button hides Mariana to the system tray by default so the
 backend and current playback continue running. Use `desktop close quit` to make
 the window close button terminate Mariana instead, or `desktop close tray` to
@@ -646,8 +666,9 @@ RecBole/Implicit challenger research is isolated from the runtime; see
 The latest hosted Windows, Ubuntu, and macOS matrix passed Python branch
 coverage, every independent 95% critical-module branch gate, Ruff, Pyright,
 dependency audits, React tests/builds, and native Electron PTY checks. The most
-recent local full run passed 1,252 tests with 17 opt-in or unavailable-tool cases
-skipped and 93.94% aggregate coverage. See the
+recent local full run for the post-release source batches passed 1,477 tests
+with 7 opt-in or unavailable-tool cases skipped and 94.12% aggregate coverage.
+See the
 [dated verification reports](docs/verification/) for exact environments,
 versions, metrics, and release gates that remain pending.
 

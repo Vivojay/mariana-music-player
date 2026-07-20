@@ -2,13 +2,13 @@
 
 ## Status and scope
 
-This document audits a future hover preview and mouse-seek design. It does not
-change playback, desktop IPC, the renderer, persistence, packaging, or release
-state. Mariana's existing desktop progress bar remains read-only.
+This document began as the hover-preview and mouse-seek audit. The typed
+identity-bound backend seek contract and main-window click/tap surface are now
+implemented. Hover preview, drag/keyboard seeking, and Mini-player seek remain
+deferred. This document does not itself change runtime or release state.
 
-The safe sequence is hover preview first, followed by a separate typed seek
-contract. Electron remains a presentation and intent surface; the Python
-backend and `PlaybackController` remain authoritative.
+Electron remains a presentation and intent surface; the Python backend and
+`PlaybackController` remain authoritative.
 
 ## Current state
 
@@ -17,15 +17,17 @@ backend and `PlaybackController` remain authoritative.
   playback policy, and preferred-region bounds.
 - `desktop/shared.ts` types that projection as `PlaybackStatus`.
 - `desktop/PlaybackStatusBar.tsx` renders a native progress element, chapter
-  boundaries, the active chapter segment, and textual playback state. The
-  progress and marker layers have no seek handlers.
+  boundaries, the active chapter segment, preferred-region bounds, and textual
+  playback state. The main surface attaches a single click/tap handler only
+  when the projected media is eligible; the Mini-player uses the same rendering
+  without a seek handler.
 - `desktop/main.ts` and `desktop/preload.cts` expose an allowlisted typed
-  favourite intent. The main process sends an authenticated request to the
-  backend and correlates a bounded response; it does not treat renderer state
-  as authoritative.
+  seek intent alongside the favourite intent. The main process validates
+  sender and payload, sends an authenticated request, and correlates a bounded
+  response; it does not treat renderer state as authoritative.
 - `main.py::_desktop_control_request` revalidates the projected media identity
-  before applying the favourite mutation. It currently rejects every other
-  desktop control action.
+  and current playback capabilities before delegating the finite absolute
+  target to the playback authority.
 - `PlaybackController.seek()` rejects absent and nonseekable media, clamps a
   target to the finite source duration and preferred start bound, and completes
   playback when a target reaches a preferred end bound. Clean finite EOF seeks
@@ -33,8 +35,8 @@ backend and `PlaybackController` remain authoritative.
 - The CLI seek parser supports absolute, relative, percentage, start/end, and
   duration forms, but the desktop must not invoke it by writing text to the
   terminal.
-- `docs/MINI_PLAYER_MVP_DESIGN.md` deliberately keeps both main and Mini-player
-  timelines read-only until this contract is implemented and proven.
+- `docs/MINI_PLAYER_MVP_DESIGN.md` keeps the Mini-player timeline read-only;
+  only the main desktop progress surface uses the seek intent.
 
 These foundations are sufficient. Mouse seeking does not require a new
 playback controller, projection source, database migration, or broad desktop
@@ -57,24 +59,24 @@ logging, history update, persistence, or network access. Leaving the track,
 moving focus away, pressing Escape, losing backend readiness, or changing
 media clears it.
 
-The first hover slice must not respond to click, tap, drag, wheel, or keyboard
-seek gestures. Touch interaction remains unchanged.
+The hover slice must not add a second click/tap request or respond to drag,
+wheel, or keyboard gestures. Existing typed click/tap behavior remains
+unchanged.
 
-### Later click-to-seek
+### Implemented main-window click-to-seek
 
-A primary-button click on an eligible track may later submit one absolute
+A primary-button click or tap on an eligible track submits one absolute
 target to a dedicated typed backend intent. The UI may show a pending marker,
 but it must not optimistically replace the authoritative progress position.
 The next backend projection settles the visible state.
 
-Clicks are disabled while a prior seek is being applied. If multiple targets
-are accepted by a later interaction design, requests are serialized and only
-the newest queued target for the same media may survive. A media transition or
-backend restart discards every pending target.
+Clicks are disabled while a prior seek is being applied; repeated clicks are
+ignored rather than queued. A media transition or backend restart discards the
+pending target.
 
 ## Eligibility matrix
 
-| Projected state | Hover preview | Later seek intent |
+| Projected state | Future hover preview | Main click/tap seek |
 | --- | --- | --- |
 | Playing or paused, finite, seekable, playable | Yes | Yes |
 | Seeking | Read-only current/pending display | No new request until settled |
@@ -84,17 +86,18 @@ backend restart discards every pending target.
 | Blocked or otherwise unplayable | No | No |
 
 The renderer derives eligibility only from the current sanitized projection
-and backend readiness. The backend independently validates every future seek;
+and backend readiness. The backend independently validates every submitted seek;
 renderer eligibility is never authorization.
 
 ## Safety and authority model
 
-The future flow is:
+The implemented flow is:
 
 1. Backend emits a canonical `PlaybackStatusProjection`.
-2. Renderer derives a display-only hover target from track geometry and that
-   projection.
-3. On a later enabled click, preload accepts a narrow typed seek request.
+2. Renderer derives a bounded source-timeline target from click/tap geometry
+   and that projection without changing displayed progress.
+3. On an enabled main-surface click/tap, preload accepts a narrow typed seek
+   request.
 4. Electron main validates sender and payload shape, then forwards an
    allowlisted authenticated backend request.
 5. Backend verifies current media identity, playback state, policy,
@@ -115,7 +118,7 @@ line.
 
 ## Hover-preview calculation
 
-Implement the future calculation as a pure, tested presentation helper:
+Implement a future hover calculation as a pure, tested presentation helper:
 
 1. Convert the pointer's horizontal position within the measured track to a
    ratio clamped to `0..1`.
@@ -138,8 +141,8 @@ pixel.
 
 ## Typed seek-control contract
 
-The later control slice should add a dedicated method rather than exposing a
-generic command channel. A minimal request is:
+The implemented control uses a dedicated method rather than exposing a generic
+command channel. Its minimal request is:
 
 ```text
 seek.request {
@@ -167,7 +170,7 @@ Useful fixed outcomes are `accepted`, `completed`, `media_changed`,
 `backend_unavailable`, `timed_out`, and `seek_failed`. Human messages must be
 short and fixed; raw third-party exceptions never cross into Electron.
 
-Preload should expose one narrowly typed `seek` method. Electron main must
+Preload exposes one narrowly typed `seek` method. Electron main must
 retain sender validation, request correlation, a bounded timeout, and safe
 failure sanitization. The request path must remain separate from
 `terminal:write`.
@@ -180,7 +183,7 @@ failure sanitization. The request path must remain separate from
   chapters outside the region.
 - Hover outside a preferred region previews the nearest valid boundary and may
   label it `Preferred start` or `Preferred end`.
-- A later click submits the clamped absolute target, and the backend recomputes
+- The implemented click/tap submits the clamped absolute target, and the backend recomputes
   the clamp against current policy.
 - Seeking to a preferred end follows the controller's existing completion
   semantics. Seeking near the finite source end follows its existing safe-EOF
@@ -188,8 +191,8 @@ failure sanitization. The request path must remain separate from
 
 ## Failure and transition behavior
 
-- A media or queue transition clears hover and pending state before rendering
-  the new projection.
+- A media or queue transition clears pending seek state before rendering the
+  new projection; a future hover slice must clear its preview too.
 - Backend disconnect/restart disables the surface and clears pending requests.
 - A rejected seek leaves the progress bar at the last authoritative position
   and shows one concise sanitized error.
@@ -208,9 +211,9 @@ failure sanitization. The request path must remain separate from
 - Do not use an assertive live region for continuous pointer movement.
 - Eligibility and disabled reasons require text, not color alone.
 - Reduced-motion mode removes nonessential tooltip/track transitions.
-- The read-only first slice keeps progress semantics and does not present a
-  slider. The later seekable surface may use slider semantics only when full
-  keyboard operation and backend validation exist.
+- The main pointer surface retains progress semantics and is not exposed as a
+  keyboard slider. Slider semantics require complete keyboard operation through
+  the same backend validation.
 - Arrow/Page/Home/End seeking is deferred to the final typed-control stage.
 
 ## Testing plan
@@ -243,27 +246,25 @@ failure sanitization. The request path must remain separate from
 
 ## Staged implementation
 
-1. **Hover-only preview:** use the existing sanitized projection on the main
+1. **Pending - hover-only preview:** use the existing sanitized projection on the main
    desktop timeline; add no IPC, preload method, or click handler.
-2. **Backend typed seek intent:** add the identity-bound request, backend
+2. **Completed - backend typed seek intent:** identity-bound request, backend
    validation, safe outcomes, and authoritative republish without UI wiring.
-3. **Main desktop click-to-seek:** connect primary click to the typed intent,
+3. **Completed - main desktop click-to-seek:** primary click/tap uses the typed intent,
    serialize requests, and reconcile from projection.
-4. **Mini-player hover preview:** reuse the proven pure timeline helper after
-   the Mini-player exists.
-5. **Mini-player click-to-seek:** reuse the proven intent only after the main
+4. **Pending - Mini-player hover preview:** reuse a proven pure timeline helper.
+5. **Pending - Mini-player click-to-seek:** reuse the proven intent only after the main
    surface has passed development and packaged acceptance.
-6. **Keyboard seeking:** add accessible slider/shortcut behavior through the
+6. **Pending - keyboard seeking:** add accessible slider/shortcut behavior through the
    same typed backend control.
 
-The smallest safe future slice is stage 1. It changes presentation only and
-cannot seek. Stage 2 should be a separate backend/control commit so identity,
-policy, error, and concurrency behavior can be reviewed before any pointer
-action is enabled.
+The next smallest safe slice is hover-only preview. It must remain local
+presentation and cannot send an additional seek.
 
 ## Non-goals
 
-- No seeking, hover preview, IPC, preload, or schema change in this audit.
+- No hover preview or Mini-player seek is implemented by the completed main
+  click/tap slice.
 - No drag scrubbing, waveform thumbnails, video-frame previews, or network
   preview generation.
 - No terminal injection, generic command executor, or renderer-owned playback

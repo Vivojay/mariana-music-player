@@ -2,10 +2,11 @@
 
 ## Status and intent
 
-This document defines a future Mini-player implementation. It does not change
-runtime behavior, playback, IPC, persistence, packaging, or release state.
+This document began as the Mini-player design and now records the implemented
+source MVP plus the deliberately deferred slices. It does not itself change
+runtime, packaging, or release state.
 
-The Mini-player will be a compact local desktop surface driven by Mariana's
+The Mini-player is a compact local desktop surface driven by Mariana's
 canonical `PlaybackStatusProjection`. The backend remains the only playback
 and media-state authority. The renderer formats sanitized state and, where
 explicitly allowed, sends a narrow typed intent.
@@ -20,27 +21,27 @@ explicitly allowed, sends a narrow typed intent.
   current-chapter highlight, chapter label, and preferred play-region bounds.
 - Clear live, unknown-duration, idle, failed, blocked, and backend-unavailable
   states.
-- Favourite state and toggle through the existing typed backend control path.
-- Mini-player themes: `offwhite`, `dark`, and `ambient`.
-- Optional always-on-top mode, off by default.
-- Validated local persistence of window bounds, theme, and pinned state.
+- Play/Pause/Previous/Next through a dedicated identity-bound typed control
+  path.
+- A local artwork placeholder; no media-art fetch pipeline.
 
-The initial size is `400 x 172`, with a supported range of `340 x 150` to
-`600 x 240`. The window is opaque, frameless, resizable, and visible in the
-taskbar. Custom controls provide Show main, Pin, Theme, and Hide.
+The implemented window is single-instance, opens from the main **Mini** button,
+and provides Show Mariana and Hide. Closing it or pressing Escape hides it.
+Theme selection, pin/always-on-top, bounds persistence, Mini-player favourite
+and volume controls, and tray-specific Mini-player actions remain deferred.
 
 ## Non-goals
 
-- Play, pause, stop, next, previous, volume, queue, or other playback controls.
-- Click, drag, keyboard, wheel, or mouse seeking.
+- Stop, volume, queue mutation, or arbitrary playback commands.
+- Mini-player click, drag, keyboard, wheel, or mouse seeking.
 - Hover seek previews or waveform previews.
 - Terminal command injection or a general command-execution IPC API.
 - A second playback controller, queue, media resolver, or state store.
 - Album-art fetching, network metadata lookup, or animated ambient artwork.
 - Raw source links or arbitrary external URL opening in the initial slices.
 
-Seeking remains deferred until the dedicated mouse-seek audit defines a typed,
-backend-validated intent and failure contract.
+The main desktop now has a typed, backend-validated click/tap seek path. The
+Mini-player deliberately does not expose it.
 
 ## Existing foundations
 
@@ -51,36 +52,36 @@ The current desktop already provides the required playback data:
   preferred-region fields.
 - `desktop/PlaybackStatusBar.tsx` renders finite/live/unknown progress and
   chapter markers.
-- `desktop/main.ts` caches the latest playback payload and mediates the typed
-  favourite request.
+- `desktop/main.ts` caches the latest playback payload and mediates typed
+  favourite, seek, and Mini-player playback requests.
 - `mariana/desktop_control.py` carries authenticated local events and requests.
 - The tray lifecycle already provides single-instance tray creation and clean
   Show, Hide, and Quit actions.
 
-The Mini-player must reuse these contracts rather than duplicate their state or
-derive media identity from terminal output.
+The Mini-player reuses these contracts rather than duplicating their state or
+deriving media identity from terminal output.
 
-## Proposed layout
+## Layout contract
 
-1. **Header:** draggable region, source badge, playback-state badge, Show main,
-   Pin, Theme, and Hide controls.
+1. **Header:** draggable region plus Show Mariana and Hide controls. Pin and
+   Theme remain deferred.
 2. **Identity:** safe artist/title with bounded ellipsis and full sanitized text
    available as an accessible label.
 3. **Timeline:** elapsed/duration, percentage when valid, read-only track,
-   current-position thumb, chapters, and preferred-region indication.
+   chapters, and preferred-region indication. A distinct thumb is deferred.
 4. **Context:** `Ch N/M · Title`, queue position, LIVE/unknown-duration text,
    or a blocked/unplayable badge.
-5. **Actions:** favourite toggle and, in a later security slice, an optional
-   safe provider-link action.
+5. **Actions:** Play/Pause/Previous/Next. Favourite, volume, and any safe
+   provider-link action remain later slices.
 
 No media path, URL, resolver value, fingerprint, credential, device identity,
 or private identifier is displayed.
 
 ## Shared playback presentation
 
-Extract a pure presentation mapper and shared `PlaybackTimeline` from the
-existing desktop status bar. Both the main footer and Mini-player consume the
-same primitives.
+The existing `PlaybackStatusBar` is the shared presentation boundary. Both the
+main footer and Mini-player consume it; the Mini-player omits the seek callback
+and therefore receives a noninteractive progress track.
 
 The mapper may derive formatted time, display title, source label, chapter
 label, progress availability, and accessible descriptions. It cannot retain
@@ -97,7 +98,7 @@ The timeline remains on the source timeline:
 - live and unknown-duration media show no numeric track, thumb, chapters, or
   region masks.
 
-### Hover and focus behavior
+### Deferred hover and focus polish
 
 - Track height is `4px` normally and `7px` on hover or focus.
 - Thumb diameter is `8px` normally and `11px` on hover or focus.
@@ -105,15 +106,16 @@ The timeline remains on the source timeline:
 - Reduced-motion mode disables the transition.
 - The timeline uses the normal cursor and has no pointer or key handlers that
   seek.
-- The focusable progress surface exposes `role="progressbar"`, bounded numeric
-  values, and meaningful `aria-valuetext`.
+- The current read-only surface exposes `role="progressbar"`, bounded numeric
+  values, and meaningful `aria-valuetext`. Any future focusable timeline must
+  retain those semantics without implying keyboard seeking.
 
 ## Window and tray lifecycle
 
 - Create the Mini-player lazily and retain at most one instance.
 - Closing it or pressing Escape hides it; neither action exits Mariana.
-- Add Show Mini-player and Hide Mini-player to the existing tray menu and a
-  Mini-player toggle in the main window.
+- The main window provides the implemented Mini-player open action. Dedicated
+  Show/Hide Mini-player tray entries remain deferred.
 - Tray Quit remains an explicit application/backend shutdown.
 - Main-window close-to-tray behavior remains unchanged.
 - Backend exit/restart leaves the Mini-player open in an unavailable state and
@@ -123,8 +125,8 @@ The timeline remains on the source timeline:
 - If the tray is unavailable, the main-window toggle remains the recovery path
   for a hidden Mini-player.
 
-The optional Pin control calls Electron's window authority and persists its
-state. Always-on-top is off by default.
+Any future Pin control must call Electron's window authority and persist only
+validated presentation state. Always-on-top is not currently implemented.
 
 ## Desktop security boundary
 
@@ -132,8 +134,8 @@ The Mini-player uses a dedicated least-privilege preload. It exposes only:
 
 - a sanitized Mini-player snapshot;
 - safe playback/readiness event subscription;
-- favourite intent;
-- Mini-player theme/pin/bounds actions;
+- identity-bound Play/Pause/Previous/Next intents;
+- the host platform label needed for local window styling;
 - Show main and Hide Mini-player.
 
 It does not expose the terminal, arbitrary backend commands, update controls,
@@ -145,9 +147,9 @@ Raw PTY output remains main-window-only. The main process broadcasts only
 sanitized playback/readiness data to the Mini-player. Renderer state is never
 treated as authoritative.
 
-## Favourite control reuse
+## Future favourite control reuse
 
-The Mini-player sends the current projected media identity through the existing
+If added, the Mini-player should send the current projected media identity through the existing
 typed favourite boundary. The backend revalidates that the active media still
 matches before mutation and republishes the complete authoritative projection.
 
@@ -175,9 +177,9 @@ A later contained slice may add an availability-only capability such as
   sources, credentials, and ambiguous providers.
 
 This capability, any projection schema bump, and source-opening tests are not
-part of the documentation or first implementation slice.
+implemented.
 
-## Themes and presentation persistence
+## Future themes and presentation persistence
 
 - `offwhite`: warm light surface with dark AA-contrast text.
 - `dark`: neutral charcoal and the default Mini-player theme.
@@ -205,46 +207,50 @@ off-screen restored bounds onto a connected display.
 
 ## Staged implementation
 
-1. **Shared read-only presentation:** extract pure playback formatting and a
-   timeline primitive while preserving the main footer's behavior.
-2. **Separate Mini-player window:** add the dedicated renderer/preload,
-   single-window lifecycle, safe snapshot/events, and main/tray visibility
-   actions.
-3. **Themes and persistence:** add the three themes, validated bounds, and the
-   optional remembered pin state.
-4. **Favourite reuse:** share pending/error reconciliation and serialize typed
-   favourite requests across both windows.
-5. **Playback context visualization:** render chapter label/markers, preferred
-   region, queue position, and blocked/unplayable state.
-6. **Progress polish:** add the specified hover/focus thumb and track behavior,
-   reduced-motion handling, and responsive layout.
+1. **Completed - shared read-only presentation:** finite/live/unknown progress
+   and sanitized chapter markers are shared with the main footer.
+2. **Completed - separate Mini-player window:** dedicated renderer/preload,
+   single-window lifecycle, cached snapshot/events, main visibility action, and
+   close/Escape-to-hide behavior.
+3. **Pending - themes and persistence:** add the three themes, validated bounds,
+   and optional remembered pin state.
+4. **Pending - favourite reuse:** add an identity-bound Mini-player favourite
+   intent and authoritative reconciliation.
+5. **Completed - playback context visualization:** safe identity/source/queue,
+   blocked/live/unknown states, chapter label/markers/current segment, and
+   preferred-region bounds.
+6. **Partially completed - progress polish:** compact responsive layout exists;
+   hover/focus thumb animation and theme/reduced-motion polish remain pending.
 7. **Safe provider opening:** implement the separate availability-only and
    typed-open security slice described above.
 8. **Later research:** hover preview.
-9. **After a dedicated audit:** click/drag/keyboard seeking.
+9. **After main-surface native/package acceptance:** consider Mini-player
+   click/drag/keyboard seeking through the existing typed seek contract.
 
-The first implementation slice changes presentation primitives only. It adds no
-window, route, preload, IPC, persistence, schema, or control behavior.
+## Verification status and remaining plan
 
-## Verification plan
-
-- Pure view tests for finite, live, unknown-duration, idle, failed, blocked,
-  missing, and backend-unavailable states.
-- Timeline tests for progress clamping, chapters, current segment, preferred
-  bounds, invalid data, focus, hover, and reduced motion.
-- Window lifecycle tests for single instance, show/hide/close, tray, pin,
-  bounds validation, backend restart, renderer reload, and explicit quit.
-- IPC/preload tests for least privilege, sender validation, event filtering,
-  favourite serialization, and absence of terminal access.
-- Development Electron E2E for hidden-main operation, playback transitions,
-  auto-advance, chapter/region/blocked changes, favourite reconciliation, and
-  backend recovery.
+- Current pure view tests cover finite, live, unknown-duration, idle, failed,
+  blocked, missing, and backend-unavailable states.
+- Current timeline tests cover progress clamping, chapters, current segment,
+  preferred bounds, invalid data, and read-only behavior. Focus, hover, and
+  reduced-motion polish remain pending.
+- Window lifecycle tests cover single instance, show/hide/close, backend
+  snapshots, and renderer reload. Tray entries, pin, bounds persistence, and
+  packaged lifecycle remain pending.
+- IPC/preload tests cover least privilege, sender validation, event filtering,
+  playback-control identity binding, and absence of terminal access. Favourite
+  serialization remains pending for this surface.
+- Development Electron E2E currently covers one-instance creation, safe
+  unavailable rendering, least-privilege preload, disabled controls without
+  media, and close-to-hide. Eligible-media transitions, auto-advance,
+  chapter/region changes, and backend recovery remain native/E2E follow-ups.
 - Packaged E2E before any release claim, confirming no second backend or PTY
   session is created.
 - Privacy assertions that no path, raw URL, cookie, header, credential,
   resolver field, fingerprint, device identity, or private ID is rendered or
   emitted to the Mini-player.
 
-Manual acceptance should cover all themes, display scaling, keyboard-only use,
-screen reader labels, multiple monitors, tray-unavailable fallback, and reduced
-motion.
+Manual acceptance should cover the current compact layout, long labels,
+keyboard-only use, screen-reader labels, display scaling, and backend recovery.
+Future themes, multiple-monitor bounds, tray actions, pinning, and reduced
+motion require their own implementation before acceptance.

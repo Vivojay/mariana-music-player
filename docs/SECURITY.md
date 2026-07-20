@@ -13,6 +13,10 @@
 - Electron uses local packaged content, context isolation, renderer sandboxing,
   disabled Node integration, a restrictive CSP, validated IPC senders, and a
   narrow typed preload API.
+- The Mini-player has its own smaller preload and no access to the main-window
+  bridge, PTY, arbitrary backend requests, filesystem, or source URLs. Its
+  playback controls carry only the projected current-media identity and a
+  fixed allowlisted action.
 - Playback JSON is runtime-validated at the Electron main-process boundary.
   Only the schema-7 allowlist is reconstructed; unknown fields are dropped and
   malformed, out-of-range, internally inconsistent, private-reference-bearing,
@@ -36,6 +40,12 @@
   labels, aliases, form kinds, and flags. It contains no paths, credentials,
   private identifiers, handlers, insertion text, or confirmation callbacks.
   Desktop autocomplete is display-only and cannot execute or approve commands.
+- Desktop seek sends one finite absolute target plus the projected media
+  identity through a dedicated typed boundary. Renderer, Electron main, and
+  backend validation reject stale identity, ineligible state, live or unknown
+  duration, blocked media, and invalid targets; the backend reapplies current
+  preferred-region bounds. No seek command is constructed or injected into the
+  terminal.
 - Audio and listening history stay local unless an optional integration such as
   ListenBrainz is explicitly enabled.
 

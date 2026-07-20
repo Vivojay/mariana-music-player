@@ -65,7 +65,16 @@
 - Mini-player chapter and preferred-region progress is intentionally read-only.
   It renders only validated finite source-timeline data and suppresses markers
   for live or unknown-duration media; seeking remains limited to the main
-  desktop progress surface.
+  desktop progress surface. The current Mini-player provides
+  Play/Pause/Previous/Next and a local artwork placeholder, but not favourite
+  or volume controls, artwork retrieval, themes, pin/always-on-top, remembered
+  bounds, provider links, hover preview, or packaged/native acceptance.
+- Main-window mouse/tap seeking is a single-click absolute seek through the
+  typed backend boundary. It has no drag scrubbing, hover preview, waveform,
+  keyboard/slider seeking, or Mini-player seek. Live, unknown-duration,
+  nonseekable, blocked, transitional, and backend-unavailable states remain
+  noninteractive, and preferred-region bounds clamp the submitted source-time
+  target.
 - Playlist delete/clear are revision-bound, but add/remove/move/order still do
   not use compare-and-swap revisions for concurrent writers. Revision restore
   should be exposed before claiming full concurrent-edit recovery.
