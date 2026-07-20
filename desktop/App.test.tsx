@@ -466,6 +466,38 @@ describe('Mariana desktop shell', () => {
     expect(write).not.toHaveBeenCalled()
   })
 
+  it('renders only current validated playback projections', () => {
+    render(<App />)
+    act(() => backendEvent?.({
+      event: 'playback',
+      payload: {
+        ...playbackStatus({ title: 'Safe current track' }),
+        original_uri: 'https://signed.invalid/media?token=secret',
+        resolver_data: { cookie: 'private' },
+      } as PlaybackStatus,
+      timestamp: 10,
+    }))
+    expect(screen.getByLabelText('Playback status')).toHaveTextContent('Safe current track')
+    expect(screen.getByLabelText('Playback status')).not.toHaveTextContent('signed.invalid')
+
+    act(() => backendEvent?.({
+      event: 'playback',
+      payload: playbackStatus({ title: 'Stale track' }),
+      timestamp: 9,
+    }))
+    act(() => backendEvent?.({
+      event: 'playback',
+      payload: playbackStatus({ title: 'C:\\Users\\Name\\private.mp3' }),
+      timestamp: 11,
+    }))
+
+    expect(screen.getByLabelText('Playback status')).toHaveTextContent('Safe current track')
+    expect(screen.queryByText(/Stale track|private\.mp3/)).not.toBeInTheDocument()
+    expect(write).not.toHaveBeenCalled()
+    expect(toggleFavorite).not.toHaveBeenCalled()
+    expect(seek).not.toHaveBeenCalled()
+  })
+
   it('toggles favourites through typed backend control and settles from playback projection', async () => {
     let resolveToggle: ((value: { ok: boolean; error?: string }) => void) | undefined
     toggleFavorite.mockImplementationOnce(() => new Promise((resolve) => { resolveToggle = resolve }))

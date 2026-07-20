@@ -7,6 +7,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as pty from 'node-pty'
 import { projectCommandCatalog, validateCommandCatalogOptions } from './commandCatalog.js'
+import { acceptPlaybackStatusEvent } from './playbackProjection.js'
 import { validateSeekIntent } from './playbackSeek.js'
 import type {
   BackendEvent,
@@ -59,6 +60,7 @@ let terminalControlTail = ''
 let quitting = false
 let playbackState = 'idle'
 let playbackStatus: PlaybackStatus | null = null
+let playbackEventTimestamp: number | null = null
 let sleepActive = false
 let backendReady = false
 let backendShutdownAcknowledged = false
@@ -290,9 +292,18 @@ function requestBackendControl(
 }
 
 function handleBackendEvent(event: BackendEvent) {
+  let forwardedEvent = event
   if (event.event === 'playback') {
-    playbackState = event.payload.state
-    playbackStatus = event.payload
+    const accepted = acceptPlaybackStatusEvent(
+      event.payload,
+      event.timestamp,
+      playbackEventTimestamp,
+    )
+    if (!accepted) return
+    playbackEventTimestamp = accepted.timestamp
+    playbackState = accepted.status.state
+    playbackStatus = accepted.status
+    forwardedEvent = { ...event, payload: accepted.status }
   }
   if (event.event === 'sleep') sleepActive = Boolean(event.payload.active)
   if (event.event === 'update-safe') backendSafeOverride = Boolean(event.payload.safe)
@@ -347,7 +358,7 @@ function handleBackendEvent(event: BackendEvent) {
     terminalProcess?.write('exit y\r')
     setTimeout(() => autoUpdater.quitAndInstall(false, true), 1200)
   }
-  if (event.event !== 'control-result') send('backend:event', event)
+  if (event.event !== 'control-result') send('backend:event', forwardedEvent)
   sendMiniPlayerSnapshot()
   if (updateState.state === 'downloaded') setUpdateState(updateState)
 }
@@ -425,6 +436,7 @@ function startTerminal() {
   finishPendingControlRequests()
   playbackState = 'idle'
   playbackStatus = null
+  playbackEventTimestamp = null
   sendMiniPlayerSnapshot()
   backendShutdownAcknowledged = false
   backendExitClosesView = true

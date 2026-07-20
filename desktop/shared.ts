@@ -16,14 +16,33 @@ export type PlaybackChapterMarker = {
   current: boolean
 }
 
+export type PlaybackState =
+  | 'idle'
+  | 'resolving'
+  | 'buffering'
+  | 'playing'
+  | 'paused'
+  | 'seeking'
+  | 'crossfading'
+  | 'failed'
+  | 'stopping'
+
+export type PlaybackSource =
+  | 'local'
+  | 'youtube'
+  | 'url'
+  | 'podcast'
+  | 'radio'
+  | 'recommendation'
+
 export type PlaybackStatus = {
-  schema_version: number
-  state: string
+  schema_version: 7
+  state: PlaybackState
   display_state: string
   media_id: string | null
   title: string | null
   artist: string | null
-  source: string | null
+  source: PlaybackSource | null
   position_seconds: number
   duration_seconds: number | null
   percent: number | null

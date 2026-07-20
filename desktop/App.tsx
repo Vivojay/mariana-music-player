@@ -5,6 +5,7 @@ import {
   projectCommandSuggestions,
   type CommandSuggestionProjection,
 } from './commandCatalog'
+import { acceptPlaybackStatusEvent, projectPlaybackStatus } from './playbackProjection'
 import { PlaybackStatusBar } from './PlaybackStatusBar'
 import { validateSeekIntent } from './playbackSeek'
 import { TerminalSurface } from './TerminalSurface'
@@ -126,6 +127,7 @@ export default function App() {
   const [loudnessStatus, setLoudnessStatus] = useState<Record<string, unknown>>({ replaygain_db: 0, live_leveling: false })
   const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus | null>(null)
   const playbackStatusRef = useRef<PlaybackStatus | null>(null)
+  const playbackEventTimestampRef = useRef<number | null>(null)
   const favoritePendingRef = useRef(false)
   const favoriteRequestEpoch = useRef(0)
   const [favoritePending, setFavoritePending] = useState(false)
@@ -168,8 +170,10 @@ export default function App() {
 
   useEffect(() => {
     let playbackEventReceived = false
-    const receivePlaybackStatus = (next: PlaybackStatus | null) => {
-      if (playbackStatusRef.current?.media_id !== next?.media_id) {
+    const receivePlaybackStatus = (next: PlaybackStatus | null): boolean => {
+      const projected = next === null ? null : projectPlaybackStatus(next)
+      if (next !== null && !projected) return false
+      if (playbackStatusRef.current?.media_id !== projected?.media_id) {
         favoriteRequestEpoch.current += 1
         favoritePendingRef.current = false
         setFavoritePending(false)
@@ -177,10 +181,11 @@ export default function App() {
         seekPendingRef.current = false
         setSeekPending(false)
       }
-      playbackStatusRef.current = next
+      playbackStatusRef.current = projected
       setFavoriteError(null)
       setSeekError(null)
-      setPlaybackStatus(next)
+      setPlaybackStatus(projected)
+      return true
     }
     void window.mariana.backend.snapshot().then((snapshot) => {
       if (snapshot.ready) {
@@ -197,6 +202,7 @@ export default function App() {
     const backend = window.mariana.backend.onEvent((event: BackendEvent) => {
       if (event.event === 'starting') {
         playbackEventReceived = true
+        playbackEventTimestampRef.current = null
         setBackendState('starting')
         setBackendDiagnostic(null)
         receivePlaybackStatus(null)
@@ -223,8 +229,15 @@ export default function App() {
       if (event.event === 'broadcast') setBroadcastStatus(event.payload)
       if (event.event === 'loudness') setLoudnessStatus(event.payload)
       if (event.event === 'playback') {
-        playbackEventReceived = true
-        receivePlaybackStatus(event.payload)
+        const accepted = acceptPlaybackStatusEvent(
+          event.payload,
+          event.timestamp,
+          playbackEventTimestampRef.current,
+        )
+        if (accepted && receivePlaybackStatus(accepted.status)) {
+          playbackEventTimestampRef.current = accepted.timestamp
+          playbackEventReceived = true
+        }
       }
       if (event.event === 'station') setStationStatus(event.payload)
       if (event.event === 'queue') {

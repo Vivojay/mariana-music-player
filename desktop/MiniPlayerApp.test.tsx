@@ -5,8 +5,11 @@ import { projectMiniPlayerControls } from './miniPlayerControls'
 import type { MarianaMiniPlayerApi, MiniPlayerSnapshot, PlaybackStatus } from './shared'
 
 vi.mock('./PlaybackStatusBar', () => ({
-  PlaybackStatusBar: ({ unavailableReason }: { unavailableReason?: string | null }) => (
-    <div aria-label="Playback status">{unavailableReason}</div>
+  PlaybackStatusBar: ({ status, unavailableReason }: {
+    status?: PlaybackStatus | null
+    unavailableReason?: string | null
+  }) => (
+    <div aria-label="Playback status">{status?.title || unavailableReason}</div>
   ),
 }))
 
@@ -174,6 +177,33 @@ describe('Mini-player lifecycle surface', () => {
     await act(async () => resolveInitial?.({ ready: false, diagnostic: 'Stale initial state', playback: null }))
 
     expect(screen.getByLabelText('Playback status')).toHaveTextContent('Current backend state')
+  })
+
+  it('ignores malformed Mini-player projections and renders only allowlisted fields', async () => {
+    render(<MiniPlayerApp />)
+    await waitFor(() => expect(receiveSnapshot).toBeDefined())
+
+    act(() => receiveSnapshot?.({
+      ready: true,
+      diagnostic: null,
+      playback: {
+        ...playbackStatus({ title: 'Safe Mini-player track' }),
+        original_uri: 'https://signed.invalid/media?token=secret',
+      } as PlaybackStatus,
+    }))
+    expect(screen.getByLabelText('Playback status')).toHaveTextContent('Safe Mini-player track')
+    expect(screen.getByLabelText('Playback status')).not.toHaveTextContent('signed.invalid')
+
+    act(() => receiveSnapshot?.({
+      ready: true,
+      diagnostic: null,
+      playback: playbackStatus({ title: 'C:\\Users\\Name\\private.mp3' }),
+    }))
+    expect(screen.getByLabelText('Playback status')).toHaveTextContent('Safe Mini-player track')
+    expect(play).not.toHaveBeenCalled()
+    expect(pause).not.toHaveBeenCalled()
+    expect(previous).not.toHaveBeenCalled()
+    expect(next).not.toHaveBeenCalled()
   })
 
   it('shows the main window and hides through narrow lifecycle actions', () => {

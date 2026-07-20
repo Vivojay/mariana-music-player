@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { MiniPlayerNowPlaying } from './MiniPlayerNowPlaying'
 import { projectMiniPlayerControls } from './miniPlayerControls'
+import { projectPlaybackStatus } from './playbackProjection'
 import type { DesktopControlResult, MiniPlayerSnapshot } from './shared'
 
 const unavailableSnapshot: MiniPlayerSnapshot = {
@@ -20,22 +21,25 @@ export default function MiniPlayerApp() {
   useEffect(() => {
     let mounted = true
     let streamedSnapshotReceived = false
-    const receiveSnapshot = (next: MiniPlayerSnapshot) => {
-      if (snapshotRef.current.playback?.media_id !== next.playback?.media_id) {
+    const receiveSnapshot = (next: MiniPlayerSnapshot): boolean => {
+      const playback = next.playback === null ? null : projectPlaybackStatus(next.playback)
+      if (next.playback !== null && !playback) return false
+      const projected = { ...next, playback }
+      if (snapshotRef.current.playback?.media_id !== projected.playback?.media_id) {
         controlEpoch.current += 1
         controlPendingRef.current = false
         setControlPending(false)
         setControlError(null)
       }
-      snapshotRef.current = next
-      setSnapshot(next)
+      snapshotRef.current = projected
+      setSnapshot(projected)
+      return true
     }
     void window.marianaMini.snapshot().then((next) => {
       if (mounted && !streamedSnapshotReceived) receiveSnapshot(next)
     })
     const unsubscribe = window.marianaMini.onSnapshot((next) => {
-      streamedSnapshotReceived = true
-      receiveSnapshot(next)
+      if (receiveSnapshot(next)) streamedSnapshotReceived = true
     })
     const hideOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') void window.marianaMini.hide()
