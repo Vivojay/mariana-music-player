@@ -66,6 +66,56 @@ describe('playback projection boundary', () => {
   })
 
   it.each([
+    projection({ duration_seconds: null, percent: null }),
+    projection({
+      source: 'radio',
+      title: 'Public radio',
+      artist: null,
+      duration_seconds: null,
+      percent: null,
+      finite: false,
+      live: true,
+      seekable: false,
+      library_index: null,
+      queue_position: null,
+      queue_count: 0,
+      favorite: {
+        available: false,
+        is_favorite: false,
+        toggle_enabled: false,
+        unavailable_reason: 'Favourite state unavailable',
+      },
+    }),
+    projection({
+      state: 'idle',
+      display_state: 'Stopped',
+      media_id: null,
+      title: null,
+      artist: null,
+      source: null,
+      position_seconds: 0,
+      duration_seconds: null,
+      percent: null,
+      buffered_seconds: 0,
+      finite: false,
+      live: false,
+      seekable: false,
+      library_index: null,
+      queue_position: null,
+      queue_count: 0,
+      favorite: {
+        available: false,
+        is_favorite: false,
+        toggle_enabled: false,
+        unavailable_reason: 'No active media',
+      },
+      policy: { blocked: false, playable: false, unavailable_reason: 'No active media' },
+    }),
+  ])('accepts normalized backend source and lifecycle shapes', (candidate) => {
+    expect(projectPlaybackStatus(candidate)).not.toBeNull()
+  })
+
+  it.each([
     projection({ schema_version: 6 }),
     projection({ position_seconds: Number.NaN }),
     projection({ percent: 900 }),

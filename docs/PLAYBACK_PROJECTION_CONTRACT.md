@@ -36,7 +36,17 @@ perform network work, mutate playback, or persist state.
 ## Authoritative and display fields
 
 The current projection schema is versioned. Consumers must tolerate missing
-optional fields and must not infer backend state from formatted labels.
+optional fields and must not infer backend state from formatted labels. Python
+serializes the explicit `PlaybackStatusProjection` dataclass; its source tests
+lock the complete top-level and nested field sets for schema 7.
+
+Electron treats every decoded backend payload as untrusted runtime data rather
+than relying on a TypeScript cast. The main-process boundary reconstructs a new
+object from the schema-7 allowlist and validates field types, lengths, numeric
+bounds, source/state enums, nested shapes, and cross-field invariants. Unknown
+properties are dropped. An unsupported schema, missing or malformed field,
+private reference in an allowlisted display field, or inconsistent capability
+combination rejects the complete projection before it is cached or forwarded.
 
 - `state` is the controller lifecycle value. `display_state` is a safe label
   such as `Playing`, `Paused`, `Finished`, or `Stopped`.
@@ -85,6 +95,13 @@ An idle snapshot with no media projects no current identity. If the controller
 retains a completed media item so the backend can report `Finished`, that
 identity still comes from that same snapshot; a renderer must not preserve it
 after a later empty snapshot.
+
+Playback events also carry an envelope timestamp. Electron accepts only a
+strictly newer valid event within one backend lifecycle; duplicate or older
+events cannot replace cached state. Starting a new backend lifecycle clears the
+freshness cursor. The main renderer and Mini-player revalidate snapshots before
+using them and ignore invalid updates rather than merging them with prior
+identity fields.
 
 ## Chapters and favourites
 
@@ -142,9 +159,10 @@ must not be implemented by injecting command text into the PTY.
 
 - `now`, `progress`, the rich terminal header, and desktop footer render the
   canonical playback status projection.
-- A future mini-player, tray tooltip, or notification should subscribe to the
-  same projection and select a minimal safe subset. It must not create another
-  media cache or playback clock.
+- The Mini-player subscribes to the same validated projection as the main
+  footer and selects a minimal safe subset. A future tray tooltip or
+  notification must do the same rather than create another media cache or
+  playback clock.
 - Discord and future external providers consume provider-specific projections
   derived from authoritative backend state. Provider failures never mutate or
   stop playback.

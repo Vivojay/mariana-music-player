@@ -15,6 +15,7 @@ from mariana.playback_status import (
     FavoriteStatusProjection,
     PlaybackChapterMarkerProjection,
     PlaybackChapterProjection,
+    PlaybackPolicyProjection,
     project_playback_status,
 )
 from mariana.queueing import PersistentQueue
@@ -133,6 +134,85 @@ def test_projection_includes_safe_finite_metadata_and_chapter():
         "index": 2,
         "count": 3,
     }
+
+
+def test_serialized_projection_matches_the_desktop_allowlist_contract():
+    chaptered = media()
+    chaptered.provenance = "library"
+    chaptered.chapters = [MediaChapter("Intro", 0, 100)]
+    payload = project_playback_status(
+        PlaybackSnapshot(
+            PlaybackState.PLAYING,
+            media=chaptered,
+            position=25,
+            duration=100,
+            buffered_seconds=5,
+            current_chapter=chaptered.chapters[0],
+            region_start_seconds=10,
+            region_end_seconds=90,
+        ),
+        library_index=4,
+        queue_position=2,
+        queue_count=3,
+        favorite=FavoriteStatusProjection(True, True, True),
+        policy=PlaybackPolicyProjection(False, True),
+    ).to_dict()
+
+    assert payload["schema_version"] == 7
+    assert set(payload) == {
+        "schema_version",
+        "state",
+        "display_state",
+        "media_id",
+        "title",
+        "artist",
+        "source",
+        "position_seconds",
+        "duration_seconds",
+        "percent",
+        "buffered_seconds",
+        "finite",
+        "live",
+        "seekable",
+        "library_index",
+        "queue_position",
+        "queue_count",
+        "favorite",
+        "chapter",
+        "chapter_markers",
+        "replaygain_db",
+        "live_leveling",
+        "safe_error",
+        "policy",
+        "region",
+    }
+    assert set(payload["favorite"]) == {
+        "available",
+        "is_favorite",
+        "toggle_enabled",
+        "unavailable_reason",
+    }
+    assert set(payload["policy"]) == {"blocked", "playable", "unavailable_reason"}
+    assert set(payload["region"]) == {"active", "start_seconds", "end_seconds"}
+    assert set(payload["chapter"]) == {"title", "start_time", "end_time", "index", "count"}
+    assert all(
+        set(marker)
+        == {
+            "title",
+            "start_time",
+            "end_time",
+            "start_percent",
+            "end_percent",
+            "index",
+            "count",
+            "current",
+        }
+        for marker in payload["chapter_markers"]
+    )
+    serialized = str(payload)
+    assert "C:/private" not in serialized
+    assert "original_uri" not in serialized
+    assert "resolver_data" not in serialized
 
 
 def test_projection_sanitizes_chapter_markers_on_the_source_timeline():

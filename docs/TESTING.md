@@ -37,7 +37,10 @@ python -m pytest -q tests/test_media_details.py tests/test_tool_setup.py tests/t
 python -m pytest -q tests/test_command_catalog.py tests/test_cli_command_matrix.py `
   tests/test_hierarchical_queue_and_playlists.py tests/test_hierarchy_album_download_edges.py `
   tests/test_output_targets.py
-npm test -- --run desktop/App.test.tsx desktop/commandCatalog.test.ts desktop/TerminalSurface.test.tsx
+python -m pytest -q tests/test_playback_status.py tests/test_desktop_control.py
+npm test -- --run desktop/App.test.tsx desktop/MiniPlayerApp.test.tsx `
+  desktop/playbackProjection.test.ts desktop/PlaybackStatusBar.test.tsx `
+  desktop/commandCatalog.test.ts desktop/TerminalSurface.test.tsx
 ```
 
 These cover safe metadata-derived renames, stable library identity, tool-bundle
@@ -47,6 +50,14 @@ command-catalog projection, stale autocomplete rejection, ARIA active-option
 state, deterministic keyboard navigation, non-executing selection, bound
 playlist deletion/clearing, atomic lyrics-sidecar no-clobber behavior, and
 privacy-safe destructive risk labels.
+
+The playback projection slice additionally locks Python's complete serialized
+schema-7 field sets and exercises finite, unknown-duration, live, and idle
+source shapes against Electron's runtime allowlist. Desktop tests prove unknown
+fields are dropped, private or malformed allowlisted values fail closed,
+duplicate/older events cannot replace current state, and both the main window
+and Mini-player retain only the last accepted projection without issuing a
+control or PTY write.
 
 On Windows, rebuilding `node-pty` requires the Visual Studio C++ build tools.
 The development and packaged PTY tests may use a verified prebuilt binary, but

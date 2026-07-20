@@ -56,6 +56,12 @@
 - Command-catalog risk labels are informational. They do not replace runtime
   validation or confirmation, and autocomplete cannot approve or execute a
   destructive command.
+- Desktop playback projection validation currently accepts schema 7 only and
+  fails closed when development builds mix incompatible backend and renderer
+  versions. Malformed updates are silently ignored, leaving the last accepted
+  status visible; a dedicated user-facing protocol diagnostic is not yet
+  available. Event freshness uses strictly increasing envelope timestamps
+  rather than a dedicated monotonic projection sequence.
 - Playlist delete/clear are revision-bound, but add/remove/move/order still do
   not use compare-and-swap revisions for concurrent writers. Revision restore
   should be exposed before claiming full concurrent-edit recovery.

@@ -13,6 +13,11 @@
 - Electron uses local packaged content, context isolation, renderer sandboxing,
   disabled Node integration, a restrictive CSP, validated IPC senders, and a
   narrow typed preload API.
+- Playback JSON is runtime-validated at the Electron main-process boundary.
+  Only the schema-7 allowlist is reconstructed; unknown fields are dropped and
+  malformed, out-of-range, internally inconsistent, private-reference-bearing,
+  duplicate, or older projections are not cached or forwarded. The main window
+  and Mini-player defensively revalidate the accepted projection.
 - Managed tools require an exact SHA-256 match before extraction. Archive paths
   are validated, activation is transactional, and release publication fails
   closed when signing material is unavailable.
@@ -49,5 +54,5 @@ Discord transport failure is isolated from playback and shutdown.
 
 Security regressions are tested for URL redaction, credential persistence,
 subprocess arguments, events, logs, malformed archives, IPC boundaries,
-destructive target races, alias-equivalent guards, and failed transactional
-activation.
+playback projection allowlisting and stale-event rejection, destructive target
+races, alias-equivalent guards, and failed transactional activation.
