@@ -1,7 +1,9 @@
 
 import json
+import sys
 from pathlib import Path
 
+import conftest
 import pytest
 
 import tools.coverage_gate as coverage_gate
@@ -111,6 +113,28 @@ def test_text_integrity_rejects_invalid_utf8_and_mojibake(tmp_path):
 def test_mutation_score_is_conservative():
     assert mutation_score({"total": 10, "killed": 8, "skipped": 0}) == 80
     assert mutation_score({"total": 2, "killed": 0, "skipped": 2}) == 100
+
+
+def test_mutmut_copied_tests_append_repository_root_after_mutated_sources(monkeypatch):
+    mutation_root = Path("repository") / "mutants"
+    mutated_sources = str(mutation_root)
+    monkeypatch.setenv("MUTANT_UNDER_TEST", "mutant_generation")
+    monkeypatch.setattr(sys, "path", [mutated_sources])
+
+    conftest._append_mutmut_repository_root(mutation_root)
+    conftest._append_mutmut_repository_root(mutation_root)
+
+    assert sys.path == [mutated_sources, str(mutation_root.parent)]
+
+
+def test_mutmut_repository_root_hook_is_inactive_during_normal_pytest(monkeypatch):
+    normal_root = Path("repository")
+    monkeypatch.delenv("MUTANT_UNDER_TEST", raising=False)
+    monkeypatch.setattr(sys, "path", [str(normal_root)])
+
+    conftest._append_mutmut_repository_root(normal_root)
+
+    assert sys.path == [str(normal_root)]
 
 
 def test_docs_verifier_reports_links_and_command_drift(tmp_path):
