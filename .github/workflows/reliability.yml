@@ -20,6 +20,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - name: Install mutation Linux media runtime
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg libchromaprint-tools libportaudio2
       - run: python -m pip install -r requirements-dev.txt
       - run: mutmut run
       - run: mutmut export-cicd-stats
