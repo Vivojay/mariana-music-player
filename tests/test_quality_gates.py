@@ -18,8 +18,16 @@ from tools.verify_docs import verify
 from tools.verify_text_integrity import inspect
 
 
+def repository_root(test_file: Path = Path(__file__)) -> Path:
+    for parent_index in (1, 2):
+        candidate = test_file.parents[parent_index]
+        if (candidate / "mariana-cli.spec").is_file():
+            return candidate
+    raise FileNotFoundError("mariana-cli.spec is unavailable from the test workspace")
+
+
 def test_packaged_app_contains_both_media_tool_manifests():
-    root = Path(__file__).resolve().parents[1]
+    root = repository_root()
     spec = (root / "mariana-cli.spec").read_text(encoding="utf-8")
     package = json.loads((root / "package.json").read_text(encoding="utf-8"))
     resource_entries = package["build"]["extraResources"]
@@ -32,7 +40,7 @@ def test_packaged_app_contains_both_media_tool_manifests():
 
 
 def test_packaged_app_contains_public_discord_presence_contract():
-    root = Path(__file__).resolve().parents[1]
+    root = repository_root()
     spec = (root / "mariana-cli.spec").read_text(encoding="utf-8")
     requirements_in = (root / "requirements.in").read_text(encoding="utf-8")
     requirements_lock = (root / "requirements.txt").read_text(encoding="utf-8")
@@ -135,6 +143,15 @@ def test_mutmut_repository_root_hook_is_inactive_during_normal_pytest(monkeypatc
     conftest._append_mutmut_repository_root(normal_root)
 
     assert sys.path == [str(normal_root)]
+
+
+def test_quality_gate_resources_resolve_outside_mutmut_copied_test_tree(tmp_path):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    (repository / "mariana-cli.spec").write_text("# fixture\n", encoding="utf-8")
+    copied_test = repository / "mutants" / "tests" / "test_quality_gates.py"
+
+    assert repository_root(copied_test) == repository
 
 
 def test_docs_verifier_reports_links_and_command_drift(tmp_path):
