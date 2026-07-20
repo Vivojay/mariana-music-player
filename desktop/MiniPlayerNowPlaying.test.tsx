@@ -47,6 +47,21 @@ describe('Mini-player now-playing surface', () => {
       .toHaveAttribute('value', '25')
   })
 
+  it('retains the complete sanitized identity when a long title is visually constrained', () => {
+    const artist = 'Mariana Archive Ensemble'
+    const title = 'A deliberately long but safe local title that must remain available beyond the compact Mini-player width'
+    const displayTitle = `${artist} — ${title}`
+
+    render(<MiniPlayerNowPlaying
+      status={status({ artist, title, source: 'local' })}
+      unavailableReason="Waiting for backend"
+    />)
+
+    expect(screen.getByTitle(displayTitle)).toHaveClass('playback-identity')
+    expect(screen.getByText(displayTitle)).toHaveClass('playback-title')
+    expect(screen.getByText('Local')).toHaveClass('playback-source')
+  })
+
   it('renders chapter and preferred-region progress as read-only projected context', () => {
     const { container } = render(<MiniPlayerNowPlaying status={status({
       chapter: { title: 'Bridge', start_time: 60, end_time: 120, index: 2, count: 3 },
