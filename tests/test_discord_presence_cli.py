@@ -13,6 +13,15 @@ from mariana.integrations.discord_presence import (
 from mariana.presence import PresencePrivacyMode
 
 
+def settings_defaults_path(test_file: Path = Path(__file__)) -> Path:
+    relative_path = Path("settings") / "settings.yml.default"
+    for parent_index in (1, 2):
+        candidate = test_file.parents[parent_index] / relative_path
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError("settings/settings.yml.default is unavailable from the test workspace")
+
+
 class Coordinator:
     def __init__(self, mode="off"):
         self.mode = PresencePrivacyMode(mode)
@@ -99,8 +108,18 @@ def test_discord_presence_settings_rollback_on_atomic_write_failure(monkeypatch)
 
 
 def test_discord_presence_factory_default_is_off():
-    defaults = YAML(typ="safe").load((Path(__file__).parents[1] / "settings" / "settings.yml.default").read_text())
+    defaults = YAML(typ="safe").load(settings_defaults_path().read_text())
     assert defaults["integrations"]["discord"]["presence"]["mode"] == "off"
+
+
+def test_discord_defaults_resolve_outside_mutmut_copied_test_tree(tmp_path):
+    repository = tmp_path / "repository"
+    defaults = repository / "settings" / "settings.yml.default"
+    defaults.parent.mkdir(parents=True)
+    defaults.write_text("integrations: {}\n", encoding="utf-8")
+    copied_test = repository / "mutants" / "tests" / "test_discord_presence_cli.py"
+
+    assert settings_defaults_path(copied_test) == defaults
 
 
 def test_discord_presence_invalid_persisted_mode_falls_back_to_off():
