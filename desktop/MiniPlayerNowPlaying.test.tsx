@@ -47,6 +47,25 @@ describe('Mini-player now-playing surface', () => {
       .toHaveAttribute('value', '25')
   })
 
+  it('renders chapter and preferred-region progress as read-only projected context', () => {
+    const { container } = render(<MiniPlayerNowPlaying status={status({
+      chapter: { title: 'Bridge', start_time: 60, end_time: 120, index: 2, count: 3 },
+      chapter_markers: [
+        { title: 'Intro', start_time: 0, end_time: 60, start_percent: 0, end_percent: 20, index: 1, count: 3, current: false },
+        { title: 'Bridge', start_time: 60, end_time: 120, start_percent: 20, end_percent: 40, index: 2, count: 3, current: true },
+        { title: 'Outro', start_time: 120, end_time: 300, start_percent: 40, end_percent: 100, index: 3, count: 3, current: false },
+      ],
+      region: { active: true, start_seconds: 30, end_seconds: 240 },
+    })} unavailableReason="Waiting for backend" />)
+
+    expect(screen.getByLabelText('Playback context')).toHaveTextContent('Ch 2/3 · Bridge')
+    expect(screen.getByLabelText('Playback context')).toHaveTextContent('Preferred region 0:30–4:00')
+    expect(container.querySelectorAll('.playback-chapter-boundary')).toHaveLength(2)
+    expect(container.querySelector('.playback-chapter-current')).toHaveAttribute('data-chapter-index', '2')
+    expect(container.querySelector('.playback-preferred-region')).toHaveStyle({ left: '10%', width: '70%' })
+    expect(screen.queryByRole('button', { name: 'Seek playback position' })).not.toBeInTheDocument()
+  })
+
   it('uses a clean local artwork placeholder without adding a media-art pipeline', () => {
     render(<MiniPlayerNowPlaying status={status()} unavailableReason="Waiting for backend" />)
 
@@ -69,5 +88,24 @@ describe('Mini-player now-playing surface', () => {
     )
     expect(screen.getByText('1:15 / duration unknown')).toBeVisible()
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Playback context')).not.toBeInTheDocument()
+    expect(document.querySelector('.playback-chapter-markers')).toBeNull()
+    expect(document.querySelector('.playback-preferred-region')).toBeNull()
+
+    rerender(
+      <MiniPlayerNowPlaying
+        status={status({
+          source: 'radio', title: 'Station', artist: null, duration_seconds: null, percent: null,
+          finite: false, live: true, seekable: false,
+          chapter: { title: 'Unsafe stale chapter', start_time: 0, end_time: 10, index: 1, count: 1 },
+          region: { active: true, start_seconds: 0, end_seconds: 10 },
+        })}
+        unavailableReason="Waiting for backend"
+      />,
+    )
+    expect(screen.getByText('LIVE')).toBeVisible()
+    expect(screen.queryByLabelText('Playback context')).not.toBeInTheDocument()
+    expect(document.querySelector('.playback-chapter-markers')).toBeNull()
+    expect(document.querySelector('.playback-preferred-region')).toBeNull()
   })
 })

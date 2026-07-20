@@ -62,6 +62,10 @@
   status visible; a dedicated user-facing protocol diagnostic is not yet
   available. Event freshness uses strictly increasing envelope timestamps
   rather than a dedicated monotonic projection sequence.
+- Mini-player chapter and preferred-region progress is intentionally read-only.
+  It renders only validated finite source-timeline data and suppresses markers
+  for live or unknown-duration media; seeking remains limited to the main
+  desktop progress surface.
 - Playlist delete/clear are revision-bound, but add/remove/move/order still do
   not use compare-and-swap revisions for concurrent writers. Revision restore
   should be exposed before claiming full concurrent-edit recovery.

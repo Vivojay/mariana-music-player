@@ -70,6 +70,23 @@ function safeChapterMarkers(status: PlaybackStatus): PlaybackChapterMarker[] {
   return accepted
 }
 
+function safePreferredRegion(
+  status: PlaybackStatus,
+  duration: number | null,
+): { startPercent: number; endPercent: number } | null {
+  if (!status.finite || status.live || !status.region.active || duration === null || duration <= 0) return null
+  const projectedStart = status.region.start_seconds === null ? 0 : finiteNumber(status.region.start_seconds)
+  const projectedEnd = status.region.end_seconds === null ? duration : finiteNumber(status.region.end_seconds)
+  if (projectedStart === null || projectedEnd === null) return null
+  const start = Math.min(duration, Math.max(0, projectedStart))
+  const end = Math.min(duration, Math.max(0, projectedEnd))
+  if (end <= start) return null
+  return {
+    startPercent: (start / duration) * 100,
+    endPercent: (end / duration) * 100,
+  }
+}
+
 export function PlaybackStatusBar({
   status,
   unavailableReason = null,
@@ -130,6 +147,7 @@ export function PlaybackStatusBar({
     : favorite?.unavailable_reason || 'Favourite state unavailable'
   const chapterMarkers = progress === null ? [] : safeChapterMarkers(status)
   const currentChapterMarker = chapterMarkers.find((marker) => marker.current)
+  const preferredRegion = progress === null ? null : safePreferredRegion(status, duration)
   const seekInteractive = Boolean(progress !== null && seekEnabled && onSeek)
   const progressContents = (
     <>
@@ -140,6 +158,18 @@ export function PlaybackStatusBar({
         max="100"
         value={progress ?? 0}
       />
+      {preferredRegion && (
+        <span
+          className="playback-preferred-region"
+          data-start-percent={preferredRegion.startPercent}
+          data-end-percent={preferredRegion.endPercent}
+          aria-hidden="true"
+          style={{
+            left: `${preferredRegion.startPercent}%`,
+            width: `${preferredRegion.endPercent - preferredRegion.startPercent}%`,
+          }}
+        />
+      )}
       {chapterMarkers.length > 0 && (
         <span className="playback-chapter-markers" aria-hidden="true">
           {currentChapterMarker && (

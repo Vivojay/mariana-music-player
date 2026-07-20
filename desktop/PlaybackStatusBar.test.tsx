@@ -136,6 +136,7 @@ describe('PlaybackStatusBar', () => {
     expect(current).toHaveAttribute('data-chapter-index', '2')
     expect(current).toHaveStyle({ left: '20%', width: '20%' })
     expect(container.querySelector('.playback-chapter-markers')).toHaveAttribute('aria-hidden', 'true')
+    expect(container.querySelector('.playback-preferred-region')).toHaveStyle({ left: '10%', width: '70%' })
     expect(screen.getByRole('progressbar')).toHaveAttribute('value', '25')
   })
 
@@ -156,6 +157,7 @@ describe('PlaybackStatusBar', () => {
 
     rerender(<PlaybackStatusBar status={status({ duration_seconds: null, percent: null, chapter_markers: invalidMarkers })} />)
     expect(container.querySelector('.playback-chapter-markers')).not.toBeInTheDocument()
+    expect(container.querySelector('.playback-preferred-region')).not.toBeInTheDocument()
   })
 
   it('renders live media without numeric progress', () => {
