@@ -7,7 +7,16 @@ import pytest
 
 from mariana.user_state import load_user_data, normalize_user_data, write_user_data_atomic
 
-ROOT = Path(__file__).resolve().parents[1]
+
+def repository_root(test_file: Path = Path(__file__)) -> Path:
+    for parent_index in (1, 2):
+        candidate = test_file.parents[parent_index]
+        if (candidate / "main.py").is_file():
+            return candidate
+    raise FileNotFoundError("main.py is unavailable from the test workspace")
+
+
+ROOT = repository_root()
 
 
 def test_empty_user_data_is_backed_up_and_recovered(tmp_path: Path):
@@ -159,6 +168,7 @@ def test_real_main_import_recovers_zero_byte_runtime_user_data(tmp_path: Path):
         MARIANA_DATA_DIR=str(data),
         MARIANA_RESOURCE_DIR=str(ROOT),
         MARIANA_E2E="1",
+        PYTHONPATH=os.pathsep.join(filter(None, (str(ROOT), environment.get("PYTHONPATH")))),
     )
 
     result = subprocess.run(
@@ -182,3 +192,12 @@ def test_real_main_import_recovers_zero_byte_runtime_user_data(tmp_path: Path):
     assert "Recovered empty or invalid user statistics" in result.stdout
     assert user_data.stat().st_size > 0
     assert len(list(user_data.parent.glob("user_data.yml.invalid-*.bak"))) == 1
+
+
+def test_repository_root_resolves_outside_mutmut_copied_test_tree(tmp_path: Path):
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    (repository / "main.py").write_text("# fixture\n", encoding="utf-8")
+    copied_test = repository / "mutants" / "tests" / "test_user_state.py"
+
+    assert repository_root(copied_test) == repository
