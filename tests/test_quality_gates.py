@@ -1,6 +1,7 @@
 
 import json
 import sys
+import tomllib
 from pathlib import Path
 
 import conftest
@@ -121,6 +122,31 @@ def test_text_integrity_rejects_invalid_utf8_and_mojibake(tmp_path):
 def test_mutation_score_is_conservative():
     assert mutation_score({"total": 10, "killed": 8, "skipped": 0}) == 80
     assert mutation_score({"total": 2, "killed": 0, "skipped": 2}) == 100
+
+
+def test_mutmut_uses_complete_package_source_with_existing_mutation_scope():
+    root = repository_root()
+    mutation = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["mutmut"]
+
+    assert mutation["source_paths"] == ["mariana"]
+    assert mutation["only_mutate"] == [
+        "mariana/broadcast.py",
+        "mariana/credentials.py",
+        "mariana/database.py",
+        "mariana/library.py",
+        "mariana/loudness.py",
+        "mariana/media_removal.py",
+        "mariana/playback.py",
+        "mariana/preferences.py",
+        "mariana/queueing.py",
+        "mariana/setup.py",
+        "mariana/sleep_timer.py",
+        "mariana/sources.py",
+        "mariana/supervisor.py",
+    ]
+    assert mutation["pytest_add_cli_args_test_selection"] == ["tests"]
+    assert "paths_to_mutate" not in mutation
+    assert "tests_dir" not in mutation
 
 
 def test_mutmut_copied_tests_append_repository_root_after_mutated_sources(monkeypatch):
