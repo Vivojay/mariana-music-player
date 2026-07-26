@@ -42,7 +42,7 @@
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "@vitejs/plugin-react": "6.0.3",
-    "concurrently": "^9.2.4",
+    "concurrently": "^10.0.3",
     "electron": "43.1.0",
     "electron-builder": "26.15.3",
     "eslint": "latest",
