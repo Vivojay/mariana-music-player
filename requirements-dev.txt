@@ -21,29 +21,23 @@ certifi==2026.6.17
     #   requests
     #   yt-dlp
 cffi==2.1.0
-    # via sounddevice
+    # via
+    #   cryptography
+    #   sounddevice
 charset-normalizer==3.4.9
     # via requests
 click==8.4.2
     # via
     #   mutmut
     #   pip-tools
-colorama==0.4.6
-    # via
-    #   build
-    #   click
-    #   pytest
-    #   tqdm
 colored==2.3.2
     # via -r requirements.in
-comtypes==1.4.16 ; sys_platform == "win32"
-    # via
-    #   -r requirements.in
-    #   pycaw
 coverage[toml]==7.15.0
     # via
     #   mutmut
     #   pytest-cov
+cryptography==49.0.0
+    # via secretstorage
 cyclonedx-python-lib==11.11.0
     # via pip-audit
 defusedxml==0.7.1
@@ -52,7 +46,7 @@ feedparser==6.0.12
     # via -r requirements.in
 filelock==3.29.7
     # via cachecontrol
-hypothesis==6.156.6
+hypothesis==6.157.0
     # via -r requirements-dev.in
 idna==3.18
     # via requests
@@ -64,6 +58,10 @@ jaraco-context==6.1.2
     # via keyring
 jaraco-functools==4.5.0
     # via keyring
+jeepney==0.9.0
+    # via
+    #   keyring
+    #   secretstorage
 keyring==25.7.0
     # via -r requirements.in
 libcst==1.8.6
@@ -108,8 +106,6 @@ packaging==26.2
     #   pyinstaller-hooks-contrib
     #   pytest
     #   wheel
-pefile==2024.8.26
-    # via pyinstaller
 pillow==12.3.0
     # via -r requirements.in
 pip-api==0.0.34
@@ -130,13 +126,9 @@ pluggy==1.6.0
     #   pytest
     #   pytest-cov
 psutil==7.2.2
-    # via
-    #   -r requirements.in
-    #   pycaw
+    # via -r requirements.in
 py-serializable==2.1.0
     # via cyclonedx-python-lib
-pycaw==20251023 ; sys_platform == "win32"
-    # via -r requirements.in
 pycparser==3.0
     # via cffi
 pycryptodomex==3.23.0
@@ -170,12 +162,6 @@ pytest-cov==7.1.0
     # via -r requirements-dev.in
 pytest-timeout==2.4.0
     # via -r requirements-dev.in
-pywin32==312 ; sys_platform == "win32"
-    # via -r requirements.in
-pywin32-ctypes==0.2.3
-    # via
-    #   keyring
-    #   pyinstaller
 pyyaml==6.0.3
     # via
     #   -r requirements.in
@@ -194,6 +180,8 @@ ruamel-yaml==0.19.1
     # via -r requirements.in
 ruff==0.15.21
     # via -r requirements-dev.in
+secretstorage==3.5.0
+    # via keyring
 send2trash==2.1.0
     # via -r requirements.in
 setproctitle==1.3.7
