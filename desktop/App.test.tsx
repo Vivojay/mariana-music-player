@@ -129,7 +129,7 @@ describe('Mariana desktop shell', () => {
     const input = screen.getByRole('combobox', { name: 'Command suggestions' })
 
     fireEvent.focus(input)
-    await waitFor(() => expect(commandCatalog).toHaveBeenCalledWith({ typedPrefix: '' }))
+    await waitFor(() => expect(commandCatalog).toHaveBeenCalledWith({ includeCompatibility: true }))
     const listbox = screen.getByRole('listbox', { name: 'Available commands' })
     await waitFor(() => expect(within(listbox).getAllByRole('option')).toHaveLength(3))
     expect(listbox).toBeVisible()
@@ -176,6 +176,10 @@ describe('Mariana desktop shell', () => {
     expect(write).not.toHaveBeenCalled()
     expect(toggleFavorite).not.toHaveBeenCalled()
     expect(seek).not.toHaveBeenCalled()
+
+    fireEvent.change(input, { target: { value: 'pla' } })
+    await within(screen.getByRole('listbox', { name: 'Available commands' })).findByText('Play library media')
+    expect(commandCatalog).toHaveBeenCalledTimes(1)
   })
 
   it('reopens deterministically from the keyboard after Escape', async () => {
@@ -249,15 +253,13 @@ describe('Mariana desktop shell', () => {
   })
 
   it('rejects Enter acceptance while the visible projection is stale', async () => {
-    let resolveLatest: ((result: CommandCatalogResult) => void) | undefined
-    commandCatalog
-      .mockResolvedValueOnce(safeCommandCatalog)
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveLatest = resolve }))
+    let resolveCatalog: ((result: CommandCatalogResult) => void) | undefined
+    commandCatalog.mockImplementationOnce(() => new Promise((resolve) => { resolveCatalog = resolve }))
     render(<App />)
     const input = screen.getByRole('combobox', { name: 'Command suggestions' })
 
     fireEvent.focus(input)
-    await within(screen.getByRole('listbox', { name: 'Available commands' })).findByText('Pause playback')
+    await screen.findByText('Loading command suggestions')
     fireEvent.change(input, { target: { value: 'pla' } })
     await screen.findByText('Loading command suggestions')
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -266,7 +268,7 @@ describe('Mariana desktop shell', () => {
     expect(input).toHaveAttribute('aria-expanded', 'true')
     expect(input).not.toHaveAttribute('aria-activedescendant')
     expect(write).not.toHaveBeenCalled()
-    await act(async () => { resolveLatest?.(safeCommandCatalog) })
+    await act(async () => { resolveCatalog?.(safeCommandCatalog) })
     expect(await within(screen.getByRole('listbox', { name: 'Available commands' })).findByText(
       'Play library media',
     )).toBeVisible()
@@ -289,21 +291,18 @@ describe('Mariana desktop shell', () => {
     expect(write).not.toHaveBeenCalled()
   })
 
-  it('discards a stale catalog response after the input changes', async () => {
-    let resolveFirst: ((result: CommandCatalogResult) => void) | undefined
-    let resolveSecond: ((result: CommandCatalogResult) => void) | undefined
-    commandCatalog
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve }))
+  it('projects the latest input from one in-flight catalog request', async () => {
+    let resolveCatalog: ((result: CommandCatalogResult) => void) | undefined
+    commandCatalog.mockImplementationOnce(() => new Promise((resolve) => { resolveCatalog = resolve }))
     render(<App />)
     const input = screen.getByRole('combobox', { name: 'Command suggestions' })
 
     fireEvent.focus(input)
     await waitFor(() => expect(commandCatalog).toHaveBeenCalledTimes(1))
     fireEvent.change(input, { target: { value: 'pla' } })
-    await waitFor(() => expect(commandCatalog).toHaveBeenCalledTimes(2))
+    expect(commandCatalog).toHaveBeenCalledTimes(1)
     await act(async () => {
-      resolveSecond?.({
+      resolveCatalog?.({
         ok: true,
         catalog: {
           schema_version: 1,
@@ -316,25 +315,16 @@ describe('Mariana desktop shell', () => {
               key: 'playlist', canonical: 'playlist', category: 'Playlists', summary: 'Manage playlists',
               risk: 'state-changing', aliases: [], forms: [], availability: [],
             },
+            {
+              key: 'now', canonical: 'now', category: 'Playback', summary: 'Unrelated command',
+              risk: 'read-only', aliases: [], forms: [], availability: [],
+            },
           ],
         },
       })
     })
     expect(await screen.findByText('Play library media')).toBeVisible()
-
-    await act(async () => {
-      resolveFirst?.({
-        ok: true,
-        catalog: {
-          schema_version: 1,
-          entries: [{
-            key: 'now', canonical: 'now', category: 'Playback', summary: 'Stale command', risk: 'read-only',
-            aliases: [], forms: [], availability: [],
-          }],
-        },
-      })
-    })
-    expect(screen.queryByText('Stale command')).not.toBeInTheDocument()
+    expect(screen.queryByText('Unrelated command')).not.toBeInTheDocument()
     expect(input).toHaveValue('pla')
     expect(write).not.toHaveBeenCalled()
   })

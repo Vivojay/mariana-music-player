@@ -29,25 +29,13 @@ test('hosts the real Mariana PTY in the riced terminal shell', async () => {
     expect(await page.evaluate(() => Object.keys(window.mariana.backend).sort())).toEqual([
       'commandCatalog', 'onEvent', 'seek', 'snapshot', 'toggleFavorite',
     ])
-    const commandCatalog = await page.evaluate(() => window.mariana.backend.commandCatalog())
-    expect(commandCatalog.ok).toBe(true)
-    if (commandCatalog.ok) {
-      expect(commandCatalog.catalog.schema_version).toBe(1)
-      expect(commandCatalog.catalog.entries.length).toBeGreaterThan(20)
-      expect(commandCatalog.catalog.entries.find((entry) => entry.canonical === 'now')?.aliases).toEqual([])
-      expect(JSON.stringify(commandCatalog)).not.toMatch(/https?:\/\/|[a-z]:[\\/]|\\\\/i)
-    }
-    const compatibilityCatalog = await page.evaluate(() => (
-      window.mariana.backend.commandCatalog({ includeCompatibility: true })
-    ))
-    expect(compatibilityCatalog.ok).toBe(true)
-    if (compatibilityCatalog.ok) {
-      expect(compatibilityCatalog.catalog.entries.find((entry) => entry.canonical === 'now')?.aliases).toEqual(['.'])
-      expect(compatibilityCatalog.catalog.entries.some((entry) => entry.canonical === '/rs')).toBe(false)
-    }
     const commandSuggestions = page.getByRole('combobox', { name: 'Command suggestions' })
-    await commandSuggestions.fill('pla')
+    await commandSuggestions.focus()
+    await expect(page.getByRole('status')).toContainText(/command suggestions/i)
     await expect(page.getByRole('listbox', { name: 'Available commands' })).toBeVisible()
+    await commandSuggestions.fill('pla')
+    await expect(commandSuggestions).not.toHaveAttribute('aria-busy')
+    await expect(page.getByRole('status')).toContainText(/^\d+ command suggestions/)
     await expect(page.getByRole('option', { name: /play/i }).first()).toBeVisible()
     const terminalBeforeAcceptance = await page.getByLabel('Terminal output').textContent()
     await commandSuggestions.press('ArrowDown')
@@ -64,6 +52,22 @@ test('hosts the real Mariana PTY in the riced terminal shell', async () => {
     await commandSuggestions.fill('pla')
     await commandSuggestions.press('Escape')
     await expect(page.getByRole('listbox', { name: 'Available commands' })).toBeHidden()
+    const commandCatalog = await page.evaluate(() => window.mariana.backend.commandCatalog())
+    expect(commandCatalog.ok).toBe(true)
+    if (commandCatalog.ok) {
+      expect(commandCatalog.catalog.schema_version).toBe(1)
+      expect(commandCatalog.catalog.entries.length).toBeGreaterThan(20)
+      expect(commandCatalog.catalog.entries.find((entry) => entry.canonical === 'now')?.aliases).toEqual([])
+      expect(JSON.stringify(commandCatalog)).not.toMatch(/https?:\/\/|[a-z]:[\\/]|\\\\/i)
+    }
+    const compatibilityCatalog = await page.evaluate(() => (
+      window.mariana.backend.commandCatalog({ includeCompatibility: true })
+    ))
+    expect(compatibilityCatalog.ok).toBe(true)
+    if (compatibilityCatalog.ok) {
+      expect(compatibilityCatalog.catalog.entries.find((entry) => entry.canonical === 'now')?.aliases).toEqual(['.'])
+      expect(compatibilityCatalog.catalog.entries.some((entry) => entry.canonical === '/rs')).toBe(false)
+    }
     expect(await page.evaluate(() => window.mariana.backend.seek('missing-media', 10))).toEqual({
       ok: false,
       error: 'Current media changed; try again',

@@ -10,7 +10,15 @@ import { PlaybackStatusBar } from './PlaybackStatusBar'
 import { validateSeekIntent } from './playbackSeek'
 import { TerminalSurface } from './TerminalSurface'
 import { themes, type ThemeName } from './themes'
-import { formatChapterLabel, trimDisplayCells, type BackendEvent, type PlaybackStatus, type UpdateState } from './shared'
+import {
+  formatChapterLabel,
+  trimDisplayCells,
+  type BackendEvent,
+  type CommandCatalogResult,
+  type CommandCatalogSnapshot,
+  type PlaybackStatus,
+  type UpdateState,
+} from './shared'
 
 const TIMER_PRESETS = [15, 30, 45, 60, 90]
 
@@ -109,6 +117,8 @@ export default function App() {
   const autocompleteGenerationRef = useRef(0)
   const autocompleteRequestRef = useRef({ typedPrefix: '', generation: 0 })
   const autocompleteInitialSelectionRef = useRef<'first' | 'last'>('first')
+  const autocompleteCatalogRef = useRef<CommandCatalogSnapshot | null>(null)
+  const autocompleteCatalogRequestRef = useRef<Promise<CommandCatalogResult> | null>(null)
   const [autocompleteRequest, setAutocompleteRequest] = useState({ typedPrefix: '', generation: 0 })
   const [autocompleteOpen, setAutocompleteOpen] = useState(false)
   const [autocompletePending, setAutocompletePending] = useState(false)
@@ -313,7 +323,23 @@ export default function App() {
     if (!autocompleteOpen) return
     const request = autocompleteRequest
     let cancelled = false
-    void window.mariana.backend.commandCatalog({ typedPrefix: request.typedPrefix }).then((result) => {
+    const cachedCatalog = autocompleteCatalogRef.current
+    let catalogRequest: Promise<CommandCatalogResult>
+    if (cachedCatalog) {
+      catalogRequest = Promise.resolve({ ok: true, catalog: cachedCatalog })
+    } else {
+      catalogRequest = autocompleteCatalogRequestRef.current
+        ?? window.mariana.backend.commandCatalog({ includeCompatibility: true })
+      autocompleteCatalogRequestRef.current = catalogRequest
+      void catalogRequest.then((result) => {
+        if (result.ok) autocompleteCatalogRef.current = result.catalog
+      }).catch(() => undefined).finally(() => {
+        if (autocompleteCatalogRequestRef.current === catalogRequest) {
+          autocompleteCatalogRequestRef.current = null
+        }
+      })
+    }
+    void catalogRequest.then((result) => {
       if (cancelled) return
       const current = autocompleteRequestRef.current
       if (current.generation !== request.generation || current.typedPrefix !== request.typedPrefix) return
