@@ -230,12 +230,23 @@ class StationManager:
         session = self.session()
         if not session or session.session_id != session_id:
             return
+
         remaining = target
         if session.limit is not None:
             remaining = min(remaining, max(0, session.limit - session.generated_count))
+
         if remaining <= 0:
-            self._set_state(session_id, StationState.EXHAUSTED, "station limit reached", None)
+            with self._lock:
+                if cancel.is_set() or not self._is_current(session_id):
+                    return
+                self._set_state(
+                    session_id,
+                    StationState.EXHAUSTED,
+                    "station limit reached",
+                    None,
+                )
             return
+
         try:
             results = self.discovery.discover(
                 session.seed,
@@ -243,26 +254,52 @@ class StationManager:
                 limit=remaining,
                 excluded=self._generated_ids(session_id),
             )
+
             for result in results:
+                with self._lock:
+                    if cancel.is_set() or not self._is_current(session_id):
+                        return
+                    self._append(session_id, result)
+
+            with self._lock:
                 if cancel.is_set() or not self._is_current(session_id):
                     return
-                self._append(session_id, result)
-            if cancel.is_set() or not self._is_current(session_id):
-                return
-            ready = self._ready_count(session_id)
-            if ready >= READY_AHEAD_TARGET:
-                state, message, code = StationState.READY, f"ready {ready}/10", None
-            elif ready:
-                state, message, code = StationState.PARTIAL, f"only {ready}/10 playable tracks available", "catalog_shortage"
-            else:
-                state, message, code = StationState.EXHAUSTED, "no additional playable recommendations", "catalog_exhausted"
-            self._set_state(session_id, state, message, code)
+
+                ready = self._ready_count(session_id)
+                if ready >= READY_AHEAD_TARGET:
+                    state, message, code = (
+                        StationState.READY,
+                        f"ready {ready}/10",
+                        None,
+                    )
+                elif ready:
+                    state, message, code = (
+                        StationState.PARTIAL,
+                        f"only {ready}/10 playable tracks available",
+                        "catalog_shortage",
+                    )
+                else:
+                    state, message, code = (
+                        StationState.EXHAUSTED,
+                        "no additional playable recommendations",
+                        "catalog_exhausted",
+                    )
+
+                self._set_state(session_id, state, message, code)
+
         except Exception as error:
-            if cancel.is_set():
-                return
-            ready = self._ready_count(session_id)
-            state = StationState.PARTIAL if ready else StationState.FAILED
-            self._set_state(session_id, state, "station discovery failed", type(error).__name__.casefold())
+            with self._lock:
+                if cancel.is_set() or not self._is_current(session_id):
+                    return
+
+                ready = self._ready_count(session_id)
+                state = StationState.PARTIAL if ready else StationState.FAILED
+                self._set_state(
+                    session_id,
+                    state,
+                    "station discovery failed",
+                    type(error).__name__.casefold(),
+                )
 
     def _is_current(self, session_id: str) -> bool:
         session = self.session()

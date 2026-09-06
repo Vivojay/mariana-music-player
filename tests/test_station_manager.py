@@ -74,11 +74,8 @@ def test_station_lifecycle_queue_snapshot_events_and_restart(tmp_path: Path):
         manager.mark_played(recommendations[0])
         assert manager.session().ready_ahead in {9, 10}
         manager.pause()
-        deadline = time.monotonic() + 2
-        while time.monotonic() < deadline and manager.session().state != StationState.PAUSED:
-            time.sleep(0.01)
-        assert manager.session().state == StationState.PAUSED
         manager.close()
+        assert manager.session().state == StationState.PAUSED
 
     with MarianaDatabase(database_path) as database:
         queue = PersistentQueue(database)
