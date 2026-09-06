@@ -76,3 +76,4 @@ only_mutate = [
     "mariana/supervisor.py",
 ]
 pytest_add_cli_args_test_selection = ["tests"]
+also_copy = ["version.json"]

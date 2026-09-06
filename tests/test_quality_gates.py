@@ -145,6 +145,7 @@ def test_mutmut_uses_complete_package_source_with_existing_mutation_scope():
         "mariana/supervisor.py",
     ]
     assert mutation["pytest_add_cli_args_test_selection"] == ["tests"]
+    assert mutation["also_copy"] == ["version.json"]
     assert "paths_to_mutate" not in mutation
     assert "tests_dir" not in mutation
 
