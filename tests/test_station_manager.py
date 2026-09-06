@@ -200,6 +200,27 @@ def test_station_generation_can_be_cancelled_without_pausing_playback(tmp_path: 
         manager.stop()
         manager.close()
 
+def test_station_worker_cleanup_does_not_clear_replacement_worker(tmp_path: Path):
+    with MarianaDatabase(tmp_path / "station.db") as database:
+        manager = StationManager(
+            database,
+            PersistentQueue(database),
+            Discovery(),
+        )
+
+        replacement_worker = threading.Thread(target=lambda: None)
+        manager._worker = replacement_worker
+
+        manager._run_generation(
+            "missing-session",
+            1,
+            threading.Event(),
+        )
+
+        assert manager._worker is replacement_worker
+
+        manager._worker = None
+        manager.close()
 
 def test_station_stop_and_close_never_touch_a_closed_database(tmp_path: Path):
     started = threading.Event()
