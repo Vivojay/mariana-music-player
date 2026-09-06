@@ -100,7 +100,6 @@ def test_sample_download_rejects_archive_path_traversal(monkeypatch, tmp_path, m
 def test_first_boot_validates_answers_saves_library_and_runs_download(monkeypatch, tmp_path):
     responses = iter(["maybe", "yes", str(tmp_path), "xxx", "maybe", "yes", "maybe", "no"])
     downloads = []
-    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(responses))
     monkeypatch.setattr(first_boot_setup, "download_cloud_mariana_samples", lambda about: downloads.append(about))
     monkeypatch.setattr(
