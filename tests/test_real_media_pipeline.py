@@ -9,7 +9,7 @@ import pytest
 
 from mariana.identity import find_fpcalc, fingerprint_file
 from mariana.models import MediaRef, MediaSource
-from mariana.playback import DecoderSession, probe_media
+from mariana.playback import BYTES_PER_FRAME, DecoderSession, probe_media
 
 
 def tool(name: str) -> str | None:
@@ -82,8 +82,9 @@ def test_real_seek_decoder_starts_at_requested_position(media_fixtures):
     media = probe_media(MediaRef(MediaSource.LOCAL, str(media_fixtures["flac"])), ffprobe_bin=tool("ffprobe"))
     session = DecoderSession(media, ffmpeg_bin=tool("ffmpeg"), start_at=0.75)
     session.start()
-    assert session.wait_for_buffer(0.05, timeout=5)
-    session.read(4800)
+    assert session.wait_for_buffer(0.10, timeout=5)
+    decoded = session.read(4800)
+    assert len(decoded) == 4800 * BYTES_PER_FRAME
     assert session.position == pytest.approx(0.85, abs=0.01)
     session.stop()
 
