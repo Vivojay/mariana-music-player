@@ -519,16 +519,19 @@ def test_seek_progress_and_status_command_families(monkeypatch):
 
 
 def test_create_files_save_user_data_and_run_lifecycle(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-    main.create_required_files_if_not_exist("nested/one.txt")
-    assert (tmp_path / "nested" / "one.txt").is_file()
-
     user = playback_user_data()
     user["default_user_data"]["stats"]["play_count"].update(local=2, radio=1, general=3, youtube=4, redditsession=5)
     monkeypatch.setattr(main, "USER_DATA", user)
-    (tmp_path / "user").mkdir()
-    main.save_user_data()
-    assert user["default_user_data"]["stats"]["play_count"]["total"] == 15
+    with monkeypatch.context() as cwd:
+        cwd.chdir(tmp_path)
+        main.create_required_files_if_not_exist("nested/one.txt")
+        assert (tmp_path / "nested" / "one.txt").is_file()
+
+        (tmp_path / "user").mkdir()
+        main.save_user_data()
+        assert user["default_user_data"]["stats"]["play_count"]["total"] == 15
+
+    assert Path.cwd().resolve() != tmp_path.resolve()
 
     events = []
     monkeypatch.setattr(main, "FIRST_BOOT", False)
