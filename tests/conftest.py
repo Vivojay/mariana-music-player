@@ -16,12 +16,15 @@ def _append_mutmut_repository_root(root: Path = ROOT) -> None:
         sys.path.append(repository_root)
 
 
+def _resource_root(root: Path = ROOT) -> Path:
+    if "MUTANT_UNDER_TEST" in os.environ and root.name == "mutants":
+        return root.parent
+    return root
+
+
 _append_mutmut_repository_root()
-os.environ.setdefault("MARIANA_RESOURCE_DIR", str(ROOT))
+os.environ.setdefault("MARIANA_RESOURCE_DIR", str(_resource_root()))
 os.environ.setdefault("MARIANA_DATA_DIR", str(ROOT / "temp" / "pytest-runtime"))
-
-
-
 
 @pytest.fixture
 def fixture_dir() -> Path:

@@ -294,3 +294,15 @@ def test_text_gate_skips_deleted_paths_and_reports_every_marker(tmp_path):
     broken.write_text("bad \u00e2\u20ac\u201d and \ufffd", encoding="utf-8")
     failures = text_gate.inspect([tmp_path / "deleted.txt", broken])
     assert len(failures) == 2
+
+def test_mutmut_copied_tests_use_repository_resources(monkeypatch):
+    mutation_root = Path("repository") / "mutants"
+    monkeypatch.setenv("MUTANT_UNDER_TEST", "mutant_generation")
+
+    assert conftest._resource_root(mutation_root) == mutation_root.parent
+
+def test_normal_pytest_uses_repository_resources(monkeypatch):
+    repository = Path("repository")
+    monkeypatch.delenv("MUTANT_UNDER_TEST", raising=False)
+
+    assert conftest._resource_root(repository) == repository
