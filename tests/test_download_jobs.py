@@ -180,12 +180,19 @@ def test_download_validation_binds_unique_cardinal_outputs(monkeypatch, tmp_path
 
 def test_single_and_album_jobs_are_sequential_atomic_and_secret_free(tmp_path: Path):
     events = []
+    completed_event = threading.Event()
+
+    def record_update(update):
+        events.append(update)
+        if update["state"] == "completed":
+            completed_event.set()
+
     SuccessfulDownloader.maximum_active = 0
     with MarianaDatabase(tmp_path / "downloads.db") as database:
         manager = DownloadManager(
             database,
             downloader_factory=SuccessfulDownloader,
-            on_update=events.append,
+            on_update=record_update,
         )
         try:
             job = manager.create(
@@ -224,6 +231,7 @@ def test_single_and_album_jobs_are_sequential_atomic_and_secret_free(tmp_path: P
                 sort_keys=True,
             )
             assert "secret" not in persisted and "signed.test" not in persisted
+            assert completed_event.wait(1)
             assert events[-1]["state"] == "completed"
         finally:
             manager.close()
