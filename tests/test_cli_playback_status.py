@@ -179,6 +179,19 @@ def test_projection_and_output_never_fall_back_to_online_url():
     assert "private.test" not in chapter_output and "token=" not in chapter_output
 
 
+def test_detailed_status_uses_complete_podcast_title_without_description():
+    title = "Leblanc - Live at Block, Dublin, Ireland"
+    media = _media(source=MediaSource.PODCAST, title=title, artist=None)
+    media.resolver_data["description"] = "A complete long-form episode description"
+    status = _status(media=media)
+
+    output = "\n".join(main._playback_status_lines(status, detailed=True, now=True))
+
+    assert title in output
+    assert "Source: Podcast" in output
+    assert "episode description" not in output
+
+
 @pytest.mark.parametrize("command", ["prog", "progress", "prog*", "progress*", "now", "now*", ".*"])
 def test_status_command_aliases_use_projection(monkeypatch, command):
     printed = []

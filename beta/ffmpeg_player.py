@@ -104,9 +104,13 @@ def radio_stream_url(name: str) -> str:
         raise ValueError(f"Unknown radio station: {name}") from error
 
 
-def set_media(_type=None, vidurl=None, audurl=None, localpath=None):
+def set_media(_type=None, vidurl=None, audurl=None, localpath=None, media=None):
     global current_media
-    if _type and _type.startswith("radio"):
+    if media is not None:
+        if not isinstance(media, MediaRef):
+            raise TypeError("Prepared media must be a MediaRef")
+        current_media = media
+    elif _type and _type.startswith("radio"):
         station = _type.split("/", 1)[1]
         radio_url = None
         station_title = station

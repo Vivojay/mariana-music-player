@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from mariana.database import MarianaDatabase
-from mariana.models import MediaRef, MediaSource
+from mariana.models import MediaRef, MediaSource, podcast_episode_identity
 from mariana.preferences import MediaPreferences, PreferenceState
 from mariana.queueing import PersistentQueue
 from recommendation_engine import Candidate, RecommendationEngine
@@ -48,6 +48,60 @@ def test_preference_persists_unqueued_stream_metadata_and_refreshes_it_idempoten
         assert entry.source == MediaSource.YOUTUBE
         row = database.fetchone("SELECT title, original_uri FROM media_items WHERE stable_id=?", (media.stable_id,))
         assert row and row["title"] == entry.label and row["original_uri"] == media.original_uri
+
+
+def test_podcast_favorite_can_be_added_removed_and_rebound_after_restart(tmp_path: Path):
+    path = tmp_path / "state.db"
+    identity = podcast_episode_identity(
+        "https://feed.test/show.xml",
+        guid="episode-guid",
+        enclosure_url="https://old-cdn.test/episode.mp3",
+        title="Complete episode title",
+    )
+    assert identity is not None
+    episode = MediaRef(
+        MediaSource.PODCAST,
+        "https://old-cdn.test/episode.mp3",
+        stable_id=identity[0],
+        title="Complete episode title",
+        resolver_data={"podcast_identity_kind": identity[1]},
+        provenance="podcast-feed",
+    )
+
+    with MarianaDatabase(path) as database:
+        preferences = MediaPreferences(database)
+        assert preferences.toggle(episode, PreferenceState.FAVORITE) == PreferenceState.FAVORITE
+        assert preferences.is_favorite(episode)
+        assert preferences.list(PreferenceState.FAVORITE)[0].label == "Complete episode title"
+
+    with MarianaDatabase(path) as database:
+        preferences = MediaPreferences(database)
+        rediscovered_identity = podcast_episode_identity(
+            "https://feed.test/show.xml",
+            guid="episode-guid",
+            enclosure_url="https://new-cdn.test/reissued.mp3",
+            title="Complete episode title",
+        )
+        assert rediscovered_identity == identity
+        rediscovered = MediaRef(
+            MediaSource.PODCAST,
+            "https://new-cdn.test/reissued.mp3",
+            stable_id=rediscovered_identity[0],
+            title="Complete episode title",
+            resolver_data={"podcast_identity_kind": rediscovered_identity[1]},
+            provenance="podcast-feed",
+        )
+        assert preferences.is_favorite(rediscovered)
+        assert not preferences.set(rediscovered, PreferenceState.FAVORITE)
+        rebound = preferences.media(rediscovered.stable_id)
+        assert rebound is not None
+        assert rebound.source == MediaSource.PODCAST
+        assert rebound.title == "Complete episode title"
+        assert rebound.provenance == "podcast-feed"
+        assert rebound.original_uri == "https://new-cdn.test/reissued.mp3"
+        assert rebound.resolver_data == {"podcast_identity_kind": "guid"}
+        assert preferences.toggle(rebound, PreferenceState.FAVORITE) == PreferenceState.NEUTRAL
+        assert not preferences.is_favorite(rebound)
 
 
 def test_orphaned_legacy_preference_labels_internal_id_explicitly(tmp_path: Path):

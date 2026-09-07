@@ -149,7 +149,7 @@ does not persist cookie data.
 | `download-ya --album [current|album-ref|YouTube-playlist-URL] [--tracks <selector>] [--missing-only] [--allow-partial] [--quality best|worst] [--to <directory>] [y|yes|--yes]` | Create an explicit album download job |
 | `download-ya status [job-id]` | Inspect persistent download work |
 | `download-ya pause|resume|cancel <job-id>` | Control a download job |
-| `download-ml <URL> [mp3|flac|wav|m4a|opus] [output path] [--yes]`, `dl-ml ...` | Download a public extractor-backed media page or direct media URL; an existing output requires confirmation |
+| `download-ml <current|URL> [mp3|flac|wav|m4a|opus] [output path] [--yes]`, `dl-ml ...` | Download the active finite online item, public extractor-backed page, or direct media URL; an existing output requires confirmation |
 
 Plain `download-ya` means the active track, never the entire album. Complete
 album expansion requires `--album`. Downloads run in the current Mariana

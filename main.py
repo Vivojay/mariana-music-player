@@ -94,7 +94,7 @@ from mariana.library import LibraryCatalog, LibraryError
 from mariana.library_service import LibraryProfilerService
 from mariana.local_match import LocalMatchResult, LocalMatchStatus, LocalMediaMatcher
 from mariana.loudness import LoudnessError, RSGainAnalyzer
-from mariana.media_details import flattened_details, short_filename_plan
+from mariana.media_details import clean_component, flattened_details, short_filename_plan
 from mariana.media_removal import MediaRemovalError, MediaRemovalService
 from mariana.models import (
     IdentityStatus,
@@ -105,6 +105,7 @@ from mariana.models import (
     PlaybackState,
     QueueStrategy,
     canonical_uri,
+    has_durable_podcast_identity,
     truncate_display_cells,
 )
 from mariana.output_devices import OutputDeviceError, default_output_device
@@ -1891,7 +1892,22 @@ def _current_youtube_media():
     if media.source == MediaSource.LOCAL:
         raise DownloadJobError('The active track is already stored locally and will not be downloaded again')
     if media.source != MediaSource.YOUTUBE:
-        raise DownloadJobError('The active media is not a downloadable YouTube track')
+        raise DownloadJobError(
+            'The active media is not a YouTube track; use "download-ml current" '
+            'for downloadable online media'
+        )
+    return media
+
+
+def _current_downloadable_media():
+    """Bind the active finite online item for the general media downloader."""
+    media = vas.controller.snapshot().media
+    if media is None:
+        raise DownloadError('No media is currently active')
+    if media.source == MediaSource.LOCAL:
+        raise DownloadError('The active track is already stored locally and will not be downloaded again')
+    if media.source == MediaSource.RADIO or media.capabilities.live or not media.capabilities.downloadable:
+        raise DownloadError('The active media is not downloadable')
     return media
 
 
@@ -3496,19 +3512,31 @@ def _media_info(arguments):
         info = LIBRARY.info(media.original_uri)
         if info:
             return media, info
+    metadata = {
+        'source': media.source.value,
+        'title': media.title,
+        'artist': media.artist,
+        'album': media.album,
+        'duration': media.duration or snapshot.duration,
+        'provenance': media.provenance,
+        'stream_title': snapshot.stream_title,
+    }
+    if media.source == MediaSource.PODCAST:
+        podcast_fields = {
+            'description': 'description',
+            'published': 'published',
+            'explicit': 'explicit',
+            'artwork': 'artwork',
+        }
+        for output_key, resolver_key in podcast_fields.items():
+            value = media.resolver_data.get(resolver_key)
+            if value not in (None, ''):
+                metadata[output_key] = value
     return media, {
         'library_id': media.stable_id,
         'canonical_path': media.original_uri,
         'state': snapshot.state.value,
-        'metadata': {
-            'source': media.source.value,
-            'title': media.title,
-            'artist': media.artist,
-            'album': media.album,
-            'duration': media.duration or snapshot.duration,
-            'provenance': media.provenance,
-            'stream_title': snapshot.stream_title,
-        },
+        'metadata': metadata,
     }
 
 
@@ -3657,6 +3685,13 @@ def _favorite_status_projection(media: MediaRef | None) -> FavoriteStatusProject
             False,
             False,
             'This online source has no durable favourite identity',
+        )
+    if bound.source == MediaSource.PODCAST and not has_durable_podcast_identity(bound):
+        return FavoriteStatusProjection(
+            False,
+            False,
+            False,
+            'This podcast episode has no durable favourite identity',
         )
     try:
         if checker := getattr(PREFERENCES, 'is_favorite', None):
@@ -4726,7 +4761,7 @@ def validate_time(rawtime):
 # `media_url` is the only mandatory param in `play_vas_media`
 def play_vas_media(media_url, single_video = None, media_name = None,
                    print_now_playing = True, media_type = 'video',
-                   show_link_chosen_msg = False):
+                   show_link_chosen_msg = False, media_ref = None):
 
     global isplaying, visible, currentsong, cached_volume
     global currentsong_length, current_media_type, songindex
@@ -4740,7 +4775,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
         'redditsession': MediaSource.URL,
     }.get(media_type)
     if policy_source is not None:
-        _ensure_media_playable(MediaRef(policy_source, media_url, title=media_name))
+        _ensure_media_playable(media_ref or MediaRef(policy_source, media_url, title=media_name))
 
     # Stop prev audios b4 loading VAS Media...
     stopsong()
@@ -4774,7 +4809,7 @@ def play_vas_media(media_url, single_video = None, media_name = None,
             IPrint(f"{colored.fg('light_red')}@ {colored.fg('orange_1')}{media_url}{colored.attr('reset')}", visible=visible)
 
     elif media_type == 'general':
-        vas.set_media(_type='audio', audurl=media_url)
+        vas.set_media(_type='audio', audurl=media_url, media=media_ref)
         prepared_media = vas.current_media if vas.current_media is not previous_media else None
 
         current_media_type = 1
@@ -5056,7 +5091,8 @@ def display_and_choose_podbean(latest_podbeans, commandslist, result_count, is_r
         if podbean_index in range(len(latest_podbeans_table)):
             IPrint(f"Attempting to play {podtype}: {colored.fg('green_1')}{latest_podbeans[podbean_index]['title']}{colored.attr('reset')}", visible=visible)
             if latest_podbeans[podbean_index].get('url'):
-                if caption := latest_podbeans[podbean_index].get('caption'):
+                episode = latest_podbeans[podbean_index]
+                if caption := episode.get('caption'):
                     if visible:
                         caption_shortened_1, caption_shortened_2 = text_overflow_prettify(caption, length_thresh=200, end_length=16, as_tuple=True)
                         caption_shortened_formatted = f"{colored.fg('hot_pink_1a')}{caption_shortened_1}"\
@@ -5066,9 +5102,35 @@ def display_and_choose_podbean(latest_podbeans, commandslist, result_count, is_r
 
                         print(caption_shortened_formatted) # This will only print if `visible` == True
 
-                play_vas_media(media_url = latest_podbeans[podbean_index]['url'],
+                resolver_data = {
+                    key: value
+                    for key, value in {
+                        'description': episode.get('caption'),
+                        'published': episode.get('pub_date'),
+                        'explicit': episode.get('is_explicit'),
+                        'artwork': episode.get('artwork'),
+                    }.items()
+                    if value not in (None, '')
+                }
+                stable_id = episode.get('stable_id')
+                identity_kind = episode.get('identity_kind')
+                if isinstance(stable_id, str) and isinstance(identity_kind, str):
+                    resolver_data['podcast_identity_kind'] = identity_kind
+                else:
+                    stable_id = ''
+                podcast_media = MediaRef(
+                    MediaSource.PODCAST,
+                    episode['url'],
+                    title=episode.get('title'),
+                    stable_id=stable_id,
+                    resolver_data=resolver_data,
+                    provenance='podcast-feed',
+                    capabilities=MediaCapabilities(metadata_available=True),
+                )
+                play_vas_media(media_url = episode['url'],
                                media_type='general',
-                               show_link_chosen_msg=False)
+                               show_link_chosen_msg=False,
+                               media_ref=podcast_media)
 
     elif podbean_index.strip() == '':
         SAY(visible=visible,
@@ -5979,18 +6041,25 @@ def process(command):
                 yes, values = _command_flag(values, '--yes')
             if len(values) not in (1, 2, 3):
                 IPrint(
-                    'Usage: download-ml <URL> [mp3|flac|wav|m4a|opus] [output path] [--yes]',
+                    'Usage: download-ml <current|URL> [mp3|flac|wav|m4a|opus] [output path] [--yes]',
                     visible=visible,
                 )
             else:
                 media_url = values[0]
                 output_format = values[1].lower() if len(values) >= 2 else 'mp3'
-                if len(values) == 3:
-                    destination = Path(values[2]).expanduser()
-                else:
-                    downloads = Path(SETTINGS['download']['downloads folder']).expanduser()
-                    destination = downloads / f'mariana-download-{int(time.time())}.{output_format}'
                 try:
+                    current_media = None
+                    if media_url.casefold() == 'current':
+                        current_media = _current_downloadable_media()
+                        media_url = current_media.original_uri
+                    if len(values) == 3:
+                        destination = Path(values[2]).expanduser()
+                    else:
+                        downloads = Path(SETTINGS['download']['downloads folder']).expanduser()
+                        default_stem = f'mariana-download-{int(time.time())}'
+                        if current_media is not None:
+                            default_stem = clean_component(current_media.title, fallback=default_stem)[:160]
+                        destination = downloads / f'{default_stem}.{output_format}'
                     target = prepare_download_target(destination, output_format=output_format)
                     if target.existed and not _confirm_action(
                         f'Overwrite existing download file "{target.path}"?',

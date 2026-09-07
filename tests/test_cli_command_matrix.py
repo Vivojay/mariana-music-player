@@ -392,6 +392,52 @@ def test_custom_download_overwrite_yes_flag_is_command_scoped(cli, monkeypatch):
     assert download[2]["output_target"].existed is True
 
 
+def test_custom_download_binds_current_podcast_metadata(cli, monkeypatch):
+    podcast = MediaRef(
+        MediaSource.PODCAST,
+        "https://media.test/episode.mp3",
+        title="Leblanc: Live / Dublin",
+    )
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=podcast),
+    )
+    monkeypatch.setitem(main.SETTINGS["download"], "downloads folder", str(cli.tmp_path))
+
+    main.process("download-ml current mp3")
+
+    download = next(action for action in cli.actions if action[0] == "download-media")
+    assert download[1][0] == podcast.original_uri
+    assert download[1][1].name == "Leblanc- Live - Dublin.mp3"
+    assert download[2]["output_target"].path == download[1][1].resolve()
+
+
+@pytest.mark.parametrize(
+    "media",
+    [
+        None,
+        MediaRef(MediaSource.LOCAL, "local.mp3"),
+        MediaRef(
+            MediaSource.RADIO,
+            "https://radio.test/live",
+            capabilities=main.MediaCapabilities(finite=False, live=True, seekable=False, downloadable=False),
+        ),
+    ],
+)
+def test_custom_download_current_refuses_unavailable_media(cli, monkeypatch, media):
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=media),
+    )
+
+    main.process("download-ml current mp3")
+
+    assert not any(action[0] == "download-media" for action in cli.actions)
+    assert cli.messages
+
+
 @pytest.mark.parametrize(
     ("media_type", "song"),
     [

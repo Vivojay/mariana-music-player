@@ -184,9 +184,31 @@ def test_display_and_choose_podcast_plays_selected_url(monkeypatch):
     monkeypatch.setattr(main, "IPrint", lambda *_a, **_k: None)
     monkeypatch.setattr(main, "play_vas_media", lambda **kwargs: calls.append(kwargs))
     monkeypatch.setattr("builtins.input", lambda _prompt="": "1")
-    episodes = [{"title": "Episode", "caption": "Caption", "pub_date": "Today", "is_explicit": False, "url": "stream"}]
+    episodes = [{
+        "title": "Complete episode title",
+        "caption": "Complete episode description",
+        "pub_date": "Today",
+        "is_explicit": False,
+        "artwork": "https://image.test/episode.jpg",
+        "url": "https://media.test/episode.mp3",
+        "stable_id": "0123456789abcdef01234567",
+        "identity_kind": "guid",
+    }]
     main.display_and_choose_podbean(episodes, ["pods"], 1)
-    assert calls[0]["media_url"] == "stream"
+    assert calls[0]["media_url"] == "https://media.test/episode.mp3"
+    media = calls[0]["media_ref"]
+    assert media.source == MediaSource.PODCAST
+    assert media.stable_id == "0123456789abcdef01234567"
+    assert media.title == "Complete episode title"
+    assert media.provenance == "podcast-feed"
+    assert media.capabilities.metadata_available is True
+    assert media.resolver_data == {
+        "description": "Complete episode description",
+        "published": "Today",
+        "explicit": False,
+        "artwork": "https://image.test/episode.jpg",
+        "podcast_identity_kind": "guid",
+    }
 
 
 def test_safe_command_families_dispatch(monkeypatch):

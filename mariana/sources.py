@@ -120,6 +120,7 @@ def sanitized_resolver_data(value: dict[str, Any]) -> dict[str, Any]:
         "content_id",
         "credential_ref",
         "credential_username",
+        "podcast_identity_kind",
     }
     return {key: item for key, item in value.items() if key in allowed}
 

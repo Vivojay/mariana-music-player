@@ -199,6 +199,75 @@ class MediaRef:
         return next((chapter for chapter in self.chapters if chapter.contains(position)), None)
 
 
+PODCAST_IDENTITY_KINDS = frozenset({"guid", "episode-url", "published-metadata"})
+
+
+def podcast_episode_identity(
+    feed_uri: str,
+    *,
+    guid: object = None,
+    episode_url: object = None,
+    enclosure_url: object = None,
+    title: object = None,
+    published_timestamp: object = None,
+    published: object = None,
+) -> tuple[str, str] | None:
+    """Return a feed-scoped identity that is independent of the playback enclosure."""
+
+    feed = canonical_uri(MediaSource.URL, feed_uri)
+    parsed_feed = urlparse(feed)
+    if parsed_feed.scheme not in {"http", "https"} or not parsed_feed.netloc:
+        return None
+
+    guid_text = str(guid).strip() if isinstance(guid, (str, int)) else ""
+    if guid_text:
+        kind, episode_key = "guid", guid_text
+    else:
+        page_text = str(episode_url).strip() if isinstance(episode_url, str) else ""
+        enclosure_text = str(enclosure_url).strip() if isinstance(enclosure_url, str) else ""
+        page = canonical_uri(MediaSource.URL, page_text) if page_text else ""
+        enclosure = canonical_uri(MediaSource.URL, enclosure_text) if enclosure_text else ""
+        parsed_page = urlparse(page)
+        if (
+            page
+            and page != enclosure
+            and parsed_page.scheme in {"http", "https"}
+            and parsed_page.netloc
+        ):
+            kind, episode_key = "episode-url", page
+        else:
+            normalized_title = " ".join(str(title or "").split()).casefold()
+            try:
+                timestamp = (
+                    int(float(published_timestamp))
+                    if isinstance(published_timestamp, (str, int, float))
+                    and not isinstance(published_timestamp, bool)
+                    else 0
+                )
+            except (TypeError, ValueError, OverflowError):
+                timestamp = 0
+            published_text = str(published).strip() if isinstance(published, str) else ""
+            publication = str(timestamp) if timestamp > 0 else published_text
+            if not normalized_title or not publication:
+                return None
+            kind, episode_key = "published-metadata", f"{publication}\0{normalized_title}"
+
+    canonical = f"podcast\0{feed}\0{kind}\0{episode_key}"
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:24], kind
+
+
+def has_durable_podcast_identity(media: MediaRef) -> bool:
+    """Return whether a podcast MediaRef carries a verified feed-derived identity."""
+
+    return (
+        media.source == MediaSource.PODCAST
+        and media.provenance == "podcast-feed"
+        and media.resolver_data.get("podcast_identity_kind") in PODCAST_IDENTITY_KINDS
+        and len(media.stable_id) == 24
+        and all(character in "0123456789abcdef" for character in media.stable_id)
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class PlayRegion:
     """Durable, non-destructive preferred playback bounds."""

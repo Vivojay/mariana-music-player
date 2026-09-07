@@ -7,7 +7,7 @@ import beta.ffmpeg_player as media_player
 import logger
 import runtime_check
 import terminal_colors
-from mariana.models import MediaSource, PlaybackSnapshot, PlaybackState
+from mariana.models import MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
 
 
 class Controller:
@@ -63,6 +63,21 @@ def test_ffmpeg_facade_supports_local_url_and_actions(monkeypatch, tmp_path):
     for action in ("play", "pausetoggle", "stop", "resync"):
         media_player.media_player(action=action)
     assert controller.actions == ["play", "pause", "stop", "resync"]
+
+
+def test_ffmpeg_facade_preserves_prepared_typed_media():
+    podcast = MediaRef(
+        MediaSource.PODCAST,
+        "https://media.test/episode.mp3",
+        title="Episode title",
+        resolver_data={"description": "Episode description"},
+    )
+
+    assert media_player.set_media(media=podcast) == podcast.original_uri
+    assert media_player.current_media is podcast
+
+    with pytest.raises(TypeError, match="MediaRef"):
+        media_player.set_media(media="https://media.test/episode.mp3")
 
 
 def test_wait_until_playing_succeeds(monkeypatch):

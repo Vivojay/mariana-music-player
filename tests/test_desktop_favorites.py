@@ -3,7 +3,13 @@ from dataclasses import asdict
 from types import SimpleNamespace
 
 import main
-from mariana.models import MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
+from mariana.models import (
+    MediaRef,
+    MediaSource,
+    PlaybackSnapshot,
+    PlaybackState,
+    podcast_episode_identity,
+)
 from mariana.preferences import PreferenceState
 
 
@@ -33,15 +39,23 @@ def test_favorite_projection_uses_backend_state_without_exposing_identity(monkey
 def test_favorite_projection_disables_unbound_and_unsafe_media(monkeypatch):
     direct_local = MediaRef(MediaSource.LOCAL, "C:/private/direct.mp3")
     signed_url = MediaRef(MediaSource.URL, "https://example.test/audio?token=secret")
+    enclosure_only_podcast = MediaRef(
+        MediaSource.PODCAST,
+        "https://media.test/episode.mp3?token=secret",
+        title="Episode",
+        provenance="podcast-feed",
+    )
     monkeypatch.setattr(main, "_preference_media", lambda media: media)
 
     empty = main._favorite_status_projection(None)
     local = main._favorite_status_projection(direct_local)
     online = main._favorite_status_projection(signed_url)
+    podcast = main._favorite_status_projection(enclosure_only_podcast)
 
     assert not empty.available and empty.unavailable_reason == "No active media"
     assert not local.toggle_enabled and "indexed local media" in (local.unavailable_reason or "")
     assert not online.toggle_enabled and "durable favourite identity" in (online.unavailable_reason or "")
+    assert not podcast.toggle_enabled and "durable favourite identity" in (podcast.unavailable_reason or "")
     assert "private" not in json.dumps(local.unavailable_reason)
     assert "example.test" not in json.dumps(online.unavailable_reason)
 
@@ -69,6 +83,91 @@ def test_playback_projection_refreshes_favorite_state_for_cli_changes(monkeypatc
     assert not main._playback_status_projection().favorite.is_favorite
     state["value"] = PreferenceState.FAVORITE
     assert main._playback_status_projection().favorite.is_favorite
+
+
+def test_podcast_favorite_projection_and_desktop_toggle_use_durable_feed_identity(monkeypatch):
+    identity = podcast_episode_identity(
+        "https://feed.test/show.xml",
+        guid="episode-guid",
+        enclosure_url="https://media.test/private-episode.mp3?token=secret",
+        title="Complete episode title",
+    )
+    assert identity is not None
+    media = MediaRef(
+        MediaSource.PODCAST,
+        "https://media.test/private-episode.mp3?token=secret",
+        stable_id=identity[0],
+        title="Complete episode title",
+        resolver_data={"podcast_identity_kind": identity[1]},
+        provenance="podcast-feed",
+    )
+    state = {"value": PreferenceState.NEUTRAL}
+    toggled = []
+
+    def toggle(selected, preference):
+        toggled.append((selected.stable_id, preference))
+        state["value"] = (
+            PreferenceState.NEUTRAL
+            if state["value"] == preference
+            else preference
+        )
+        return state["value"]
+
+    monkeypatch.setattr(
+        main,
+        "PREFERENCES",
+        SimpleNamespace(
+            get=lambda _media: state["value"],
+            is_favorite=lambda _media: state["value"] == PreferenceState.FAVORITE,
+            toggle=toggle,
+        ),
+    )
+    monkeypatch.setattr(
+        main.vas,
+        "controller",
+        SimpleNamespace(
+            snapshot=lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=media),
+        ),
+    )
+    monkeypatch.setattr(main.QUEUE, "playback_position", lambda _stable_id: (None, 0))
+    emitted = []
+    monkeypatch.setattr(
+        main,
+        "DESKTOP_CONTROL",
+        SimpleNamespace(emit=lambda event, payload=None: emitted.append((event, payload)) or True),
+    )
+
+    initial = main._playback_status_projection()
+    assert initial.source == "podcast"
+    assert initial.favorite.available
+    assert initial.favorite.toggle_enabled
+    assert not initial.favorite.is_favorite
+
+    assert main._desktop_control_request("favorite.toggle", {"media_id": media.stable_id}) == {
+        "ok": True,
+    }
+    assert main._playback_status_projection().favorite.is_favorite
+    printed = []
+    monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
+    assert main.favorite_command([]) == PreferenceState.FAVORITE
+    assert printed == ["Current media is favorited"]
+    assert main._desktop_control_request("favorite.toggle", {"media_id": media.stable_id}) == {
+        "ok": True,
+    }
+    assert not main._playback_status_projection().favorite.is_favorite
+    assert toggled == [
+        (media.stable_id, PreferenceState.FAVORITE),
+        (media.stable_id, PreferenceState.FAVORITE),
+    ]
+    assert emitted[-1][1]["favorite"] == {
+        "available": True,
+        "is_favorite": False,
+        "toggle_enabled": True,
+        "unavailable_reason": None,
+    }
+    serialized = json.dumps(emitted)
+    assert "media.test" not in serialized
+    assert "token" not in serialized
 
 
 def test_desktop_favorite_toggle_binds_expected_current_media_and_emits_projection(monkeypatch):

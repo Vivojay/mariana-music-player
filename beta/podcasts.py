@@ -7,6 +7,8 @@ from pathlib import Path
 import feedparser
 import requests
 
+from mariana.models import podcast_episode_identity
+
 HTTP_TIMEOUT = (5, 30)
 
 
@@ -83,17 +85,29 @@ def refresh_podcast_data(rss_link, output_file, cached=None):
         image = entry.get('image') or {}
         published_tuple = entry.get('published_parsed') or entry.get('updated_parsed')
         published_timestamp = timegm(published_tuple) if published_tuple else 0
-        podcasts_raw.append(
-            {
-                'itunes_explicit': entry.get('itunes_explicit'),
-                'itunes_subtitle': entry.get('itunes_subtitle') or entry.get('summary') or '',
-                'itune_image': image.get('href') if isinstance(image, dict) else None,
-                'enclosure_url': enclosure_url,
-                'published_date': entry.get('published') or entry.get('updated') or '',
-                'published_timestamp': published_timestamp,
-                'title': entry.get('title') or '[Untitled podcast episode]',
-            }
+        podcast = {
+            'itunes_explicit': entry.get('itunes_explicit'),
+            'itunes_subtitle': entry.get('itunes_subtitle') or entry.get('summary') or '',
+            'itune_image': image.get('href') if isinstance(image, dict) else None,
+            'enclosure_url': enclosure_url,
+            'episode_guid': entry.get('id') or entry.get('guid'),
+            'episode_url': entry.get('link'),
+            'published_date': entry.get('published') or entry.get('updated') or '',
+            'published_timestamp': published_timestamp,
+            'title': entry.get('title') or '[Untitled podcast episode]',
+        }
+        identity = podcast_episode_identity(
+            rss_link,
+            guid=podcast['episode_guid'],
+            episode_url=podcast['episode_url'],
+            enclosure_url=podcast['enclosure_url'],
+            title=podcast['title'],
+            published_timestamp=podcast['published_timestamp'],
+            published=podcast['published_date'],
         )
+        if identity is not None:
+            podcast['stable_id'], podcast['identity_kind'] = identity
+        podcasts_raw.append(podcast)
 
     Path(output_file).parent.mkdir(parents=True, exist_ok=True)
     with open(output_file, 'w', encoding='utf-8') as fp:
@@ -156,13 +170,28 @@ def get_latest_podbean_data(vendor = '', rss_link = None):
 
 
     # podcast_urls = [pod.get('enclosure_url') for pod in podcasts_raw]
-    podcasts = [{'is_explicit':  pod.get('itunes_explicit'),
-                 'caption':      pod.get('itunes_subtitle'),
-                 'artwork':      pod.get('itune_image'),
-                 'url':          pod.get('enclosure_url'),
-                 'pub_date':     pod.get('published_date'),
-                 'published_timestamp': pod.get('published_timestamp', 0),
-                 'title':        pod.get('title')} for pod in podcasts_raw]
+    podcasts = []
+    for pod in podcasts_raw:
+        identity = podcast_episode_identity(
+            rss_link,
+            guid=pod.get('episode_guid'),
+            episode_url=pod.get('episode_url'),
+            enclosure_url=pod.get('enclosure_url'),
+            title=pod.get('title'),
+            published_timestamp=pod.get('published_timestamp'),
+            published=pod.get('published_date'),
+        )
+        podcasts.append({
+            'is_explicit': pod.get('itunes_explicit'),
+            'caption': pod.get('itunes_subtitle'),
+            'artwork': pod.get('itune_image'),
+            'url': pod.get('enclosure_url'),
+            'pub_date': pod.get('published_date'),
+            'published_timestamp': pod.get('published_timestamp', 0),
+            'title': pod.get('title'),
+            'stable_id': identity[0] if identity else None,
+            'identity_kind': identity[1] if identity else None,
+        })
 
     # Sorting podcasts by date of publish (newest first)
     podcasts.sort(key=lambda x: x['published_timestamp'], reverse=True)

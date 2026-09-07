@@ -5,6 +5,7 @@ import pytest
 
 import beta.mediadl as mediadl
 import beta.podcasts as podcasts
+from mariana.models import podcast_episode_identity
 
 
 class Response:
@@ -24,8 +25,41 @@ def test_refresh_podcast_data_creates_parent_and_normalizes_feed(monkeypatch, tm
 
     assert output.is_file()
     assert episodes[0]["title"] == "Older Episode"
+    assert episodes[0]["episode_guid"] == "mariana-test-episode-older"
+    assert episodes[0]["identity_kind"] == "guid"
+    assert len(episodes[0]["stable_id"]) == 24
     assert episodes[1]["enclosure_url"].endswith("newest.mp3")
     assert episodes[1]["published_timestamp"] > episodes[0]["published_timestamp"]
+
+
+def test_podcast_guid_identity_survives_enclosure_changes_and_same_titles_are_distinct():
+    first = podcast_episode_identity(
+        "https://example.test/feed.xml",
+        guid="episode-one",
+        enclosure_url="https://cdn.test/old.mp3?signature=old",
+        title="Repeated title",
+    )
+    moved = podcast_episode_identity(
+        "https://example.test/feed.xml",
+        guid="episode-one",
+        enclosure_url="https://other-cdn.test/new.mp3?signature=new",
+        title="Repeated title",
+    )
+    different = podcast_episode_identity(
+        "https://example.test/feed.xml",
+        guid="episode-two",
+        enclosure_url="https://cdn.test/two.mp3",
+        title="Repeated title",
+    )
+
+    assert first is not None and first[1] == "guid"
+    assert moved == first
+    assert different is not None and different[0] != first[0]
+    assert podcast_episode_identity(
+        "https://example.test/feed.xml",
+        enclosure_url="https://cdn.test/transient.mp3?signature=temporary",
+        title="No publication identity",
+    ) is None
 
 
 def test_refresh_podcast_data_rejects_invalid_feed(monkeypatch, tmp_path):
@@ -49,6 +83,8 @@ def test_podcast_cache_is_reused_and_sorted(monkeypatch, tmp_path):
 
     result = podcasts.get_latest_podbean_data("podnews")
     assert [item["title"] for item in result] == ["New", "Old"]
+    assert all(item["identity_kind"] == "published-metadata" for item in result)
+    assert len({item["stable_id"] for item in result}) == 2
 
 
 def test_stale_or_corrupt_podcast_cache_is_refreshed(monkeypatch, tmp_path):

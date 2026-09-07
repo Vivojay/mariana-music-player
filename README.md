@@ -260,7 +260,7 @@ download-yv [YouTube URL] [y|yes|--yes]
 download-ya [current|YouTube URL] [--track] [--quality best|worst] [--to <directory>] [y|yes|--yes]
 download-ya --album [current|album-ref|YouTube-playlist-URL] [--tracks <selector>] [y|yes|--yes]
 download-ya status [job-id]|pause|resume|cancel <job-id>
-download-ml <URL> [mp3|flac|wav|m4a|opus] [output path] [--yes]
+download-ml <current|URL> [mp3|flac|wav|m4a|opus] [output path] [--yes]
 refresh all [y|yes|--yes]
 exit|quit [y|yes|--yes]
 ```

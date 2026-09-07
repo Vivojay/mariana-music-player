@@ -724,6 +724,40 @@ def test_media_info_and_lyrics_edit_defensive_branches(monkeypatch, tmp_path: Pa
         lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=remote, duration=20),
     )
     assert main._media_info([])[1]["metadata"]["source"] == "url"
+
+    podcast = MediaRef(
+        MediaSource.PODCAST,
+        "https://media.test/episode.mp3",
+        title="Complete episode title",
+        resolver_data={
+            "description": "Complete episode description",
+            "published": "Today",
+            "explicit": False,
+            "artwork": "https://image.test/episode.jpg",
+            "private_internal": "must not be exposed",
+        },
+        provenance="podcast-feed",
+    )
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=podcast, duration=3600),
+    )
+    podcast_info = main._media_info([])[1]
+    assert podcast_info["metadata"] == {
+        "source": "podcast",
+        "title": "Complete episode title",
+        "artist": None,
+        "album": None,
+        "duration": 3600,
+        "provenance": "podcast-feed",
+        "stream_title": None,
+        "description": "Complete episode description",
+        "published": "Today",
+        "explicit": False,
+        "artwork": "https://image.test/episode.jpg",
+    }
+    assert "private_internal" not in str(podcast_info)
     with pytest.raises(ValueError, match="local file"):
         main.edit_current_lyrics()
 

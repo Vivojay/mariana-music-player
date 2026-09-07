@@ -211,6 +211,17 @@ def test_download_confirmation_rejection_and_local_current(monkeypatch, tmp_path
     with pytest.raises(DownloadJobError, match="stored locally"):
         main.download_audio_command(["--yes"])
 
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(
+            PlaybackState.PLAYING,
+            media=MediaRef(MediaSource.PODCAST, "https://media.test/episode.mp3", title="Episode"),
+        ),
+    )
+    with pytest.raises(DownloadJobError, match='download-ml current'):
+        main.download_audio_command(["--yes"])
+
 
 def test_download_existing_output_cancel_confirm_and_stale_refusal(
     monkeypatch, tmp_path: Path, download_cli

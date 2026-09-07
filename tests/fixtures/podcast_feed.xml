@@ -4,12 +4,14 @@
     <title>Mariana Test Feed</title>
     <item>
       <title>Older Episode</title>
+      <guid isPermaLink="false">mariana-test-episode-older</guid>
       <description>Older caption</description>
       <pubDate>Mon, 08 Jul 2024 12:00:00 +0000</pubDate>
       <enclosure url="https://media.example/older.mp3" type="audio/mpeg" />
     </item>
     <item>
       <title>Newest Episode</title>
+      <guid isPermaLink="false">mariana-test-episode-newest</guid>
       <description>Newest caption</description>
       <pubDate>Tue, 09 Jul 2024 12:00:00 +0000</pubDate>
       <enclosure url="https://media.example/newest.mp3" type="audio/mpeg" />
