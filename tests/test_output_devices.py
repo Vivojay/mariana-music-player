@@ -68,6 +68,57 @@ def test_windows_new_bluetooth_endpoint_uses_system_mapper(monkeypatch):
     assert selected.portaudio_name == "Microsoft Sound Mapper - Output"
 
 
+@pytest.mark.parametrize(("endpoint", "stale"), [
+    ("Speakers (New Bluetooth Speaker)", "Speakers (Old Bluetooth Speaker)"),
+    ("Speakers (Realtek(R) Audio)", "Speakers (USB Audio)"),
+    ("Headphones (WH-1000XM5)", "Headphones (WH-1000XM4)"),
+])
+def test_similarly_named_stale_endpoint_is_not_mislabelled_as_current(monkeypatch, endpoint, stale):
+    audio = AudioBackend([
+        DEVICES[0], {"name": stale, "hostapi": 1, "max_output_channels": 2},
+    ], ["MME", "Windows WASAPI"], default_index=1)
+    monkeypatch.setattr(output_devices, "_windows_default_endpoint", lambda: ("new-endpoint", endpoint))
+    selected = default_output_device(audio)
+    assert selected.index == 0
+    assert selected.key == "new-endpoint"
+    assert selected.name == endpoint
+    assert selected.portaudio_name == "Microsoft Sound Mapper - Output"
+
+
+def test_unmatched_endpoint_without_live_mapper_waits_instead_of_opening_other_device(monkeypatch):
+    audio = AudioBackend([DEVICES[1]], ["MME"])
+    monkeypatch.setattr(output_devices, "_windows_default_endpoint", lambda: ("new", "New USB DAC"))
+    with pytest.raises(OutputDeviceError, match="no confirmed playback route"):
+        default_output_device(audio)
+
+
+def test_duplicate_native_endpoint_names_use_live_mapper(monkeypatch):
+    output = {"name": "USB DAC", "hostapi": 1, "max_output_channels": 2}
+    audio = AudioBackend([DEVICES[0], output, dict(output)], ["MME", "Windows WASAPI"])
+    monkeypatch.setattr(output_devices, "_windows_default_endpoint", lambda: ("new", "USB DAC"))
+    assert default_output_device(audio).index == 0
+    audio.devices = [output, dict(output)]
+    with pytest.raises(OutputDeviceError, match="no confirmed playback route"):
+        default_output_device(audio)
+
+
+def test_route_matching_requires_complete_non_generic_device_tokens():
+    assert output_devices._endpoint_matches_route("Speakers (JBL Flip 5 Stereo)", "JBL FLIP 5 Stereo")
+    assert output_devices._endpoint_matches_route("Speakers", "Speakers")
+    assert not output_devices._endpoint_matches_route("Speakers", "Headphones")
+    assert not output_devices._endpoint_matches_route("", "Headphones")
+    assert not output_devices._endpoint_matches_route("Headphones (WH-1000XM5)", "Headphones (WH-1000XM)")
+
+
+def test_windows_failed_explicit_route_can_select_live_system_mapper(monkeypatch):
+    audio = AudioBackend(DEVICES, ["MME", "Windows WASAPI"])
+    monkeypatch.setattr(output_devices, "_windows_default_endpoint", lambda: ("endpoint", "JBL FLIP 5 Stereo"))
+    explicit = default_output_device(audio)
+    fallback = default_output_device(audio, prefer_system_mapper=True)
+    assert explicit.index == 2 and fallback.index == 0
+    assert explicit.key == fallback.key and explicit.name == fallback.name
+
+
 def test_portaudio_default_is_cross_platform_fallback(monkeypatch):
     audio = AudioBackend(DEVICES, ["MME", "Core Audio"], default_index=2)
     monkeypatch.setattr(output_devices, "_windows_default_endpoint", lambda: None)
@@ -106,37 +157,30 @@ def test_device_score_and_endpoint_fallback_branches(monkeypatch):
 
 
 def test_windows_endpoint_empty_and_failure_are_safe(monkeypatch):
-    audio_utilities = SimpleNamespace()
+    from mariana import windows_audio
+
     comtypes = ModuleType("comtypes")
-    comtypes.CoInitialize = lambda: None
-    comtypes.CoUninitialize = lambda: None
-    pycaw_package = ModuleType("pycaw")
-    pycaw_module = ModuleType("pycaw.pycaw")
-    pycaw_module.AudioUtilities = audio_utilities
+    lifetime = []
+    comtypes.CoInitialize = lambda: lifetime.append("open")
+    comtypes.CoUninitialize = lambda: lifetime.append("close")
     monkeypatch.setitem(sys.modules, "comtypes", comtypes)
-    monkeypatch.setitem(sys.modules, "pycaw", pycaw_package)
-    monkeypatch.setitem(sys.modules, "pycaw.pycaw", pycaw_module)
+    monkeypatch.setattr(windows_audio, "default_endpoint", lambda: object())
 
     monkeypatch.setattr(output_devices.os, "name", "nt")
     monkeypatch.setattr(
-        audio_utilities,
-        "GetSpeakers",
-        staticmethod(lambda: SimpleNamespace(FriendlyName="Speakers", id="endpoint-id")),
-        raising=False,
+        windows_audio, "endpoint_identity", lambda _endpoint: ("endpoint-id", "Speakers"),
     )
     assert output_devices._windows_default_endpoint() == ("endpoint-id", "Speakers")
     monkeypatch.setattr(
-        audio_utilities,
-        "GetSpeakers",
-        staticmethod(lambda: SimpleNamespace(FriendlyName="", id="")),
+        windows_audio, "endpoint_identity", lambda _endpoint: ("", ""),
     )
     assert output_devices._windows_default_endpoint() is None
     monkeypatch.setattr(
-        audio_utilities,
-        "GetSpeakers",
-        staticmethod(lambda: (_ for _ in ()).throw(OSError("Core Audio unavailable"))),
+        windows_audio, "endpoint_identity",
+        lambda _endpoint: (_ for _ in ()).throw(OSError("Core Audio unavailable")),
     )
     assert output_devices._windows_default_endpoint() is None
+    assert lifetime == ["open", "close"] * 3
 
 
 def test_hostapi_and_default_query_failures_are_typed(monkeypatch):

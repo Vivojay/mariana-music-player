@@ -48,12 +48,12 @@ def _run_text(arguments: list[str]) -> str:
 
 def get_master_volume() -> int:
     if sys.platform == "win32":
-        from pycaw.pycaw import AudioUtilities
+        from mariana.windows_audio import endpoint_volume
 
-        speakers = AudioUtilities.GetSpeakers()
-        if speakers is None:
+        volume = endpoint_volume()
+        if volume is None:
             raise PlatformCapabilityError("Windows did not report a default audio endpoint")
-        return round(speakers.EndpointVolume.GetMasterVolumeLevelScalar() * 100)
+        return round(volume.GetMasterVolumeLevelScalar() * 100)
     if sys.platform == "darwin":
         return int(_run_text(["osascript", "-e", "output volume of (get volume settings)"]))
     if wpctl := shutil.which("wpctl"):
@@ -68,12 +68,12 @@ def get_master_volume() -> int:
 def set_master_volume(value: float) -> None:
     percent = max(0, min(100, round(float(value))))
     if sys.platform == "win32":
-        from pycaw.pycaw import AudioUtilities
+        from mariana.windows_audio import endpoint_volume
 
-        speakers = AudioUtilities.GetSpeakers()
-        if speakers is None:
+        volume = endpoint_volume()
+        if volume is None:
             raise PlatformCapabilityError("Windows did not report a default audio endpoint")
-        speakers.EndpointVolume.SetMasterVolumeLevelScalar(percent / 100, None)
+        volume.SetMasterVolumeLevelScalar(percent / 100, None)
         return
     if sys.platform == "darwin":
         _run_text(["osascript", "-e", f"set volume output volume {percent}"])

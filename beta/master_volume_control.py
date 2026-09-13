@@ -3,10 +3,13 @@ systemIsMuted = 0
 
 def device_refresh():
     try:
-        from pycaw.pycaw import AudioUtilities
+        from mariana.windows_audio import endpoint_volume
+        volume = endpoint_volume()
     except ImportError as error:
         raise RuntimeError("The legacy master-volume adapter requires pycaw on Windows") from error
-    return AudioUtilities.GetSpeakers().EndpointVolume
+    if volume is None:
+        raise RuntimeError("Windows did not report a default audio endpoint")
+    return volume
 
 def get_master_volume():
     volume = device_refresh()

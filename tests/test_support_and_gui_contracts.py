@@ -39,6 +39,7 @@ def test_master_volume_get_set_and_zero(monkeypatch):
 def test_legacy_master_volume_import_is_optional(monkeypatch):
     monkeypatch.setitem(__import__("sys").modules, "pycaw", None)
     monkeypatch.setitem(__import__("sys").modules, "pycaw.pycaw", None)
+    monkeypatch.setitem(__import__("sys").modules, "pycaw.api.endpointvolume", None)
     with pytest.raises(RuntimeError, match="requires pycaw on Windows"):
         master_volume.device_refresh()
 

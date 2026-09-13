@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import subprocess
-import sys
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 
 import pytest
 
@@ -109,21 +108,18 @@ def test_linux_volume_backends_and_clamping(monkeypatch):
 
 
 def test_windows_volume_backend_and_missing_endpoint(monkeypatch):
+    from mariana import windows_audio
+
     endpoint = SimpleNamespace(
         GetMasterVolumeLevelScalar=lambda: 0.375,
         SetMasterVolumeLevelScalar=lambda value, context: setattr(endpoint, "set_to", (value, context)),
     )
-    audio_utilities = SimpleNamespace(GetSpeakers=lambda: SimpleNamespace(EndpointVolume=endpoint))
-    package = ModuleType("pycaw")
-    module = ModuleType("pycaw.pycaw")
-    module.AudioUtilities = audio_utilities
-    monkeypatch.setitem(sys.modules, "pycaw", package)
-    monkeypatch.setitem(sys.modules, "pycaw.pycaw", module)
+    monkeypatch.setattr(windows_audio, "endpoint_volume", lambda: endpoint)
     monkeypatch.setattr(platform_adapter.sys, "platform", "win32")
     assert platform_adapter.get_master_volume() == 38
     platform_adapter.set_master_volume(25.4)
     assert endpoint.set_to == (0.25, None)
-    module.AudioUtilities = SimpleNamespace(GetSpeakers=lambda: None)
+    monkeypatch.setattr(windows_audio, "endpoint_volume", lambda: None)
     with pytest.raises(platform_adapter.PlatformCapabilityError, match="default audio endpoint"):
         platform_adapter.get_master_volume()
     with pytest.raises(platform_adapter.PlatformCapabilityError, match="default audio endpoint"):

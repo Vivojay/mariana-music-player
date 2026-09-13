@@ -58,18 +58,37 @@ def _device_score(endpoint_name: str, candidate_name: str, hostapi: str) -> floa
     return score
 
 
+def _endpoint_matches_route(endpoint_name: str, candidate_name: str) -> bool:
+    """Require corroborating device identity before opening an explicit route.
+
+    Similar display names are not endpoint identities: a stale XM4 route must
+    not be labelled as the newly connected XM5. PortAudio can omit generic
+    Windows endpoint wrappers, so compare the remaining complete token sequence.
+    Truncated or otherwise ambiguous names use the live system mapper instead.
+    """
+    endpoint = _normalized(endpoint_name)
+    candidate = _normalized(candidate_name)
+    if not endpoint or not candidate:
+        return False
+    if endpoint == candidate:
+        return True
+    generic = {"audio", "device", "headphones", "headset", "output", "speakers", "stereo"}
+    endpoint_identity = tuple(token for token in endpoint.split() if token not in generic)
+    candidate_identity = tuple(token for token in candidate.split() if token not in generic)
+    return bool(endpoint_identity) and endpoint_identity == candidate_identity
+
+
 def _windows_default_endpoint() -> tuple[str, str] | None:
     if os.name != "nt":
         return None
     try:
         from comtypes import CoInitialize, CoUninitialize
-        from pycaw.pycaw import AudioUtilities
+
+        from mariana.windows_audio import default_endpoint, endpoint_identity
 
         CoInitialize()
         try:
-            endpoint = AudioUtilities.GetSpeakers()
-            name = str(getattr(endpoint, "FriendlyName", "") or "").strip()
-            endpoint_id = str(getattr(endpoint, "id", "") or "").strip()
+            endpoint_id, name = endpoint_identity(default_endpoint())
             if name and endpoint_id:
                 return endpoint_id, name
         finally:
@@ -114,7 +133,7 @@ def _system_mapper(outputs: list[tuple[int, dict[str, Any], str]]) -> tuple[int,
     return None
 
 
-def default_output_device(audio: Any = sounddevice) -> OutputDeviceInfo:
+def default_output_device(audio: Any = sounddevice, *, prefer_system_mapper: bool = False) -> OutputDeviceInfo:
     """Return the current OS default and the best route for a new stream.
 
     On Windows, Core Audio supplies the authoritative endpoint identity and
@@ -128,14 +147,26 @@ def default_output_device(audio: Any = sounddevice) -> OutputDeviceInfo:
     windows_endpoint = _windows_default_endpoint()
     if windows_endpoint:
         endpoint_id, endpoint_name = windows_endpoint
+        matching = [item for item in outputs if _endpoint_matches_route(
+            endpoint_name, str(item[1].get("name") or ""),
+        )]
         ranked = sorted(
-            outputs,
+            matching,
             key=lambda item: _device_score(endpoint_name, str(item[1].get("name") or ""), item[2]),
             reverse=True,
         )
-        best = ranked[0]
-        if _device_score(endpoint_name, str(best[1].get("name") or ""), best[2]) < 55:
-            best = _system_mapper(outputs) or best
+        best = ranked[0] if ranked else None
+        # Two routes with the same host/name cannot identify which native
+        # endpoint is current. Host-API preference alone cannot disambiguate.
+        ambiguous = best is not None and sum(
+            item[2] == best[2]
+            and _normalized(str(item[1].get("name") or "")) == _normalized(str(best[1].get("name") or ""))
+            for item in matching
+        ) > 1
+        if prefer_system_mapper or best is None or ambiguous:
+            best = _system_mapper(outputs) or (None if ambiguous else best)
+        if best is None:
+            raise OutputDeviceError("The current audio output has no confirmed playback route yet")
         index, device, hostapi = best
         return OutputDeviceInfo(
             key=endpoint_id.casefold(),
