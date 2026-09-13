@@ -14,6 +14,10 @@ const state = vi.hoisted(() => ({
   dispose: vi.fn(),
   resize: vi.fn(),
   terminalWrite: vi.fn(),
+  fit: vi.fn(),
+  observe: vi.fn(),
+  disconnect: vi.fn(),
+  resized: undefined as ResizeObserverCallback | undefined,
   keyHandler: undefined as ((event: KeyboardEvent) => boolean) | undefined,
   selection: '',
 }))
@@ -23,7 +27,11 @@ vi.mock('@xterm/xterm', () => ({
     cols = 100
     rows = 30
     loadAddon() {}
-    open() {}
+    open(container: HTMLElement) {
+      const screen = document.createElement('div')
+      screen.className = 'xterm-screen'
+      container.appendChild(screen)
+    }
     focus() {}
     clear = state.clear
     write = state.terminalWrite
@@ -39,7 +47,7 @@ vi.mock('@xterm/xterm', () => ({
     }
   },
 }))
-vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit() {} } }))
+vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit = state.fit } }))
 vi.mock('@xterm/addon-search', () => ({ SearchAddon: class {
   findNext = state.search
   findPrevious = state.searchPrevious
@@ -58,6 +66,9 @@ beforeEach(() => {
   state.dispose.mockClear()
   state.resize.mockClear()
   state.terminalWrite.mockClear()
+  state.fit.mockClear()
+  state.observe.mockClear()
+  state.disconnect.mockClear()
   Object.defineProperty(window, 'mariana', {
     configurable: true,
     value: {
@@ -73,7 +84,11 @@ beforeEach(() => {
       openExternal: vi.fn(),
     },
   })
-  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  vi.stubGlobal('ResizeObserver', class {
+    constructor(callback: ResizeObserverCallback) { state.resized = callback }
+    observe = state.observe
+    disconnect = state.disconnect
+  })
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callback(0); return 1 })
 })
 
@@ -87,6 +102,22 @@ it('copies selected terminal text while preserving Ctrl+C interrupts without a s
   state.selection = ''
   expect(state.keyHandler?.(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true }))).toBe(true)
   expect(clipboard).toHaveBeenCalledTimes(1)
+})
+
+it('refits when xterm screen metrics change without a container resize', () => {
+  const view = render(<TerminalSurface theme={themes.aurora} fontSize={14} reducedMotion={false} />)
+  const surface = screen.getByLabelText('Mariana command terminal')
+  const terminalScreen = surface.querySelector('.xterm-screen')
+  expect(state.observe).toHaveBeenCalledWith(surface)
+  expect(state.observe).toHaveBeenCalledWith(terminalScreen)
+  state.fit.mockClear()
+  state.resize.mockClear()
+  act(() => state.resized?.([{ target: terminalScreen } as ResizeObserverEntry], {} as ResizeObserver))
+  expect(state.fit).toHaveBeenCalledOnce()
+  expect(state.resize).toHaveBeenCalledExactlyOnceWith(100, 30)
+  expect(state.write).not.toHaveBeenCalled()
+  view.unmount()
+  expect(state.disconnect).toHaveBeenCalledOnce()
 })
 
 afterEach(() => {

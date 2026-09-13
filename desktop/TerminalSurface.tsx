@@ -63,6 +63,10 @@ export function TerminalSurface({ theme, fontSize, reducedMotion, tabId = 1 }: P
     }
     const resize = new ResizeObserver(fitTerminal)
     resize.observe(container.current)
+    // Font/DPI remeasurement can change xterm's screen after the container was
+    // fitted. Observe that surface too so the row count converges to its bounds.
+    const screen = container.current.querySelector('.xterm-screen')
+    if (screen) resize.observe(screen)
     let pendingInput = ''
     const input = terminal.onData((data) => {
       if (data.startsWith('\u001b')) {
