@@ -85,6 +85,18 @@ def test_command_catalog_preserves_scoped_argument_namespaces_and_risk():
     assert specs["fav"].category is CommandCategory.FAVORITES
 
 
+def test_region_catalog_explains_start_and_end_updates_without_unsupported_set_form():
+    region = next(row for row in serialize_command_catalog() if row["canonical"] == "region")
+
+    assert "region current start <time>" in region["summary"]
+    assert "region current end <time>" in region["summary"]
+    assert "library index" in region["summary"]
+    forms = {form["tokens"]: form["argument_kinds"] for form in region["forms"]}
+    assert forms[("current", "start")] == ("time",)
+    assert forms[("current", "end")] == ("time",)
+    assert ("set",) not in forms
+
+
 def test_command_catalog_classifies_guarded_compound_commands_without_mislabeling_safe_ones():
     specs = {spec.canonical: spec for spec in COMMAND_CATALOG}
 

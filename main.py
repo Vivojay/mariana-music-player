@@ -2925,10 +2925,28 @@ def _region_description(region):
 
 def region_command(arguments):
     """Inspect or mutate non-destructive preferred playback bounds."""
-    usage = (
-        'region <current|library-index> <start> <end> | region <target> start|end <time> | '
-        'region show|clear|clear-start|clear-end <target>'
+    forms = (
+        'region <current|library-index> start <time>',
+        'region <current|library-index> end <time>',
+        'region <current|library-index> <start> <end>',
+        'region show <current|library-index>',
+        'region clear|clear-start|clear-end <current|library-index>',
     )
+    usage = ' | '.join(forms)
+    if len(arguments) == 1 and arguments[0].casefold() in {'help', '--help', '-h'}:
+        IPrint('\n'.join(forms), visible=visible)
+        IPrint(
+            'start changes only the starting bound; end changes only the ending bound. '
+            'The other saved bound is preserved. An unset start means the beginning; '
+            'an unset end means the natural end of the media.\n'
+            'Examples: region current start 0:30 | region current end 3:45 | region 12 start 5.180\n'
+            'Times are absolute (seconds, clock notation, or d/h/m/s/ms units). '
+            'The start must be before the end and duration; the end cannot exceed duration.\n'
+            'Changes are saved for the next playback start; they do not seek, pause, or trim media. '
+            'Use regions to list saved bounds.',
+            visible=visible,
+        )
+        return forms
     if not arguments:
         raise PlayRegionError(f'Usage: {usage}')
     operation = arguments[0].casefold()
@@ -3331,6 +3349,8 @@ HELP_TOPIC_ALIASES = {
 def help_command(arguments):
     """Display the command map, optionally narrowed to one documented category."""
     topic = ' '.join(arguments).casefold().strip() if arguments else None
+    if topic == 'region':
+        return region_command(['help'])
     rows = HELP_GROUPS
     if topic and topic not in {'all', 'full'}:
         aliased_topic = HELP_TOPIC_ALIASES.get(topic, topic)

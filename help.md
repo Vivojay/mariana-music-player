@@ -186,7 +186,9 @@ database.
 | `unblock <library-index|current>` | Restore playback eligibility |
 | `blocked`, `blocked list`, `blocked <count>` | List playback-blocked media; legacy `blacklist` remains an alias |
 | `region <current|library-index> <start> <end>` | Save both non-destructive preferred playback bounds |
-| `region <current|library-index> start|end <time>` | Set one bound while preserving the other |
+| `region <current|library-index> start <time>` | Change ONLY the starting bound; preserve the saved ending bound |
+| `region <current|library-index> end <time>` | Change ONLY the ending bound; preserve the saved starting bound |
+| `help region`, `region help` | Show complete region syntax, examples, and validation rules |
 | `region show <current|library-index>` | Show the saved preferred play region |
 | `region clear|clear-start|clear-end <current|library-index>` | Clear both bounds or one bound |
 | `regions` | List saved preferred play regions without revealing paths |
@@ -208,6 +210,15 @@ path at that timestamp; two bounds do both. Times accept `5.180`, `5.180s`,
 require finite media with a known duration, bind bare numbers to library indices,
 and never alter the source file. Blocking remains independent and takes
 precedence over a saved region.
+
+For example, `region current start 0:30` changes only the start to 30 seconds;
+`region current end 3:45` changes only the end to 3 minutes 45 seconds. Use
+`region 12 start 5.180` to change the start of library item 12 instead of the
+active track. If the other bound has never been set, it remains unset (the
+natural beginning or end). A lone unlabeled timestamp is refused: explicitly
+write `start` or `end` so there is no ambiguity. Invalid updates leave both
+saved bounds unchanged. Bounds persist across restarts and apply on the next
+playback start; saving them does not interrupt or seek the current playback.
 
 ## Playlists
 

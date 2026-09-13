@@ -153,6 +153,75 @@ def test_region_current_partial_bounds_listing_and_blocked_independence(region_c
     assert state.preferences.is_blocked("library-2")
     end = main.region_command(["current", "end", "1:06:03.180"])
     assert end.end_seconds == 3963.18
+    assert end.start_seconds == start.start_seconds
+
+
+@pytest.mark.parametrize("target,stable_id", [("current", "library-2"), ("1", "library-1")])
+@pytest.mark.parametrize("bound,timestamp,seconds", [("start", "0:30.125", 30.125), ("end", "1m 20s", 80)])
+@pytest.mark.parametrize("existing", [False, True])
+def test_single_bound_commands_preserve_other_bound_and_reload(
+    region_cli, monkeypatch, target, stable_id, bound, timestamp, seconds, existing,
+):
+    state = region_cli
+    if existing:
+        state.regions.set(stable_id, start_seconds=10, end_seconds=90, duration=100)
+    snapshot = main.vas.controller.snapshot()
+
+    def unexpected_playback_change(*_args, **_kwargs):
+        pytest.fail("Saving a region must not alter active playback")
+
+    for operation in ("play", "pause", "seek", "stop"):
+        monkeypatch.setattr(main.vas.controller, operation, unexpected_playback_change)
+
+    main.process(f"region {target} {bound} {timestamp}")
+
+    expected_start = seconds if bound == "start" else 10 if existing else None
+    expected_end = seconds if bound == "end" else 90 if existing else None
+    saved = state.regions.get(stable_id)
+    assert saved is not None
+    assert (saved.start_seconds, saved.end_seconds) == (expected_start, expected_end)
+    other_id = "library-1" if stable_id == "library-2" else "library-2"
+    assert state.regions.get(other_id) is None
+    assert main.vas.controller.snapshot() == snapshot
+    with MarianaDatabase(state.database.path) as reloaded:
+        assert PlayRegionStore(reloaded).get(stable_id) == saved
+
+
+@pytest.mark.parametrize("arguments", [
+    ["1", "30"], ["1", "start"], ["1", "end"],
+    ["1", "start", "90"], ["1", "end", "10"],
+    ["1", "start", "100"], ["1", "end", "101"],
+    ["1", "end", "0"], ["1", "start", "-1"],
+    ["1", "start", "nan"], ["1", "end", "inf"],
+    ["1", "start", "20", "end", "80"],
+])
+def test_invalid_single_bound_update_preserves_saved_region(region_cli, arguments):
+    state = region_cli
+    previous = state.regions.set("library-1", start_seconds=10, end_seconds=90, duration=100)
+
+    with pytest.raises(PlayRegionError):
+        main.region_command(arguments)
+
+    assert state.regions.get("library-1") == previous
+    assert state.regions.get("library-2") is None
+
+
+@pytest.mark.parametrize("command", ["help region", "region help", "region --help", "region -h"])
+def test_region_help_distinguishes_single_bounds_without_accessing_media(region_cli, monkeypatch, command):
+    def unexpected_target(*_args, **_kwargs):
+        pytest.fail("Region help must not require or modify media")
+
+    monkeypatch.setattr(main, "_region_target", unexpected_target)
+    main.process(command)
+
+    output = "\n".join(region_cli.printed)
+    assert "region <current|library-index> start <time>" in output
+    assert "region <current|library-index> end <time>" in output
+    assert "other saved bound is preserved" in output
+    assert "next playback start" in output
+    assert "region current start 0:30" in output
+    assert "region current end 3:45" in output
+    assert not region_cli.regions.list()
 
 
 def test_region_current_and_listing_are_path_free(region_cli):

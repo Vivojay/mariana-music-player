@@ -151,7 +151,20 @@ COMMAND_CATALOG = (
     _spec("block", "block", CommandCategory.FAVORITES, "Block media from playback", risk=CommandRisk.STATE_CHANGING, forms=_forms("current")),
     _spec("unblock", "unblock", CommandCategory.FAVORITES, "Restore media playability", risk=CommandRisk.STATE_CHANGING),
     _spec("blocked", "blocked", CommandCategory.FAVORITES, "List blocked media", forms=_forms("list")),
-    _spec("region", "region", CommandCategory.FAVORITES, "Inspect or change preferred playback bounds", risk=CommandRisk.STATE_CHANGING, forms=_forms("show", "set", "clear", "clear-start", "clear-end", "current")),
+    _spec(
+        "region", "region", CommandCategory.FAVORITES,
+        "Set only start: region current start <time>; only end: region current end <time>. "
+        "Use a library index instead of current for another track; help region shows all forms.",
+        risk=CommandRisk.STATE_CHANGING,
+        forms=(
+            CommandForm(argument_kinds=("current-or-library-index", "start-time", "end-time")),
+            CommandForm(tokens=("current", "start"), argument_kinds=("time",)),
+            CommandForm(tokens=("current", "end"), argument_kinds=("time",)),
+            CommandForm(tokens=("help",)),
+            *(CommandForm(tokens=(operation,), argument_kinds=("current-or-library-index",))
+              for operation in ("show", "clear", "clear-start", "clear-end")),
+        ),
+    ),
     _spec("regions", "regions", CommandCategory.FAVORITES, "List preferred playback bounds"),
     _spec("playlist", "playlist", CommandCategory.PLAYLISTS, "Inspect or change playlists", risk=CommandRisk.STATE_CHANGING, forms=_forms("list", "create", "show", "add", "remove", "move", "order", "play", "queue", "import")),
     _spec("playlist.export", "playlist export", CommandCategory.PLAYLISTS, "Export a playlist with bound overwrite approval", risk=CommandRisk.EXTERNAL_ACTION, forms=_forms(arguments=("playlist-name", "output-path"), flags=("--yes",))),
