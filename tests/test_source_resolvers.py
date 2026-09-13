@@ -7,6 +7,7 @@ import requests
 from mariana.models import MediaCapabilities, MediaRef, MediaSource
 from mariana.sources import (
     BaseResolver,
+    DelegatingResolver,
     ExtractorPageResolver,
     FailureCode,
     HttpResolver,
@@ -79,6 +80,32 @@ def test_http_capability_probe(headers, source, seekable, live):
     assert resolved.capabilities.seekable is seekable
     assert resolved.capabilities.live is live
     assert session.calls[0][2]["headers"]["Icy-MetaData"] == "1"
+
+
+def test_http_resolver_preserves_only_semantic_podcast_artwork() -> None:
+    artwork_url = "https://images.test/podcast-cover.jpg?signature=transient"
+    podcast = MediaRef(
+        MediaSource.PODCAST,
+        "https://media.test/episode.mp3",
+        resolver_data={"artwork": artwork_url},
+    )
+    generic = MediaRef(
+        MediaSource.URL,
+        "https://media.test/track.mp3",
+        resolver_data={"artwork": artwork_url},
+    )
+    resolver = HttpResolver(Session(Response(headers={"content-length": "42"})))
+
+    assert resolver.resolve(podcast).metadata["artwork"] == artwork_url
+    assert "artwork" not in resolver.resolve(generic).metadata
+    assert "artwork" not in sanitized_resolver_data(podcast.resolver_data)
+
+    podcast_without_artwork = MediaRef(
+        MediaSource.PODCAST,
+        "https://media.test/episode-without-art.mp3",
+        resolver_data={"artwork": "   "},
+    )
+    assert "artwork" not in resolver.resolve(podcast_without_artwork).metadata
 
 
 def test_http_probe_preserves_normalized_icy_station_metadata():
@@ -263,7 +290,13 @@ def test_local_directory_and_youtube_resolution(monkeypatch, tmp_path):
             "duration": None,
             "categories": ["Music"],
             "track": "Live",
+            "thumbnail": "https://images.test/live.jpg",
             "chapters": [],
+            "provider_metadata": {
+                "provider": "Youtube",
+                "provider_media_id": "abc12345678",
+                "views": 12,
+            },
         },
     )
     resolved = YouTubeResolver("edge:Default").resolve(
@@ -272,6 +305,12 @@ def test_local_directory_and_youtube_resolution(monkeypatch, tmp_path):
     assert resolved.capabilities.live and not resolved.capabilities.seekable
     assert resolved.metadata["title"] == "Live"
     assert resolved.metadata["categories"] == ["Music"]
+    assert resolved.metadata["artwork"] == "https://images.test/live.jpg"
+    assert resolved.metadata["provider_metadata"] == {
+        "provider": "Youtube",
+        "provider_media_id": "abc12345678",
+        "views": 12,
+    }
     assert resolved.headers == {"User-Agent": "test"}
 
 
@@ -292,6 +331,24 @@ def test_extractor_page_url_detection_is_bounded(url, expected):
     assert is_extractor_page_url(url) is expected
 
 
+def test_extractor_page_rejects_non_provider_urls_and_classifies_drm():
+    media = MediaRef(MediaSource.URL, "https://example.test/audio")
+    with pytest.raises(MediaFailure) as error:
+        ExtractorPageResolver().resolve(media)
+    assert error.value.code == FailureCode.UNSUPPORTED_PROTOCOL
+    assert ExtractorPageResolver().classify_failure(RuntimeError("DRM protected"), media).code == FailureCode.DRM
+
+
+def test_delegating_resolver_recognizes_youtube_identity_without_a_hint():
+    observed = []
+    registry = type("Registry", (), {"resolve": lambda _self, media, *, force=False: observed.append((media, force)) or media})()
+    media = MediaRef(MediaSource.RECOMMENDATION, "https://youtu.be/abcdefghijk", title="Known title")
+    resolved = DelegatingResolver(registry).resolve(media, force=True)
+    assert resolved.source == MediaSource.YOUTUBE
+    assert resolved.title == "Known title"
+    assert observed == [(resolved, True)]
+
+
 def test_extractor_page_resolution_is_transient_and_does_not_forward_youtube_auth(monkeypatch):
     captured = {}
 
@@ -308,7 +365,14 @@ def test_extractor_page_resolution_is_transient_and_does_not_forward_youtube_aut
             "duration": 123,
             "categories": ["Music"],
             "track": "Track",
+            "thumbnail": "https://images.test/track.jpg",
             "chapters": [],
+            "provider_metadata": {
+                "provider": "Soundcloud",
+                "provider_media_id": "track-id",
+                "publisher": "Artist",
+                "likes": 90,
+            },
         }
 
     monkeypatch.setattr("beta.youtube_media.resolve_stream", resolve_stream)
@@ -328,6 +392,13 @@ def test_extractor_page_resolution_is_transient_and_does_not_forward_youtube_aut
     assert resolved.canonical_uri == captured["url"]
     assert resolved.headers == {"User-Agent": "extractor"}
     assert resolved.metadata["title"] == "Track"
+    assert resolved.metadata["artwork"] == "https://images.test/track.jpg"
+    assert resolved.metadata["provider_metadata"] == {
+        "provider": "Soundcloud",
+        "provider_media_id": "track-id",
+        "publisher": "Artist",
+        "likes": 90,
+    }
     assert resolved.capabilities.seekable and resolved.capabilities.downloadable
     assert media.original_uri == original
     assert "signed.cdn.test" not in str(media.to_dict())

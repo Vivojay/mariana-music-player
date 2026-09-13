@@ -8,9 +8,12 @@ be written to SQLite or queue snapshots.
 from __future__ import annotations
 
 import re
+import threading
 import time
+from collections import OrderedDict
 from collections.abc import Callable
 from contextlib import suppress
+from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -21,6 +24,7 @@ import requests
 
 from .extractor_urls import has_dedicated_extractor
 from .models import MediaCapabilities, MediaRef, MediaSource, canonical_uri
+from .video_sources import VideoTracks
 
 ALLOWED_SCHEMES = frozenset({"http", "https"})
 SENSITIVE_QUERY_KEYS = re.compile(
@@ -60,6 +64,7 @@ class MediaFailure(RuntimeError):
         retryable: bool = False,
         cause: BaseException | None = None,
         retry_after: float | None = None,
+        request_generation: int | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
@@ -67,6 +72,8 @@ class MediaFailure(RuntimeError):
         self.retryable = retryable
         self.cause = cause
         self.retry_after = retry_after
+        # Backend ownership only; never serialized into public source metadata.
+        self.request_generation = request_generation
 
 
 @dataclass(slots=True)
@@ -121,6 +128,10 @@ def sanitized_resolver_data(value: dict[str, Any]) -> dict[str, Any]:
         "credential_ref",
         "credential_username",
         "podcast_identity_kind",
+        "librivox_book_id",
+        "librivox_section_id",
+        "librivox_section_number",
+        "librivox_section_count",
     }
     return {key: item for key, item in value.items() if key in allowed}
 
@@ -214,6 +225,10 @@ class HttpResolver(BaseResolver):
             metadata_available=media.capabilities.metadata_available,
         )
         resolved = ResolvedMedia(media, url, canonical_uri(media.source, url), capabilities, endpoints=[url])
+        if media.source == MediaSource.PODCAST:
+            artwork = media.resolver_data.get("artwork")
+            if isinstance(artwork, str) and artwork.strip():
+                resolved.metadata["artwork"] = artwork.strip()
         if reference := media.resolver_data.get("credential_ref"):
             resolved.metadata["credential_ref"] = str(reference)
             resolved.metadata["credential_username"] = str(
@@ -319,8 +334,20 @@ class ExtractorPageResolver(BaseResolver):
             headers=dict(payload.get("http_headers") or {}),
             expires_at=payload.get("expires_at"),
             metadata={
-                key: payload.get(key)
-                for key in ("title", "artist", "album", "duration", "categories", "track", "chapters")
+                **{
+                    key: payload.get(key)
+                    for key in (
+                        "title",
+                        "artist",
+                        "album",
+                        "duration",
+                        "categories",
+                        "track",
+                        "chapters",
+                        "provider_metadata",
+                    )
+                },
+                "artwork": payload.get("thumbnail"),
             },
         )
 
@@ -393,8 +420,20 @@ class YouTubeResolver(BaseResolver):
             headers=dict(payload.get("http_headers") or {}),
             expires_at=payload.get("expires_at"),
             metadata={
-                key: payload.get(key)
-                for key in ("title", "artist", "album", "duration", "categories", "track", "chapters")
+                **{
+                    key: payload.get(key)
+                    for key in (
+                        "title",
+                        "artist",
+                        "album",
+                        "duration",
+                        "categories",
+                        "track",
+                        "chapters",
+                        "provider_metadata",
+                    )
+                },
+                "artwork": payload.get("thumbnail"),
             },
         )
 
@@ -473,10 +512,89 @@ class ResolverRegistry:
         }
         self._resolvers[MediaSource.RECOMMENDATION] = DelegatingResolver(self)
         self.radio_endpoints = radio_endpoints
+        # Transient transport-to-identity bindings, never queue/database data.
+        self._recent_streams: OrderedDict[str, tuple[float, ResolvedMedia]] = OrderedDict()
+        self._selected_streams: OrderedDict[str, tuple[float, ResolvedMedia]] = OrderedDict()
+        self._stream_lock = threading.Lock()
+        self._stream_generation = 0
 
     def set_youtube_browser_profile(self, browser_profile: str | None) -> None:
         """Atomically replace the YouTube resolver for subsequent resolutions."""
-        self._resolvers[MediaSource.YOUTUBE] = YouTubeResolver(browser_profile)
+        with self._stream_lock:
+            self._resolvers[MediaSource.YOUTUBE] = YouTubeResolver(browser_profile)
+            self._stream_generation += 1
+            self._recent_streams.clear()
+            self._selected_streams.clear()
+
+    def _prune_streams(self) -> None:
+        now = time.time()
+        for bindings in (self._recent_streams, self._selected_streams):
+            for key, (deadline, _) in list(bindings.items()):
+                if deadline <= now:
+                    del bindings[key]
+            while len(bindings) > 16:
+                bindings.popitem(last=False)
+
+    def recover_stream_identity(self, uri: str) -> MediaRef | None:
+        """Bind an exact, recent stream selection to its known YouTube identity.
+
+        No host, title, or last-search guessing. The selected transport is used
+        once; subsequent retries resolve the canonical source normally.
+        """
+        with self._stream_lock:
+            self._prune_streams()
+            binding = self._recent_streams.get(uri)
+            if binding is None:
+                return None
+            deadline, previous = binding
+            selected = deepcopy(previous)
+            media = selected.media
+            media.capabilities = selected.capabilities
+            for name in ("title", "artist", "album", "duration"):
+                if getattr(media, name) is None and selected.metadata.get(name) is not None:
+                    setattr(media, name, selected.metadata[name])
+            self._selected_streams[str(id(media))] = (deadline, selected)
+            self._prune_streams()
+            return media
+
+    def _remember_stream(self, resolved: ResolvedMedia, *, generation: int | None = None) -> None:
+        if resolved.media.source != MediaSource.YOUTUBE or resolved.playback_uri == resolved.media.original_uri:
+            return
+        # Only canonical provider identities created by the YouTube resolver
+        # qualify. A direct CDN URL cannot assert its own provider identity.
+        canonical = canonical_uri(MediaSource.YOUTUBE, resolved.media.original_uri)
+        if not re.fullmatch(r"https://www\.youtube\.com/watch\?v=[A-Za-z0-9_-]{11}", canonical):
+            return
+        deadline = min(time.time() + 600, resolved.expires_at - 15 if resolved.expires_at else float("inf"))
+        with self._stream_lock:
+            if generation is not None and generation != self._stream_generation:
+                return
+            self._recent_streams[resolved.playback_uri] = (deadline, deepcopy(resolved))
+            self._recent_streams.move_to_end(resolved.playback_uri)
+            self._prune_streams()
+
+    def resolve_video(self, media: MediaRef, resolved: ResolvedMedia | None = None) -> VideoTracks:
+        """Fresh video resolution; never store presentation links on MediaRef."""
+        from beta.youtube_media import resolve_video_tracks
+
+        from .video_sources import VideoSourceError, VideoTrack
+
+        if media.capabilities.live or not media.capabilities.finite or media.source == MediaSource.RADIO:
+            raise VideoSourceError("Live video is not supported by this transport yet")
+        if media.source == MediaSource.YOUTUBE:
+            resolver = self.for_source(MediaSource.YOUTUBE)
+            profile = resolver.browser_profile if isinstance(resolver, YouTubeResolver) else None
+            return resolve_video_tracks(media.original_uri, browser_profile=profile, native=True)
+        if media.source == MediaSource.URL and is_extractor_page_url(media.original_uri):
+            return resolve_video_tracks(media.original_uri)
+        if media.source not in {MediaSource.URL, MediaSource.PODCAST}:
+            raise VideoSourceError("This source does not support online video presentation")
+        current = resolved if resolved is not None and resolved.media is media and not resolved.expired else self.resolve(media)
+        if current.metadata.get("credential_ref"):
+            raise VideoSourceError("This video requires an unsupported authenticated transport")
+        if current.capabilities.live or not current.capabilities.finite:
+            raise VideoSourceError("Live video is not supported by this transport yet")
+        return VideoTracks(VideoTrack(current.playback_uri, dict(current.headers)), duration=media.duration)
 
     def for_source(self, source: MediaSource) -> SourceResolver:
         try:
@@ -485,7 +603,14 @@ class ResolverRegistry:
             raise MediaFailure(FailureCode.UNSUPPORTED_PROTOCOL, source, f"Unsupported media source: {source}") from error
 
     def resolve(self, media: MediaRef, *, force: bool = False) -> ResolvedMedia:
+        with self._stream_lock:
+            self._prune_streams()
+            selection = self._selected_streams.pop(str(id(media)), None)
+            generation = self._stream_generation
+        if selection is not None and selection[1].media is media and not force:
+            return selection[1]
         resolved = self._resolver_for_media(media).resolve(media, force=force)
+        self._remember_stream(resolved, generation=generation)
         if media.source == MediaSource.RADIO and self.radio_endpoints:
             endpoints = self.radio_endpoints(media)
             if endpoints:

@@ -2,19 +2,35 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from functools import lru_cache
 from typing import Any, cast
 
-from yt_dlp import YoutubeDL
-from yt_dlp.utils import DownloadError
-
 from mariana.chapters import normalize_chapters
+from mariana.media_details import normalized_provider_metadata
 from mariana.toolchain import find_javascript_runtime
+from mariana.video_sources import VideoTracks
 
 
 class YouTubeError(RuntimeError):
     """Raised when yt-dlp cannot resolve a requested YouTube resource."""
+
+
+@lru_cache(maxsize=1)
+def _extractor_runtime() -> tuple[type, type[BaseException]]:
+    """Load the sizeable extractor runtime only when an online operation needs it."""
+    from yt_dlp import YoutubeDL as extractor
+    from yt_dlp.utils import DownloadError as extractor_error
+
+    return extractor, extractor_error
+
+
+def YoutubeDL(*args: Any, **kwargs: Any) -> Any:
+    """Construct the extractor lazily while retaining the established test seam."""
+    extractor, _error = _extractor_runtime()
+    return extractor(*args, **kwargs)
 
 
 def youtube_error_message(error: BaseException, browser_profile: str | None = None) -> str | None:
@@ -98,13 +114,14 @@ def _options(**overrides: Any) -> dict[str, Any]:
 
 
 def _extract(query: str, **options: Any) -> Mapping[str, Any]:
+    _, download_error = _extractor_runtime()
     try:
         with YoutubeDL(cast(Any, _options(**options))) as ydl:
             info = ydl.extract_info(query, download=False)
             if not isinstance(info, Mapping):
                 raise YouTubeError("yt-dlp returned an unsupported response")
             return info
-    except DownloadError as exc:
+    except download_error as exc:
         raise YouTubeError(str(exc)) from exc
 
 
@@ -115,6 +132,54 @@ def _webpage_url(entry: Mapping[str, Any]) -> str:
     if video_id:
         return f"https://www.youtube.com/watch?v={video_id}"
     return str(entry.get("url") or "")
+
+
+def _published_value(info: Mapping[str, Any]) -> str | None:
+    """Normalize extractor publication facts without exposing provider URLs."""
+    for key in ("release_timestamp", "timestamp"):
+        value = info.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        try:
+            timestamp = float(value)
+            if math.isfinite(timestamp) and timestamp >= 0:
+                return datetime.fromtimestamp(timestamp, tz=UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+        except (OverflowError, OSError, ValueError):
+            pass
+    for key in ("release_date", "upload_date"):
+        raw = info.get(key)
+        if type(raw) is int and 10_000_000 <= raw <= 99_999_999:
+            value = str(raw)
+        elif isinstance(raw, str):
+            value = raw.strip()
+        else:
+            continue
+        if len(value) == 8 and value.isdigit():
+            try:
+                return datetime.strptime(value, "%Y%m%d").strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+    return None
+
+
+def provider_metadata(info: Mapping[str, Any]) -> dict[str, str | int]:
+    """Return source-aware public facts from an extractor response."""
+    return normalized_provider_metadata(
+        {
+            "provider": info.get("extractor_key") or info.get("extractor"),
+            "provider_media_id": info.get("id") or info.get("display_id"),
+            "publisher": info.get("channel") or info.get("uploader") or info.get("creator"),
+            "publisher_id": info.get("channel_id") or info.get("uploader_id"),
+            "published": _published_value(info),
+            "views": info.get("view_count"),
+            "likes": info.get("like_count"),
+            "dislikes": info.get("dislike_count"),
+            "comments": info.get("comment_count"),
+            "reposts": info.get("repost_count"),
+            "followers": info.get("channel_follower_count"),
+            "concurrent_viewers": info.get("concurrent_view_count"),
+        }
+    )
 
 
 def search(
@@ -221,6 +286,7 @@ def media_info(
                 "categories": list(info.get("categories") or []),
                 "is_live": bool(info.get("is_live") or info.get("live_status") == "is_live"),
                 "chapters": normalize_chapters(info.get("chapters"), info.get("duration")),
+                **provider_metadata(info),
             }
         )
     return normalized
@@ -283,8 +349,61 @@ def resolve_stream(
         "duration": info.get("duration"),
         "categories": list(info.get("categories") or []),
         "track": info.get("track"),
+        "thumbnail": info.get("thumbnail"),
         "chapters": normalize_chapters(info.get("chapters"), info.get("duration")),
+        "provider_metadata": provider_metadata(info),
     }
+
+
+def resolve_video_tracks(
+    url: str, *, browser_profile: str | None = None, native: bool = False,
+) -> VideoTracks:
+    """Select finite HTTP file tracks without collapsing separate audio/video."""
+    from mariana.provider_captions import provider_caption_tracks
+    from mariana.video_sources import VideoSourceError, VideoTrack
+
+    info = _extract(
+        url,
+        format=(
+            'bestvideo[protocol=https][vcodec~="^(avc1|av01|vp0?9)"]'
+            if native else
+            "bestvideo[height<=720][protocol=https]+bestaudio[protocol=https]/best[height<=720][protocol=https]"
+        ),
+        browser_profile=browser_profile,
+        **({"socket_timeout": 10, "retries": 1} if native else {}),
+    )
+    if info.get("is_live") or info.get("live_status") == "is_live" or info.get("has_drm"):
+        raise VideoSourceError("Live or protected video is not supported by this transport")
+    selected = info.get("requested_formats") or [info]
+    rows = [row for row in selected if isinstance(row, Mapping)]
+    picture = next((row for row in rows if row.get("vcodec") not in {None, "none"}), None)
+    audio = next((row for row in rows if row.get("acodec") not in {None, "none"}), None)
+    if picture is None or (not native and audio is None):
+        raise VideoSourceError("This source has no supported audiovisual file")
+
+    def track(row: Mapping[str, Any]) -> VideoTrack:
+        uri = str(row.get("url") or "")
+        if not uri.startswith(("https://", "http://")) or row.get("protocol") not in {None, "http", "https"}:
+            raise VideoSourceError("This source requires an unsupported video transport")
+        headers = {str(key): str(value) for key, value in (info.get("http_headers") or {}).items()}
+        headers.update({str(key): str(value) for key, value in (row.get("http_headers") or {}).items()})
+        codec = row.get("vcodec") if row.get("vcodec") not in {None, "none"} else row.get("acodec")
+        return VideoTrack(
+            uri, headers, str(codec or ""), str(row.get("format_id") or ""),
+            str(row.get("ext") or ""),
+            int(row["width"]) if isinstance(row.get("width"), (int, float)) else None,
+            int(row["height"]) if isinstance(row.get("height"), (int, float)) else None,
+            float(row["fps"]) if isinstance(row.get("fps"), (int, float)) else None,
+        )
+
+    duration = info.get("duration")
+    expiry = info.get("url_expiry") or info.get("expires")
+    return VideoTracks(
+        track(picture), track(audio) if audio is not None else None,
+        float(duration) if isinstance(duration, (int, float)) else None,
+        float(expiry) if isinstance(expiry, (int, float)) else None,
+        provider_caption_tracks(info),
+    )
 
 
 def is_resolvable(url: str, *, browser_profile: str | None = None) -> bool:

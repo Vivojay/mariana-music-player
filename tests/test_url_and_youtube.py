@@ -137,7 +137,21 @@ def test_media_info_normalizes_detailed_fields(monkeypatch):
     monkeypatch.setattr(
         youtube_media,
         "_extract",
-        lambda *_a, **_k: {"title": "Media", "duration": 12, "view_count": 5, "formats": ({"id": "1"},)},
+        lambda *_a, **_k: {
+            "id": "abc12345678",
+            "title": "Media",
+            "duration": 12,
+            "view_count": 5,
+            "like_count": 4,
+            "comment_count": 3,
+            "channel": "Publisher",
+            "channel_id": "UC-publisher",
+            "upload_date": "20260910",
+            "extractor_key": "Youtube",
+            "formats": ({"id": "1"},),
+            "url": "https://signed.test/media?token=secret",
+            "http_headers": {"Authorization": "secret"},
+        },
     )
     monkeypatch.setattr(
         youtube_media,
@@ -148,6 +162,13 @@ def test_media_info_normalizes_detailed_fields(monkeypatch):
     result = youtube_media.media_info("url", detailed=True)
     assert result["streams"] == {"bestaudurl": "audio", "bestvidurl": "video"}
     assert result["views"] == 5
+    assert result["likes"] == 4
+    assert result["comments"] == 3
+    assert result["provider_media_id"] == "abc12345678"
+    assert result["publisher"] == "Publisher"
+    assert result["publisher_id"] == "UC-publisher"
+    assert result["published"] == "2026-09-10"
+    assert "url" not in result and "http_headers" not in result
     assert result["formats"] == [{"id": "1"}]
 
 
@@ -303,6 +324,15 @@ def test_resolve_stream_normalizes_headers_expiry_and_live_metadata(monkeypatch)
             "title": "Title",
             "uploader": "Uploader",
             "duration": 10,
+            "thumbnail": "https://images.test/cover.jpg",
+            "id": "abc12345678",
+            "extractor_key": "Youtube",
+            "channel": "Channel",
+            "channel_id": "UC-channel",
+            "timestamp": 1_700_000_000,
+            "view_count": 123,
+            "like_count": 45,
+            "comment_count": 6,
             "chapters": [{"title": "Intro", "start_time": 0, "end_time": 10}],
         },
     )
@@ -312,7 +342,18 @@ def test_resolve_stream_normalizes_headers_expiry_and_live_metadata(monkeypatch)
     assert result["expires_at"] == 2_000_000_000.0
     assert result["is_live"] is True
     assert result["artist"] == "Uploader"
+    assert result["thumbnail"] == "https://images.test/cover.jpg"
     assert result["chapters"] == [{"title": "Intro", "start_time": 0.0, "end_time": 10.0}]
+    assert result["provider_metadata"] == {
+        "provider": "Youtube",
+        "provider_media_id": "abc12345678",
+        "publisher": "Channel",
+        "publisher_id": "UC-channel",
+        "published": "2023-11-14 22:13:20 UTC",
+        "views": 123,
+        "likes": 45,
+        "comments": 6,
+    }
 
     monkeypatch.setattr(youtube_media, "_extract", lambda *_args, **_kwargs: {})
     with pytest.raises(youtube_media.YouTubeError, match="playable stream"):
