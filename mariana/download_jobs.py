@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import threading
@@ -16,13 +17,11 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 from urllib.parse import parse_qs, urlparse
 
-from yt_dlp import YoutubeDL
-
 from beta.youtube_media import integration_options
 
 from .chapters import normalize_chapters
 from .database import MarianaDatabase
-from .media_details import deduplicate_media_title, trusted_metadata_text
+from .media_details import MediaDiagnosticLogger, deduplicate_media_title, display_media_error, trusted_metadata_text
 from .models import DownloadItem, DownloadJob, DownloadState, MediaRef, MediaSource, canonical_uri
 from .output_targets import BoundOutputTarget, OutputTargetError, bind_output_target
 from .sources import sanitized_resolver_data
@@ -45,6 +44,13 @@ class DownloadJobError(RuntimeError):
 
 class DownloadInterrupted(RuntimeError):
     pass
+
+
+def YoutubeDL(*args: Any, **kwargs: Any) -> Any:
+    """Construct yt-dlp on the download worker rather than during application startup."""
+    from yt_dlp import YoutubeDL as extractor
+
+    return extractor(*args, **kwargs)
 
 
 class Downloader(Protocol):
@@ -161,6 +167,7 @@ class DownloadManager:
         self._wake = threading.Event()
         self._active_job: str | None = None
         self._last_progress: dict[int, tuple[float, float]] = {}
+        self._transfer: dict[int, dict[str, float | None]] = {}
         with self.database.transaction() as connection:
             connection.execute(
                 "UPDATE download_jobs SET state='queued',current_position=NULL,updated_at=? "
@@ -202,7 +209,10 @@ class DownloadManager:
         metadata: list[dict[str, Any]] | None = None,
         missing_only: bool = False,
         output_targets: list[BoundOutputTarget] | None = None,
+        output_format: str = "mp3",
     ) -> DownloadJob:
+        if output_format not in {"mp3", "mp4"} or (kind == "album" and output_format != "mp3"):
+            raise DownloadJobError("Choose MP3 audio or MP4 video for a single track")
         if kind not in {"track", "album"}:
             raise DownloadJobError("Download job kind must be track or album")
         if quality not in {"best", "worst"}:
@@ -222,6 +232,9 @@ class DownloadManager:
         for position, media in enumerate(media_items, 1):
             safe_media, canonical, video_id = self._safe_media(media)
             item_metadata = dict(metadata[position - 1] if metadata else {})
+            item_metadata.pop("download_format", None)
+            if output_format == "mp4":
+                item_metadata["download_format"] = output_format
             item_metadata["video_id"] = video_id
             expected = self.expected_output(destination_path, safe_media, item_metadata)
             expected = self._safe_output_path(destination_path, expected)
@@ -348,17 +361,18 @@ class DownloadManager:
         artist = sanitize_component(trusted_artist or "Unknown Artist")
         album = metadata.get("album")
         album_artist = metadata.get("album_artist") or artist
+        extension = "mp4" if metadata.get("download_format") == "mp4" else "mp3"
         if album:
             disc = max(1, int(metadata.get("disc_number") or 1))
             track = max(1, int(metadata.get("track_number") or metadata.get("position") or 1))
-            filename = f"{disc:02d}-{track:02d} {artist} - {title} [{video_id}].mp3"
+            filename = f"{disc:02d}-{track:02d} {artist} - {title} [{video_id}].{extension}"
             return (
                 destination
                 / sanitize_component(str(album_artist))
                 / sanitize_component(str(album))
                 / filename
             )
-        return destination / f"{artist} - {title} [{video_id}].mp3"
+        return destination / f"{artist} - {title} [{video_id}].{extension}"
 
     @staticmethod
     def _job(row) -> DownloadJob:
@@ -431,6 +445,7 @@ class DownloadManager:
             item_payload["state"] = item.state.value
             item_payload["media"] = item.media.to_dict()
             item_payload["metadata"].pop(_OUTPUT_TARGET_METADATA, None)
+            item_payload["transfer"] = self._transfer.get(cast(int, item.item_id)) if item.state == DownloadState.RUNNING else None
             payload["items"].append(item_payload)
         return payload
 
@@ -555,14 +570,27 @@ class DownloadManager:
     def _progress_hook(self, item: DownloadItem, payload: dict[str, Any]) -> None:
         if self._interrupted(item.job_id):
             raise DownloadInterrupted("Download was paused, cancelled, or interrupted")
-        downloaded = float(payload.get("downloaded_bytes") or 0)
-        total = float(payload.get("total_bytes") or payload.get("total_bytes_estimate") or 0)
+        def number(value: object) -> float | None:
+            if (
+                isinstance(value, (int, float)) and not isinstance(value, bool)
+                and 0 <= value <= 1e15 and math.isfinite(value)
+            ):
+                return float(value)
+            return None
+
+        downloaded = number(payload.get("downloaded_bytes")) or 0
+        total = number(payload.get("total_bytes")) or number(payload.get("total_bytes_estimate")) or 0
         progress = min(1.0, max(0.0, downloaded / total)) if total else item.progress
         now = time.monotonic()
         previous_progress, previous_time = self._last_progress.get(cast(int, item.item_id), (-1.0, 0.0))
         if progress - previous_progress < 0.01 and now - previous_time < 0.5 and payload.get("status") != "finished":
             return
         self._last_progress[cast(int, item.item_id)] = (progress, now)
+        self._transfer[cast(int, item.item_id)] = {
+            "downloaded_bytes": downloaded, "total_bytes": total or None,
+            "speed_bytes_per_second": number(payload.get("speed")),
+            "eta_seconds": number(payload.get("eta")),
+        }
         with self.database.transaction() as connection:
             connection.execute(
                 "UPDATE download_items SET progress=?,updated_at=? WHERE item_id=?",
@@ -608,6 +636,7 @@ class DownloadManager:
         options: dict[str, Any] = {
             "quiet": True,
             "no_warnings": True,
+            "logger": MediaDiagnosticLogger(__name__),
             "noplaylist": True,
             "format": f"{quality}audio/{quality}",
             "outtmpl": str(staging / f"item-{item.position}.%(ext)s"),
@@ -624,6 +653,10 @@ class DownloadManager:
             "postprocessor_args": {"FFmpegMetadata": post_args},
         }
         options.update(integration_options(self.browser_profile))
+        if metadata.get("download_format") == "mp4":
+            options["format"] = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]"
+            options["merge_output_format"] = "mp4"
+            options["postprocessors"] = [{"key": "FFmpegMetadata", "add_metadata": True, "add_chapters": True}]
         if self.ffmpeg_bin:
             options["ffmpeg_location"] = os.path.expanduser(self.ffmpeg_bin)
         return options
@@ -652,9 +685,10 @@ class DownloadManager:
                 for path in staging.glob(f"item-{item.position}.*")
                 if path.is_file() and not path.name.endswith((".part", ".ytdl"))
             ]
-            output = next((path for path in outputs if path.suffix.casefold() == ".mp3"), None)
+            extension = ".mp4" if item.metadata.get("download_format") == "mp4" else ".mp3"
+            output = next((path for path in outputs if path.suffix.casefold() == extension), None)
             if output is None or output.stat().st_size == 0:
-                raise DownloadJobError("yt-dlp completed without producing an MP3 file")
+                raise DownloadJobError(f"yt-dlp completed without producing an {extension[1:].upper()} file")
             metadata = resolved_download_metadata(item, info)
             final = self.expected_output(destination, item.media, metadata)
             final = self._safe_output_path(destination, final)
@@ -707,7 +741,7 @@ class DownloadManager:
                     (next_state, time.time(), item.item_id),
                 )
         except Exception as error:
-            message = str(error).strip() or type(error).__name__
+            message = display_media_error(str(error).strip() or type(error).__name__)
             with self.database.transaction() as connection:
                 connection.execute(
                     "UPDATE download_items SET state='failed',error=?,updated_at=? WHERE item_id=?",
@@ -722,6 +756,7 @@ class DownloadManager:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
             self._last_progress.pop(cast(int, item.item_id), None)
+            self._transfer.pop(cast(int, item.item_id), None)
             try:
                 if staging.is_dir() and not any(staging.iterdir()):
                     staging.rmdir()

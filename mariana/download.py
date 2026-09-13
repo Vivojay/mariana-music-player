@@ -5,17 +5,18 @@ from __future__ import annotations
 import shutil
 import subprocess
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlparse
 
-from yt_dlp import YoutubeDL
-
 from .extractor_urls import has_dedicated_extractor
+from .media_details import MediaDiagnosticLogger, display_media_error
 from .output_targets import BoundOutputTarget, OutputTargetError, bind_output_target
 from .playback import CREATE_NO_WINDOW, find_executable
 
 FORMATS = {
+    "mp4": ["-c", "copy"],
     "mp3": ["-vn", "-c:a", "libmp3lame", "-q:a", "2"],
     "flac": ["-vn", "-c:a", "flac"],
     "wav": ["-vn", "-c:a", "pcm_s16le"],
@@ -24,7 +25,15 @@ FORMATS = {
 }
 
 class DownloadError(RuntimeError):
-    pass
+    def __init__(self, message: str) -> None:
+        super().__init__(display_media_error(message))
+
+
+def YoutubeDL(*args: Any, **kwargs: Any) -> Any:
+    """Construct yt-dlp only after a download operation has been requested."""
+    from yt_dlp import YoutubeDL as extractor
+
+    return extractor(*args, **kwargs)
 
 
 def _uses_extractor(url: str) -> bool:
@@ -37,6 +46,7 @@ def _download_extractor_media(
     *,
     output_format: str,
     ffmpeg_bin: str | None,
+    progress_hook: Callable[[dict[str, Any]], None] | None = None,
 ) -> Path:
     """Download an extractor page URL into an isolated staging directory."""
     destination = target.path
@@ -46,6 +56,7 @@ def _download_extractor_media(
     options = {
         "quiet": True,
         "no_warnings": True,
+        "logger": MediaDiagnosticLogger(__name__),
         "noplaylist": True,
         "format": "bestaudio/best",
         "outtmpl": str(staging / "media.%(ext)s"),
@@ -53,6 +64,14 @@ def _download_extractor_media(
     }
     if ffmpeg_bin:
         options["ffmpeg_location"] = str(Path(ffmpeg_bin).expanduser())
+    if output_format == "mp4":
+        options["format"] = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]"
+        options["merge_output_format"] = "mp4"
+        options["postprocessors"] = []
+    if progress_hook is not None:
+        options["progress_hooks"] = [progress_hook]
+        options["socket_timeout"] = 15
+        options["retries"] = 2
     try:
         with YoutubeDL(cast(Any, options)) as downloader:
             downloader.extract_info(url, download=True)
@@ -69,7 +88,7 @@ def _download_extractor_media(
     except DownloadError:
         raise
     except Exception as error:
-        raise DownloadError(f"Media-page download failed: {str(error).strip() or type(error).__name__}") from error
+        raise DownloadError(f"Media-page download failed: {str(error).strip() or type(error).__name__}") from None
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
@@ -102,6 +121,7 @@ def download_media(
     ffmpeg_bin: str | None = None,
     timeout: float = 1800,
     output_target: BoundOutputTarget | None = None,
+    progress_hook: Callable[[dict[str, Any]], None] | None = None,
 ) -> Path:
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -121,12 +141,13 @@ def download_media(
     except OutputTargetError as error:
         raise DownloadError(str(error)) from error
     destination = output_target.path
-    if _uses_extractor(url):
+    if _uses_extractor(url) or progress_hook is not None:
         return _download_extractor_media(
             url,
             output_target,
             output_format=output_format,
             ffmpeg_bin=ffmpeg_bin,
+            progress_hook=progress_hook,
         )
     temporary = destination.with_name(
         f".{destination.stem}.{uuid.uuid4().hex}.partial{destination.suffix}"
@@ -160,14 +181,14 @@ def download_media(
             return output_target.activate(temporary)
         except OutputTargetError as error:
             raise DownloadError(str(error)) from error
-    except subprocess.TimeoutExpired as error:
+    except subprocess.TimeoutExpired:
         temporary.unlink(missing_ok=True)
-        raise DownloadError(f"Download exceeded the {timeout:g}-second limit") from error
+        raise DownloadError(f"Download exceeded the {timeout:g}-second limit") from None
     except (OSError, subprocess.CalledProcessError) as error:
         temporary.unlink(missing_ok=True)
-        detail = getattr(error, "stderr", b"")
+        detail = getattr(error, "stderr", None) or b""
         if isinstance(detail, bytes):
             detail = detail.decode("utf-8", errors="replace")
-        raise DownloadError(f"FFmpeg download failed: {str(detail).strip() or error}") from error
+        raise DownloadError(f"FFmpeg download failed: {str(detail).strip() or error}") from None
     finally:
         temporary.unlink(missing_ok=True)

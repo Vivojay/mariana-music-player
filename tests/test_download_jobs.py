@@ -71,6 +71,20 @@ class FailingDownloader(SuccessfulDownloader):
         raise OSError("network failed")
 
 
+class VideoDownloader(SuccessfulDownloader):
+    def extract_info(self, url, *, download):
+        assert download
+        hook = self.options["progress_hooks"][0]
+        hook({"status": "downloading", "downloaded_bytes": 5, "total_bytes": 10,
+              "speed": 2, "eta": 3})
+        output = Path(self.options["outtmpl"].replace("%(ext)s", "mp4"))
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"video")
+        hook({"status": "finished", "downloaded_bytes": 10, "total_bytes": 10})
+        video_id = canonical_youtube_url(url)[1]
+        return {"id": video_id, "title": "Video", "artist": "Artist"}
+
+
 class ChapterDownloader(SuccessfulDownloader):
     def extract_info(self, url, *, download):
         info = super().extract_info(url, download=download)
@@ -382,6 +396,38 @@ def test_failed_job_resumes_without_duplicate_completed_items(tmp_path: Path):
             manager.close()
 
 
+def test_failed_job_persists_only_sanitized_provider_diagnostics(tmp_path, caplog):
+    stream = "https://listener:secret-pass@media.test/audio?signature=private-token&unusual=private-value"
+    class RejectedDownloader(SuccessfulDownloader):
+        def extract_info(self, _url, *, download):
+            assert download
+            message = f"HTTP 403 opening {stream}"
+            self.options["logger"].error(message)
+            raise OSError(message)
+
+    path = tmp_path / "downloads.db"
+    with MarianaDatabase(path) as database:
+        manager = DownloadManager(database, downloader_factory=RejectedDownloader)
+        try:
+            job = manager.create([youtube_media("retry123", "Recording")], destination=tmp_path / "output")
+            assert manager.wait(job.job_id).state == DownloadState.FAILED
+            item = manager.items(job.job_id)[0]
+            assert not Path(item.output_path).exists()
+            assert "403" in item.error and "query omitted" in item.error
+        finally:
+            manager.close()
+
+    with MarianaDatabase(path) as database:
+        saved = dict(database.fetchone("SELECT state,error FROM download_items WHERE job_id=?", (job.job_id,)))
+        saved_job = dict(database.fetchone("SELECT state,error FROM download_jobs WHERE job_id=?", (job.job_id,)))
+    assert saved["state"] == saved_job["state"] == "failed"
+    assert "403" in saved["error"] and saved["error"] == saved_job["error"]
+    rendered = json.dumps([saved, saved_job]) + caplog.text
+    for private in ("listener", "secret-pass", "private-token", "private-value"):
+        assert private not in rendered
+    assert "query omitted" in caplog.text
+
+
 @pytest.mark.parametrize("action", ["pause", "cancel"])
 def test_running_job_pause_and_cancel_interrupt_cleanly(tmp_path: Path, action: str):
     BlockingDownloader.started.clear()
@@ -401,6 +447,46 @@ def test_running_job_pause_and_cancel_interrupt_cleanly(tmp_path: Path, action: 
                 DownloadState.QUEUED if action == "pause" else DownloadState.CANCELLED,
                 DownloadState.RUNNING,
             }
+        finally:
+            manager.close()
+
+
+@pytest.mark.parametrize("album_metadata", [False, True])
+def test_single_youtube_video_download_preserves_mp4_output_and_options(tmp_path: Path, album_metadata):
+    with MarianaDatabase(tmp_path / "video.db") as database:
+        manager = DownloadManager(database, downloader_factory=VideoDownloader)
+        try:
+            job = manager.create(
+                [youtube_media("video123", "Video")],
+                destination=tmp_path / "downloads",
+                output_format="mp4",
+                metadata=[{"album": "Album", "track_number": 2}] if album_metadata else None,
+            )
+            completed = manager.wait(job.job_id)
+            item = manager.items(job.job_id)[0]
+            assert completed.state == DownloadState.COMPLETED
+            assert Path(item.output_path).suffix == ".mp4"
+            assert Path(item.output_path).read_bytes() == b"video"
+            assert VideoDownloader.last_options["format"] == (
+                "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]"
+            )
+            assert VideoDownloader.last_options["merge_output_format"] == "mp4"
+            assert VideoDownloader.last_options["postprocessors"] == [
+                {"key": "FFmpegMetadata", "add_metadata": True, "add_chapters": True}
+            ]
+        finally:
+            manager.close()
+
+    with MarianaDatabase(tmp_path / "invalid.db") as database:
+        manager = DownloadManager(database, downloader_factory=VideoDownloader, autostart=False)
+        try:
+            with pytest.raises(DownloadJobError, match="single track"):
+                manager.create(
+                    [youtube_media("video456")],
+                    kind="album",
+                    destination=tmp_path / "album",
+                    output_format="mp4",
+                )
         finally:
             manager.close()
 

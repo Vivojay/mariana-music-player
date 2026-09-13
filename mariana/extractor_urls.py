@@ -5,12 +5,12 @@ from __future__ import annotations
 from functools import lru_cache
 from urllib.parse import urlparse
 
-from yt_dlp.extractor import gen_extractor_classes
-
 
 @lru_cache(maxsize=1)
 def _dedicated_extractors() -> tuple[type, ...]:
     """Load extractor classes once without retaining user URLs or query tokens."""
+    from yt_dlp.extractor import gen_extractor_classes
+
     return tuple(
         extractor
         for extractor in gen_extractor_classes()

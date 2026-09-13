@@ -4,14 +4,21 @@ import json
 import os
 import sys
 from pathlib import Path
-
-from yt_dlp import YoutubeDL
+from typing import Any
 
 # Relative imports
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
 from beta.youtube_media import integration_options, youtube_error_message
 from logger import SAY
+from mariana.media_details import MediaDiagnosticLogger, display_media_error
+
+
+def YoutubeDL(*args: Any, **kwargs: Any) -> Any:
+    """Construct yt-dlp only when a legacy download is started."""
+    from yt_dlp import YoutubeDL as extractor
+
+    return extractor(*args, **kwargs)
 
 """
 explicitly-specified-quality ? use_that : use quality mentioned in SETTINGS
@@ -148,6 +155,7 @@ def media_DL(SETTINGS,
     }
     browser_profile = _browser_profile(SETTINGS)
     ydl_opts.update(integration_options(browser_profile))
+    ydl_opts['logger'] = MediaDiagnosticLogger(__name__)
     ffmpeg_location = (SETTINGS.get('media tools') or {}).get('ffmpeg bin')
     if ffmpeg_location:
         ydl_opts['ffmpeg_location'] = os.path.expanduser(ffmpeg_location)
@@ -176,7 +184,7 @@ def media_DL(SETTINGS,
         SAY(
             visible=True,
             display_message=_download_failure_message(error, browser_profile),
-            log_message=f"YouTube download failed: {error}",
+            log_message=display_media_error(f"YouTube download failed: {error}"),
             log_priority=2,
         )
         returncode = 5 # Failed Download

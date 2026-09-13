@@ -327,6 +327,30 @@ def test_media_download_reports_failure_without_raising(monkeypatch, tmp_path):
     assert "detailed log" in messages[0]["display_message"]
 
 
+def test_media_download_redacts_provider_logs_before_legacy_reporting(monkeypatch, tmp_path, caplog):
+    messages = []
+    stream = "https://listener:secret-pass@media.test/audio?signature=private-token&unusual=private-value"
+    class RejectedDownloader:
+        def __init__(self, options):
+            self.options = options
+
+        def __enter__(self):
+            message = f"HTTP 403 opening {stream}"
+            self.options["logger"].error(message)
+            raise OSError(message)
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(mediadl, "YoutubeDL", RejectedDownloader)
+    monkeypatch.setattr(mediadl, "SAY", lambda **kwargs: messages.append(kwargs))
+    assert mediadl.media_DL(download_settings(tmp_path), {}, "https://provider.test/recording") == 5
+    assert "403" in messages[0]["log_message"]
+    assert "query omitted" in messages[0]["log_message"]
+    for private in ("listener", "secret-pass", "private-token", "private-value"):
+        assert private not in json.dumps(messages) + caplog.text
+
+
 @pytest.mark.parametrize(
     ("error", "profile", "expected"),
     [
