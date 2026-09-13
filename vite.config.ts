@@ -14,7 +14,23 @@ export default defineConfig({
       },
     },
   ],
-  build: { outDir: 'dist', emptyOutDir: true },
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    rolldownOptions: {
+      output: {
+        // Keep stable renderer dependencies cacheable across application edits.
+        strictExecutionOrder: true,
+        codeSplitting: {
+          groups: [
+            { name: 'react-runtime', test: /node_modules[\\/](?:react|react-dom|scheduler)[\\/]/ },
+            { name: 'terminal-webgl', test: /node_modules[\\/]@xterm[\\/]addon-webgl[\\/]/, priority: 20 },
+            { name: 'terminal-runtime', test: /node_modules[\\/]@xterm[\\/]/ },
+          ],
+        },
+      },
+    },
+  },
   server: { host: '127.0.0.1', port: 5173, strictPort: true },
   test: {
     environment: 'jsdom',
