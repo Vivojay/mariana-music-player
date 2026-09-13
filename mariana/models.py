@@ -300,6 +300,9 @@ class PlaybackSnapshot:
     current_chapter: MediaChapter | None = None
     region_start_seconds: float | None = None
     region_end_seconds: float | None = None
+    # Internal occurrence identity for asynchronous presentation consumers.
+    # Public status projections continue to expose only the media identity.
+    session_id: str | None = None
 
 
 @dataclass(slots=True)
