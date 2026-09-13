@@ -105,6 +105,15 @@ npm install
 npm run dev
 ```
 
+`npm run dev` compiles the Electron main/preload entry points first, then starts
+Vite and launches Electron when the development page is ready. It therefore works
+from a clean checkout without requiring a separate `npm run typecheck` or build.
+
+Preparation preserves ES modules for the main process and CommonJS for preloads.
+An optional content-verified cache in `node_modules/.cache/mariana-electron`
+reuses unchanged outputs; source, configuration, compiler, dependency, or output
+changes invalidate it. This fast launch step does not replace `npm run typecheck`.
+
 Frontend verification uses `npm run lint`, `npm test`, `npm run build`, and
 `npm run test:e2e`.
 
