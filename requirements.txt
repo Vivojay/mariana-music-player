@@ -43,7 +43,9 @@ mutagen==1.48.1
     #   -r requirements.in
     #   yt-dlp
 numpy==2.5.1
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   scipy
 pillow==12.3.0
     # via -r requirements.in
 platformdirs==4.10.0
@@ -71,6 +73,8 @@ requests==2.34.2
     #   -r requirements.in
     #   yt-dlp
 ruamel-yaml==0.19.1
+    # via -r requirements.in
+scipy==1.17.1
     # via -r requirements.in
 send2trash==2.1.0
     # via -r requirements.in

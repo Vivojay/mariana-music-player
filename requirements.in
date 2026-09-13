@@ -15,6 +15,7 @@ requests==2.34.2
 ruamel.yaml==0.19.1
 Send2Trash==2.1.0
 sounddevice==0.5.5
+scipy==1.17.1
 tabulate==0.10.0
 toml==0.10.2
 tqdm==4.68.4
