@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -12,6 +13,8 @@ import threading
 import time
 import wave
 from array import array
+from collections.abc import Iterable
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +37,8 @@ MIN_FINGERPRINT_SECONDS = 8
 MIN_SCORE = 0.85
 MIN_MARGIN = 0.05
 MAX_DURATION_DIFFERENCE = 5.0
+MAX_LYRICS_FILE_BYTES = 4 * 1024 * 1024
+MAX_LYRICS_RESPONSE_BYTES = 8 * 1024 * 1024
 
 
 class IdentificationError(RuntimeError):
@@ -61,7 +66,10 @@ def _run_fpcalc(path: Path | str, fpcalc_bin: str | None = None) -> tuple[float,
             creationflags=CREATE_NO_WINDOW,
         )
         payload = json.loads(result.stdout)
-        return float(payload["duration"]), str(payload["fingerprint"])
+        duration, fingerprint = float(payload["duration"]), payload["fingerprint"]
+        if not math.isfinite(duration) or duration <= 0 or not isinstance(fingerprint, str) or not fingerprint or len(fingerprint) > 1_000_000:
+            raise ValueError("Invalid fingerprint output")
+        return duration, fingerprint
     except (OSError, subprocess.SubprocessError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
         raise IdentificationError(f"Chromaprint could not fingerprint the audio: {error}") from error
 
@@ -286,36 +294,87 @@ def _plain_from_lrc(value: str) -> str:
     return "\n".join(lines)
 
 
+def _tag_text_values(value: Any) -> tuple[str, ...]:
+    text = getattr(value, "text", value)
+    if isinstance(text, str):
+        return (text,)
+    if isinstance(text, (list, tuple)):
+        return tuple(item for item in text if isinstance(item, str))
+    return ()
+
+
+def _lrc_from_sylt(value: Any) -> tuple[str | None, str | None]:
+    entries = getattr(value, "text", None)
+    if not isinstance(entries, (list, tuple)):
+        return None, None
+    plain = []
+    timed = []
+    # ID3 SYLT uses 1 for MPEG frames and 2 for absolute milliseconds.
+    # Unknown units remain plain lyrics; do not invent a time conversion.
+    milliseconds = getattr(value, "format", None) == 2
+    for entry in entries:
+        if not isinstance(entry, (list, tuple)) or len(entry) != 2:
+            continue
+        text, timestamp = entry
+        if not isinstance(text, str):
+            continue
+        plain.append(text)
+        if milliseconds and isinstance(timestamp, int) and not isinstance(timestamp, bool) and timestamp >= 0:
+            minutes, remainder = divmod(timestamp, 60_000)
+            seconds, fraction = divmod(remainder, 1_000)
+            timed.append(f"[{minutes:02d}:{seconds:02d}.{fraction:03d}]{text}")
+    return ("\n".join(timed) or None, "\n".join(plain) or None)
+
+
 def local_lyrics(media: MediaRef) -> LyricsResult | None:
     if media.source != MediaSource.LOCAL:
         return None
     path = Path(media.original_uri)
     sidecar = path.with_suffix(".lrc")
-    if sidecar.is_file():
-        synced = sidecar.read_text(encoding="utf-8-sig")
-        return LyricsResult(
-            IdentityStatus.IDENTIFIED,
-            plain=_plain_from_lrc(synced),
-            synced=synced,
-            provider="local-sidecar",
-            attribution=str(sidecar),
-            retrieved_at=time.time(),
-        )
+    try:
+        if sidecar.is_file() and sidecar.stat().st_size <= MAX_LYRICS_FILE_BYTES:
+            # The extra byte detects growth between stat and read. Oversized,
+            # unreadable or incorrectly encoded sidecars fall through to tags.
+            with sidecar.open("rb") as source:
+                payload = source.read(MAX_LYRICS_FILE_BYTES + 1)
+            if len(payload) <= MAX_LYRICS_FILE_BYTES:
+                synced = payload.decode("utf-8-sig")
+                return LyricsResult(
+                    IdentityStatus.IDENTIFIED,
+                    plain=_plain_from_lrc(synced),
+                    synced=synced,
+                    provider="local-sidecar",
+                    attribution=str(sidecar),
+                    retrieved_at=time.time(),
+                )
+    except (OSError, UnicodeError):
+        pass
     try:
         audio = MutagenFile(path)
         tags = getattr(audio, "tags", None)
         if tags:
-            candidates = []
+            synced_candidates = []
+            plain_candidates = []
             for key in tags:
                 value = tags[key]
                 key_text = str(key).lower()
-                if "lyrics" in key_text or key_text.startswith("uslt"):
-                    candidates.append(getattr(value, "text", value))
-            if candidates:
-                plain = str(candidates[0])
+                if key_text.startswith("sylt"):
+                    synced, plain = _lrc_from_sylt(value)
+                    if synced:
+                        synced_candidates.append(synced)
+                    if plain:
+                        plain_candidates.append(plain)
+                elif "syncedlyrics" in key_text or "synced_lyrics" in key_text:
+                    synced_candidates.extend(_tag_text_values(value))
+                elif "lyrics" in key_text or key_text.startswith("uslt"):
+                    plain_candidates.extend(_tag_text_values(value))
+            if synced_candidates or plain_candidates:
+                synced = synced_candidates[0] if synced_candidates else None
+                plain = plain_candidates[0] if plain_candidates else None
                 return LyricsResult(
                     IdentityStatus.IDENTIFIED,
-                    plain=plain,
+                    plain=plain or (_plain_from_lrc(synced) if synced else None),
+                    synced=synced,
                     provider="embedded",
                     attribution="embedded file metadata",
                     retrieved_at=time.time(),
@@ -332,12 +391,50 @@ class LRCLIBClient:
 
     def _get(self, endpoint: str, params: dict[str, Any]) -> Any:
         response = self.session.get(
-            f"{LRCLIB_URL}/{endpoint}", params=params, headers={"User-Agent": USER_AGENT}, timeout=self.timeout
+            f"{LRCLIB_URL}/{endpoint}", params=params, headers={"User-Agent": USER_AGENT},
+            timeout=self.timeout, stream=True,
         )
-        if response.status_code == 404:
-            return None
-        response.raise_for_status()
-        return response.json()
+        try:
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            headers = getattr(response, "headers", {})
+            declared = headers.get("Content-Length") if hasattr(headers, "get") else None
+            if declared is not None:
+                try:
+                    declared_bytes = int(declared)
+                except (TypeError, ValueError):
+                    declared_bytes = 0  # The streamed limit remains authoritative.
+                if declared_bytes > MAX_LYRICS_RESPONSE_BYTES:
+                    raise ValueError("Lyrics response exceeds the supported size")
+            iterator = getattr(response, "iter_content", None)
+            if not callable(iterator):
+                # Compatibility for injected in-memory response adapters. Real
+                # requests.Response objects always use the bounded stream below.
+                payload = response.json()
+                if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > MAX_LYRICS_RESPONSE_BYTES:
+                    raise ValueError("Lyrics response exceeds the supported size")
+                return payload
+            payload = bytearray()
+            deadline = time.monotonic() + max(0.1, self.timeout)
+            chunks = iterator(chunk_size=16_384)
+            if not isinstance(chunks, Iterable) or isinstance(chunks, (str, bytes, bytearray)):
+                raise ValueError("Lyrics response stream is malformed")
+            for chunk in chunks:
+                if time.monotonic() > deadline:
+                    raise requests.Timeout("Lyrics response exceeded the time limit")
+                if not isinstance(chunk, bytes):
+                    raise ValueError("Lyrics response stream is malformed")
+                if not chunk:
+                    continue
+                if len(payload) + len(chunk) > MAX_LYRICS_RESPONSE_BYTES:
+                    raise ValueError("Lyrics response exceeds the supported size")
+                payload.extend(chunk)
+            return json.loads(payload)
+        finally:
+            close = getattr(response, "close", None)
+            if callable(close):
+                close()
 
     @staticmethod
     def _result(payload: dict[str, Any], confidence: float) -> LyricsResult:
@@ -390,11 +487,73 @@ class IdentificationService:
         self.lrclib = lrclib or LRCLIBClient()
         self.fpcalc_bin = fpcalc_bin
 
+    @staticmethod
+    def _file_signature(media: MediaRef) -> str | None:
+        if media.source != MediaSource.LOCAL:
+            return None
+        stat = Path(media.original_uri).stat()
+        return f"{stat.st_size}:{stat.st_mtime_ns}:{stat.st_ctime_ns}"
+
+    def saved_fingerprint(self, media: MediaRef) -> tuple[float, str] | None:
+        """Read the existing identification store without a provider request."""
+        if media.capabilities.live or not media.capabilities.finite:
+            return None
+        row = self.database.fetchone(
+            "SELECT identity_json, fingerprint, fingerprint_duration FROM track_identities WHERE stable_id=?",
+            (media.stable_id,),
+        )
+        if not row or not row["fingerprint"] or not row["fingerprint_duration"]:
+            return None
+        if media.source == MediaSource.LOCAL:
+            metadata = json.loads(row["identity_json"]).get("metadata", {})
+            try:
+                if metadata.get("fingerprint_file_signature") != self._file_signature(media):
+                    return None
+            except OSError:
+                return None
+        return float(row["fingerprint_duration"]), str(row["fingerprint"])
+
+    def calculate_fingerprint(self, media: MediaRef, pcm: bytes | None = None) -> tuple[float, str]:
+        """Calculate locally, without recognition requests or playback changes.
+
+        A fingerprint-only row is not an identification result. A subsequent
+        explicit identify operation can enrich it without repeating calculation.
+        """
+        if media.capabilities.live or not media.capabilities.finite or not media.capabilities.fingerprintable:
+            raise IdentificationError("Whole-media fingerprints require finite audio; use 'media identify listen' for a live segment")
+        before = self._file_signature(media)
+        if media.source == MediaSource.LOCAL:
+            duration, fingerprint = fingerprint_file(media.original_uri, self.fpcalc_bin)
+            if self._file_signature(media) != before:
+                raise IdentificationError("The local file changed during fingerprint calculation; retry the command")
+        else:
+            if pcm is None:
+                raise IdentificationError("Play this online item before calculating its fingerprint")
+            duration, fingerprint = fingerprint_pcm(pcm, self.fpcalc_bin)
+        pending = TrackIdentity(
+            IdentityStatus.UNAVAILABLE,
+            provenance=["chromaprint"],
+            metadata={"fingerprint_only": True, "fingerprint_file_signature": before,
+                      "reason": "Fingerprint calculated; recognition has not been requested"},
+        )
+        with self.database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO track_identities(stable_id,identity_json,fingerprint,fingerprint_duration,updated_at) "
+                "VALUES(?,?,?,?,?) ON CONFLICT(stable_id) DO UPDATE SET identity_json=excluded.identity_json, "
+                "fingerprint=excluded.fingerprint,fingerprint_duration=excluded.fingerprint_duration,updated_at=excluded.updated_at",
+                (media.stable_id, json.dumps(pending.to_dict()), fingerprint, duration, time.time()),
+            )
+        return duration, fingerprint
+
     def identify(self, media: MediaRef, pcm: bytes | None = None, refresh: bool = False) -> TrackIdentity:
         if not refresh:
             row = self.database.fetchone("SELECT identity_json FROM track_identities WHERE stable_id=?", (media.stable_id,))
             if row:
-                return TrackIdentity.from_dict(json.loads(row["identity_json"]))
+                cached = TrackIdentity.from_dict(json.loads(row["identity_json"]))
+                if not cached.metadata.get("fingerprint_only"):
+                    return cached
+                if saved := self.saved_fingerprint(media):
+                    return self.identify_fingerprint(media, *saved)
         try:
             if pcm is not None:
                 duration, fingerprint = fingerprint_pcm(pcm, self.fpcalc_bin)
@@ -409,16 +568,56 @@ class IdentificationService:
 
     def identify_fingerprint(self, media: MediaRef, duration: float, fingerprint: str) -> TrackIdentity:
         """Enrich a fingerprint already calculated by the library profiler."""
-        identity = self.acoustid.identify(duration, fingerprint, media.duration)
-        identity = self.musicbrainz.enrich(identity)
-        with self.database.transaction() as connection:
-            connection.execute(
-                "INSERT INTO track_identities(stable_id, identity_json, fingerprint, fingerprint_duration, updated_at) "
-                "VALUES(?, ?, ?, ?, ?) ON CONFLICT(stable_id) DO UPDATE SET "
-                "identity_json=excluded.identity_json, fingerprint=excluded.fingerprint, "
-                "fingerprint_duration=excluded.fingerprint_duration, updated_at=excluded.updated_at",
-                (media.stable_id, json.dumps(identity.to_dict()), fingerprint, duration, time.time()),
+        return self._identify_fingerprint(
+            media,
+            duration,
+            fingerprint,
+            expected_duration=media.duration,
+            persist=True,
+        )
+
+    def identify_pcm_window(self, media: MediaRef, pcm: bytes) -> TrackIdentity:
+        """Identify one invocation-time PCM window without changing whole-media identity."""
+        try:
+            duration, fingerprint = fingerprint_pcm(pcm, self.fpcalc_bin)
+        except IdentificationError as error:
+            status = (
+                IdentityStatus.INSUFFICIENT_AUDIO
+                if "seconds" in str(error)
+                else IdentityStatus.UNAVAILABLE
             )
+            return TrackIdentity(status, metadata={"reason": str(error)})
+        return self._identify_fingerprint(
+            media,
+            duration,
+            fingerprint,
+            expected_duration=None,
+            persist=False,
+        )
+
+    def _identify_fingerprint(
+        self,
+        media: MediaRef,
+        duration: float,
+        fingerprint: str,
+        *,
+        expected_duration: float | None,
+        persist: bool,
+    ) -> TrackIdentity:
+        identity = self.acoustid.identify(duration, fingerprint, expected_duration)
+        identity = self.musicbrainz.enrich(identity)
+        if persist:
+            if media.source == MediaSource.LOCAL:
+                with suppress(OSError):
+                    identity.metadata["fingerprint_file_signature"] = self._file_signature(media)
+            with self.database.transaction() as connection:
+                connection.execute(
+                    "INSERT INTO track_identities(stable_id, identity_json, fingerprint, fingerprint_duration, updated_at) "
+                    "VALUES(?, ?, ?, ?, ?) ON CONFLICT(stable_id) DO UPDATE SET "
+                    "identity_json=excluded.identity_json, fingerprint=excluded.fingerprint, "
+                    "fingerprint_duration=excluded.fingerprint_duration, updated_at=excluded.updated_at",
+                    (media.stable_id, json.dumps(identity.to_dict()), fingerprint, duration, time.time()),
+                )
         return identity
 
     def lyrics(self, media: MediaRef, identity: TrackIdentity, refresh: bool = False) -> LyricsResult:
