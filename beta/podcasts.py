@@ -73,8 +73,15 @@ _CORRECTED_FEED_VENDORS = frozenset({"maintenance_phase"})
 
 
 def _feed_cache_identity(rss_link):
-    """Bind cache content to its source without saving a private feed URL."""
-    return hashlib.sha256(rss_link.encode("utf-8")).hexdigest()
+    """Bind reusable catalogue caches without digesting custom feed secrets.
+
+    Custom feeds are fetched on every explicit request and do not use this
+    alias-cache binding. Keep existing public catalogue digests compatible.
+    """
+    for catalogue_feed in vendors.values():
+        if catalogue_feed == rss_link:
+            return hashlib.sha256(catalogue_feed.encode("utf-8")).hexdigest()
+    return None
 
 
 def refresh_podcast_data(rss_link, output_file, cached=None):

@@ -30,9 +30,7 @@ def test_refresh_podcast_data_creates_parent_and_normalizes_feed(monkeypatch, tm
     episodes = podcasts.refresh_podcast_data("https://example.test/feed?token=private-feed-key", output)
 
     assert output.is_file()
-    assert json.loads(output.read_text(encoding="utf-8"))["feed_identity"] == hashlib.sha256(
-        b"https://example.test/feed?token=private-feed-key",
-    ).hexdigest()
+    assert json.loads(output.read_text(encoding="utf-8"))["feed_identity"] is None
     assert "private-feed-key" not in output.read_text(encoding="utf-8")
     assert episodes[0]["title"] == "Older Episode"
     assert episodes[0]["episode_guid"] == "mariana-test-episode-older"
