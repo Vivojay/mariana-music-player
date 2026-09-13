@@ -6,10 +6,13 @@ enumeration: optional driver properties can be unreadable on healthy devices.
 
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 
 def default_endpoint():
+    if sys.platform != "win32":
+        raise ImportError("Windows Core Audio is unavailable on this platform")
     import comtypes
     from pycaw.api.mmdeviceapi import IMMDeviceEnumerator
     from pycaw.constants import CLSID_MMDeviceEnumerator, EDataFlow, ERole
@@ -22,6 +25,8 @@ def default_endpoint():
 
 
 def endpoint_identity(endpoint) -> tuple[str, str]:
+    if sys.platform != "win32":
+        raise ImportError("Windows Core Audio is unavailable on this platform")
     from comtypes import GUID
     from pycaw.api.mmdeviceapi.depend.structures import PROPERTYKEY
     from pycaw.constants import STGM
@@ -39,6 +44,8 @@ def endpoint_identity(endpoint) -> tuple[str, str]:
 
 
 def endpoint_volume():
+    if sys.platform != "win32":
+        raise ImportError("Windows Core Audio is unavailable on this platform")
     import comtypes
     from pycaw.api.endpointvolume import IAudioEndpointVolume
 

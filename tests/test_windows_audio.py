@@ -10,6 +10,7 @@ from mariana import windows_audio
 
 @pytest.fixture
 def core_audio(monkeypatch):
+    monkeypatch.setattr(windows_audio.sys, "platform", "win32")
     modules = {}
     for name in ("comtypes", "pycaw", "pycaw.api", "pycaw.api.mmdeviceapi",
                  "pycaw.api.mmdeviceapi.depend", "pycaw.api.mmdeviceapi.depend.structures",
@@ -79,3 +80,14 @@ def test_legacy_volume_adapter_uses_minimal_endpoint(monkeypatch):
     monkeypatch.setattr(windows_audio, "endpoint_volume", lambda: None)
     with pytest.raises(RuntimeError, match="default audio endpoint"):
         master_volume_control.device_refresh()
+
+
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_core_audio_boundary_rejects_unsupported_platforms_before_import(monkeypatch, platform):
+    monkeypatch.setattr(windows_audio.sys, "platform", platform)
+    monkeypatch.setitem(sys.modules, "comtypes", None)
+    monkeypatch.setitem(sys.modules, "pycaw", None)
+    for action in (windows_audio.default_endpoint, windows_audio.endpoint_volume,
+                   lambda: windows_audio.endpoint_identity(object())):
+        with pytest.raises(ImportError, match="unavailable on this platform"):
+            action()
