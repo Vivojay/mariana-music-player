@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
 import random
 import sqlite3
+import stat
 import time
 import unicodedata
 import uuid
 from collections import defaultdict, deque
 from dataclasses import dataclass
+from io import StringIO
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -19,6 +22,15 @@ from .models import MediaRef, MediaSource, Playlist, QueueStrategy
 from .output_targets import BoundOutputTarget, OutputTargetError, bind_output_target
 
 MAX_PLAYLIST_DEPTH = 8
+MAX_PLAYLIST_IMPORT_BYTES = 8 * 1024 * 1024
+MAX_PLAYLIST_IMPORT_LINE_BYTES = 64 * 1024
+MAX_PLAYLIST_IMPORT_ITEMS = 5_000
+# Match the existing URL identity parser, but verify the original authority
+# before that legacy parser decodes any percent-encoded URL characters.
+_YOUTUBE_IMPORT_HOSTS = frozenset({
+    "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com",
+    "youtube-nocookie.com", "www.youtube-nocookie.com", "youtu.be", "www.youtu.be",
+})
 
 
 class PlaylistError(RuntimeError):
@@ -652,27 +664,58 @@ class PlaylistStore:
         return result
 
     def import_m3u(self, name: str, source: Path | str) -> Playlist:
-        path = Path(source).expanduser().resolve()
-        if path.suffix.casefold() not in {".m3u", ".m3u8"} or not path.is_file():
-            raise PlaylistError("Playlist import requires an existing .m3u or .m3u8 file")
+        """Import a bounded UTF-8 reference list without resolving online media."""
+        from url_validate import id_if_url_is_of_yt_format
+
+        try:
+            path = Path(source).expanduser().resolve()
+            if path.suffix.casefold() not in {".m3u", ".m3u8"} or not path.is_file():
+                raise PlaylistError("Playlist import requires an existing .m3u or .m3u8 file")
+            with path.open("rb") as stream:
+                details = os.fstat(stream.fileno())
+                if not stat.S_ISREG(details.st_mode):
+                    raise PlaylistError("Playlist import requires a regular file")
+                if details.st_size > MAX_PLAYLIST_IMPORT_BYTES:
+                    raise PlaylistError("Playlist import exceeds the 8 MiB byte limit")
+                payload = stream.read(MAX_PLAYLIST_IMPORT_BYTES + 1)
+            if len(payload) > MAX_PLAYLIST_IMPORT_BYTES:
+                raise PlaylistError("Playlist import exceeds the 8 MiB byte limit")
+            text = payload.decode("utf-8-sig")
+        except (OSError, UnicodeError, ValueError) as error:
+            raise PlaylistError("Playlist import requires readable UTF-8 text") from error
+        if any((ord(character) < 32 and character not in "\t\r\n") or ord(character) == 127 for character in text):
+            raise PlaylistError("Playlist import contains unsupported control characters")
         media_items = []
         title = None
-        for raw in path.read_text(encoding="utf-8-sig", errors="replace").splitlines():
+        # Iterate universal newlines without allocating an unbounded list of
+        # comment/empty-line objects from an otherwise byte-bounded document.
+        for line_number, raw in enumerate(StringIO(text, newline=None), 1):
+            if len(raw.rstrip("\r\n").encode("utf-8")) > MAX_PLAYLIST_IMPORT_LINE_BYTES:
+                raise PlaylistError("Playlist import line exceeds the 64 KiB byte limit")
             value = raw.strip()
             if value.startswith("#EXTINF:"):
                 title = value.partition(",")[2].strip() or None
                 continue
             if not value or value.startswith("#"):
                 continue
-            parsed = urlparse(value)
-            if parsed.scheme in {"http", "https"}:
-                source_type = MediaSource.YOUTUBE if "youtu" in parsed.netloc.casefold() else MediaSource.URL
-                uri = value
-            else:
-                target = Path(value).expanduser()
-                uri = str((path.parent / target).resolve() if not target.is_absolute() else target.resolve())
-                source_type = MediaSource.LOCAL
-            media = MediaRef(source_type, uri, title=title)
+            if len(media_items) >= MAX_PLAYLIST_IMPORT_ITEMS:
+                raise PlaylistError("Playlist import cannot contain more than 5000 media entries")
+            try:
+                parsed = urlparse(value)
+                if parsed.scheme in {"http", "https"}:
+                    youtube_identity = (
+                        parsed.hostname in _YOUTUBE_IMPORT_HOSTS
+                        and id_if_url_is_of_yt_format(value)
+                    )
+                    source_type = MediaSource.YOUTUBE if youtube_identity else MediaSource.URL
+                    uri = value
+                else:
+                    target = Path(value).expanduser()
+                    uri = str((path.parent / target).resolve() if not target.is_absolute() else target.resolve())
+                    source_type = MediaSource.LOCAL
+                media = MediaRef(source_type, uri, title=title)
+            except (OSError, ValueError, RecursionError) as error:
+                raise PlaylistError(f"Playlist import has an invalid media reference on line {line_number}") from error
             media_items.append(media)
             title = None
         return self.create(name, tree=self.snapshot_from_media(media_items))

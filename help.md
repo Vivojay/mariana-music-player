@@ -239,6 +239,12 @@ playback start; saving them does not interrupt or seek the current playback.
 | `playlist import <name> <m3u|m3u8|YouTube-playlist-URL>` | Import a snapshot without modifying its remote source |
 | `playlist export <name> <path.m3u8> [--yes]` | Export canonical references as UTF-8 M3U8; an existing file requires confirmation |
 
+Local M3U/M3U8 imports must be valid UTF-8 (an optional BOM is accepted), at most
+8 MiB, with no more than 5,000 media entries and 64 KiB per line. Tabs and ordinary
+line endings are supported; malformed text or oversized input is rejected before
+any playlist is written. Importing references does not fetch or play them, and a
+missing local file remains an explicit reference rather than being substituted.
+
 ## Lyrics
 
 | Command | Purpose |
