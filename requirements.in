@@ -17,7 +17,7 @@ Send2Trash==2.1.0
 sounddevice==0.5.5
 tabulate==0.10.0
 toml==0.10.2
-tqdm==4.68.4
+tqdm==4.69.0
 truststore==0.10.4
 watchdog==6.0.0
 yt-dlp[default]==2026.7.4
