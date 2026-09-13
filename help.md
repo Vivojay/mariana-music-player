@@ -230,6 +230,8 @@ playback start; saving them does not interrupt or seek the current playback.
 | `playlist rename <old> <new>` | Rename a playlist |
 | `playlist delete <name> [y|yes|--yes]` | Delete the playlist record after confirmation unless a bypass token is supplied |
 | `playlist clear <name> [y|yes|--yes]` | Confirm and remove all playlist contents |
+| `playlist history <name>` | Show the current and retained playlist revisions |
+| `playlist restore <name> <revision> [--yes]` | Confirm restoring an earlier tree as a new revision; retain the current tree in history |
 | `playlist add <name> media|album|playlist <reference> [--at <path>]` | Add media or an atomic snapshot |
 | `playlist remove <name> <path>` | Remove a node |
 | `playlist move <name> <path> --parent <path|root> [--at N]` | Move a node |
@@ -244,6 +246,11 @@ Local M3U/M3U8 imports must be valid UTF-8 (an optional BOM is accepted), at mos
 line endings are supported; malformed text or oversized input is rejected before
 any playlist is written. Importing references does not fetch or play them, and a
 missing local file remains an explicit reference rather than being substituted.
+
+Playlist edits bind the original playlist ID and revision. A concurrent edit or
+rename rejects the stale operation without overwriting newer contents. History
+survives restarts; restore recovers tracks, nesting, and ordering, not an old
+playlist name or description. Deleting a playlist still deletes its history.
 
 ## Lyrics
 

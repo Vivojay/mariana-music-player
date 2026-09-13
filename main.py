@@ -1581,6 +1581,28 @@ def playlist_command(arguments):
             IPrint(tbl(rows, headers=('#', 'Artist', 'Media'), tablefmt='plain') if rows else '(empty playlist)', visible=visible)
     elif operation == 'rename' and len(values) == 2:
         IPrint(f'Renamed playlist: {store.rename(values[0], values[1]).name}', visible=visible)
+    elif operation == 'history' and len(values) == 1:
+        playlist = store.get(values[0])
+        IPrint(f'Playlist {playlist.name}: current revision {playlist.revision}; '
+               f'available revisions: {", ".join(map(str, store.revisions(playlist.playlist_id)))}', visible=visible)
+    elif operation == 'restore':
+        yes, values = _confirmation_bypass(values, preserve_single_bare=True)
+        try:
+            if len(values) != 2 or not values[1].isdecimal():
+                raise ValueError
+            revision = int(values[1])
+            if revision < 1:
+                raise ValueError
+        except ValueError:
+            raise PlaylistError('Usage: playlist restore "<name>" <revision> [--yes]') from None
+        target = store.bind_mutation(values[0])
+        if revision not in store.revisions(target.playlist_id):
+            raise PlaylistError(f'Unknown playlist revision: {revision}')
+        if not _confirm_action(f'Restore playlist "{target.name}" to revision {revision}? '
+                               'Current contents will remain in history.', assume_yes=yes):
+            return None
+        playlist = store.restore(target.playlist_id, revision, expected=target)
+        IPrint(f'Restored playlist: {playlist.name}; new revision {playlist.revision}', visible=visible)
     elif operation == 'delete':
         yes, values = _confirmation_bypass(values, preserve_single_bare=True)
         if len(values) != 1:

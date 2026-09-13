@@ -142,12 +142,13 @@ def test_playlist_crud_versions_and_queue_compatibility(tmp_path: Path):
 
         renamed = store.rename("Road Trip", "Night Drive")
         assert renamed.name == "Night Drive"
+        assert renamed.revision == 3
         queue.clear()
         queue.load("night drive")
         assert [item.media.title for item in queue.items()] == ["one", "two"]
         assert queue.groups()[0].name == "Set"
         restored = store.restore("Night Drive", 1)
-        assert restored.revision == 3 and restored.tree["items"] == []
+        assert restored.revision == 4 and restored.tree["items"] == []
         assert store.clear("Night Drive").tree["items"] == []
         assert store.delete("Night Drive").name == "Night Drive"
         with pytest.raises(PlaylistError, match="Unknown playlist"):

@@ -167,6 +167,8 @@ COMMAND_CATALOG = (
     ),
     _spec("regions", "regions", CommandCategory.FAVORITES, "List preferred playback bounds"),
     _spec("playlist", "playlist", CommandCategory.PLAYLISTS, "Inspect or change playlists", risk=CommandRisk.STATE_CHANGING, forms=_forms("list", "create", "show", "add", "remove", "move", "order", "play", "queue", "import")),
+    _spec("playlist.history", "playlist history", CommandCategory.PLAYLISTS, "List current and retained playlist revisions", forms=_forms(arguments=("playlist-name",))),
+    _spec("playlist.restore", "playlist restore", CommandCategory.PLAYLISTS, "Restore a retained tree as a new revision after confirmation", risk=CommandRisk.DESTRUCTIVE, forms=_forms(arguments=("playlist-name", "revision"), flags=("--yes",))),
     _spec("playlist.export", "playlist export", CommandCategory.PLAYLISTS, "Export a playlist with bound overwrite approval", risk=CommandRisk.EXTERNAL_ACTION, forms=_forms(arguments=("playlist-name", "output-path"), flags=("--yes",))),
     _spec("playlist.delete", "playlist delete", CommandCategory.PLAYLISTS, "Confirm deletion of a bound playlist revision", risk=CommandRisk.DESTRUCTIVE, forms=_forms(arguments=("playlist-name",), flags=("--yes",))),
     _spec("playlist.clear", "playlist clear", CommandCategory.PLAYLISTS, "Confirm clearing of a bound playlist revision", risk=CommandRisk.DESTRUCTIVE, forms=_forms(arguments=("playlist-name",), flags=("--yes",))),

@@ -42,6 +42,31 @@ def test_command_parser_preserves_windows_paths_and_quoted_names():
         split_command('playlist create "unfinished')
 
 
+def test_export_approval_is_invalidated_by_playlist_edit_without_writing_target(tmp_path):
+    with MarianaDatabase(tmp_path / 'playlist.db') as database:
+        store = PlaylistStore(database)
+        store.create('Export', tree=store.snapshot_from_media([media('one')]))
+        destination = tmp_path / 'selection.m3u8'
+        target = store.bind_export('Export', destination)
+        store.add_media_many('Export', [media('two')])
+        with pytest.raises(PlaylistError, match='changed after export approval'):
+            store.export_bound(target)
+        assert not destination.exists()
+        assert not list(tmp_path.glob('.*.tmp'))
+        assert [item.title for item in store.flattened_media(store.get('Export').tree)] == ['one', 'two']
+
+
+def test_empty_playlist_batch_and_current_revision_restore_do_not_create_revisions(tmp_path):
+    with MarianaDatabase(tmp_path / 'playlist.db') as database:
+        store = PlaylistStore(database)
+        original = store.create('Keep', tree=store.snapshot_from_media([media('one')]))
+        with pytest.raises(PlaylistError, match='At least one media item'):
+            store.add_media_many('Keep', [])
+        assert store.restore('Keep', original.revision) == original
+        assert store.revisions('Keep') == [original.revision]
+        assert store.get('Keep').tree == original.tree
+
+
 def test_seeded_shuffle_cursor_priority_and_undo(tmp_path: Path):
     with MarianaDatabase(tmp_path / "queue.db") as database:
         queue = PersistentQueue(database)
@@ -230,3 +255,122 @@ def test_queue_and_playlist_cli_paths(monkeypatch, tmp_path: Path):
         main.playlist_command(["export", "Road Trip", str(tmp_path / "road.m3u8")])
         assert queue.playlists.get("Road Trip").description == "Drive"
         assert any("Created playlist" in value for value in output)
+
+
+@pytest.mark.parametrize("operation", ["add", "group", "remove", "move", "order", "restore"])
+def test_playlist_edits_reject_concurrent_writer_without_losing_either_revision(tmp_path, monkeypatch, operation):
+    path = tmp_path / "shared.db"
+    with MarianaDatabase(path) as first, MarianaDatabase(path) as second:
+        store, other = PlaylistStore(first), PlaylistStore(second)
+        playlist = store.create("Shared", tree=store.snapshot_from_media([media("one"), media("two")]))
+        playlist = store.add_media(playlist.playlist_id, media("three"))
+        original_save = store._save_revision
+
+        def concurrent_save(expected, tree, **kwargs):
+            other.add_media(playlist.playlist_id, media("other writer"))
+            return original_save(expected, tree, **kwargs)
+
+        monkeypatch.setattr(store, "_save_revision", concurrent_save)
+        actions = {
+            "add": lambda: store.add_media(playlist.playlist_id, media("stale addition")),
+            "group": lambda: store.add_snapshot(playlist.playlist_id, store.snapshot_from_media([media("nested")]),
+                                                 group_name="Nested"),
+            "remove": lambda: store.remove_node(playlist.playlist_id, "1"),
+            "move": lambda: store.move_node(playlist.playlist_id, "1", position=2),
+            "order": lambda: store.order(playlist.playlist_id, "shuffle", seed=3),
+            "restore": lambda: store.restore(playlist.playlist_id, 1),
+        }
+        with pytest.raises(PlaylistError, match="changed after confirmation"):
+            actions[operation]()
+        latest = store.get(playlist.playlist_id)
+        assert latest.revision == 3
+        assert [item.title for item in store.flattened_media(latest.tree)] == ["one", "two", "three", "other writer"]
+        assert store.revisions(playlist.playlist_id) == [3, 2, 1]
+
+
+def test_playlist_rename_away_and_back_invalidates_old_edits(tmp_path):
+    with MarianaDatabase(tmp_path / "rename.db") as database:
+        store = PlaylistStore(database)
+        original = store.create("Original", tree=store.snapshot_from_media([media("one")]))
+        store.rename("Original", "Temporary")
+        latest = store.rename("Temporary", "Original")
+        assert latest.revision == original.revision + 2
+        with pytest.raises(PlaylistError, match="changed after confirmation"):
+            store.save_snapshot("Original", store.snapshot_from_media([media("stale")]), expected=original)
+        assert store.get("Original").tree == original.tree
+
+
+def test_playlist_history_restore_survives_restart_and_preserves_previous_tree(tmp_path):
+    path = tmp_path / "versions.db"
+    with MarianaDatabase(path) as database:
+        store = PlaylistStore(database)
+        original = store.create("Collection", tree=store.snapshot_from_media([media("one")]))
+        store.add_media(original.playlist_id, media("two"))
+    with MarianaDatabase(path) as database:
+        store = PlaylistStore(database)
+        restored = store.restore("Collection", 1)
+        assert restored.revision == 3
+        assert [item.title for item in store.flattened_media(restored.tree)] == ["one"]
+        recovered = store.restore("Collection", 2)
+        assert recovered.revision == 4
+        assert [item.title for item in store.flattened_media(recovered.tree)] == ["one", "two"]
+        assert store.revisions("Collection") == [4, 3, 2, 1]
+
+
+def test_playlist_restore_command_binds_revision_before_confirmation(tmp_path, monkeypatch):
+    output = []
+    with MarianaDatabase(tmp_path / "restore.db") as database:
+        queue = PersistentQueue(database)
+        store = queue.playlists
+        store.create("Set", tree=store.snapshot_from_media([media("one")]))
+        store.add_media("Set", media("two"))
+        monkeypatch.setattr(main, "QUEUE", queue)
+        monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: output.append(str(value)))
+        monkeypatch.setattr(main, "_emit_queue_desktop_state", lambda: None)
+
+        def confirm(_question, **_kwargs):
+            store.add_media("Set", media("newer edit"))
+            return True
+
+        monkeypatch.setattr(main, "_confirm_action", confirm)
+        with pytest.raises(PlaylistError, match="changed after confirmation"):
+            main.playlist_command(["restore", "Set", "1"])
+        monkeypatch.setattr(main, "_confirm_action", lambda *_args, **_kwargs: True)
+        main.playlist_command(["restore", "Set", "1", "--yes"])
+        main.playlist_command(["history", "Set"])
+        assert store.get("Set").revision == 4
+        assert [item.title for item in store.flattened_media(store.get("Set").tree)] == ["one"]
+        assert "available revisions: 4, 3, 2, 1" in output[-1]
+
+
+def test_nested_queue_and_playlist_survive_repeated_ordering_and_reopen(tmp_path):
+    path = tmp_path / "restarts.db"
+    with MarianaDatabase(path) as database:
+        queue = PersistentQueue(database)
+        queue.add(media("active"))
+        active_id = queue.jump(0).queue_id
+        for album in range(5):
+            group = queue.create_group(f"Album {album}", kind="album")
+            for track in range(6):
+                queue.add(media(f"{album}-{track}"), group_id=group.group_id)
+        queue.save("Archive")
+    for seed in range(25):
+        with MarianaDatabase(path) as database:
+            queue = PersistentQueue(database)
+            before = titles(queue)
+            assert queue.current().queue_id == active_id
+            queue.apply_strategy("shuffle", seed=seed)
+            ordered = titles(queue)
+            assert queue.current().queue_id == active_id
+            assert sorted(ordered) == sorted(before)
+            for album in range(5):
+                start = ordered.index(f"{album}-0")
+                assert ordered[start:start + 6] == [f"{album}-{track}" for track in range(6)]
+            queue.save("Archive")
+    with MarianaDatabase(path) as database:
+        queue = PersistentQueue(database)
+        assert queue.current().queue_id == active_id
+        assert titles(queue) == ordered
+        assert len(queue.groups()) == 5
+        assert queue.playlists.get("Archive").revision == 26
+        assert len(queue.playlists.revisions("Archive")) == 26

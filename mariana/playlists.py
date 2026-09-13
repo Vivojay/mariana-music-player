@@ -156,35 +156,53 @@ class PlaylistStore:
         tree: dict[str, Any],
         *,
         description: str | None = None,
+        expected: Playlist | None = None,
     ) -> Playlist:
         normalized = playlist_name(name)
+        if expected is not None:
+            return self._save_revision(expected, tree, description=description)
         existing = self.database.fetchone("SELECT * FROM playlists WHERE name_key=?", (normalized.casefold(),))
         if not existing:
             return self.create(normalized, description=description, tree=tree)
+        return self._save_revision(self._playlist(existing), tree, description=description)
+
+    def _save_revision(
+        self, expected: Playlist, tree: dict[str, Any], *, description: str | None = None,
+    ) -> Playlist:
         now = time.time()
         normalized_tree = self._normalized_tree(tree)
         self._tree_nodes(normalized_tree)
         payload = json.dumps(normalized_tree, ensure_ascii=False)
         with self.database.transaction() as connection:
+            previous = self._bound_mutation_playlist(connection, PlaylistMutationTarget(
+                expected.playlist_id, expected.name, expected.revision,
+            ))
             connection.execute(
                 "INSERT OR IGNORE INTO playlist_revisions(playlist_id,revision,tree_json,created_at) "
                 "VALUES(?,?,?,?)",
-                (existing["playlist_id"], existing["revision"], existing["tree_json"], now),
+                (previous.playlist_id, previous.revision, json.dumps(previous.tree, ensure_ascii=False), now),
             )
             connection.execute(
                 "UPDATE playlists SET tree_json=?,description=COALESCE(?,description),revision=revision+1,updated_at=? "
-                "WHERE playlist_id=?",
-                (payload, description, now, existing["playlist_id"]),
+                "WHERE playlist_id=? AND revision=?",
+                (payload, description, now, expected.playlist_id, expected.revision),
             )
-        return self.get(str(existing["playlist_id"]))
+        return self.get(expected.playlist_id)
 
     def rename(self, name_or_id: str, new_name: str) -> Playlist:
         playlist = self.get(name_or_id)
         normalized = playlist_name(new_name)
         try:
             with self.database.transaction() as connection:
+                self._bound_mutation_playlist(connection, PlaylistMutationTarget(
+                    playlist.playlist_id, playlist.name, playlist.revision,
+                ))
                 connection.execute(
-                    "UPDATE playlists SET name=?,name_key=?,updated_at=? WHERE playlist_id=?",
+                    "INSERT INTO playlist_revisions(playlist_id,revision,tree_json,created_at) VALUES(?,?,?,?)",
+                    (playlist.playlist_id, playlist.revision, json.dumps(playlist.tree), time.time()),
+                )
+                connection.execute(
+                    "UPDATE playlists SET name=?,name_key=?,revision=revision+1,updated_at=? WHERE playlist_id=?",
                     (normalized, normalized.casefold(), time.time(), playlist.playlist_id),
                 )
         except sqlite3.IntegrityError as error:
@@ -257,8 +275,14 @@ class PlaylistStore:
         ]
         return [playlist.revision, *values]
 
-    def restore(self, name_or_id: str, revision: int) -> Playlist:
-        playlist = self.get(name_or_id)
+    def restore(self, name_or_id: str, revision: int, *, expected: PlaylistMutationTarget | None = None) -> Playlist:
+        if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+            raise PlaylistError("Playlist revision must be a positive integer")
+        if expected is None:
+            playlist = self.get(name_or_id)
+        else:
+            with self.database.transaction() as connection:
+                playlist = self._bound_mutation_playlist(connection, expected)
         if revision == playlist.revision:
             return playlist
         row = self.database.fetchone(
@@ -267,7 +291,7 @@ class PlaylistStore:
         )
         if not row:
             raise PlaylistError(f"Unknown playlist revision: {revision}")
-        return self.save_snapshot(playlist.name, self._decode_tree(row["tree_json"]))
+        return self.save_snapshot(playlist.name, self._decode_tree(row["tree_json"]), expected=playlist)
 
     @staticmethod
     def _normalized_tree(tree: dict[str, Any]) -> dict[str, Any]:
@@ -418,6 +442,24 @@ class PlaylistStore:
         parent: str | None = None,
         position: int | None = None,
     ) -> Playlist:
+        return self.add_media_many(
+            name_or_id,
+            [media],
+            parent=parent,
+            position=position,
+        )
+
+    def add_media_many(
+        self,
+        name_or_id: str,
+        media_items: list[MediaRef],
+        *,
+        parent: str | None = None,
+        position: int | None = None,
+    ) -> Playlist:
+        """Append one batch as a single playlist revision."""
+        if not media_items:
+            raise PlaylistError("At least one media item is required")
         playlist = self.get(name_or_id)
         tree = self._normalized_tree(playlist.tree)
         parent_id = None
@@ -428,20 +470,23 @@ class PlaylistStore:
             parent_id = node["id"]
         children = self._children(tree, parent_id)
         insert_at = len(children) if position is None else max(0, min(position, len(children)))
-        tree["items"].append(
-            {
-                "stable_id": media.stable_id,
-                "media": media.to_dict(),
-                "priority": 0,
-                "attempts": 0,
-                "failure_policy": "skip",
-                "group_id": parent_id,
-                "sibling_position": len(children),
-            }
-        )
-        children.insert(insert_at, ("item", str(len(tree["items"]) - 1)))
+        inserted = []
+        for media in media_items:
+            tree["items"].append(
+                {
+                    "stable_id": media.stable_id,
+                    "media": media.to_dict(),
+                    "priority": 0,
+                    "attempts": 0,
+                    "failure_policy": "skip",
+                    "group_id": parent_id,
+                    "sibling_position": len(children),
+                }
+            )
+            inserted.append(("item", str(len(tree["items"]) - 1)))
+        children[insert_at:insert_at] = inserted
         self._renumber(tree, parent_id, children)
-        return self.save_snapshot(playlist.name, tree)
+        return self.save_snapshot(playlist.name, tree, expected=playlist)
 
     def add_snapshot(
         self,
@@ -496,7 +541,7 @@ class PlaylistStore:
         children.insert(insert_at, ("group", outer_id))
         self._renumber(tree, parent_id, children)
         self._tree_nodes(tree)
-        return self.save_snapshot(playlist.name, tree)
+        return self.save_snapshot(playlist.name, tree, expected=playlist)
 
     def remove_node(self, name_or_id: str, reference: str) -> Playlist:
         playlist = self.get(name_or_id)
@@ -523,7 +568,7 @@ class PlaylistStore:
             tree["items"] = [item for item in tree["items"] if item.get("group_id") not in descendants]
             tree["groups"] = [group for group in tree["groups"] if str(group["group_id"]) not in descendants]
         self._renumber(tree, parent_id, self._children(tree, parent_id))
-        return self.save_snapshot(playlist.name, tree)
+        return self.save_snapshot(playlist.name, tree, expected=playlist)
 
     def move_node(
         self,
@@ -568,7 +613,7 @@ class PlaylistStore:
         new_children.insert(insert_at, node_key)
         self._renumber(tree, parent_id, new_children)
         self._tree_nodes(tree)
-        return self.save_snapshot(playlist.name, tree)
+        return self.save_snapshot(playlist.name, tree, expected=playlist)
 
     def order(
         self,
@@ -641,7 +686,7 @@ class PlaylistStore:
         else:
             tree["state"]["root_strategy"] = strategy.value
             tree["state"]["root_seed"] = seed
-        return self.save_snapshot(playlist.name, tree)
+        return self.save_snapshot(playlist.name, tree, expected=playlist)
 
     @classmethod
     def _descendant_item_indexes(cls, tree: dict[str, Any], node: tuple[str, str]) -> list[int]:
