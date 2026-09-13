@@ -108,6 +108,9 @@ def test_first_boot_rejects_invalid_sample_archive(monkeypatch, tmp_path: Path):
     settings_directory = tmp_path / "settings"
     settings_directory.mkdir()
     (settings_directory / "settings.yml").write_text("download: {}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        first_boot_setup, "runtime_paths", lambda: SimpleNamespace(settings=settings_directory / "settings.yml")
+    )
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(mediadl, "setup_dl_dir", lambda *_args: str(tmp_path))
     monkeypatch.setattr("requests.get", lambda *_args, **_kwargs: InvalidArchiveResponse())
