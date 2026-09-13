@@ -79,6 +79,78 @@ def test_discovery_validates_every_candidate(monkeypatch):
     ]
 
 
+def test_discovery_overlaps_bounded_version_checks_and_joins_workers(monkeypatch):
+    import threading
+
+    barrier = threading.Barrier(3)
+    lock = threading.Lock()
+    active = 0
+    maximum = 0
+    calls = []
+    threads = []
+    first = set(tool_setup.ALL_TOOLS[:3])
+    monkeypatch.setattr(tool_setup, "find_tool_executable", lambda name, _location: f"/{name}")
+
+    def version(name, _executable):
+        nonlocal active, maximum
+        with lock:
+            active += 1
+            maximum = max(maximum, active)
+            calls.append(name)
+            threads.append(threading.current_thread())
+        try:
+            if name in first:
+                barrier.wait(timeout=3)
+            return f"{name} version"
+        finally:
+            with lock:
+                active -= 1
+
+    monkeypatch.setattr(tool_setup, "executable_version", version)
+    status = tool_setup.discover_media_tools({})
+    assert status.complete
+    assert maximum == 3 and active == 0
+    assert sorted(calls) == sorted(tool_setup.ALL_TOOLS)
+    assert all(not thread.is_alive() for thread in threads)
+    assert tuple(status.versions) == tool_setup.ALL_TOOLS
+
+
+def test_discovery_thread_exhaustion_preserves_each_validation_once(monkeypatch):
+    calls = []
+
+    class UnavailableWorker:
+        def __init__(self, **_kwargs):
+            pass
+
+        def start(self):
+            raise RuntimeError("thread unavailable")
+
+        def join(self):
+            pytest.fail("unstarted worker must not be joined")
+
+    monkeypatch.setattr(tool_setup.threading, "Thread", UnavailableWorker)
+    monkeypatch.setattr(tool_setup, "find_tool_executable", lambda name, _: f"/{name}")
+    monkeypatch.setattr(tool_setup, "executable_version", lambda name, _: calls.append(name) or name)
+    assert tool_setup.discover_media_tools({}).complete
+    assert sorted(calls) == sorted(tool_setup.ALL_TOOLS)
+
+
+def test_discovery_worker_error_is_propagated_after_other_probes_finish(monkeypatch):
+    calls = []
+    monkeypatch.setattr(tool_setup, "find_tool_executable", lambda name, _: f"/{name}")
+
+    def version(name, _executable):
+        calls.append(name)
+        if name == "ffprobe":
+            raise ValueError("invalid probe result")
+        return name
+
+    monkeypatch.setattr(tool_setup, "executable_version", version)
+    with pytest.raises(ValueError, match="invalid probe result"):
+        tool_setup.discover_media_tools({})
+    assert sorted(calls) == sorted(tool_setup.ALL_TOOLS)
+
+
 def test_executable_version_handles_absence_errors_stderr_and_ansi(monkeypatch):
     assert tool_setup.executable_version("ffmpeg", None) is None
     monkeypatch.setattr(

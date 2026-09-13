@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -84,13 +85,41 @@ def discover_media_tools(settings: dict[str, Any] | None = None) -> MediaToolSta
         "fpcalc": configured.get("fpcalc bin"),
         "rsgain": configured.get("rsgain bin"),
     }
-    executables: dict[str, str | None] = {}
+    # Resolve paths serially using the existing configured/managed/PATH policy.
+    # Only the independent, read-only version subprocesses overlap; there are
+    # never more than three, and every probe retains its eight-second timeout.
+    candidates = {name: find_tool_executable(name, locations[name]) for name in ALL_TOOLS}
     versions: dict[str, str | None] = {}
+    failures: dict[str, Exception] = {}
+
+    def validate(names: tuple[str, ...]) -> None:
+        for name in names:
+            try:
+                versions[name] = executable_version(name, candidates[name])
+            except Exception as error:
+                failures[name] = error
+
+    workers: list[threading.Thread] = []
+    try:
+        for index in range(3):
+            batch = ALL_TOOLS[index::3]
+            worker = threading.Thread(target=validate, args=(batch,), name="mariana-tool-validation")
+            try:
+                worker.start()
+            except RuntimeError:
+                # A constrained host still gets complete validation. Do not
+                # join an unstarted thread or retry probes already dispatched.
+                validate(batch)
+            else:
+                workers.append(worker)
+    finally:
+        for worker in workers:
+            worker.join()
     for name in ALL_TOOLS:
-        candidate = find_tool_executable(name, locations[name])
-        version = executable_version(name, candidate)
-        executables[name] = candidate if version else None
-        versions[name] = version
+        if name in failures:
+            raise failures[name]
+    versions = {name: versions[name] for name in ALL_TOOLS}
+    executables = {name: candidates[name] if versions[name] else None for name in ALL_TOOLS}
     return MediaToolStatus(executables, versions)
 
 
