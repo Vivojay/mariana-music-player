@@ -10,6 +10,9 @@ from mariana.media_details import (
     extract_year,
     extract_youtube_id,
     flattened_details,
+    format_file_size,
+    format_probed_media_type,
+    normalized_provider_metadata,
     short_filename,
     short_filename_plan,
     trusted_metadata_text,
@@ -98,6 +101,55 @@ def test_flattened_details_summarizes_fingerprint_without_dumping_it():
     assert rows["Chromaprint"].startswith("300 characters")
     rows = dict(flattened_details({"metadata": {}, "loudness": {"track_gain_db": -3.0}}))
     assert "track_gain_db" in rows["ReplayGain"]
+
+
+def test_provider_metadata_is_allowlisted_safe_and_readable():
+    details = normalized_provider_metadata(
+        {
+            "provider": "Youtube",
+            "provider_media_id": "abc12345678",
+            "publisher": "Example Channel",
+            "publisher_id": "UC-example",
+            "published": "2026-09-10",
+            "views": 1_234_567,
+            "likes": "4321",
+            "comments": -1,
+            "reposts": True,
+            "playback_url": "https://signed.test/media?token=secret",
+            "private": "hidden",
+        }
+    )
+
+    assert details == {
+        "provider": "Youtube",
+        "provider_media_id": "abc12345678",
+        "publisher": "Example Channel",
+        "publisher_id": "UC-example",
+        "published": "2026-09-10",
+        "views": 1_234_567,
+        "likes": 4321,
+    }
+    rows = dict(flattened_details({"metadata": details}))
+    assert rows["Provider media ID"] == "abc12345678"
+    assert rows["Publisher ID"] == "UC-example"
+    assert rows["Views"] == "1,234,567"
+    assert "Playback Url" not in rows and "Private" not in rows
+
+
+def test_listing_facts_use_human_sizes_and_probed_container_codec_not_suffix():
+    assert format_file_size(0) == "0 B"
+    assert format_file_size(1023) == "1023 B"
+    assert format_file_size(1536) == "1.5 KiB"
+    assert format_file_size(5 * 1024 * 1024) == "5 MiB"
+    assert format_file_size(-1) == "Unknown"
+    assert format_file_size(True) == "Unknown"
+
+    assert format_probed_media_type("mp3", "mp3") == "MP3"
+    assert format_probed_media_type("matroska,webm", "opus") == "WebM / Opus"
+    assert format_probed_media_type("mov,mp4,m4a,3gp,3g2,mj2", "aac") == "MP4/M4A / AAC"
+    assert format_probed_media_type("ogg", "vorbis") == "Ogg / Vorbis"
+    assert format_probed_media_type("bad\x1b[31m", "") == "Unknown"
+    assert format_probed_media_type(None, None) == "Unknown"
 
 
 def test_library_rename_updates_stable_occurrence_and_media_item(tmp_path):
