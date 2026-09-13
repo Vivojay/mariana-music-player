@@ -1,13 +1,14 @@
+import hashlib
 import json
 import os
-from calendar import timegm
 from datetime import datetime as dt
 from pathlib import Path
 
-import feedparser
 import requests
 
+from mariana.entertainment_catalog import PODCAST_ALIASES
 from mariana.models import podcast_episode_identity
+from mariana.podcast_feeds import MAX_PODCAST_BYTES, PodcastFeedError, parse_podcast_feed
 
 HTTP_TIMEOUT = (5, 30)
 
@@ -18,6 +19,9 @@ HTTP_TIMEOUT = (5, 30)
 # Some predefined podbean podcasts with corresponding links
 vendors = {
   "1001tracklists": "https://feed.podbean.com/tracklists/feed.xml",
+  "bravo_daily_dish": "https://rss.art19.com/the-daily-dish",
+  "bravo_hot_mic": "https://rss.art19.com/bravos-hot-mic-previews",
+  "vanderpump_rules_party": "https://feeds.captivate.fm/vanderpumprulesparty/",
   "podnews": "https://podnews.net/rss",
   "the_daily": "https://feeds.simplecast.com/54nAGcIl",
   "crime_junkie": "https://feeds.simplecast.com/qm_9xx0g",
@@ -28,7 +32,7 @@ vendors = {
   "anything_for_selena": "https://rss.wbur.org/anythingforselena/podcast",
   "midnight_miracle": "https://feeds.megaphone.fm/LM6964003519",
   "storytime_with_seth_rogen": "https://feeds.simplecast.com/ZK9BGVQN",
-  "maintenance_phase": "https://feeds.simplecast.com/ZK9BGVQN",
+  "maintenance_phase": "https://feeds.buzzsprout.com/1411126.rss",
   "a_date_with_dateline": "https://feeds.megaphone.fm/adatewithdateline",
   "down_the_rabbit_hole": "https://feed.podbean.com/downthetrabbitholes/feed.xml",
   "dateline_nbc": "https://podcastfeeds.nbcnews.com/dateline",
@@ -60,6 +64,19 @@ vendors = {
   "the_innerfrench_podcast": "http://podcast.innerfrench.com/feed.xml"
 }
 
+# Hosting platforms do not require separate feed implementations or duplicate programmes.
+vendors.update(PODCAST_ALIASES)
+
+# Older caches for this alias may contain Storytime episodes under the wrong
+# programme name. Revalidate them once; never rebind those episode identities.
+_CORRECTED_FEED_VENDORS = frozenset({"maintenance_phase"})
+
+
+def _feed_cache_identity(rss_link):
+    """Bind cache content to its source without saving a private feed URL."""
+    return hashlib.sha256(rss_link.encode("utf-8")).hexdigest()
+
+
 def refresh_podcast_data(rss_link, output_file, cached=None):
     headers = {"User-Agent": "Mariana/0.7 (+https://github.com/Vivojay/mariana-music-player)"}
     if cached:
@@ -67,51 +84,28 @@ def refresh_podcast_data(rss_link, output_file, cached=None):
             headers["If-None-Match"] = cached["etag"]
         if cached.get("last_modified"):
             headers["If-Modified-Since"] = cached["last_modified"]
-    response = requests.get(rss_link, timeout=HTTP_TIMEOUT, headers=headers)
+    response = requests.get(rss_link, timeout=HTTP_TIMEOUT, headers=headers, stream=True)
     if getattr(response, "status_code", 200) == 304 and cached:
+        if hasattr(response, 'close'):
+            response.close()
         return cached.get("podcasts_raw", [])
-    response.raise_for_status()
-    parsed = feedparser.parse(response.content)
-    if parsed.bozo and not parsed.entries:
-        raise ValueError(f"Invalid podcast feed: {rss_link}")
-
-    podcasts_raw = []
-    for entry in parsed.entries:
-        enclosures = entry.get('enclosures') or []
-        enclosure_url = next(
-            (enclosure.get('href') for enclosure in enclosures if enclosure.get('href')),
-            entry.get('link'),
-        )
-        image = entry.get('image') or {}
-        published_tuple = entry.get('published_parsed') or entry.get('updated_parsed')
-        published_timestamp = timegm(published_tuple) if published_tuple else 0
-        podcast = {
-            'itunes_explicit': entry.get('itunes_explicit'),
-            'itunes_subtitle': entry.get('itunes_subtitle') or entry.get('summary') or '',
-            'itune_image': image.get('href') if isinstance(image, dict) else None,
-            'enclosure_url': enclosure_url,
-            'episode_guid': entry.get('id') or entry.get('guid'),
-            'episode_url': entry.get('link'),
-            'published_date': entry.get('published') or entry.get('updated') or '',
-            'published_timestamp': published_timestamp,
-            'title': entry.get('title') or '[Untitled podcast episode]',
-        }
-        identity = podcast_episode_identity(
-            rss_link,
-            guid=podcast['episode_guid'],
-            episode_url=podcast['episode_url'],
-            enclosure_url=podcast['enclosure_url'],
-            title=podcast['title'],
-            published_timestamp=podcast['published_timestamp'],
-            published=podcast['published_date'],
-        )
-        if identity is not None:
-            podcast['stable_id'], podcast['identity_kind'] = identity
-        podcasts_raw.append(podcast)
+    try:
+        response.raise_for_status()
+        payload = bytearray()
+        chunks = response.iter_content(65536) if hasattr(response, 'iter_content') else [response.content]
+        for chunk in chunks:
+            payload.extend(chunk)
+            if len(payload) > MAX_PODCAST_BYTES:
+                raise PodcastFeedError('Podcast feed exceeds the 8 MiB limit')
+        podcasts_raw = parse_podcast_feed(bytes(payload), rss_link)
+    finally:
+        if hasattr(response, 'close'):
+            response.close()
 
     Path(output_file).parent.mkdir(parents=True, exist_ok=True)
     with open(output_file, 'w', encoding='utf-8') as fp:
         json.dump({"podcasts_raw": podcasts_raw,
+                   "feed_identity": _feed_cache_identity(rss_link),
                    "last_write_date": dt.today().date().strftime('%d-%m-%Y'),
                    "etag": getattr(response, "headers", {}).get("ETag"),
                    "last_modified": getattr(response, "headers", {}).get("Last-Modified")}, fp, indent=3)
@@ -132,11 +126,18 @@ def get_latest_podbean_data(vendor = '', rss_link = None):
         rss_link = vendors.get(vendor)
         if not rss_link: return
         output_file = f'data/podbean_{vendor}.json'
+        expected_feed_identity = _feed_cache_identity(rss_link)
 
         if os.path.isfile(output_file):
             with open(output_file, encoding='utf-8') as fp:
                 try: saved_podcast_data = json.load(fp)
                 except json.decoder.JSONDecodeError: pass
+
+                if saved_podcast_data and (
+                    saved_podcast_data.get("feed_identity", expected_feed_identity) != expected_feed_identity
+                    or (vendor in _CORRECTED_FEED_VENDORS and not saved_podcast_data.get("feed_identity"))
+                ):
+                    saved_podcast_data = None
 
                 try: last_podcast_data_write_date = dt.strptime(saved_podcast_data['last_write_date'], '%d-%m-%Y').date()
                 except Exception: pass
@@ -191,6 +192,11 @@ def get_latest_podbean_data(vendor = '', rss_link = None):
             'title': pod.get('title'),
             'stable_id': identity[0] if identity else None,
             'identity_kind': identity[1] if identity else None,
+            'programme': pod.get('programme'),
+            'creator': pod.get('creator'),
+            'language': pod.get('language'),
+            'duration': pod.get('duration'),
+            'chapters': pod.get('chapters', []),
         })
 
     # Sorting podcasts by date of publish (newest first)

@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 
@@ -6,14 +7,19 @@ import pytest
 import beta.mediadl as mediadl
 import beta.podcasts as podcasts
 from mariana.models import podcast_episode_identity
+from mariana.podcast_feeds import PodcastFeedError
 
 
 class Response:
     def __init__(self, content: bytes):
         self.content = content
+        self.closed = False
 
     def raise_for_status(self):
         return None
+
+    def close(self):
+        self.closed = True
 
 
 def test_refresh_podcast_data_creates_parent_and_normalizes_feed(monkeypatch, tmp_path, fixture_dir):
@@ -21,9 +27,13 @@ def test_refresh_podcast_data_creates_parent_and_normalizes_feed(monkeypatch, tm
     monkeypatch.setattr(podcasts.requests, "get", lambda *_a, **_k: Response(content))
     output = tmp_path / "nested" / "feed.json"
 
-    episodes = podcasts.refresh_podcast_data("https://example.test/feed", output)
+    episodes = podcasts.refresh_podcast_data("https://example.test/feed?token=private-feed-key", output)
 
     assert output.is_file()
+    assert json.loads(output.read_text(encoding="utf-8"))["feed_identity"] == hashlib.sha256(
+        b"https://example.test/feed?token=private-feed-key",
+    ).hexdigest()
+    assert "private-feed-key" not in output.read_text(encoding="utf-8")
     assert episodes[0]["title"] == "Older Episode"
     assert episodes[0]["episode_guid"] == "mariana-test-episode-older"
     assert episodes[0]["identity_kind"] == "guid"
@@ -62,10 +72,60 @@ def test_podcast_guid_identity_survives_enclosure_changes_and_same_titles_are_di
     ) is None
 
 
-def test_refresh_podcast_data_rejects_invalid_feed(monkeypatch, tmp_path):
-    monkeypatch.setattr(podcasts.requests, "get", lambda *_a, **_k: Response(b"not xml"))
-    with pytest.raises(ValueError, match="Invalid podcast feed"):
-        podcasts.refresh_podcast_data("https://example.test/bad", tmp_path / "feed.json")
+@pytest.mark.parametrize("existing_cache", [False, True])
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        (b"not xml", "Podcast feed is malformed"),
+        (b"<rss version='2.0'><channel><title>Articles</title></channel></rss>",
+         "This feed has no supported playable media enclosures"),
+    ],
+)
+def test_refresh_podcast_data_rejects_invalid_feed(monkeypatch, tmp_path, existing_cache, payload, message):
+    response = Response(payload)
+    monkeypatch.setattr(podcasts.requests, "get", lambda *_a, **_k: response)
+    output = tmp_path / "feed.json"
+    saved = '{"podcasts_raw": [{"title": "Previously loaded episode"}]}'
+    if existing_cache:
+        output.write_text(saved, encoding="utf-8")
+
+    with pytest.raises(PodcastFeedError) as error:
+        podcasts.refresh_podcast_data("https://example.test/bad?token=private", output)
+
+    assert str(error.value) == message
+    assert "private" not in str(error.value)
+    assert response.closed
+    if existing_cache:
+        assert output.read_text(encoding="utf-8") == saved
+    else:
+        assert not output.exists()
+
+
+@pytest.mark.parametrize("during_response", [False, True])
+def test_refresh_podcast_data_keeps_provider_failure_distinct_and_preserves_cache(
+    monkeypatch, tmp_path, during_response,
+):
+    response = Response(b"not a successful feed response")
+    failure = podcasts.requests.HTTPError("Provider request rejected")
+    output = tmp_path / "feed.json"
+    saved = '{"podcasts_raw": [{"title": "Previously loaded episode"}]}'
+    output.write_text(saved, encoding="utf-8")
+
+    def reject(*_args, **_kwargs):
+        raise failure
+
+    if during_response:
+        monkeypatch.setattr(response, "raise_for_status", reject)
+        monkeypatch.setattr(podcasts.requests, "get", lambda *_a, **_k: response)
+    else:
+        monkeypatch.setattr(podcasts.requests, "get", reject)
+
+    with pytest.raises(podcasts.requests.HTTPError) as error:
+        podcasts.refresh_podcast_data("https://example.test/feed", output)
+
+    assert error.value is failure
+    assert response.closed is during_response
+    assert output.read_text(encoding="utf-8") == saved
 
 
 def test_podcast_cache_is_reused_and_sorted(monkeypatch, tmp_path):
@@ -85,6 +145,57 @@ def test_podcast_cache_is_reused_and_sorted(monkeypatch, tmp_path):
     assert [item["title"] for item in result] == ["New", "Old"]
     assert all(item["identity_kind"] == "published-metadata" for item in result)
     assert len({item["stable_id"] for item in result}) == 2
+
+
+def test_verified_programme_aliases_have_distinct_feeds():
+    assert podcasts.vendors["maintenance_phase"] == "https://feeds.buzzsprout.com/1411126.rss"
+    assert podcasts.vendors["storytime_with_seth_rogen"] == "https://feeds.simplecast.com/ZK9BGVQN"
+    assert len(set(podcasts.vendors.values())) == len(podcasts.vendors)
+
+
+@pytest.mark.parametrize("bound_old_feed", [False, True])
+@pytest.mark.parametrize("offline", [False, True])
+def test_corrected_programme_never_reuses_wrong_same_day_feed_cache(
+    monkeypatch, tmp_path, fixture_dir, bound_old_feed, offline,
+):
+    cache_path = tmp_path / "data" / "podbean_maintenance_phase.json"
+    cache_path.parent.mkdir()
+    old_cache = {
+        "last_write_date": podcasts.dt.today().strftime("%d-%m-%Y"),
+        "podcasts_raw": [{"title": "Storytime episode", "episode_guid": "storytime-guid", "published_timestamp": 1}],
+    }
+    if bound_old_feed:
+        old_cache["feed_identity"] = hashlib.sha256(
+            podcasts.vendors["storytime_with_seth_rogen"].encode(),
+        ).hexdigest()
+    original = json.dumps(old_cache)
+    cache_path.write_text(original, encoding="utf-8")
+    payload = (fixture_dir / "podcast_feed.xml").read_bytes().replace(
+        b"Mariana Test Feed", b"Maintenance Phase",
+    )
+    calls = []
+    def request(url, **_kwargs):
+        calls.append(url)
+        if offline:
+            raise podcasts.requests.ConnectionError("Provider unavailable")
+        return Response(payload)
+    monkeypatch.setattr(podcasts.requests, "get", request)
+
+    with monkeypatch.context() as cwd:
+        cwd.chdir(tmp_path)
+        if offline:
+            with pytest.raises(podcasts.requests.ConnectionError, match="Provider unavailable"):
+                podcasts.get_latest_podbean_data("maintenance_phase")
+            assert cache_path.read_text(encoding="utf-8") == original
+        else:
+            result = podcasts.get_latest_podbean_data("maintenance_phase")
+            assert [row["title"] for row in result] == ["Newest Episode", "Older Episode"]
+            assert all(row["programme"] == "Maintenance Phase" for row in result)
+            assert json.loads(cache_path.read_text(encoding="utf-8"))["feed_identity"] == hashlib.sha256(
+                podcasts.vendors["maintenance_phase"].encode(),
+            ).hexdigest()
+            assert podcasts.get_latest_podbean_data("maintenance_phase") == result
+    assert calls == [podcasts.vendors["maintenance_phase"]]
 
 
 def test_stale_or_corrupt_podcast_cache_is_refreshed(monkeypatch, tmp_path):
