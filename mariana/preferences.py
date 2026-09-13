@@ -1,4 +1,4 @@
-"""Persistent tri-state media preferences and legacy migration."""
+"""Independent persistent favourites, ratings, block policy and legacy migration."""
 
 from __future__ import annotations
 
@@ -35,6 +35,7 @@ class PreferenceEntry:
     updated_at: float
     source: MediaSource | None = None
     availability: str | None = None
+    rating: int = 0
 
 
 class MediaPreferences:
@@ -43,15 +44,55 @@ class MediaPreferences:
 
     def get(self, media_or_id: MediaRef | str) -> PreferenceState:
         stable_id = media_or_id.stable_id if isinstance(media_or_id, MediaRef) else media_or_id
-        row = self.database.fetchone("SELECT state FROM media_preferences WHERE stable_id=?", (stable_id,))
+        row = self.database.fetchone(
+            "SELECT state, rating FROM media_preferences WHERE stable_id=?", (stable_id,)
+        )
         if row and PreferenceState(row["state"]) == PreferenceState.FAVORITE:
             return PreferenceState.FAVORITE
         return PreferenceState.BLOCKED if self.is_blocked(stable_id) else PreferenceState.NEUTRAL
 
+    def rating(self, media_or_id: MediaRef | str) -> int:
+        """Return the persisted zero-to-five rating (zero means unrated)."""
+        stable_id = media_or_id.stable_id if isinstance(media_or_id, MediaRef) else media_or_id
+        row = self.database.fetchone(
+            "SELECT state, rating FROM media_preferences WHERE stable_id=?", (stable_id,)
+        )
+        if not row:
+            return 0
+        return int(row["rating"] or 0)
+
     def is_favorite(self, media_or_id: MediaRef | str) -> bool:
         stable_id = media_or_id.stable_id if isinstance(media_or_id, MediaRef) else media_or_id
-        row = self.database.fetchone("SELECT state FROM media_preferences WHERE stable_id=?", (stable_id,))
+        row = self.database.fetchone(
+            "SELECT state FROM media_preferences WHERE stable_id=?", (stable_id,)
+        )
         return bool(row and row["state"] == PreferenceState.FAVORITE.value)
+
+    def set_rating(self, media_or_id: MediaRef | str, rating: int) -> bool:
+        """Persist whole stars; zero clears only the rating, never a heart or block."""
+        if isinstance(rating, bool) or not isinstance(rating, int) or not 0 <= rating <= 5:
+            raise ValueError("Rating must be a whole number from 0 to 5")
+        stable_id = media_or_id.stable_id if isinstance(media_or_id, MediaRef) else media_or_id
+        with self.database.transaction() as connection:
+            row = connection.execute(
+                "SELECT rating FROM media_preferences WHERE stable_id=?", (stable_id,)
+            ).fetchone()
+            previous = int(row["rating"] or 0) if row else 0
+            if isinstance(media_or_id, MediaRef):
+                self._upsert_media(connection, media_or_id)
+            if previous != rating:
+                connection.execute(
+                    "INSERT INTO media_preferences(stable_id, state, rating, updated_at) "
+                    "VALUES(?, ?, ?, ?) ON CONFLICT(stable_id) DO UPDATE SET "
+                    "rating=excluded.rating, updated_at=excluded.updated_at",
+                    (
+                        stable_id,
+                        PreferenceState.NEUTRAL.value,
+                        rating,
+                        time.time(),
+                    ),
+                )
+        return previous != rating
 
     def is_blocked(self, media_or_id: MediaRef | str) -> bool:
         stable_id = media_or_id.stable_id if isinstance(media_or_id, MediaRef) else media_or_id
@@ -117,19 +158,28 @@ class MediaPreferences:
             ),
         )
 
+    def remember(self, media: MediaRef) -> None:
+        """Persist a durable media identity without changing its preference state."""
+        with self.database.transaction() as connection:
+            self._upsert_media(connection, media)
+
     def set(self, media_or_id: MediaRef | str, state: PreferenceState | str) -> bool:
-        stable_id = media_or_id.stable_id if isinstance(media_or_id, MediaRef) else media_or_id
         state = PreferenceState(state)
         if state == PreferenceState.BLOCKED:
             return self.set_blocked(media_or_id)
-        previous = self.get(stable_id)
+        stable_id = media_or_id.stable_id if isinstance(media_or_id, MediaRef) else media_or_id
         with self.database.transaction() as connection:
+            row = connection.execute(
+                "SELECT state FROM media_preferences WHERE stable_id=?", (stable_id,)
+            ).fetchone()
+            previous = PreferenceState(row["state"]) if row else PreferenceState.NEUTRAL
             if isinstance(media_or_id, MediaRef):
                 self._upsert_media(connection, media_or_id)
             if previous != state:
                 connection.execute(
-                    "INSERT INTO media_preferences(stable_id, state, updated_at) VALUES(?, ?, ?) "
-                    "ON CONFLICT(stable_id) DO UPDATE SET state=excluded.state, updated_at=excluded.updated_at",
+                    "INSERT INTO media_preferences(stable_id, state, rating, updated_at) "
+                    "VALUES(?, ?, 0, ?) ON CONFLICT(stable_id) DO UPDATE SET "
+                    "state=excluded.state, updated_at=excluded.updated_at",
                     (stable_id, state.value, time.time()),
                 )
         return previous != state
@@ -138,26 +188,43 @@ class MediaPreferences:
         state = PreferenceState(state)
         if state == PreferenceState.BLOCKED:
             return PreferenceState.BLOCKED if self.toggle_blocked(media_or_id) else PreferenceState.NEUTRAL
-        target = PreferenceState.NEUTRAL if self.get(media_or_id) == state else state
+        target = PreferenceState.NEUTRAL if self.is_favorite(media_or_id) else state
         self.set(media_or_id, target)
         return target
 
     def list(self, state: PreferenceState | str, limit: int | None = None) -> list[PreferenceEntry]:
-        state = PreferenceState(state)
-        preference_table = "blocked_media" if state == PreferenceState.BLOCKED else "media_preferences"
-        sql = (
-            "SELECT p.stable_id, p.state, p.updated_at, "
-            "COALESCE(m.source, CASE WHEN f.library_id IS NOT NULL THEN 'local' END) source, "
-            "m.original_uri, m.title, f.canonical_path, f.state availability "
-            f"FROM {preference_table} p LEFT JOIN media_items m ON m.stable_id=p.stable_id "
-            "LEFT JOIN library_files f ON f.library_id=p.stable_id WHERE p.state=? "
-            "ORDER BY p.updated_at DESC, p.stable_id ASC"
-        )
+        return self._list(PreferenceState(state), limit)
+
+    def list_rated(self, limit: int | None = None) -> list[PreferenceEntry]:
+        """List assessments independently of hearts, highest rating first."""
+        return self._list(None, limit)
+
+    def _list(self, state: PreferenceState | None, limit: int | None) -> list[PreferenceEntry]:
         if state == PreferenceState.BLOCKED:
-            sql = sql.replace("p.state,", "'blocked' state,").replace(" WHERE p.state=? ", " ")
+            sql = (
+                "SELECT p.stable_id, 'blocked' state, COALESCE(r.rating, 0) rating, p.updated_at, "
+                "COALESCE(m.source, CASE WHEN f.library_id IS NOT NULL THEN 'local' END) source, "
+                "m.original_uri, m.title, f.canonical_path, f.state availability "
+                "FROM blocked_media p LEFT JOIN media_items m ON m.stable_id=p.stable_id "
+                "LEFT JOIN media_preferences r ON r.stable_id=p.stable_id "
+                "LEFT JOIN library_files f ON f.library_id=p.stable_id "
+                "ORDER BY p.updated_at DESC, p.stable_id ASC"
+            )
             parameters: tuple = ()
         else:
-            parameters = (state.value,)
+            sql = (
+                "SELECT p.stable_id, p.state, p.rating, p.updated_at, "
+                "COALESCE(m.source, CASE WHEN f.library_id IS NOT NULL THEN 'local' END) source, "
+                "m.original_uri, m.title, f.canonical_path, f.state availability "
+                "FROM media_preferences p LEFT JOIN media_items m ON m.stable_id=p.stable_id "
+                "LEFT JOIN library_files f ON f.library_id=p.stable_id "
+            )
+            if state is None:
+                sql += "WHERE p.rating > 0 ORDER BY p.rating DESC, p.updated_at DESC, p.stable_id ASC"
+                parameters = ()
+            else:
+                sql += "WHERE p.state=? ORDER BY p.updated_at DESC, p.stable_id ASC"
+                parameters = (state.value,)
         if limit is not None:
             sql += " LIMIT ?"
             parameters += (max(0, limit),)
@@ -174,6 +241,7 @@ class MediaPreferences:
                 updated_at=row["updated_at"],
                 source=MediaSource(row["source"]) if row["source"] else None,
                 availability=row["availability"],
+                rating=int(row["rating"] or 0),
             )
             for row in self.database.fetchall(sql, parameters)
         ]

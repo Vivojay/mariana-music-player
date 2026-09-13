@@ -1,4 +1,7 @@
+import sqlite3
 from pathlib import Path
+
+import pytest
 
 from mariana.database import MarianaDatabase
 from mariana.models import MediaRef, MediaSource, podcast_episode_identity
@@ -21,6 +24,72 @@ def test_preferences_are_persistent_idempotent_and_listed(tmp_path: Path):
         assert preferences.toggle(media, PreferenceState.BLOCKED) == PreferenceState.BLOCKED
     with MarianaDatabase(path) as database:
         assert MediaPreferences(database).get(media) == PreferenceState.BLOCKED
+
+
+def test_star_ratings_persist_clear_and_remain_independent_from_blocking(tmp_path: Path):
+    path = tmp_path / "state.db"
+    media = MediaRef(
+        MediaSource.LOCAL,
+        str(tmp_path / "song.mp3"),
+        stable_id="rated-song",
+        title="Rated song",
+        provenance="library",
+    )
+    with MarianaDatabase(path) as database:
+        preferences = MediaPreferences(database)
+        assert preferences.rating(media) == 0
+        assert preferences.set_rating(media, 3)
+        assert not preferences.set_rating(media, 3)
+        assert preferences.rating(media) == 3
+        assert not preferences.is_favorite(media)
+        assert preferences.list(PreferenceState.FAVORITE) == []
+        assert preferences.list_rated()[0].rating == 3
+        preferences.set_blocked(media, True)
+        assert preferences.rating(media) == 3
+        assert preferences.is_blocked(media)
+
+    with MarianaDatabase(path) as database:
+        preferences = MediaPreferences(database)
+        assert preferences.rating(media) == 3
+        assert preferences.is_blocked(media)
+        assert preferences.set_rating(media, 0)
+        assert preferences.rating(media) == 0
+        assert preferences.is_blocked(media)
+        assert preferences.list(PreferenceState.FAVORITE) == []
+
+
+@pytest.mark.parametrize("value", [-1, 6, 2.5, True, None])
+def test_star_rating_rejects_non_whole_or_out_of_range_values(tmp_path: Path, value):
+    with MarianaDatabase(tmp_path / "state.db") as database:
+        preferences = MediaPreferences(database)
+        with pytest.raises(ValueError, match="whole number from 0 to 5"):
+            preferences.set_rating("track", value)
+
+
+def test_schema_migration_preserves_hearts_without_inventing_star_assessments(tmp_path: Path):
+    path = tmp_path / "legacy.db"
+    connection = sqlite3.connect(path)
+    connection.executescript(
+        """
+        CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO schema_meta(key, value) VALUES('schema_version', '13');
+        CREATE TABLE media_preferences (
+            stable_id TEXT PRIMARY KEY,
+            state TEXT NOT NULL CHECK(state IN ('favorite', 'neutral', 'blocked')),
+            updated_at REAL NOT NULL
+        );
+        INSERT INTO media_preferences(stable_id, state, updated_at)
+        VALUES('old-favorite', 'favorite', 1), ('old-neutral', 'neutral', 1);
+        """
+    )
+    connection.commit()
+    connection.close()
+
+    with MarianaDatabase(path) as database:
+        preferences = MediaPreferences(database)
+        assert preferences.rating("old-favorite") == 0
+        assert preferences.is_favorite("old-favorite")
+        assert preferences.rating("old-neutral") == 0
 
 
 def test_preference_persists_unqueued_stream_metadata_and_refreshes_it_idempotently(tmp_path: Path):
@@ -50,6 +119,26 @@ def test_preference_persists_unqueued_stream_metadata_and_refreshes_it_idempoten
         assert row and row["title"] == entry.label and row["original_uri"] == media.original_uri
 
 
+def test_remember_persists_media_identity_without_creating_a_preference(tmp_path: Path):
+    path = tmp_path / "state.db"
+    media = MediaRef(
+        MediaSource.URL,
+        "https://sound.example.test/artist/track",
+        title="City",
+        artist="NIKI DEMAR",
+        provenance="extractor",
+    )
+
+    with MarianaDatabase(path) as database:
+        preferences = MediaPreferences(database)
+        preferences.remember(media)
+        assert preferences.get(media) == PreferenceState.NEUTRAL
+
+    with MarianaDatabase(path) as database:
+        restored = MediaPreferences(database).media(media.stable_id)
+        assert restored == media
+
+
 def test_podcast_favorite_can_be_added_removed_and_rebound_after_restart(tmp_path: Path):
     path = tmp_path / "state.db"
     identity = podcast_episode_identity(
@@ -70,8 +159,11 @@ def test_podcast_favorite_can_be_added_removed_and_rebound_after_restart(tmp_pat
 
     with MarianaDatabase(path) as database:
         preferences = MediaPreferences(database)
-        assert preferences.toggle(episode, PreferenceState.FAVORITE) == PreferenceState.FAVORITE
+        assert preferences.set_rating(episode, 4)
+        assert not preferences.is_favorite(episode)
+        assert preferences.set(episode, PreferenceState.FAVORITE)
         assert preferences.is_favorite(episode)
+        assert preferences.rating(episode) == 4
         assert preferences.list(PreferenceState.FAVORITE)[0].label == "Complete episode title"
 
     with MarianaDatabase(path) as database:
@@ -92,7 +184,8 @@ def test_podcast_favorite_can_be_added_removed_and_rebound_after_restart(tmp_pat
             provenance="podcast-feed",
         )
         assert preferences.is_favorite(rediscovered)
-        assert not preferences.set(rediscovered, PreferenceState.FAVORITE)
+        assert preferences.rating(rediscovered) == 4
+        assert not preferences.set_rating(rediscovered, 4)
         rebound = preferences.media(rediscovered.stable_id)
         assert rebound is not None
         assert rebound.source == MediaSource.PODCAST
@@ -100,8 +193,10 @@ def test_podcast_favorite_can_be_added_removed_and_rebound_after_restart(tmp_pat
         assert rebound.provenance == "podcast-feed"
         assert rebound.original_uri == "https://new-cdn.test/reissued.mp3"
         assert rebound.resolver_data == {"podcast_identity_kind": "guid"}
-        assert preferences.toggle(rebound, PreferenceState.FAVORITE) == PreferenceState.NEUTRAL
+        assert preferences.set(rebound, PreferenceState.NEUTRAL)
         assert not preferences.is_favorite(rebound)
+        assert preferences.rating(rebound) == 4
+        assert preferences.set_rating(rebound, 0)
 
 
 def test_orphaned_legacy_preference_labels_internal_id_explicitly(tmp_path: Path):

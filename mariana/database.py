@@ -15,7 +15,7 @@ from typing import Any
 
 from .paths import runtime_paths
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 15
 
 
 SCHEMA = """
@@ -213,12 +213,47 @@ CREATE TABLE IF NOT EXISTS radio_stations (
 CREATE TABLE IF NOT EXISTS media_preferences (
     stable_id TEXT PRIMARY KEY,
     state TEXT NOT NULL CHECK(state IN ('favorite', 'neutral', 'blocked')),
+    rating INTEGER NOT NULL DEFAULT 0 CHECK(rating BETWEEN 0 AND 5),
     updated_at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS blocked_media (
     stable_id TEXT PRIMARY KEY,
     updated_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS tags (
+    tag_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    name_key TEXT NOT NULL UNIQUE,
+    description TEXT,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tag_groups (
+    group_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    name_key TEXT NOT NULL UNIQUE,
+    description TEXT,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tag_group_members (
+    group_id TEXT NOT NULL REFERENCES tag_groups(group_id) ON DELETE CASCADE,
+    tag_id TEXT NOT NULL REFERENCES tags(tag_id) ON DELETE CASCADE,
+    position INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(group_id, tag_id)
+);
+CREATE INDEX IF NOT EXISTS tag_group_members_position_idx
+ON tag_group_members(group_id, position, tag_id);
+CREATE TABLE IF NOT EXISTS media_tags (
+    stable_id TEXT NOT NULL REFERENCES media_items(stable_id) ON DELETE CASCADE,
+    tag_id TEXT NOT NULL REFERENCES tags(tag_id) ON DELETE CASCADE,
+    assignment_source TEXT NOT NULL DEFAULT 'user'
+        CHECK(assignment_source IN ('user', 'embedded', 'provider')),
+    assigned_at REAL NOT NULL,
+    PRIMARY KEY(stable_id, tag_id)
+);
+CREATE INDEX IF NOT EXISTS media_tags_tag_idx ON media_tags(tag_id, stable_id);
+CREATE INDEX IF NOT EXISTS media_tags_media_idx ON media_tags(stable_id, assigned_at);
 CREATE TABLE IF NOT EXISTS media_play_regions (
     stable_id TEXT PRIMARY KEY,
     start_ms INTEGER,
@@ -238,6 +273,28 @@ CREATE TABLE IF NOT EXISTS interaction_events (
     created_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS interactions_stable_idx ON interaction_events(stable_id, created_at);
+CREATE TABLE IF NOT EXISTS playback_events (
+    event_id TEXT PRIMARY KEY,
+    occurred_at REAL NOT NULL,
+    stable_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    action TEXT NOT NULL CHECK(action IN ('play', 'pause', 'seek')),
+    origin TEXT NOT NULL,
+    position_seconds REAL NOT NULL CHECK(position_seconds >= 0),
+    play_kind TEXT CHECK(play_kind IS NULL OR play_kind IN ('start', 'resume')),
+    seek_from_seconds REAL,
+    seek_to_seconds REAL
+);
+CREATE INDEX IF NOT EXISTS playback_events_media_position_idx
+ON playback_events(stable_id, position_seconds, occurred_at);
+CREATE TABLE IF NOT EXISTS playback_resume_positions (
+    stable_id TEXT PRIMARY KEY,
+    position_seconds REAL NOT NULL CHECK(position_seconds >= 0),
+    duration_seconds REAL NOT NULL CHECK(duration_seconds > 0),
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS playback_resume_updated_idx
+ON playback_resume_positions(updated_at DESC);
 CREATE TABLE IF NOT EXISTS recommendation_features (
     stable_id TEXT PRIMARY KEY,
     features_json TEXT NOT NULL,
@@ -394,9 +451,20 @@ class MarianaDatabase:
     def migrate(self) -> None:
         self._connection.executescript(SCHEMA)
         with self.transaction() as connection:
+            preference_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(media_preferences)").fetchall()
+            }
+            if "rating" not in preference_columns:
+                connection.execute(
+                    "ALTER TABLE media_preferences ADD COLUMN rating INTEGER NOT NULL DEFAULT 0 "
+                    "CHECK(rating BETWEEN 0 AND 5)"
+                )
+                # A legacy heart is not a star assessment. Keep the heart and
+                # leave its rating unset. Existing explicit ratings are retained.
             # Schema 8 stored favourite and blocked as mutually exclusive states.
             # Move legacy blocks to their independent policy table so future
-            # favourite changes cannot silently unblock media (or vice versa).
+            # rating changes cannot silently unblock media (or vice versa).
             connection.execute(
                 "INSERT OR IGNORE INTO blocked_media(stable_id, updated_at) "
                 "SELECT stable_id, updated_at FROM media_preferences WHERE state='blocked'"
