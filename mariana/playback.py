@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import math
 import os
@@ -180,7 +181,9 @@ class WindowsJob:
         if not _is_windows():
             return
         try:
-            import win32job
+            # Native APIs are optional and loaded only on the guarded runtime
+            # path; importing playback must also work without pywin32 installed.
+            win32job = importlib.import_module("win32job")
 
             handle = win32job.CreateJobObject(None, "")
             if handle is None:
@@ -199,7 +202,7 @@ class WindowsJob:
     def close(self) -> None:
         if self.handle is not None:
             try:
-                import win32api
+                win32api = importlib.import_module("win32api")
 
                 win32api.CloseHandle(self.handle)
             except Exception:
