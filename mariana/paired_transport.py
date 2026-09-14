@@ -11,6 +11,7 @@ import re
 import secrets
 import socket
 import ssl
+import sys
 import threading
 import time
 from contextlib import suppress
@@ -175,6 +176,10 @@ class PairedServer:
             identity = server_identity(self.identity_path, self.credentials)
             connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             try:
+                # Reopen a stopped POSIX listener despite prior TIME_WAIT peers.
+                # Windows reuse can permit another listener to hijack this port.
+                if sys.platform not in {"win32", "cygwin"}:
+                    connection.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 connection.bind((address, port))
                 connection.listen(MAX_CONNECTIONS)
                 connection.settimeout(0.2)
