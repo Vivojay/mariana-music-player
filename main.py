@@ -88,6 +88,12 @@ from mariana.commands import (
     search_rows,
 )
 from mariana.command_parser import CommandSyntaxError, split_command
+from mariana.collection_transfer import (
+    CollectionTransferError,
+    CollectionTransferService,
+    TransferOperation,
+    parse_transfer_request,
+)
 from mariana.credentials import CredentialError, CredentialStore
 from mariana.database import MarianaDatabase
 from mariana.desktop_control import DesktopControl
@@ -142,6 +148,8 @@ from mariana.seek import SeekSyntaxError, parse_seek_target
 from mariana.sleep_timer import SleepAction, SleepTimer, parse_duration
 from mariana.sources import FailureCode, MediaFailure, ResolvedMedia
 from mariana.station import StationError, StationManager
+from mariana.tag_commands import TagCommandService
+from mariana.tags import TagError, TagStore
 from mariana.station_discovery import StationDiscovery, StationSeedError
 from mariana.setup import SetupStateError, SetupStateStore
 from mariana.tool_setup import discover_media_tools, persist_media_tools, setup_media_tools, executable_version
@@ -630,6 +638,7 @@ lyrics_window_note = "[Please close the lyrics window to continue issuing more c
 current_media_type = None
 _NAVIGATION_CONTEXT: NavigationContext | None = None
 _LAST_SEARCH_CONTEXT: NavigationContext | None = None
+_LAST_TAG_CONTEXT: NavigationContext | None = None
 # Queue steps can each commit a cursor change; bound one CLI request even when
 # repeat mode prevents the queue from ever reaching an end.
 _MAX_QUEUE_NAVIGATION_STEPS = 100
@@ -2150,12 +2159,18 @@ def playlist_command(arguments):
         IPrint(f'Cleared playlist: {playlist.name}', visible=visible)
     elif operation == 'add':
         at, values = _command_option(values, '--at')
-        if len(values) != 3:
-            raise PlaylistError('Usage: playlist add "<name>" media|playlist <reference> [--at <path>]')
+        if len(values) < 3:
+            raise PlaylistError(
+                'Usage: playlist add "<name>" media <reference> [<reference> ...] [--at <path>] '
+                '| playlist add "<name>" album|playlist <reference> [--at <path>]'
+            )
         parent, position = _playlist_insertion(at)
         if values[1].lower() == 'media':
-            playlist = store.add_media(values[0], _media_from_argument(values[2]), parent=parent, position=position)
-        elif values[1].lower() == 'album':
+            playlist = store.add_media_many(
+                values[0], [_media_from_argument(value) for value in values[2:]],
+                parent=parent, position=position,
+            )
+        elif values[1].lower() == 'album' and len(values) == 3:
             album = ALBUMS.fetch(_album_reference(values[2]))
             snapshot = PlaylistStore.snapshot_from_media(
                 [track.media for track in album.tracks if track.media is not None]
@@ -2164,7 +2179,7 @@ def playlist_command(arguments):
                 values[0], snapshot, group_name=album.title, parent=parent, position=position,
                 kind='album', source_ref=album.album_id,
             )
-        elif values[1].lower() == 'playlist':
+        elif values[1].lower() == 'playlist' and len(values) == 3:
             source = store.get(values[2])
             playlist = store.add_snapshot(
                 values[0], source.tree, group_name=source.name, parent=parent, position=position,
@@ -2237,6 +2252,126 @@ def playlist_command(arguments):
     else:
         raise PlaylistError(f'Invalid playlist command: {operation}')
     _emit_queue_desktop_state()
+
+
+def tag_command(arguments):
+    """Use durable tag identities and the standard media-listing presentation."""
+    global _LAST_TAG_CONTEXT
+
+    def resolve_target(reference):
+        if reference == 'current':
+            media = vas.controller.snapshot().media
+            return _preference_media(media) if media is not None else None
+        return _library_media(int(reference))
+
+    service = TagCommandService(
+        TagStore(DATABASE), resolve_target=resolve_target,
+        confirm=lambda message: _confirm_action(message),
+    )
+    if arguments and arguments[0].casefold() in {'play', 'queue'}:
+        operation = arguments[0].casefold()
+        if len(arguments) != 2 or not re.fullmatch(r'[0-9]{1,19}', arguments[1]) or int(arguments[1]) < 1:
+            raise TagError(f'Usage: tag {operation} <tag-result-number>')
+        position = int(arguments[1]) - 1
+        context = _LAST_TAG_CONTEXT
+        if context is None or position not in range(len(context.entries)):
+            raise TagError('Tag result is unavailable; run tag find again')
+        entry = service.resolve_result(context.entries[position])
+        if entry.media is None:
+            raise TagError('Tag result is missing or unavailable')
+        _ensure_media_playable(entry.media)
+        if operation == 'queue':
+            QUEUE.extend([entry.media])
+            _emit_queue_desktop_state()
+            IPrint(f'Queued: {entry.label}', visible=visible)
+        else:
+            if entry.media.source == MediaSource.LOCAL:
+                index = _library_song_index(entry.media.original_uri)
+                if isinstance(index, int) and _library_media(index).stable_id != entry.stable_id:
+                    raise TagError('Library identity changed; run tag find again')
+            _play_navigation_entry(entry)
+            _remember_navigation_context(context.at(position))
+        return entry
+    result = service.execute(arguments)
+    IPrint(result.message, visible=visible)
+    if result.operation == 'find':
+        context = NavigationContext(NavigationScope.RESULTS, result.entries, -1, 'tag results')
+        _LAST_TAG_CONTEXT = context
+        _remember_navigation_context(context, search=True)
+        rows = [(
+            entry.position, _active_media_marker(entry.media),
+            _blocked_label(entry.label, entry.media) if entry.media is not None else entry.label,
+            *_preference_markers(entry.media), *_media_listing_fields(entry.media),
+        ) for entry in result.entries]
+        IPrint(tbl(rows, tablefmt='mysql', headers=('#', 'Now', 'Media', 'Fav', 'Rating', 'Size', 'Media format')), visible=visible)
+        if rows:
+            IPrint('Use tag play N or tag queue N to select one of these bound results.', visible=visible)
+    elif result.media_tags:
+        IPrint(tbl([(item.tag.name, item.assignment_source, item.tag.description or '') for item in result.media_tags],
+                   headers=('Tag', 'Assigned by', 'Description'), tablefmt='mysql'), visible=visible)
+    elif result.tags:
+        IPrint(tbl([(item.name, item.description or '') for item in result.tags],
+                   headers=('Tag', 'Description'), tablefmt='mysql'), visible=visible)
+    if result.groups:
+        IPrint(tbl([(item.name, item.description or '') for item in result.groups],
+                   headers=('Group', 'Description'), tablefmt='mysql'), visible=visible)
+    return result
+
+
+def _bind_transfer_favourite(media):
+    bound = _preference_media(media)
+    status = _favorite_status_projection(bound)
+    if bound is None or not status.available or not status.toggle_enabled:
+        return None, status.unavailable_reason or 'Favourite is unavailable'
+    return bound, None
+
+
+def transfer_command(arguments):
+    """Copy or move ordered selections across playlists and favourites."""
+    request = parse_transfer_request(arguments)
+    service = CollectionTransferService(
+        QUEUE.playlists,
+        PREFERENCES,
+        favourite_binder=_bind_transfer_favourite,
+    )
+    plan = service.plan(request)
+    rows = [
+        (
+            item.source.label,
+            item.source_index,
+            item.media.artist or '',
+            _media_display_label(item.media),
+        )
+        for item in plan.items
+    ]
+    IPrint(
+        tbl(rows, headers=('Source', '#', 'Artist', 'Media'), tablefmt='plain'),
+        visible=visible,
+    )
+    action = request.operation.value.title()
+    summary = (
+        f'{action} {plan.selected_count} item(s) to {request.destination.label}'
+    )
+    if request.dry_run:
+        IPrint(f'Dry run: {summary}; no collections changed.', visible=visible)
+        return plan
+    if request.operation == TransferOperation.MOVE and not _confirm_action(
+        f'{summary} and remove them from their source collections?',
+        assume_yes=request.assume_yes,
+    ):
+        IPrint('Transfer cancelled', visible=visible)
+        return None
+    result = service.apply(plan)
+    revisions = ', '.join(
+        f'{name} revision {revision}' for name, revision in result.playlist_revisions
+    )
+    IPrint(
+        f'{action} complete: {result.selected_count} item(s) -> {result.destination.label}'
+        + (f' ({revisions})' if revisions else ''),
+        visible=visible,
+    )
+    _emit_queue_desktop_state()
+    return result
 
 
 def _album_reference(value):
@@ -4005,7 +4140,8 @@ HELP_GROUPS = (
         'Library',
         'library roots/status/scan/info/verify, reload, rename short, block/unblock, region/regions',
     ),
-    ('Playlists', 'playlist list/create/show/add/remove/move/order/play/queue/import/export'),
+    ('Playlists', 'playlist list/create/show/add/remove/move/order/play/queue/import/export; transfer copy/move'),
+    ('Tags', 'tag help/list/create/attach/detach/show/rename/delete/find/play/queue/group'),
     ('Lyrics', 'lyrics|lyr, lyrics edit|lyr edit, open lyrics'),
     ('Radio', 'radio search/list/play/add/info/metadata/resync/health/leveling'),
     ('Discord Presence', 'discord presence off/app/track/session/status/refresh'),
@@ -4028,7 +4164,15 @@ HELP_EXAMPLES = {
     'Search and online sources': ('find artist title 10', '/ys artist title 5', '/yl <YouTube URL>', '/ml <URL>'),
     'Downloads': ('dl', 'dl --yes', 'download-ya current --yes', 'download-ml <URL> mp3', 'download-ya status'),
     'Library': ('library status', 'library scan changed', 'block 4', 'region show 4', 'regions'),
-    'Playlists': ('playlist list', 'playlist create "Road trip"', 'playlist add "Road trip" media 4'),
+    'Playlists': (
+        'playlist list', 'playlist create "Road trip"', 'playlist add "Road trip" media 4 7',
+        'transfer copy to playlist "Road trip" from favs items 1-3 --dry-run',
+        'transfer move to favs from playlist "Road trip" items all',
+    ),
+    'Tags': (
+        'tag help', 'tag attach current "Late night"', 'tag find --all ambient --not live',
+        'tag play 1', 'tag queue 2', 'tag group create Mood',
+    ),
     'Lyrics': ('lyrics', 'lyrics edit', 'open lyrics'),
     'Radio': ('radio search jazz', 'radio list', 'radio play 1', 'radio metadata'),
     'Discord Presence': ('discord presence status', 'discord presence track', 'discord presence off'),
@@ -4038,6 +4182,8 @@ HELP_EXAMPLES = {
 }
 
 HELP_TOPIC_ALIASES = {
+    'tag': 'Tags',
+    'transfer': 'Playlists',
     'online': 'Search and online sources',
     'details': 'Diagnostics',
     'app': 'Settings',
@@ -8148,6 +8294,18 @@ def process(command):
             try:
                 playlist_command(commandslist[1:])
             except (PlaylistError, QueueError, MediaFailure, ValueError, IndexError) as error:
+                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+
+        elif commandslist[0].lower() == 'tag':
+            try:
+                tag_command(commandslist[1:])
+            except (TagError, ValueError, PlaybackBlockedError) as error:
+                IPrint(str(error), visible=visible)
+
+        elif commandslist[0].lower() == 'transfer':
+            try:
+                transfer_command(commandslist[1:])
+            except (CollectionTransferError, PlaylistError, ValueError, IndexError) as error:
                 SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
 
         elif commandslist[0].lower() == 'album':

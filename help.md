@@ -232,7 +232,8 @@ playback start; saving them does not interrupt or seek the current playback.
 | `playlist clear <name> [y|yes|--yes]` | Confirm and remove all playlist contents |
 | `playlist history <name>` | Show the current and retained playlist revisions |
 | `playlist restore <name> <revision> [--yes]` | Confirm restoring an earlier tree as a new revision; retain the current tree in history |
-| `playlist add <name> media|album|playlist <reference> [--at <path>]` | Add media or an atomic snapshot |
+| `playlist add <name> media <reference> [<reference> ...] [--at <path>]` | Add one or several library indexes, local paths, or media URLs as one playlist revision |
+| `playlist add <name> album|playlist <reference> [--at <path>]` | Add an atomic album or nested-playlist snapshot |
 | `playlist remove <name> <path>` | Remove a node |
 | `playlist move <name> <path> --parent <path|root> [--at N]` | Move a node |
 | `playlist order <name> <strategy> [--group <path>] [--seed N]` | Apply a queue-compatible strategy |
@@ -240,6 +241,10 @@ playback start; saving them does not interrupt or seek the current playback.
 | `playlist queue <name> [--at next|end|N] [--flatten]` | Add a snapshot to the current queue |
 | `playlist import <name> <m3u|m3u8|YouTube-playlist-URL>` | Import a snapshot without modifying its remote source |
 | `playlist export <name> <path.m3u8> [--yes]` | Export canonical references as UTF-8 M3U8; an existing file requires confirmation |
+| `transfer copy to playlist <name> from playlist <name> items <selection> [...]` | Copy ordered selections from one or several playlists in one atomic command |
+| `transfer move to playlist <name> from favs items <selection> [--yes]` | Move favourites to a playlist; destructive moves confirm unless `--yes` is supplied |
+| `transfer copy|move to favs from playlist <name> items <selection> [...]` | Add selections from one or several playlists to favourites; `move` also removes the source rows |
+| `transfer ... --dry-run` | Preview every selected row and destination without changing any collection |
 
 Local M3U/M3U8 imports must be valid UTF-8 (an optional BOM is accepted), at most
 8 MiB, with no more than 5,000 media entries and 64 KiB per line. Tabs and ordinary
@@ -247,10 +252,48 @@ line endings are supported; malformed text or oversized input is rejected before
 any playlist is written. Importing references does not fetch or play them, and a
 missing local file remains an explicit reference rather than being substituted.
 
+Transfer item selections use the one-based row numbers shown by `playlist show <name>`
+or `favs`. Combine indexes and inclusive ranges with commas, such as `1,2,6`,
+`3-5,9`, or use `all`. Each additional source begins with another `from` clause:
+
+```text
+transfer copy to playlist "playlist7" from playlist "playlist1" items 1,2,6 from playlist "playlist4" items 3,9
+transfer move to favs from playlist "playlist1" items 1-3 from playlist "playlist4" items 3,9 --yes
+transfer copy to playlist "Road trip" from favs items 1-5 --dry-run
+```
+
+`copy` leaves every source unchanged. `move` is atomic: either all selected rows move,
+or no collection changes. Use the existing `playlist move` command to reorder nodes
+inside one playlist.
+
 Playlist edits bind the original playlist ID and revision. A concurrent edit or
 rename rejects the stale operation without overwriting newer contents. History
 survives restarts; restore recovers tracks, nesting, and ordering, not an old
 playlist name or description. Deleting a playlist still deletes its history.
+
+## Tags and tag-result playback
+
+`tag` lists definitions; `tag help` explains the complete family. For example:
+
+```text
+tag create "Late night"
+tag attach current "Late night" instrumental
+tag show current
+tag find --all instrumental --not live
+tag play 1
+tag queue 2
+tag detach current instrumental
+tag group create "Quiet music"
+tag group add "Quiet music" ambient instrumental
+tag find --group "Quiet music"
+```
+
+Attach/show targets are the current durable item or a library number. Play/queue
+numbers refer specifically to the last tag result set, bound by media identity.
+They are not interpreted as changing library indexes. Tags do not rewrite media
+files or change ratings/block policy. Deleting an in-use tag requires explicit
+confirmation. See [tags and reusable groups](docs/TAGS.md) for every operation.
+
 
 ## Lyrics
 
