@@ -76,6 +76,7 @@ from mariana.albums import AlbumCatalog, AlbumError
 from mariana.broadcast import BroadcastError, BroadcastState, IcecastBroadcaster
 from mariana.chapters import normalize_chapters
 from mariana.command_catalog import serialize_command_catalog
+from mariana.equalizer import EqualizerService, command_intent as equalizer_command_intent
 from mariana.commands import (
     DOWNLOAD_TYPOS,
     SEARCH_COMMANDS,
@@ -350,6 +351,16 @@ except OSError:
 
 
 SETTINGS = load_user_settings()
+# Serialize EQ settings persistence from terminal and desktop requests.
+_SETTINGS_WRITE_LOCK = threading.RLock()
+
+
+def _persist_equalizer_configuration(value):
+    with _SETTINGS_WRITE_LOCK:
+        # Save a new mapping first; a failed atomic save must not publish live changes.
+        save_user_settings({**SETTINGS, 'equalizer': value}, RUNTIME_PATHS.settings)
+        SETTINGS['equalizer'] = value
+
 YT_query.configure(
     browser_profile=SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile')
 )
@@ -410,6 +421,7 @@ vas.configure(
     play_region_provider=PLAY_REGIONS.get,
 )
 get_lyrics.configure(IDENTITY, vas.controller)
+EQUALIZER = EqualizerService(lambda: vas.controller.equalizer, SETTINGS.get('equalizer'), _persist_equalizer_configuration)
 DESKTOP_CONTROL = DesktopControl()
 DISCORD_PRESENCE = DiscordPresencePublisher(
     _configured_discord_application_id(SYSTEM_SETTINGS)
@@ -623,6 +635,8 @@ def refresh_runtime_configuration(*, show_report=False):
         live_leveling=LIVE_LEVELING_SETTINGS,
         play_region_provider=PLAY_REGIONS.get,
     )
+    if equalizer_service := globals().get('EQUALIZER'):
+        vas.controller.equalizer.submit(vas.controller.equalizer.prepare(equalizer_service.settings))
     IDENTITY.fpcalc_bin = MEDIA_TOOLS.get('fpcalc bin')
     LIBRARY.ffmpeg_bin = MEDIA_TOOLS.get('ffmpeg bin')
     LIBRARY.fpcalc_bin = MEDIA_TOOLS.get('fpcalc bin')
@@ -3547,7 +3561,7 @@ HELP_GROUPS = (
     ('Lyrics', 'lyrics|lyr, lyrics edit|lyr edit, open lyrics'),
     ('Radio', 'radio search/list/play/add/info/metadata/resync/health/leveling'),
     ('Discord Presence', 'discord presence off/app/track/session/status/refresh'),
-    ('Settings', 'theme, desktop close, autoplay|autonext, sleep, youtube auth, replaygain, output device'),
+    ('Settings', 'theme, desktop close, autoplay|autonext, sleep, youtube auth, replaygain, output device, eq status/on/off/band/preamp/reset/preset'),
     (
         'Diagnostics',
         'now, progress, media info/probe/fingerprint/identify/local-match, tools/setup/library status, check_dev',
@@ -3570,7 +3584,7 @@ HELP_EXAMPLES = {
     'Lyrics': ('lyrics', 'lyrics edit', 'open lyrics'),
     'Radio': ('radio search jazz', 'radio list', 'radio play 1', 'radio metadata'),
     'Discord Presence': ('discord presence status', 'discord presence track', 'discord presence off'),
-    'Settings': ('theme list', 'desktop close status', 'autonext status', 'sleep 30m pause fade 5m'),
+    'Settings': ('theme list', 'desktop close status', 'autonext status', 'sleep 30m pause fade 5m', 'eq band 1khz 3', 'eq preset save "Quiet listening"'),
     'Diagnostics': ('now', 'tools status', 'library verify', 'media probe current', 'media local-match current'),
     'Dangerous/destructive commands': ('rm 4', 'playlist delete "Road trip" --yes', 'exit y'),
 }
@@ -3580,6 +3594,27 @@ HELP_TOPIC_ALIASES = {
     'details': 'Diagnostics',
     'app': 'Settings',
 }
+
+
+def eq_command(arguments):
+    """Inspect or change local-listening EQ through the same service as desktop."""
+    intent = equalizer_command_intent(arguments)
+    try:
+        status = EQUALIZER.apply(intent) if intent else EQUALIZER.status()
+    except OSError:
+        raise ValueError('Could not save equalizer settings') from None
+    DESKTOP_CONTROL.emit('equalizer', status)
+    IPrint(f'Equalizer: {"enabled" if status["enabled"] else "bypassed"}; '
+           f'preamp {status["preamp"]:+g} dB; local output only', visible=visible)
+    IPrint(tbl(zip(status['frequencies'], status['bands']), headers=('Hz', 'dB')), visible=visible)
+    IPrint(f'Conservative preamp suggestion: {status["recommended_preamp"]:g} dB (not automatic); '
+           f'overload blocks since reset: {status["overload_blocks"]}', visible=visible)
+    if status['fault'] or status['warning']:
+        IPrint(status['warning'] or 'EQ processing unavailable; playback bypassed', visible=visible)
+    if arguments == ['preset', 'list']:
+        IPrint(tbl([(row['name'], 'Factory' if row['factory'] else 'User') for row in status['presets']],
+                   headers=('Preset', 'Origin')), visible=visible)
+    return status
 
 
 def help_command(arguments):
@@ -4012,6 +4047,23 @@ def _desktop_control_request(action: str, payload: dict[str, object]) -> dict[st
                 ),
             },
         }
+
+    if action in {'equalizer.status', 'equalizer.configure'}:
+        try:
+            if action == 'equalizer.status':
+                if payload:
+                    raise ValueError('Invalid equalizer request')
+                state = EQUALIZER.status()
+            else:
+                if 'revision' not in payload:
+                    raise ValueError('Equalizer revision is required')
+                state = EQUALIZER.apply(payload)
+            DESKTOP_CONTROL.emit('equalizer', state)
+            return {'ok': True}
+        except ValueError as error:
+            return {'ok': False, 'error': str(error)}
+        except Exception:
+            return {'ok': False, 'error': 'Could not update equalizer settings'}
 
     if action == 'playback.seek':
         expected_media_id = payload.get('media_id')
@@ -5428,6 +5480,7 @@ def process(command):
             'discord': discord_command,
             'desktop': desktop_command,
             'theme': theme_command,
+            'eq': eq_command,
             'media': media_command,
             'metadata': lambda values: media_command(['metadata', *values]),
             'rename': rename_command,

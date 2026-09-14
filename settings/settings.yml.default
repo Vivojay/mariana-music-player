@@ -57,6 +57,12 @@ replaygain:
   prevent clipping: true
   analyze missing: true
 
+equalizer:
+  enabled: false
+  bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  preamp: 0
+  presets: {}
+
 library:
   scan mode: staged
   watch: true

@@ -186,6 +186,16 @@ COMMAND_CATALOG = (
     _spec("remove", "rm", CommandCategory.DESTRUCTIVE, "Move indexed media to trash", risk=CommandRisk.DESTRUCTIVE, forms=_forms(arguments=("library-index",), flags=("--yes",))),
     _spec("delete-alias", "del", CommandCategory.DESTRUCTIVE, "Move indexed media to trash", risk=CommandRisk.DESTRUCTIVE, forms=_forms(arguments=("library-index",), flags=("--yes",))),
     _spec("exit", "exit", CommandCategory.DESTRUCTIVE, "Exit Mariana", risk=CommandRisk.STATE_CHANGING, forms=_forms(flags=("--yes",))),
+    _spec("eq", "eq", CommandCategory.SETTINGS, "Inspect local listening equalizer", forms=_forms("status")),
+    _spec("eq.configure", "eq on", CommandCategory.SETTINGS, "Enable local listening equalizer", risk=CommandRisk.STATE_CHANGING),
+    _spec("eq.off", "eq off", CommandCategory.SETTINGS, "Bypass local listening equalizer", risk=CommandRisk.STATE_CHANGING),
+    _spec("eq.band", "eq band", CommandCategory.SETTINGS, "Set a graphic EQ band", risk=CommandRisk.STATE_CHANGING, forms=_forms(arguments=("frequency", "gain-db"))),
+    _spec("eq.preamp", "eq preamp", CommandCategory.SETTINGS, "Set EQ preamp", risk=CommandRisk.STATE_CHANGING, forms=_forms(arguments=("gain-db",))),
+    _spec("eq.reset", "eq reset", CommandCategory.SETTINGS, "Restore flat EQ without changing bypass", risk=CommandRisk.STATE_CHANGING),
+    _spec("eq.preset-list", "eq preset list", CommandCategory.SETTINGS, "List factory and user EQ presets"),
+    _spec("eq.preset-apply", "eq preset apply", CommandCategory.SETTINGS, "Apply a tonal preset", risk=CommandRisk.STATE_CHANGING, forms=_forms(arguments=("preset-name",))),
+    _spec("eq.preset-save", "eq preset save", CommandCategory.SETTINGS, "Save a new user EQ preset", risk=CommandRisk.STATE_CHANGING, forms=_forms(arguments=("preset-name",))),
+    _spec("eq.preset-delete", "eq preset delete", CommandCategory.SETTINGS, "Delete a named user EQ preset", risk=CommandRisk.DESTRUCTIVE, forms=_forms(arguments=("preset-name",))),
 )
 
 
