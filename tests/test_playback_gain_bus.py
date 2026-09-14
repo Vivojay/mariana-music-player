@@ -74,6 +74,21 @@ def test_program_bus_precedes_local_volume_mute_and_sleep_gain():
     remove()
 
 
+def test_boosted_local_volume_does_not_change_the_program_bus():
+    controller = PlaybackController(output_factory=lambda **_kwargs: None)
+    controller._active = Active(finite(), gain=3.0)
+    controller._state = PlaybackState.PLAYING
+    controller.set_volume(200)
+    captured = []
+    controller.add_program_sink(lambda samples, _frames: captured.append(np.array(samples, copy=True)))
+    output = np.empty((4, 2), dtype=np.float32)
+
+    controller._audio_callback(output, 4, None, None)
+
+    assert captured[0] == pytest.approx(np.full((4, 2), 0.75, dtype=np.float32))
+    assert output == pytest.approx(np.full((4, 2), 1.0, dtype=np.float32))
+
+
 def test_paused_program_publishes_silence_and_configuration_is_live():
     profile = LoudnessProfile("song", track_gain_db=-3, track_peak=0.8)
     controller = PlaybackController(

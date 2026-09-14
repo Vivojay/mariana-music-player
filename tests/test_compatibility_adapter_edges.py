@@ -187,8 +187,8 @@ class FacadeController:
             return self.snapshots.pop(0)
         return self.snapshots[0]
 
-    def seek(self, value):
-        self.calls.append(("seek", value))
+    def seek(self, value, *, origin="system"):
+        self.calls.append(("seek", value, origin))
 
     def set_volume(self, value):
         self.calls.append(("volume", value))
@@ -196,8 +196,8 @@ class FacadeController:
     def set_muted(self, value):
         self.calls.append(("mute", value))
 
-    def toggle_pause(self):
-        self.calls.append(("pause",))
+    def toggle_pause(self, *, origin="system"):
+        self.calls.append(("pause", origin))
 
     def restart_live(self):
         self.calls.append(("resync",))
@@ -207,7 +207,7 @@ def test_player_adapter_and_action_errors(monkeypatch):
     snapshot = PlaybackSnapshot(PlaybackState.CROSSFADING, position=2.5, duration=4.25)
     controller = FacadeController([snapshot])
     supervisor = SimpleNamespace(
-        play=lambda media: controller.calls.append(("play", media)),
+        play=lambda media, *, origin="system": controller.calls.append(("play", media, origin)),
         stop=lambda: controller.calls.append(("stop",)),
         close=lambda: controller.calls.append(("close",)),
     )
@@ -228,7 +228,7 @@ def test_player_adapter_and_action_errors(monkeypatch):
     with pytest.raises(UnsupportedAction):
         facade.media_player(action="unknown")
     facade.close()
-    assert ("seek", 1.25) in controller.calls
+    assert ("seek", 1.25, "cli") in controller.calls
     assert ("close",) in controller.calls
 
 

@@ -94,6 +94,24 @@ def test_pcm_scaling_and_crossfade_are_clipped():
     assert list(array("f", mixed)) == pytest.approx([1.0, -1.0])
 
 
+def test_equal_power_crossfade_curve_and_runtime_duration_validation():
+    assert playback._equal_power_crossfade_gains(0) == pytest.approx((1, 0))
+    assert playback._equal_power_crossfade_gains(0.5) == pytest.approx((2 ** -0.5, 2 ** -0.5))
+    assert playback._equal_power_crossfade_gains(1) == pytest.approx((0, 1), abs=1e-12)
+
+    controller = playback.PlaybackController(output_factory=FakeStream)
+    active = object()
+    upcoming = object()
+    controller._active = active
+    controller._next = upcoming
+    assert controller.set_crossfade_seconds(6.5) == 6.5
+    assert controller.crossfade_seconds == 6.5
+    assert controller._active is active and controller._next is upcoming
+    for invalid in (True, -1, 30.1, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="0 to 30"):
+            controller.set_crossfade_seconds(invalid)
+
+
 def test_controller_state_volume_pause_and_rejections(monkeypatch):
     controller = playback.PlaybackController(output_factory=FakeStream)
     media = MediaRef(
@@ -109,6 +127,8 @@ def test_controller_state_volume_pause_and_rejections(monkeypatch):
     assert controller.snapshot().state == PlaybackState.PAUSED
     assert controller.snapshot().volume == 0.25
     assert controller.snapshot().muted
+    controller.set_volume(150)
+    assert controller.snapshot().volume == 1.5
     controller.resume()
     with pytest.raises(playback.UnsupportedAction, match="cannot be seeked"):
         class Active:
@@ -117,8 +137,8 @@ def test_controller_state_volume_pause_and_rejections(monkeypatch):
 
         controller._active = Active()
         controller.seek(10)
-    with pytest.raises(ValueError, match="between 0 and 100"):
-        controller.set_volume(101)
+    with pytest.raises(ValueError, match="between 0 and 200"):
+        controller.set_volume(201)
     controller._active = None
     controller.close()
 

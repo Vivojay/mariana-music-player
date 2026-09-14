@@ -11,6 +11,11 @@ from mariana.toolchain import find_javascript_runtime, find_tool_executable
 
 SUPPORTED_PYTHON = (3, 12)
 SUPPORTED_PLATFORMS = {"win32": "Windows", "darwin": "macOS", "linux": "Linux"}
+PLAYBACK_PREREQUISITE_ERRORS = frozenset({
+    'ffmpeg is required for playback and media inspection.',
+    'ffprobe is required for playback and media inspection.',
+    'The configured FFmpeg executable could not be started.',
+})
 
 
 @dataclass(frozen=True)
@@ -51,6 +56,7 @@ def check_runtime(
     configured_ffmpeg_path: str | None = None,
     configured_fpcalc_path: str | None = None,
     configured_rsgain_path: str | None = None,
+    check_audio_output: bool = True,
 ) -> RuntimeReport:
     errors: list[str] = []
     warnings: list[str] = []
@@ -85,7 +91,7 @@ def check_runtime(
     executables["javascript"] = javascript[1] if javascript else None
     if not javascript:
         warnings.append("No JavaScript runtime was found; install Node 22+ for reliable YouTube extraction.")
-    if not has_audio_output():
+    if check_audio_output and not has_audio_output():
         warnings.append("No usable output device was detected; playback will remain unavailable until one appears.")
     return RuntimeReport(tuple(errors), tuple(warnings), executables)
 

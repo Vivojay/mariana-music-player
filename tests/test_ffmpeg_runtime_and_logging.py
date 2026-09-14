@@ -25,7 +25,8 @@ class Controller:
         self.actions.append("play")
         self.state = PlaybackState.PLAYING
 
-    def toggle_pause(self):
+    def toggle_pause(self, *, origin="system"):
+        assert origin == "cli"
         self.actions.append("pause")
 
     def stop(self):
@@ -42,7 +43,8 @@ class Supervisor:
     def __init__(self, controller):
         self.controller = controller
 
-    def play(self, media):
+    def play(self, media, *, origin="system"):
+        assert origin == "cli"
         self.controller.prepared = media
         self.controller.play()
 
@@ -114,6 +116,25 @@ def test_runtime_report_can_be_fully_supported(monkeypatch):
     assert report.supported is True
     assert report.errors == ()
     assert report.warnings == ()
+
+
+def test_runtime_report_can_defer_audio_probe_to_playback_initialization(monkeypatch):
+    monkeypatch.setattr(runtime_check.sys, "version_info", (3, 12, 1))
+    monkeypatch.setattr(runtime_check.sys, "platform", "win32")
+    monkeypatch.setattr(runtime_check.ctypes, "sizeof", lambda _value: 8)
+    monkeypatch.setattr(runtime_check, "_configured_executable", lambda name, _path=None: f"C:/{name}.exe")
+    monkeypatch.setattr(runtime_check, "inspect_ffmpeg", lambda _path: "ffmpeg version test")
+    monkeypatch.setattr(runtime_check, "find_javascript_runtime", lambda: ("node", "available"))
+    monkeypatch.setattr(
+        runtime_check,
+        "has_audio_output",
+        lambda: pytest.fail("The dedicated playback preflight owns the audio probe"),
+    )
+
+    report = runtime_check.check_runtime(check_audio_output=False)
+
+    assert report.supported is True
+    assert not any("output device" in warning for warning in report.warnings)
 
 
 @pytest.mark.parametrize("style", [0, 1, 2])

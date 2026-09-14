@@ -119,6 +119,94 @@ def test_windows_failed_explicit_route_can_select_live_system_mapper(monkeypatch
     assert explicit.key == fallback.key and explicit.name == fallback.name
 
 
+def test_output_native_route_failure_uses_mapper_without_global_audio_reset(monkeypatch):
+    from mariana import playback
+
+    explicit = OutputDeviceInfo("endpoint", "Speaker", 2, "Speaker", "WASAPI", "endpoint")
+    mapper = OutputDeviceInfo("endpoint", "Speaker", 0, "Mapper", "MME", "endpoint")
+    attempts = []
+
+    def factory(**kwargs):
+        attempts.append(kwargs["device"])
+        if kwargs["device"] == 2:
+            raise OSError("stale explicit route")
+        return Stream(**kwargs)
+
+    monkeypatch.setattr(playback.sounddevice, "OutputStream", factory)
+    monkeypatch.setattr(playback, "default_output_device", lambda **kwargs: mapper if kwargs else explicit)
+    controller = PlaybackController()
+    controller._ensure_output()
+    assert attempts == [2, 0]
+    assert controller.active_output_device == mapper and controller.output_stream_active
+    controller.close()
+
+
+def test_invalidated_old_stream_close_does_not_block_replacement():
+    class Invalidated(Stream):
+        @property
+        def active(self):
+            raise OSError("device status invalidated")
+
+        def stop(self):
+            raise OSError("device invalidated")
+
+    device = OutputDeviceInfo("endpoint", "Speaker", 1, "Speaker", "test")
+    old = Invalidated(device=1)
+    controller = PlaybackController(output_factory=Stream, output_device_provider=lambda: device)
+    controller._stream = old
+    assert not controller.output_stream_active
+    controller.recover_output()
+    assert old.closed
+    assert controller.output_stream_active
+    controller.close()
+
+
+def test_inactive_same_device_stream_is_reopened_on_new_play():
+    device = OutputDeviceInfo("endpoint", "Speaker", 1, "Speaker", "test")
+    controller = PlaybackController(output_factory=Stream, output_device_provider=lambda: device)
+    controller._ensure_output()
+    old = controller._stream
+    old.stop()
+    controller._ensure_output()
+    assert old.closed and controller._stream is not old and controller.output_stream_active
+    controller.close()
+
+
+def test_replacement_start_and_cleanup_failure_preserves_open_error():
+    class Broken(Stream):
+        def start(self):
+            raise OSError("open error")
+
+        def stop(self):
+            raise OSError("cleanup error")
+
+    controller = PlaybackController(output_factory=Broken)
+    with pytest.raises(OSError, match="open error"):
+        controller.recover_output()
+    assert Broken.instances[-1].closed
+    assert not controller.output_stream_active
+    controller.close()
+
+
+def test_native_fallback_does_not_retry_the_same_route(monkeypatch):
+    from mariana import playback
+
+    device = OutputDeviceInfo("endpoint", "Mapper", 0, "Mapper", "MME", "endpoint")
+    attempts = []
+
+    def broken(**kwargs):
+        attempts.append(kwargs["device"])
+        raise OSError("unavailable")
+
+    monkeypatch.setattr(playback.sounddevice, "OutputStream", broken)
+    monkeypatch.setattr(playback, "default_output_device", lambda **_: device)
+    controller = PlaybackController()
+    with pytest.raises(OSError, match="unavailable"):
+        controller.recover_output()
+    assert attempts == [0]
+    controller.close()
+
+
 def test_portaudio_default_is_cross_platform_fallback(monkeypatch):
     audio = AudioBackend(DEVICES, ["MME", "Core Audio"], default_index=2)
     monkeypatch.setattr(output_devices, "_windows_default_endpoint", lambda: None)
@@ -292,6 +380,28 @@ def test_output_stream_replacement_failure_and_noop_paths():
     controller.report_output_error("device unavailable")
     assert controller.snapshot().error == "device unavailable"
     controller._close_output_stream(None)
+
+
+def test_output_recovery_stopped_during_open_does_not_publish_stale_stream():
+    from mariana.playback import PlaybackError
+
+    device = OutputDeviceInfo("device", "Device", 1, "Device", "test")
+    opened = []
+
+    def factory(**kwargs):
+        stream = Stream(**kwargs)
+        opened.append(stream)
+        controller.stop()  # Stop wins while the native open was pending.
+        return stream
+
+    controller = PlaybackController(output_factory=factory, output_device_provider=lambda: device)
+    with pytest.raises(PlaybackError, match="replaced"):
+        controller.recover_output()
+    assert len(opened) == 1
+    assert opened[0].closed and opened[0].stopped
+    assert controller._stream is None
+    assert not controller.output_stream_active
+    controller.close()
 
 
 def test_output_factory_failure_before_stream_creation_and_close_finally():

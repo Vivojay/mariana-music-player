@@ -32,6 +32,8 @@ def configure(
     replaygain=None,
     live_leveling=None,
     play_region_provider=None,
+    playback_event_sink=None,
+    allow_source_recovery=None,
 ):
     global controller, supervisor, radio_catalog
     supervisor.close()
@@ -64,8 +66,9 @@ def configure(
         live_true_peak_dbtp=live_leveling.get("true peak dbtp", -1),
         live_lra=live_leveling.get("lra", 11),
         play_region_provider=play_region_provider,
+        playback_event_sink=playback_event_sink,
     )
-    supervisor = PlaybackSupervisor(controller, resolvers=resolvers)
+    supervisor = PlaybackSupervisor(controller, resolvers=resolvers, allow_source_recovery=allow_source_recovery)
 
 
 def set_youtube_browser_profile(browser_profile=None):
@@ -82,7 +85,7 @@ class PlayerAdapter:
         return int(controller.snapshot().position * 1000)
 
     def set_time(self, value: int) -> None:
-        controller.seek(value / 1000)
+        controller.seek(value / 1000, origin="cli")
 
     def audio_set_volume(self, value: float) -> None:
         controller.set_volume(value)
@@ -150,14 +153,14 @@ def set_media(_type=None, vidurl=None, audurl=None, localpath=None, media=None):
     return current_media.original_uri
 
 
-def media_player(action=None, playing_time=None):
+def media_player(action=None, playing_time=None, *, origin="cli"):
     del playing_time
     if action == "play":
         if current_media is None:
             raise PlaybackError("No media has been prepared")
-        supervisor.play(current_media)
+        supervisor.play(current_media, origin=origin)
     elif action == "pausetoggle":
-        controller.toggle_pause()
+        controller.toggle_pause(origin=origin)
     elif action == "stop":
         supervisor.stop()
     elif action == "resync":
