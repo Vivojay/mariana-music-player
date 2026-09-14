@@ -190,10 +190,13 @@ def test_public_connection_pins_address_but_verifies_original_tls_hostname(monke
     sock = SimpleNamespace(settimeout=lambda seconds: observed.append(("timeout", seconds)), close=lambda: None)
     monkeypatch.setattr(source.socket, "getaddrinfo", lambda *_args, **_kwargs: [(0, 0, 0, "", ("8.8.8.8", 443))])
     monkeypatch.setattr(source.socket, "create_connection", lambda address, **_kwargs: observed.append(address) or sock)
-    monkeypatch.setattr(source.ssl, "create_default_context", lambda: SimpleNamespace(
+    context = SimpleNamespace(
+        minimum_version=None,
         wrap_socket=lambda value, *, server_hostname: observed.append(("tls", server_hostname)) or value,
-    ))
+    )
+    monkeypatch.setattr(source.ssl, "create_default_context", lambda: context)
     connection, target = source._connection("https://provider.example/video?sig=private")
+    assert context.minimum_version == source.ssl.TLSVersion.TLSv1_2
     assert ("8.8.8.8", 443) in observed
     assert ("tls", "provider.example") in observed
     assert connection.host == "provider.example" and connection.sock is sock

@@ -69,7 +69,9 @@ def _connection(url: str) -> tuple[http.client.HTTPConnection, str]:
     sock = socket.create_connection((addresses[0], port), timeout=5)
     try:
         if parsed.scheme == "https":
-            sock = ssl.create_default_context().wrap_socket(sock, server_hostname=parsed.hostname)
+            context = ssl.create_default_context()
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
+            sock = context.wrap_socket(sock, server_hostname=parsed.hostname)
         sock.settimeout(5)
         connection = http.client.HTTPConnection(parsed.hostname, port, timeout=5)
         connection.sock = sock

@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import stat
+import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -78,6 +79,8 @@ def _open_record(path: Path) -> int:
 
 def _windows_remove(path: Path, expected: tuple[int, int, int]) -> bool:
     """Delete the verified file handle, not a subsequently replaced path name."""
+    if sys.platform != "win32":
+        return False
     import ctypes
     import msvcrt
     from ctypes import wintypes

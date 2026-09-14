@@ -311,6 +311,17 @@ def test_recovery_deadline_preserves_unvisited_records(tmp_path, monkeypatch):
     assert record.exists()
 
 
+def test_windows_removal_helper_preserves_files_on_other_platforms(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    window = tmp_path / "retained.mp4"
+    window.write_bytes(b"owned window")
+    expected = cache._identity(window.stat())
+    monkeypatch.setattr(cache, "sys", SimpleNamespace(platform="linux"), raising=False)
+    assert cache._windows_remove(window, expected) is False
+    assert window.read_bytes() == b"owned window"
+
+
 def test_locked_viewer_file_cleanup_can_be_retried(tmp_path, monkeypatch):
     store = cache.VideoWindowCache(tmp_path)
     window = store.allocate()
