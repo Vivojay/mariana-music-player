@@ -92,12 +92,17 @@ def test_stem_service_prepares_selects_exports_and_reuses_cache(tmp_path: Path):
     service.shutdown()
 
 
-def test_stem_service_rejects_live_unknown_and_overlapping_jobs(tmp_path: Path):
+@pytest.mark.parametrize("started", [False, True], ids=["before-initialization", "during-separation"])
+def test_stem_service_rejects_live_unknown_and_overlapping_jobs(tmp_path: Path, monkeypatch, started):
     source = tmp_path / "song.wav"
     source.write_bytes(b"source")
     release = threading.Event()
+    entered = threading.Event()
+    begin = threading.Event()
+    separating = threading.Event()
 
     def runner(_input, output, _model, expected, cancel):
+        separating.set()
         while not release.wait(0.01):
             if cancel.is_set():
                 raise StemError("Stem preparation cancelled")
@@ -110,14 +115,34 @@ def test_stem_service_rejects_live_unknown_and_overlapping_jobs(tmp_path: Path):
         return result
 
     service = StemService(tmp_path / "cache", runner=runner)
+    prepare_job = service._prepare_job
+
+    def controlled_start(*args):
+        entered.set()
+        if not begin.wait(5):
+            raise AssertionError("Preparation was not released")
+        return prepare_job(*args)
+
+    monkeypatch.setattr(service, "_prepare_job", controlled_start)
+    if started:
+        begin.set()
     media = finite_media(source)
     service.prepare(media, StemInput(str(source), {}))
+    assert entered.wait(5)
+    if started:
+        assert separating.wait(5)
     with pytest.raises(StemError, match="already running"):
         service.prepare(media, StemInput(str(source), {}))
     assert service.cancel()
+    begin.set()
     with pytest.raises(StemError, match="cancelled"):
         service.wait(2)
-    assert not any(service.results.iterdir())
+    assert not service.results.exists() or not any(service.results.iterdir())
+    assert service.manifest() is None
+    if started:
+        assert service.results.is_dir()
+    else:
+        assert not service.cache_dir.exists()
 
     live = MediaRef(
         MediaSource.RADIO,
