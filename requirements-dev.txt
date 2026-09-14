@@ -21,7 +21,9 @@ certifi==2026.6.17
     #   requests
     #   yt-dlp
 cffi==2.1.0
-    # via sounddevice
+    # via
+    #   cryptography
+    #   sounddevice
 charset-normalizer==3.4.9
     # via requests
 click==8.4.2
@@ -44,6 +46,8 @@ coverage[toml]==7.15.0
     # via
     #   mutmut
     #   pytest-cov
+cryptography==50.0.1
+    # via -r requirements.in
 cyclonedx-python-lib==11.11.0
     # via pip-audit
 defusedxml==0.7.1

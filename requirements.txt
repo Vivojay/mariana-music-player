@@ -11,7 +11,9 @@ certifi==2026.6.17
     #   requests
     #   yt-dlp
 cffi==2.1.0
-    # via sounddevice
+    # via
+    #   cryptography
+    #   sounddevice
 charset-normalizer==3.4.9
     # via requests
 colorama==0.4.6
@@ -22,6 +24,8 @@ comtypes==1.4.16 ; sys_platform == "win32"
     # via
     #   -r requirements.in
     #   pycaw
+cryptography==50.0.1
+    # via -r requirements.in
 feedparser==6.0.12
     # via -r requirements.in
 idna==3.18
