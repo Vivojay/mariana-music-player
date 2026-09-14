@@ -54,6 +54,7 @@ import json;                                        _boot_progress(12, 'storage'
 import webbrowser;                                  _boot_progress(13, 'web links')
 import tempfile
 from pathlib import Path
+from sqlite3 import Error as SQLiteError
 
 from mariana.tls import enable_system_trust_store
 
@@ -67,7 +68,7 @@ from getpass import getpass;                        _boot_progress(15, 'prompts'
 from url_validate import id_if_url_is_of_yt_format, url_is_valid; _boot_progress(16, 'URL validation')
 from tabulate import tabulate as tbl;               _boot_progress(17, 'tables')
 from ruamel.yaml import YAML;                       _boot_progress(18, 'settings')
-from collections.abc import Iterable;               _boot_progress(19, 'collections')
+from collections.abc import Iterable, Mapping;      _boot_progress(19, 'collections')
 from logger import SAY;                             _boot_progress(20, 'logging')
 from first_boot_welcome_screen import notify;       _boot_progress(21, 'first run')
 from config_manager import load_system_settings, load_user_settings, save_user_settings
@@ -94,7 +95,7 @@ from mariana.library import LibraryCatalog, LibraryError
 from mariana.library_service import LibraryProfilerService
 from mariana.local_match import LocalMatchResult, LocalMatchStatus, LocalMediaMatcher
 from mariana.loudness import LoudnessError, RSGainAnalyzer
-from mariana.media_details import clean_component, flattened_details, short_filename_plan
+from mariana.media_details import clean_component, flattened_details, format_file_size, format_probed_media_type, short_filename_plan
 from mariana.media_removal import MediaRemovalError, MediaRemovalService
 from mariana.models import (
     IdentityStatus,
@@ -842,7 +843,7 @@ def _preference_media(media):
                 MediaSource.LOCAL,
                 info['canonical_path'],
                 stable_id=info['library_id'],
-                title=(info.get('metadata') or {}).get('title'),
+                title=(info.get('metadata') or {}).get('title') or media.title,
                 artist=(info.get('metadata') or {}).get('artist'),
                 album=(info.get('metadata') or {}).get('album'),
                 duration=(info.get('metadata') or {}).get('duration') or media.duration,
@@ -875,6 +876,219 @@ def _ensure_media_playable(media):
 
 def _blocked_label(value, media):
     return f'{value} [Blocked]' if _is_media_blocked(media) else value
+
+
+def _media_rating(media):
+    """Return a bounded rating while accepting pre-rating preference doubles."""
+    bound = _preference_media(media)
+    if bound is None:
+        return 0
+    if rating_getter := getattr(PREFERENCES, 'rating', None):
+        try:
+            return min(5, max(0, int(rating_getter(bound))))
+        except (TypeError, ValueError):
+            return 0
+    return 0
+
+
+def _is_media_favorite(media):
+    bound = _preference_media(media)
+    if bound is None:
+        return False
+    if checker := getattr(PREFERENCES, 'is_favorite', None):
+        return bool(checker(bound))
+    getter = getattr(PREFERENCES, 'get', None)
+    return bool(getter and getter(bound) == PreferenceState.FAVORITE)
+
+
+def _favorite_marker(media):
+    """Return a heart only for a saved favourite, independently of stars."""
+    return '♥' if _is_media_favorite(media) else ''
+
+
+def _preference_markers(media):
+    return _favorite_marker(media), '★' * _media_rating(media)
+
+
+_ACTIVE_LISTING_STATES = {
+    PlaybackState.RESOLVING,
+    PlaybackState.BUFFERING,
+    PlaybackState.PLAYING,
+    PlaybackState.PAUSED,
+    PlaybackState.SEEKING,
+    PlaybackState.CROSSFADING,
+}
+
+
+def _active_media_marker(media):
+    """Mark a listed item only when it is the authoritative active media."""
+    if media is None:
+        return ''
+    try:
+        snapshot = vas.controller.snapshot()
+    except (AttributeError, RuntimeError):
+        return ''
+    active = getattr(snapshot, 'media', None)
+    if active is None or getattr(snapshot, 'state', None) not in _ACTIVE_LISTING_STATES:
+        return ''
+    if active.stable_id == media.stable_id:
+        return '▶'
+    if active.source == media.source == MediaSource.RADIO:
+        active_station = active.resolver_data.get('station_id')
+        listed_station = media.resolver_data.get('station_id')
+        if active_station and active_station == listed_station:
+            return '▶'
+    return ''
+
+
+def _media_listing_fields(media):
+    """Return path-free size/type columns for an available local media item."""
+    if media is None or media.source != MediaSource.LOCAL:
+        return '', ''
+    info = None
+    lookup = getattr(LIBRARY, 'info', None)
+    if callable(lookup):
+        for reference in (media.stable_id, media.original_uri):
+            if not reference:
+                continue
+            try:
+                info = lookup(reference)
+            except (OSError, RuntimeError, SQLiteError, TypeError, ValueError):
+                info = None
+            if isinstance(info, Mapping):
+                break
+    if isinstance(info, Mapping) and info.get('state') not in (None, 'available'):
+        return 'Unavailable', 'Unknown'
+    metadata = info.get('metadata') if isinstance(info, Mapping) else None
+    metadata = metadata if isinstance(metadata, Mapping) else {}
+    size = info.get('size') if isinstance(info, Mapping) else None
+    if size is None:
+        try:
+            size = Path(media.original_uri).stat().st_size
+        except (OSError, RuntimeError, ValueError):
+            pass
+    return (
+        format_file_size(size),
+        format_probed_media_type(metadata.get('format'), metadata.get('codec')),
+    )
+
+
+_LISTING_ORDER_OPTIONS = frozenset({'o', 'desc'})
+
+
+def _listing_selector(arguments):
+    """Return the non-ordering portion of a list/recents command."""
+    return [value for value in arguments if value.casefold() not in _LISTING_ORDER_OPTIONS]
+
+
+def _listing_range(arguments):
+    """Return an inclusive, one-based numeric listing range when one was supplied."""
+    selector = ' '.join(_listing_selector(arguments)).strip()
+    match = re.fullmatch(r'(\d+)\s*-\s*(\d+)', selector)
+    return (int(match.group(1)), int(match.group(2))) if match else None
+
+
+def _listing_regex(arguments):
+    """Compile a case-insensitive title filter, including the all/* conveniences."""
+    selector = ' '.join(_listing_selector(arguments)).strip()
+    if selector.casefold() in {'all', '*'}:
+        selector = '.*'
+    if not selector:
+        return None
+    if len(selector) > 512:
+        raise ValueError('List pattern must be 512 characters or fewer')
+    try:
+        return re.compile(selector, re.IGNORECASE)
+    except re.error as error:
+        raise ValueError(f'Invalid list regular expression: {error.msg}') from error
+
+
+def _media_display_label(media: MediaRef | None, fallback: str | None = None) -> str:
+    """Resolve a local display label without changing stored or playback identity."""
+    if label := sanitize_presence_text(getattr(media, 'title', None)):
+        return label
+    candidates = []
+    if media is not None and media.source == MediaSource.LOCAL:
+        try:
+            info = LIBRARY.info(media.original_uri or media.stable_id)
+            if info is None and media.original_uri and media.stable_id != media.original_uri:
+                info = LIBRARY.info(media.stable_id)
+        except (OSError, RuntimeError, SQLiteError, TypeError, ValueError):
+            info = None
+        if info:
+            candidates.append((info.get('metadata') or {}).get('title'))
+            path = info.get('canonical_path')
+            if info.get('state') == 'available' and isinstance(path, str) and info.get('library_id'):
+                candidates.append(Path(path).stem)
+        candidates.append(media.resolver_data.get('library_display_title'))
+    candidates.append(fallback)
+    for candidate in candidates:
+        if label := sanitize_presence_text(candidate):
+            return label
+    if media is None:
+        return 'Media'
+    return {
+        MediaSource.LOCAL: 'Local media',
+        MediaSource.YOUTUBE: 'YouTube media',
+        MediaSource.URL: 'Online media',
+        MediaSource.PODCAST: 'Podcast',
+        MediaSource.RADIO: 'Internet radio',
+        MediaSource.RECOMMENDATION: 'Recommended media',
+    }.get(media.source, 'Media')
+
+
+def _scoped_search_media_label(media: MediaRef | None, fallback: str | None = None) -> str:
+    """Use the shared display policy for collection search and navigation."""
+    return _media_display_label(media, fallback)
+
+
+def _preference_search_media(entry):
+    """Recover stored preference media without requiring it to be playable."""
+    media = PREFERENCES.media(entry.stable_id)
+    if entry.source == MediaSource.LOCAL and entry.uri:
+        try:
+            local = _preference_media(
+                MediaRef(
+                    MediaSource.LOCAL,
+                    entry.uri,
+                    stable_id=entry.stable_id,
+                    title=media.title if media else None,
+                    artist=media.artist if media else None,
+                    album=media.album if media else None,
+                    duration=media.duration if media else None,
+                    capabilities=media.capabilities if media else MediaCapabilities(downloadable=False),
+                    resolver_data=dict(media.resolver_data) if media else {},
+                    chapters=list(media.chapters) if media else [],
+                    provenance=media.provenance if media else 'library',
+                )
+            )
+        except (OSError, RuntimeError, TypeError, ValueError):
+            local = None
+        media = local or media
+    elif media is None and entry.source is not None and entry.uri:
+        media = MediaRef(
+            entry.source,
+            entry.uri,
+            stable_id=entry.stable_id,
+            title=entry.label,
+            provenance='saved-preference',
+        )
+    return media
+
+
+def _recent_listing_fields(index):
+    """Return active/favourite/local facts for one reverse-chronological recent entry."""
+    try:
+        _play_type, media_player, identity = RECENTS_QUEUE[::-1][index]
+        if media_player != -1 or not isinstance(identity, (list, tuple)) or len(identity) < 2:
+            return '', '', '', '', ''
+        path = identity[1]
+        if not isinstance(path, str):
+            return '', '', '', '', ''
+        media = _preference_media(MediaRef(MediaSource.LOCAL, path))
+        return _active_media_marker(media), *_preference_markers(media), *_media_listing_fields(media)
+    except (IndexError, TypeError, ValueError):
+        return '', '', '', '', ''
 
 
 def _library_media(index):
@@ -4210,7 +4424,7 @@ def _navigate_active_queue(command, offset):
     library_index = _library_song_index(target.media.original_uri)
     position_label = library_index if library_index != 'N/A' else f'queue {target_position + 1}'
     title = _blocked_label(
-        target.media.title or ('Local media' if target.media.source == MediaSource.LOCAL else 'Media'),
+        _media_display_label(target.media),
         target.media,
     )
     IPrint(
