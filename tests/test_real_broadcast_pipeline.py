@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from mariana.broadcast import BroadcastProfile, BroadcastState, IcecastBroadcaster
+from mariana.broadcast import BroadcastProfile, BroadcastState, IcecastBroadcaster, ProgramRing
 
 
 def tool(name: str) -> str | None:
@@ -100,10 +100,12 @@ def test_real_broadcast_encodes_decodable_normalized_program_mix(tmp_path, codec
     frames = np.arange(48_000, dtype=np.float32)
     tone = (0.2 * np.sin(2 * np.pi * 440 * frames / 48_000)).astype(np.float32)
     stereo = np.column_stack((tone, tone))
-    for offset in range(0, len(stereo), 1024):
-        block = stereo[offset : offset + 1024]
-        broadcaster.offer(block, len(block))
-        time.sleep(len(block) / 48_000)
+    # Queue the complete one-second fixture in one offer. Sleeping between
+    # blocks at the encoder's keepalive timeout can inject silence into the
+    # tone on a loaded runner and turn this codec check into a scheduler test.
+    # ProgramRing splits the signal into bounded blocks without changing PCM.
+    broadcaster.offer(stereo, len(stereo))
+    assert broadcaster.snapshot().dropped_blocks == 0
     time.sleep(0.5)
     broadcaster.stop()
     thread.join(10)
@@ -146,3 +148,24 @@ def test_dominant_tone_frequency_ignores_capture_silence_and_short_boundaries():
     capture = np.concatenate((np.zeros(8_137, dtype=np.float32), tone, np.zeros(12_421, dtype=np.float32)))
 
     assert dominant_tone_frequency(capture, sample_rate) == pytest.approx(440, abs=1)
+
+
+@pytest.mark.parametrize("frequency", [400, 433.23, 440, 470])
+def test_tone_measurement_retains_actual_source_pitch(frequency):
+    sample_rate = 48_000
+    frames = np.arange(sample_rate, dtype=np.float64)
+    tone = (0.2 * np.sin(2 * np.pi * frequency * frames / sample_rate)).astype(np.float32)
+    assert dominant_tone_frequency(tone, sample_rate) == pytest.approx(frequency, abs=1)
+
+
+def test_one_second_broadcast_fixture_fits_ring_without_dropping_or_inserting_pcm():
+    frames = np.arange(48_000, dtype=np.float64)
+    tone = (0.2 * np.sin(2 * np.pi * 440 * frames / 48_000)).astype(np.float32)
+    stereo = np.column_stack((tone, tone))
+    ring = ProgramRing()
+    ring.write(stereo, len(stereo))
+    blocks = []
+    while (block := ring.read(timeout=0)) is not None:
+        blocks.append(block)
+    assert ring.dropped == 0
+    assert b"".join(blocks) == stereo.tobytes()
