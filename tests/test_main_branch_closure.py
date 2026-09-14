@@ -618,11 +618,11 @@ def test_managed_roots_prefetch_and_completion_policy_branches(monkeypatch, tmp_
     station = SimpleNamespace(mark_played=lambda media: events.append(("station", media)))
     monkeypatch.setattr(main, "RECOMMENDER", recommender)
     monkeypatch.setattr(main, "STATION", station)
-    monkeypatch.setattr(main, "QUEUE", SimpleNamespace(current=lambda: None))
+    monkeypatch.setattr(main, "QUEUE", SimpleNamespace(current=lambda: None, state=lambda: {"repeat_mode": "off"}))
     main._on_queue_item_complete(finite)
 
     monkeypatch.setattr(main, "AUTOPLAY_ENABLED", False)
-    monkeypatch.setattr(main, "QUEUE", SimpleNamespace(current=lambda: current))
+    monkeypatch.setattr(main, "QUEUE", SimpleNamespace(current=lambda: current, state=lambda: {"repeat_mode": "off"}))
     main._on_queue_item_complete(finite)
 
     monkeypatch.setattr(main, "AUTOPLAY_ENABLED", True)

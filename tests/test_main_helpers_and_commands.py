@@ -540,6 +540,74 @@ def test_seek_progress_and_status_command_families(monkeypatch):
     assert "Progress" in rendered
 
 
+def test_completed_reset_defaults_paused_while_dot_reset_resumes(monkeypatch):
+    media = main.MediaRef(main.MediaSource.LOCAL, "C:/Music/finished.mp3", title="Finished", duration=223)
+    current = {
+        "snapshot": PlaybackSnapshot(
+            PlaybackState.IDLE,
+            media=media,
+            position=223,
+            duration=223,
+        ),
+    }
+    seeks = []
+    resumes = []
+
+    monkeypatch.setattr(main.vas.controller, "snapshot", lambda: current["snapshot"])
+    monkeypatch.setattr(main, "_library_song_index", lambda _path: 7)
+
+    def seek(value=None, **_kwargs):
+        seeks.append(value)
+        current["snapshot"] = PlaybackSnapshot(
+            PlaybackState.PAUSED,
+            media=media,
+            position=0,
+            duration=223,
+        )
+        return True
+
+    def resume(*, origin="system"):
+        resumes.append(origin)
+        current["snapshot"] = PlaybackSnapshot(
+            PlaybackState.PLAYING,
+            media=media,
+            position=0,
+            duration=223,
+        )
+
+    monkeypatch.setattr(main, "song_seek", seek)
+    monkeypatch.setattr(main.vas.controller, "resume", resume)
+    monkeypatch.setattr(main, "currentsong_length", 223)
+
+    assert main.reset_playback() is True
+    assert seeks == ["0"]
+    assert resumes == []
+    assert main.isplaying is False
+    assert main.currentsong == media.original_uri
+
+    current["snapshot"] = PlaybackSnapshot(
+        PlaybackState.IDLE,
+        media=media,
+        position=223,
+        duration=223,
+    )
+    assert main.reset_playback(start_playing=True) is True
+    assert seeks == ["0", "0"]
+    assert resumes == ["cli"]
+    assert main.isplaying is True
+
+
+def test_reset_and_dot_reset_dispatch_to_the_distinct_modes(monkeypatch):
+    modes = []
+    monkeypatch.setattr(main, "reset_playback", lambda *, start_playing=False: modes.append(start_playing) or True)
+    monkeypatch.setattr(main, "isplaying", False)
+
+    main.process("reset")
+    main.process(".reset")
+
+    assert modes == [False, True]
+
+
 def test_create_files_save_user_data_and_run_lifecycle(monkeypatch, tmp_path):
     user = playback_user_data()
     user["default_user_data"]["stats"]["play_count"].update(local=2, radio=1, general=3, youtube=4, redditsession=5)

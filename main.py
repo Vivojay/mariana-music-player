@@ -72,6 +72,7 @@ from collections.abc import Iterable, Mapping;      _boot_progress(19, 'collecti
 from logger import SAY;                             _boot_progress(20, 'logging')
 from first_boot_welcome_screen import notify;       _boot_progress(21, 'first run')
 from config_manager import load_system_settings, load_user_settings, save_user_settings
+from mariana import playback_diagnostics
 from mariana.albums import AlbumCatalog, AlbumError
 from mariana.broadcast import BroadcastError, BroadcastState, IcecastBroadcaster
 from mariana.chapters import normalize_chapters
@@ -104,6 +105,7 @@ from mariana.models import (
     MediaChapter,
     MediaRef,
     MediaSource,
+    PlaybackSnapshot,
     PlaybackState,
     QueueStrategy,
     canonical_uri,
@@ -387,6 +389,12 @@ LIVE_LEVELING_SETTINGS = {
     **DATABASE.get_state('radio_live_leveling', {}),
 }
 QUEUE = PersistentQueue(DATABASE)
+_LOOP_LOCK = threading.RLock()
+_LOOP_OVERRIDE = {
+    'mode': 'off',
+    'media_id': None,
+    'title': None,
+}
 RADIO = RadioCatalog(DATABASE)
 IDENTITY = IdentificationService(
     DATABASE,
@@ -1324,9 +1332,129 @@ def _advance_queue_to_playable(*, previous=False):
     return None
 
 
+def _record_queue_history(media):
+    """Record a committed automatic start, not a prefetch, retry, or seek."""
+    projection = project_playback_status(PlaybackSnapshot(PlaybackState.PLAYING, media=media))
+    try:
+        SAY(
+            visible=False, log_priority=3, format_style=0,
+            out_file=RUNTIME_PATHS.logs / 'history.log',
+            log_message=projection.title or 'Media',
+        )
+    except OSError:
+        playback_diagnostics.record(2, 'history.write_failed')
+
+
+def _record_successful_start(media):
+    """Record one successful start with enough identity for durable history actions."""
+    try:
+        PREFERENCES.remember(media)
+    except Exception:
+        playback_diagnostics.record(2, 'history.identity_write_failed')
+    RECOMMENDER.record_event(media, 'start')
+
+
+def _set_loop_override(mode='off', media=None):
+    """Publish an identity-bound finite loop override without touching queue contents."""
+    if mode not in {'off', 'once', 'infinite'}:
+        raise ValueError(f'Unknown loop mode: {mode}')
+    if mode != 'off' and media is None:
+        raise ValueError('Looping requires current media')
+    with _LOOP_LOCK:
+        _LOOP_OVERRIDE.update(
+            mode=mode,
+            media_id=media.stable_id if media is not None else None,
+            title=(media.title or 'Current media') if media is not None else None,
+        )
+
+
+def _consume_loop_override(media):
+    """Return whether completion should replay, consuming a one-time override."""
+    with _LOOP_LOCK:
+        if _LOOP_OVERRIDE['media_id'] != media.stable_id:
+            return False
+        mode = _LOOP_OVERRIDE['mode']
+        if mode == 'once':
+            _LOOP_OVERRIDE.update(mode='off', media_id=None, title=None)
+        return mode in {'once', 'infinite'}
+
+
+def _loop_replay_requested(media):
+    """Resolve explicit loop state and repeat-one for media outside the queue."""
+    snapshot = vas.controller.snapshot()
+    active = snapshot.media
+    if (
+        active is None or active.stable_id != media.stable_id
+        or snapshot.state not in {PlaybackState.IDLE, PlaybackState.PLAYING, PlaybackState.CROSSFADING}
+    ):
+        return False
+    if _consume_loop_override(media):
+        return True
+    if QUEUE.state().get('repeat_mode') != 'one':
+        return False
+    current = QUEUE.current()
+    if current is not None and current.media.stable_id == media.stable_id:
+        return False
+    _set_loop_override('infinite', media)
+    return True
+
+
+def _loop_status():
+    """Return a URL-free loop projection synchronized with queue repeat-one."""
+    try:
+        active = vas.controller.snapshot().media
+    except Exception:
+        active = None
+    with _LOOP_LOCK:
+        if (
+            _LOOP_OVERRIDE['mode'] != 'off'
+            and (active is None or active.stable_id != _LOOP_OVERRIDE['media_id'])
+        ):
+            _LOOP_OVERRIDE.update(mode='off', media_id=None, title=None)
+        override = dict(_LOOP_OVERRIDE)
+    queue_repeat = QUEUE.state().get('repeat_mode', 'off')
+    mode = override['mode']
+    if mode == 'off' and queue_repeat == 'one':
+        mode = 'infinite'
+    title = override['title'] or (active.title if active is not None else None) or 'Current media'
+    return {
+        'mode': mode,
+        'remaining': 1 if mode == 'once' else None,
+        'title': title if mode != 'off' else None,
+        'queue_repeat': queue_repeat,
+    }
+
+
+def _replay_completed_media(media):
+    """Replay one completed identity without changing or duplicating the queue."""
+    _ensure_media_playable(media)
+    current = QUEUE.current()
+    if current is not None and current.media.stable_id == media.stable_id:
+        snapshot = vas.controller.snapshot()
+        if (
+            snapshot.media is not None and snapshot.media.stable_id == media.stable_id
+            and snapshot.state in {PlaybackState.PLAYING, PlaybackState.CROSSFADING}
+        ):
+            _set_current_media_state(snapshot.media)
+            _record_queue_history(snapshot.media)
+            _record_successful_start(snapshot.media)
+            _prefetch_after(current)
+        else:
+            _play_queue_item(current)
+        return
+    vas.supervisor.play(media, origin='automatic')
+    _set_current_media_state(media)
+    _record_queue_history(media)
+    _show_local_copy_hint(media)
+    _record_successful_start(media)
+
+
 def _on_queue_item_complete(media):
     RECOMMENDER.record_event(media, 'completion')
     STATION.mark_played(media)
+    if _loop_replay_requested(media):
+        _replay_completed_media(media)
+        return
     current = QUEUE.current()
     if current is None or current.media.stable_id != media.stable_id:
         RECOMMENDER.retrain_if_due()
@@ -1746,7 +1874,15 @@ def queue_command(arguments):
             raise QueueError('Usage: queue dedupe identity|uri')
         IPrint(f'Removed {QUEUE.dedupe(arguments[1].lower())} duplicate queue item(s)', visible=visible)
     elif operation == 'repeat':
-        QUEUE.set_repeat(arguments[1].lower())
+        if len(arguments) != 2:
+            raise QueueError('Usage: queue repeat off|one|all')
+        repeat_mode = arguments[1].lower()
+        if repeat_mode not in {'off', 'one', 'all'}:
+            raise QueueError(f'Unknown repeat mode: {repeat_mode}')
+        _set_loop_override()
+        QUEUE.set_repeat(repeat_mode)
+        vas.controller.clear_prefetch()
+        IPrint(f'Queue repeat: {repeat_mode}', visible=visible)
     elif operation == 'consume':
         QUEUE.set_consume(arguments[1].lower() in {'on', 'true', '1'})
     elif operation == 'autofill':
@@ -3599,7 +3735,7 @@ def recycle_library_media(arguments):
 
 HELP_GROUPS = (
     ('Getting started', 'help <topic>, all, ls, <number>, now, progress'),
-    ('Playback', 'play <number>, pause, stop, next, prev, mute, volume, autonext'),
+    ('Playback', 'play <number>, pause, stop, next, prev, mute, volume, autonext, loop status/once/infinite/off, reset, .reset, restart'),
     ('Seek and fade', 'seek <time>, fade in/out, fade to <volume>, fade from <v1> to <v2>'),
     ('Queue', 'queue list/tree/add/insert/remove/move/jump/order/repeat/reset, queue ys|youtube'),
     ('Search and online sources', 'find/rfind/lfind, /ys, /yl, /ml, album, station, pod/pods, /rss'),
@@ -3625,7 +3761,7 @@ HELP_GROUPS = (
 
 HELP_EXAMPLES = {
     'Getting started': ('all', '1', 'now', 'help playback'),
-    'Playback': ('play 4', 'p', '+', 'autonext on'),
+    'Playback': ('play 4', 'p', '+', 'autonext on', 'loop once', 'reset', '.reset', 'restart'),
     'Seek and fade': ('seek +30s', 'seek 50%', 'fade out 10', 'fade from 20 to 80 in 6'),
     'Queue': ('queue add 4', 'queue ys "artist title" 5', '/ysq "artist title"', 'queue next'),
     'Search and online sources': ('find artist title 10', '/ys artist title 5', '/yl <YouTube URL>', '/ml <URL>'),
@@ -3666,6 +3802,70 @@ def eq_command(arguments):
         IPrint(tbl([(row['name'], 'Factory' if row['factory'] else 'User') for row in status['presets']],
                    headers=('Preset', 'Origin')), visible=visible)
     return status
+
+
+def loop_command(arguments):
+    """Inspect or configure finite current-media looping."""
+    operation = arguments[0].casefold() if arguments else 'status'
+    operation = {
+        '1': 'once',
+        'on': 'infinite',
+        'forever': 'infinite',
+    }.get(operation, operation)
+    if len(arguments) > 1 or operation not in {'status', 'once', 'infinite', 'off'}:
+        raise ValueError('Usage: loop [status|once|infinite|off]')
+
+    if operation == 'off':
+        _set_loop_override()
+        if QUEUE.state().get('repeat_mode') == 'one':
+            QUEUE.set_repeat('off')
+    elif operation in {'once', 'infinite'}:
+        snapshot = vas.controller.snapshot()
+        media = snapshot.media
+        if media is None or snapshot.state in {PlaybackState.IDLE, PlaybackState.FAILED}:
+            raise ValueError('No current media is available to loop')
+        if not media.capabilities.finite or media.capabilities.live:
+            raise ValueError('Looping requires finite media; live streams cannot be looped')
+        if operation == 'once' and QUEUE.state().get('repeat_mode') == 'one':
+            QUEUE.set_repeat('off')
+        elif operation == 'infinite':
+            QUEUE.set_repeat('one')
+        _set_loop_override(operation, media)
+
+    if operation != 'status':
+        vas.controller.clear_prefetch()
+    status = _loop_status()
+    if status['mode'] == 'once':
+        message = f"Loop: once; one replay remaining for {status['title']}"
+    elif status['mode'] == 'infinite':
+        message = f"Loop: infinite for {status['title']}"
+    else:
+        suffix = ' (queue repeat-all remains active)' if status['queue_repeat'] == 'all' else ''
+        message = f'Loop: off{suffix}'
+    IPrint(message, visible=visible)
+    _emit_queue_desktop_state()
+    return status
+
+
+def restart_command(arguments):
+    """Seek to the persisted preferred start without changing play/pause state."""
+    if arguments:
+        raise ValueError('Usage: restart')
+    snapshot = vas.controller.snapshot()
+    if snapshot.media is None:
+        if not currentsong_length or currentsong_length == -1:
+            raise ValueError('No finite audio is available to restart')
+    elif (
+        not snapshot.media.capabilities.finite or snapshot.media.capabilities.live
+        or not snapshot.media.capabilities.seekable
+    ):
+        raise ValueError('No finite audio is available to restart')
+    region = PLAY_REGIONS.get(snapshot.media) if snapshot.media is not None else None
+    target = region.start_seconds if region is not None and region.start_seconds is not None else 0.0
+    if not song_seek(timeval=target):
+        raise ValueError('The current source rejected the restart seek')
+    _sync_legacy_playback_state()
+    return target
 
 
 def help_command(arguments):
@@ -4931,7 +5131,13 @@ def remove_adjacent(seq): # works on any sequence, not just on numbers
     #### return seq #### don't do this
     # function acts in situ; should follow convention and return None
 
-def playpausetoggle(softtoggle=True, use_multi=False, transition_time=0.2, show_progress=False): # Soft pause by default
+def playpausetoggle(
+    softtoggle=True,
+    use_multi=False,
+    transition_time=0.2,
+    show_progress=False,
+    action_origin='cli',
+): # Soft pause by default
     global isplaying, currentsong, cached_volume
 
     try:
@@ -4952,14 +5158,14 @@ def playpausetoggle(softtoggle=True, use_multi=False, transition_time=0.2, show_
                 #                 final=0,
                 #                 disablecaching=True)
 
-                vas.media_player(action='pausetoggle')
+                vas.media_player(action='pausetoggle', origin=action_origin)
 
                 if visible: print(' '*12, end='\r')
                 IPrint("|| Paused", visible=visible)
                 isplaying = False
 
             else:
-                vas.media_player(action='pausetoggle')
+                vas.media_player(action='pausetoggle', origin=action_origin)
 
                 # with concurrent.futures.ProcessPoolExecutor() as executor:
                 vas.player.audio_set_volume(0)
@@ -5224,6 +5430,49 @@ def get_currentsong_length():
             currentsong_length = length_ms / 1000 if length_ms else -1
 
     return currentsong_length
+
+def _sync_legacy_playback_state():
+    """Restore CLI compatibility fields from the authoritative loaded media."""
+    global currentsong, currentsong_length, current_media_type, isplaying, songindex
+    restored = vas.controller.snapshot()
+    if restored.media is not None:
+        media = restored.media
+        currentsong = media.original_uri if media.source == MediaSource.LOCAL else media.title or media.original_uri
+        currentsong_length = restored.duration if restored.duration is not None else media.duration or -1
+        current_media_type = {
+            MediaSource.YOUTUBE: 0,
+            MediaSource.URL: 1,
+            MediaSource.PODCAST: 1,
+            MediaSource.RADIO: 2,
+            MediaSource.RECOMMENDATION: 0,
+        }.get(media.source)
+        songindex = _library_song_index(media.original_uri) if media.source == MediaSource.LOCAL else -1
+    isplaying = restored.state in {PlaybackState.PLAYING, PlaybackState.CROSSFADING}
+    return restored
+
+
+def reset_playback(*, start_playing=False):
+    """Rewind finite media, restoring completed playback as paused by default."""
+    global isplaying
+
+    snapshot = vas.controller.snapshot()
+    media = snapshot.media
+    legacy_duration = currentsong_length not in (None, 0, -1)
+    if media is None and not legacy_duration:
+        return False
+    if media is not None and (
+        not media.capabilities.finite or media.capabilities.live or not media.capabilities.seekable
+    ):
+        return False
+    if not song_seek('0'):
+        return False
+
+    restored = _sync_legacy_playback_state()
+    if start_playing and restored.state == PlaybackState.PAUSED:
+        vas.controller.resume(origin='cli')
+        isplaying = True
+    return True
+
 
 def song_seek(timeval=None, rel_val=None):
     global currentsong
@@ -5783,6 +6032,8 @@ def process(command):
             '?': help_command,
             'autoplay': autoplay_command,
             'autonext': autoplay_command,
+            'loop': loop_command,
+            'restart': restart_command,
             'discord': discord_command,
             'desktop': desktop_command,
             'theme': theme_command,
@@ -6661,16 +6912,13 @@ def process(command):
             if rand_song_index is not None:
                 IPrint(f"{rand_song_index+1}: {_sound_files_names_only[rand_song_index]}", visible=visible)
 
-        elif commandslist == ['reset']:
-            if currentsong_length and currentsong_length != -1:
-                try:
-                    song_seek('0')
-                except Exception:
-                    SAY(visible=visible, display_message="Error: Can't reset this audio",
-                        log_message=f'Error in resetting: {currentsong}', log_priority=2)
-            else:
-                SAY(visible=visible, display_message="Error: No audio to seek",
-                    log_message="Seeked audio w/o playing any", log_priority=2)
+        elif commandslist in (['reset'], ['.reset']):
+            try:
+                if not reset_playback(start_playing=commandslist == ['.reset']):
+                    raise RuntimeError('No seekable audio is loaded')
+            except Exception:
+                SAY(visible=visible, display_message="Error: Can't reset this audio",
+                    log_message=f'Error in resetting: {currentsong}', log_priority=2)
 
         elif commandslist[0].casefold() in SEARCH_COMMANDS:
             try:

@@ -196,6 +196,10 @@ COMMAND_CATALOG = (
     _spec("eq.preset-apply", "eq preset apply", CommandCategory.SETTINGS, "Apply a tonal preset", risk=CommandRisk.STATE_CHANGING, forms=_forms(arguments=("preset-name",))),
     _spec("eq.preset-save", "eq preset save", CommandCategory.SETTINGS, "Save a new user EQ preset", risk=CommandRisk.STATE_CHANGING, forms=_forms(arguments=("preset-name",))),
     _spec("eq.preset-delete", "eq preset delete", CommandCategory.SETTINGS, "Delete a named user EQ preset", risk=CommandRisk.DESTRUCTIVE, forms=_forms(arguments=("preset-name",))),
+    _spec("playback.loop", "loop", CommandCategory.PLAYBACK, "Loop current finite media once or indefinitely", risk=CommandRisk.STATE_CHANGING, forms=_forms("status", "once", "infinite", "off", "1", "on", "forever"), availability=("current-media",)),
+    _spec("playback.reset", "reset", CommandCategory.PLAYBACK, "Rewind finite media while preserving active play/pause state", risk=CommandRisk.STATE_CHANGING, availability=("finite-media",)),
+    _spec("playback.reset-immediate", ".reset", CommandCategory.PLAYBACK, "Rewind finite media and play immediately", risk=CommandRisk.STATE_CHANGING, availability=("finite-media",)),
+    _spec("playback.restart", "restart", CommandCategory.PLAYBACK, "Return to the preferred-region start, or absolute zero when no start is set", risk=CommandRisk.STATE_CHANGING, availability=("finite-media",)),
 )
 
 
