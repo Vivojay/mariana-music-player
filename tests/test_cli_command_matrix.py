@@ -169,6 +169,7 @@ def cli(monkeypatch, tmp_path):
         "download-yv",
         "download-ya",
         "download-ml",
+        "dl",
         "t",
         ".rand",
         ".arand",
@@ -422,6 +423,11 @@ def test_custom_download_binds_current_podcast_metadata(cli, monkeypatch):
             MediaSource.RADIO,
             "https://radio.test/live",
             capabilities=main.MediaCapabilities(finite=False, live=True, seekable=False, downloadable=False),
+        ),
+        MediaRef(
+            MediaSource.URL,
+            "https://stream.test/unknown-duration",
+            capabilities=main.MediaCapabilities(finite=False, live=False, seekable=False, downloadable=True),
         ),
     ],
 )
@@ -1006,3 +1012,75 @@ def test_lyrics_edit_aliases_refuse_sidecar_created_after_confirmation(
     errors = [message.get("display_message", "") for message in cli.messages]
     assert "Output destination appeared after approval; refusing overwrite" in errors
     assert all(str(song) not in error and str(sidecar) not in error for error in errors)
+
+
+def test_plain_dl_confirms_and_downloads_active_finite_online_media(cli, monkeypatch):
+    media = MediaRef(
+        MediaSource.URL,
+        "https://sound.example.test/artist/track",
+        title="City",
+        artist="NIKI DEMAR",
+        provenance="extractor",
+    )
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PAUSED, media=media),
+    )
+    monkeypatch.setitem(main.SETTINGS["download"], "downloads folder", str(cli.tmp_path))
+    prompts = []
+    monkeypatch.setattr("builtins.input", lambda prompt="": prompts.append(prompt) or "y")
+
+    main.process("dl")
+
+    download = next(action for action in cli.actions if action[0] == "download-media")
+    assert download[1][0] == media.original_uri
+    assert download[1][1].name == "City.mp3"
+    assert 'current media "NIKI DEMAR — City"' in prompts[0]
+    assert media.original_uri not in prompts[0]
+
+
+def test_plain_dl_restores_latest_successful_media_identity_when_inactive(cli, monkeypatch):
+    media = MediaRef(
+        MediaSource.PODCAST,
+        "https://media.example.test/episode.mp3",
+        title="Episode 12",
+        stable_id="podcast-episode-12",
+        provenance="podcast-feed",
+    )
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.IDLE),
+    )
+    monkeypatch.setattr(main.DATABASE, "fetchone", lambda *_args, **_kwargs: {"stable_id": media.stable_id})
+    monkeypatch.setattr(main.PREFERENCES, "media", lambda stable_id: media if stable_id == media.stable_id else None)
+    monkeypatch.setitem(main.SETTINGS["download"], "downloads folder", str(cli.tmp_path))
+    prompts = []
+    monkeypatch.setattr("builtins.input", lambda prompt="": prompts.append(prompt) or "y")
+
+    main.process("dl")
+
+    download = next(action for action in cli.actions if action[0] == "download-media")
+    assert download[1][0] == media.original_uri
+    assert 'most recently played media "Episode 12"' in prompts[0]
+
+
+def test_plain_dl_cancel_and_refusal_have_no_download_side_effect(cli, monkeypatch):
+    media = MediaRef(MediaSource.URL, "https://media.example.test/track", title="Track")
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=media),
+    )
+    monkeypatch.setitem(main.SETTINGS["download"], "downloads folder", str(cli.tmp_path))
+    monkeypatch.setattr("builtins.input", lambda *_args: "n")
+    main.process("dl")
+    assert not any(action[0] == "download-media" for action in cli.actions)
+    assert any("cancelled" in value.casefold() for value in cli.printed)
+
+    monkeypatch.setattr(main.vas.controller, "snapshot", lambda: PlaybackSnapshot(PlaybackState.IDLE))
+    monkeypatch.setattr(main.DATABASE, "fetchone", lambda *_args, **_kwargs: None)
+    main.process("dl")
+    assert not any(action[0] == "download-media" for action in cli.actions)
+    assert any("No active or recently played media" in message["display_message"] for message in cli.messages)

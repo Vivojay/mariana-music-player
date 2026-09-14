@@ -1320,6 +1320,8 @@ def test_media_commands_cover_saved_and_live_identity_paths(monkeypatch, tmp_pat
         main,
         "IDENTITY",
         SimpleNamespace(
+            saved_fingerprint=lambda _media: None,
+            calculate_fingerprint=lambda *_args, **_kwargs: (119, "new-fingerprint"),
             identify_fingerprint=lambda *args: identity_calls.append(("saved", args)) or identified,
             identify=lambda *args, **kwargs: identity_calls.append(("pcm", args, kwargs)) or ambiguous,
         ),
@@ -1335,8 +1337,9 @@ def test_media_commands_cover_saved_and_live_identity_paths(monkeypatch, tmp_pat
     assert identity_calls[-1][0] == "saved"
 
     info["fingerprint"] = None
-    assert main.media_command(["fingerprint", "1"]) is None
-    assert "No saved Chromaprint" in printed[-1]
+    monkeypatch.setattr(main, "_prepare_fingerprint_tool", lambda: True)
+    assert main.media_command(["fingerprint", "1"]) == "new-fingerprint"
+    assert "15 characters" in printed[-1]
     assert main.media_command(["identify", "1"]) is ambiguous
     assert identity_calls[-1][0] == "pcm"
     assert "No confident identity" in printed[-1]

@@ -93,13 +93,13 @@ from mariana.database import MarianaDatabase
 from mariana.desktop_control import DesktopControl
 from mariana.download import DownloadError, download_media, prepare_download_target
 from mariana.download_jobs import DownloadJobError, DownloadManager
-from mariana.identity import AcoustIDClient, IdentificationService, LRCLIBClient, MusicBrainzClient
+from mariana.identity import AcoustIDClient, IdentificationService, LRCLIBClient, MusicBrainzClient, MIN_FINGERPRINT_SECONDS, IdentificationError, find_fpcalc
 from mariana.homepage import HOMEPAGE_CACHE_STATE_KEY, HomepageConfiguration, HomepageService, ListenBrainzFreshReleasesProvider, create_homepage_image_cache
 from mariana.library import LibraryCatalog, LibraryError
 from mariana.library_service import LibraryProfilerService
 from mariana.local_match import LocalMatchResult, LocalMatchStatus, LocalMediaMatcher
 from mariana.loudness import LoudnessError, RSGainAnalyzer
-from mariana.media_details import clean_component, flattened_details, format_file_size, format_probed_media_type, short_filename_plan
+from mariana.media_details import clean_component, flattened_details, format_file_size, format_probed_media_type, short_filename_plan, display_media_error, display_media_uri, normalized_provider_metadata
 from mariana.media_removal import MediaRemovalError, MediaRemovalService
 from mariana.models import (
     IdentityStatus,
@@ -127,6 +127,7 @@ from mariana.playback_status import (
     PlaybackStatusProjection,
     project_playback_status,
 )
+from mariana.playback import BYTES_PER_FRAME, SAMPLE_RATE, PlaybackError
 from mariana.play_regions import (
     PlayRegionError,
     PlayRegionStore,
@@ -143,7 +144,7 @@ from mariana.sources import FailureCode, MediaFailure, ResolvedMedia
 from mariana.station import StationError, StationManager
 from mariana.station_discovery import StationDiscovery, StationSeedError
 from mariana.setup import SetupStateError, SetupStateStore
-from mariana.tool_setup import discover_media_tools, persist_media_tools, setup_media_tools
+from mariana.tool_setup import discover_media_tools, persist_media_tools, setup_media_tools, executable_version
 from mariana.toolchain import ToolchainError, ToolchainManager, find_javascript_runtime
 from mariana.user_state import load_user_data, write_user_data_atomic
 from mariana.version import __version__
@@ -2430,6 +2431,115 @@ def _download_destination(value=None):
     return destination
 
 
+def _default_download_media():
+    """Prefer active playback, then restore the latest successful durable history identity."""
+    snapshot = vas.controller.snapshot()
+    if snapshot.media is not None and snapshot.state in {
+        PlaybackState.BUFFERING,
+        PlaybackState.PLAYING,
+        PlaybackState.PAUSED,
+        PlaybackState.SEEKING,
+        PlaybackState.CROSSFADING,
+    }:
+        return _require_downloadable_online_media(snapshot.media), 'current media'
+    row = DATABASE.fetchone(
+        "SELECT e.stable_id FROM interaction_events e "
+        "INNER JOIN media_items m ON m.stable_id=e.stable_id "
+        "WHERE e.event_type='start' AND e.stable_id IS NOT NULL "
+        "ORDER BY e.created_at DESC, e.id DESC LIMIT 1"
+    )
+    if not row:
+        raise DownloadError('No active or recently played media is available')
+    media = PREFERENCES.media(str(row['stable_id']))
+    if media is None:
+        raise DownloadError('The most recently played media identity is no longer available')
+    return _require_downloadable_online_media(media, subject='most recently played media'), 'most recently played media'
+
+
+def _download_media_link(
+    media_url,
+    *,
+    output_format='mp3',
+    destination=None,
+    bound_media=None,
+    assume_yes=False,
+    confirm_subject=None,
+):
+    """Download through the existing generic path with one bound target and optional confirmation."""
+    downloads = Path(SETTINGS['download']['downloads folder']).expanduser()
+    default_stem = f'mariana-download-{int(time.time())}'
+    if bound_media is not None:
+        default_stem = clean_component(bound_media.title, fallback=default_stem)[:160]
+    destination = Path(destination).expanduser() if destination is not None else downloads / f'{default_stem}.{output_format}'
+    target = prepare_download_target(destination, output_format=output_format)
+    if confirm_subject is not None:
+        title = bound_media.title if bound_media is not None else None
+        artist = bound_media.artist if bound_media is not None else None
+        identity = f'{artist} — {title}' if artist and title else title or artist or 'Online media'
+        overwrite = ' This will overwrite the existing file.' if target.existed else ''
+        if not _confirm_action(
+            f'Download {confirm_subject} "{identity}" as {output_format.upper()} to "{target.path}"?{overwrite}',
+            assume_yes=assume_yes,
+        ):
+            IPrint('Download cancelled', visible=visible)
+            return None
+    elif target.existed and not _confirm_action(
+        f'Overwrite existing download file "{target.path}"?',
+        assume_yes=assume_yes,
+    ):
+        IPrint('Download cancelled', visible=visible)
+        return None
+    result = download_media(
+        media_url,
+        destination,
+        output_format=output_format,
+        ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'),
+        output_target=target,
+    )
+    IPrint(f'Downloaded: {result}', visible=visible)
+    return result
+
+
+def download_shortcut_command(arguments):
+    """Confirm and download active or most-recent finite online media as MP3."""
+    assume_yes, values = _confirmation_bypass(arguments)
+    if values:
+        raise DownloadError('Usage: dl [y|yes|--yes]')
+    media, subject = _default_download_media()
+    return _download_media_link(
+        media.original_uri,
+        bound_media=media,
+        assume_yes=assume_yes,
+        confirm_subject=subject,
+    )
+
+
+def download_media_link_command(arguments):
+    """Parse the existing generic media-link download command."""
+    values = list(arguments)
+    if values.count('--yes') > 1:
+        raise DownloadError('Use --yes only once for download overwrite approval')
+    yes, values = _command_flag(values, '--yes')
+    if len(values) not in (1, 2, 3):
+        raise DownloadError(
+            'Usage: download-ml <current|URL> [mp3|flac|wav|m4a|opus] [output path] [--yes]'
+        )
+    media_url = values[0]
+    output_format = values[1].lower() if len(values) >= 2 else 'mp3'
+    current_media = None
+    if media_url.casefold() == 'current':
+        current_media = _current_downloadable_media()
+        media_url = current_media.original_uri
+    destination = Path(values[2]).expanduser() if len(values) == 3 else None
+    return _download_media_link(
+        media_url,
+        output_format=output_format,
+        destination=destination,
+        bound_media=current_media,
+        assume_yes=yes,
+    )
+
+
 def _current_youtube_media():
     if current_media_type == 0 and isinstance(currentsong, (tuple, list)) and len(currentsong) > 1:
         return MediaRef(MediaSource.YOUTUBE, str(currentsong[1]), title=str(currentsong[0]))
@@ -2446,16 +2556,26 @@ def _current_youtube_media():
     return media
 
 
+def _require_downloadable_online_media(media, *, subject='active media'):
+    """Validate one already-bound media identity without resolving or exposing its URL."""
+    if media.source == MediaSource.LOCAL:
+        raise DownloadError(f'The {subject} is already stored locally and will not be downloaded again')
+    if (
+        media.source == MediaSource.RADIO
+        or media.capabilities.live
+        or not media.capabilities.finite
+        or not media.capabilities.downloadable
+    ):
+        raise DownloadError(f'The {subject} is not downloadable')
+    return media
+
+
 def _current_downloadable_media():
     """Bind the active finite online item for the general media downloader."""
     media = vas.controller.snapshot().media
     if media is None:
         raise DownloadError('No media is currently active')
-    if media.source == MediaSource.LOCAL:
-        raise DownloadError('The active track is already stored locally and will not be downloaded again')
-    if media.source == MediaSource.RADIO or media.capabilities.live or not media.capabilities.downloadable:
-        raise DownloadError('The active media is not downloadable')
-    return media
+    return _require_downloadable_online_media(media)
 
 
 def _confirm_download(message, *, assume_yes=False):
@@ -2917,10 +3037,11 @@ def report_youtube_error(error, operation='operation'):
     message = youtube_error_message(error, profile)
     if message is None:
         message = str(error) if isinstance(error, MediaFailure) else f'YouTube {operation} failed: {error}'
+    message = display_media_error(message)
     SAY(
         visible=visible,
         display_message=message,
-        log_message=f'YouTube {operation} failed: {error}',
+        log_message=f'YouTube {operation} failed: {display_media_error(str(error))}',
         log_priority=2,
     )
     return message
@@ -3879,7 +4000,7 @@ HELP_GROUPS = (
     ('Seek and fade', 'seek <time>, fade in/out, fade to <volume>, fade from <v1> to <v2>'),
     ('Queue', 'queue list/tree/add/insert/remove/move/jump/order/repeat/reset, queue ys|youtube'),
     ('Search and online sources', 'find/rfind/lfind, /ys, /yl, /ml, album, station, pod/pods, /rss'),
-    ('Downloads', 'download-yv|dl-yv, download-ya|dl-ya, download-ml|dl-ml'),
+    ('Downloads', 'dl [y|yes|--yes], download-yv|dl-yv, download-ya|dl-ya, download-ml|dl-ml'),
     (
         'Library',
         'library roots/status/scan/info/verify, reload, rename short, block/unblock, region/regions',
@@ -3905,7 +4026,7 @@ HELP_EXAMPLES = {
     'Seek and fade': ('seek +30s', 'seek 50%', 'fade out 10', 'fade from 20 to 80 in 6'),
     'Queue': ('queue add 4', 'queue ys "artist title" 5', '/ysq "artist title"', 'queue next'),
     'Search and online sources': ('find artist title 10', '/ys artist title 5', '/yl <YouTube URL>', '/ml <URL>'),
-    'Downloads': ('download-ya current --yes', 'download-ml <URL> mp3', 'download-ya status'),
+    'Downloads': ('dl', 'dl --yes', 'download-ya current --yes', 'download-ml <URL> mp3', 'download-ya status'),
     'Library': ('library status', 'library scan changed', 'block 4', 'region show 4', 'regions'),
     'Playlists': ('playlist list', 'playlist create "Road trip"', 'playlist add "Road trip" media 4'),
     'Lyrics': ('lyrics', 'lyrics edit', 'open lyrics'),
@@ -4393,6 +4514,66 @@ def desktop_command(arguments):
     return operation
 
 
+def _media_info_with_fingerprint(media, info):
+    if not info.get('fingerprint') and (saved := IDENTITY.saved_fingerprint(media)):
+        info['fingerprint_duration'], info['fingerprint'] = saved
+    return media, info
+
+
+def _prepare_fingerprint_tool():
+    """Offer existing guided setup only for a genuinely missing/broken tool."""
+    def working_tool():
+        try:
+            executable = find_fpcalc(MEDIA_TOOLS.get('fpcalc bin'))
+        except PlaybackError:
+            return None
+        return executable if executable_version('fpcalc', executable) else None
+
+    executable = working_tool()
+    if executable is None:
+        IPrint('Chromaprint calculation needs a working fpcalc tool; playback does not.', visible=visible)
+        if not _confirm_action('Open guided media-tool setup to install verified tools or select an existing installation?'):
+            IPrint("Fingerprint calculation cancelled. Run 'tools setup' whenever you are ready.", visible=visible)
+            return False
+        try:
+            tools_command(['setup'])
+        except (ToolchainError, RuntimeError, OSError) as error:
+            IPrint(f'Tool setup did not complete: {error}', visible=visible)
+            return False
+        executable = working_tool()
+        if executable is None:
+            IPrint('fpcalc is still unavailable; no fingerprint was calculated.', visible=visible)
+            return False
+    # Refresh only this dependency. Never recreate a playing controller here.
+    IDENTITY.fpcalc_bin = executable
+    LIBRARY.fpcalc_bin = executable
+    return True
+
+
+def _media_fingerprint(media, info, *, full=False):
+    if media.capabilities.live or not media.capabilities.finite or not media.capabilities.fingerprintable:
+        IPrint("Whole-media fingerprints require finite audio.", visible=visible)
+        return None
+    saved = (info.get('fingerprint_duration'), info.get('fingerprint')) if info.get('fingerprint') else IDENTITY.saved_fingerprint(media)
+    if saved is None:
+        try:
+            pcm = None if media.source == MediaSource.LOCAL else vas.controller.fingerprint_pcm(media_id=media.stable_id)
+            if pcm is not None and len(pcm) < MIN_FINGERPRINT_SECONDS * SAMPLE_RATE * BYTES_PER_FRAME:
+                IPrint(f'At least {MIN_FINGERPRINT_SECONDS} seconds of decoded audio are needed; let this item play, then retry media fingerprint.', visible=visible)
+                return None
+            if not _prepare_fingerprint_tool():
+                return None
+            IPrint('Calculating Chromaprint locally; this does not contact a recognition provider or change playback.', visible=visible)
+            saved = IDENTITY.calculate_fingerprint(media, pcm=pcm)
+        except (IdentificationError, PlaybackError, OSError) as error:
+            IPrint(f'Fingerprint unavailable: {error}', visible=visible)
+            return None
+    duration, fingerprint = saved
+    value = str(fingerprint) if full else f'{len(str(fingerprint))} characters'
+    IPrint(f'Chromaprint ({duration or "unknown"} s): {value}', visible=visible)
+    return fingerprint
+
+
 def _media_info(arguments):
     snapshot = vas.controller.snapshot()
     target = ' '.join(arguments).strip()
@@ -4411,23 +4592,33 @@ def _media_info(arguments):
             duration=info['metadata'].get('duration'),
             provenance='library',
         )
-        return media, info
+        return _media_info_with_fingerprint(media, info)
     if media is None:
         raise ValueError('No media is currently active; pass a library index or indexed path')
     if media.source == MediaSource.LOCAL:
         info = LIBRARY.info(media.original_uri)
         if info:
-            return media, info
+            return _media_info_with_fingerprint(media, info)
     metadata = {
         'source': media.source.value,
         'title': media.title,
         'artist': media.artist,
         'album': media.album,
-        'duration': media.duration or snapshot.duration,
+        'duration': media.duration or (snapshot.duration if media == snapshot.media else None),
         'provenance': media.provenance,
-        'stream_title': snapshot.stream_title,
+        'stream_title': snapshot.stream_title if media == snapshot.media else None,
     }
+    metadata.update(normalized_provider_metadata(media.resolver_data.get('provider_metadata')))
     if media.source == MediaSource.PODCAST:
+        librivox_book_id = media.resolver_data.get('librivox_book_id')
+        librivox_section_id = media.resolver_data.get('librivox_section_id')
+        if librivox_book_id and librivox_section_id:
+            metadata.update({
+                'provider': 'LibriVox',
+                'provider_media_id': str(librivox_section_id),
+                'publisher': 'LibriVox',
+                'publisher_id': str(librivox_book_id),
+            })
         podcast_fields = {
             'description': 'description',
             'published': 'published',
@@ -4438,12 +4629,18 @@ def _media_info(arguments):
             value = media.resolver_data.get(resolver_key)
             if value not in (None, ''):
                 metadata[output_key] = value
-    return media, {
+    if media.source == MediaSource.URL and not media.title:
+        metadata['metadata_note'] = (
+            'No trusted title was supplied or found in the stream. Use the original provider page '
+            'with /yl or /ml to retain provider metadata; a temporary stream URL may not contain it.'
+        )
+    info = {
         'library_id': media.stable_id,
         'canonical_path': media.original_uri,
-        'state': snapshot.state.value,
+        'state': snapshot.state.value if media == snapshot.media else 'inactive',
         'metadata': metadata,
     }
+    return _media_info_with_fingerprint(media, info)
 
 
 def media_command(arguments):
@@ -4481,17 +4678,7 @@ def media_command(arguments):
         IPrint(tbl(rows, tablefmt='plain'), visible=visible)
         return info
     if operation == 'fingerprint':
-        fingerprint = info.get('fingerprint')
-        if not fingerprint:
-            IPrint(
-                "No saved Chromaprint fingerprint is available yet. Run 'library scan changed'; "
-                "the profiler will calculate it when fpcalc is installed.",
-                visible=visible,
-            )
-            return None
-        value = str(fingerprint) if '--full' in arguments else f'{len(str(fingerprint))} characters'
-        IPrint(f'Chromaprint ({info.get("fingerprint_duration") or "unknown"} s): {value}', visible=visible)
-        return fingerprint
+        return _media_fingerprint(media, info, full='--full' in arguments)
     if operation == 'identify':
         if info.get('fingerprint'):
             identity = IDENTITY.identify_fingerprint(
@@ -6064,6 +6251,16 @@ def play_vas_media(media_url, single_video = None, media_name = None,
     global isplaying, visible, currentsong, cached_volume
     global currentsong_length, current_media_type, songindex
 
+    if media_type == 'general' and media_ref is None and id_if_url_is_of_yt_format(media_url):
+        media_type = 'video'
+    elif media_type == 'general' and media_ref is None:
+        registry = getattr(vas.controller, 'resolvers', None)
+        recover = getattr(registry, 'recover_stream_identity', None)
+        if recover:
+            media_ref = recover(media_url)
+            if media_ref is not None:
+                IPrint('Recovered the original YouTube identity from an exact recent stream match.', visible=visible)
+
     prepared_media = None
     previous_media = vas.current_media
 
@@ -6083,6 +6280,8 @@ def play_vas_media(media_url, single_video = None, media_name = None,
     if media_type == 'video':
         YT_aud_url = vas.set_media(_type='yt_video', vidurl=media_url)
         prepared_media = vas.current_media if vas.current_media is not previous_media else None
+        if prepared_media is not None and media_name and not prepared_media.title:
+            prepared_media.title = media_name
         current_media_type = 0
 
         if not media_name:
@@ -6107,13 +6306,17 @@ def play_vas_media(media_url, single_video = None, media_name = None,
             IPrint(f"{colored.fg('light_red')}@ {colored.fg('orange_1')}{media_url}{colored.attr('reset')}", visible=visible)
 
     elif media_type == 'general':
-        vas.set_media(_type='audio', audurl=media_url, media=media_ref)
+        vas.set_media(_type='audio', audurl=media_url,
+                      media=media_ref or MediaRef(MediaSource.URL, media_url, title=media_name))
         prepared_media = vas.current_media if vas.current_media is not previous_media else None
 
         current_media_type = 1
         currentsong = media_url
+        if prepared_media is not None and prepared_media.source == MediaSource.YOUTUBE:
+            current_media_type = 0
+            currentsong = (prepared_media.title, prepared_media.original_uri, prepared_media.original_uri)
         recents_queue_save(currentsong)
-        IPrint(f"Chosen custom media url:: {text_overflow_prettify(media_url)}", visible=visible*show_link_chosen_msg)
+        IPrint(f"Chosen custom media url:: {text_overflow_prettify(display_media_uri(media_url))}", visible=visible*show_link_chosen_msg)
 
     elif media_type == 'radio':
         # Here `media_name` is actually the radio name
@@ -6147,13 +6350,18 @@ def play_vas_media(media_url, single_video = None, media_name = None,
         # TODO - Save all audio info in `data` dir
         # save_song_data()
 
-        # Save current audio to log/history.log in human readable form
-        SAY(visible=visible,
-            display_message = '',
-            out_file=RUNTIME_PATHS.logs / 'history.log',
-            log_message = [' \u2014 '.join(currentsong[:-1]) if isinstance(currentsong, tuple) else currentsong][0],
-            log_priority = 3,
-            format_style = 0)
+        committed_media = prepared_media or vas.controller.snapshot().media
+        if committed_media is not None:
+            _record_queue_history(committed_media)
+            _record_successful_start(committed_media)
+        else:
+            # Compatibility fallback for legacy backends that cannot project MediaRef.
+            SAY(visible=visible,
+                display_message = '',
+                out_file=RUNTIME_PATHS.logs / 'history.log',
+                log_message = [' \u2014 '.join(currentsong[:-1]) if isinstance(currentsong, tuple) else currentsong][0],
+                log_priority = 3,
+                format_style = 0)
 
     currentsong_length = None
 
@@ -7273,52 +7481,14 @@ def process(command):
                         log_priority = 3)
                     start_youtube_download(download_parmeters)
 
-        elif commandslist[0].lower() == 'download-ml':
-            values = list(commandslist[1:])
-            yes = False
-            if values.count('--yes') > 1:
-                IPrint('Use --yes only once for download overwrite approval', visible=visible)
-                return
-            else:
-                yes, values = _command_flag(values, '--yes')
-            if len(values) not in (1, 2, 3):
-                IPrint(
-                    'Usage: download-ml <current|URL> [mp3|flac|wav|m4a|opus] [output path] [--yes]',
-                    visible=visible,
-                )
-            else:
-                media_url = values[0]
-                output_format = values[1].lower() if len(values) >= 2 else 'mp3'
-                try:
-                    current_media = None
-                    if media_url.casefold() == 'current':
-                        current_media = _current_downloadable_media()
-                        media_url = current_media.original_uri
-                    if len(values) == 3:
-                        destination = Path(values[2]).expanduser()
-                    else:
-                        downloads = Path(SETTINGS['download']['downloads folder']).expanduser()
-                        default_stem = f'mariana-download-{int(time.time())}'
-                        if current_media is not None:
-                            default_stem = clean_component(current_media.title, fallback=default_stem)[:160]
-                        destination = downloads / f'{default_stem}.{output_format}'
-                    target = prepare_download_target(destination, output_format=output_format)
-                    if target.existed and not _confirm_action(
-                        f'Overwrite existing download file "{target.path}"?',
-                        assume_yes=yes,
-                    ):
-                        IPrint('Download cancelled', visible=visible)
-                        return
-                    result = download_media(
-                        media_url,
-                        destination,
-                        output_format=output_format,
-                        ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'),
-                        output_target=target,
-                    )
-                    IPrint(f'Downloaded: {result}', visible=visible)
-                except DownloadError as error:
-                    SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+        elif commandslist[0].lower() in {'dl', 'download-ml'}:
+            try:
+                if commandslist[0].lower() == 'dl':
+                    download_shortcut_command(commandslist[1:])
+                else:
+                    download_media_link_command(commandslist[1:])
+            except (DownloadError, ValueError) as error:
+                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
 
         elif commandslist == ['t']:
             IPrint(convert(get_current_progress()), visible=visible)
@@ -7441,7 +7611,7 @@ def process(command):
 
         if commandslist[0] == 'open':
             if commandslist == ['open']:
-                if currentsong and current_media_type is None:
+                if isinstance(currentsong, str) and currentsong and current_media_type is None:
                     if os.path.isfile(currentsong):
                         if os.path.splitext(currentsong)[1] in supported_file_types:
                             if sys.platform == 'win32':
@@ -7941,6 +8111,7 @@ def process(command):
                             message = str(error)
                         else:
                             message = "The media link could not be decoded or played"
+                        message = display_media_error(message)
                         SAY(
                             visible=visible,
                             display_message=message,
