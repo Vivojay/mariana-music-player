@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -90,6 +91,12 @@ def normalize_command(command: str) -> str:
     if exact:
         return exact
     token, separator, remainder = stripped.partition(" ")
+    compact_navigation = re.fullmatch(r"(\.?)([+-])(\d+)", token)
+    if compact_navigation:
+        dotted, direction, count = compact_navigation.groups()
+        canonical = f"{dotted}{'next' if direction == '+' else 'prev'}"
+        suffix = f" {remainder}" if separator else ""
+        return f"{canonical} {count}{suffix}"
     canonical = TOKEN_ALIASES.get(token.casefold())
     return f"{canonical}{separator}{remainder}" if canonical else stripped
 

@@ -110,6 +110,7 @@ from mariana.models import (
     has_durable_podcast_identity,
     truncate_display_cells,
 )
+from mariana.navigation import NavigationContext, NavigationEntry, NavigationScope, parse_navigation
 from mariana.output_devices import OutputDeviceError, default_output_device
 from mariana.output_targets import OutputTargetError, bind_output_target
 from mariana.paths import initialize_runtime_paths
@@ -530,6 +531,11 @@ songindex = -1
 
 lyrics_window_note = "[Please close the lyrics window to continue issuing more commands...]"
 current_media_type = None
+_NAVIGATION_CONTEXT: NavigationContext | None = None
+_LAST_SEARCH_CONTEXT: NavigationContext | None = None
+# Queue steps can each commit a cursor change; bound one CLI request even when
+# repeat mode prevents the queue from ever reaching an end.
+_MAX_QUEUE_NAVIGATION_STEPS = 100
 
 RUNTIME_REPORT = check_runtime(
     MEDIA_TOOLS.get('ffmpeg bin'),
@@ -1626,10 +1632,14 @@ def _queue_youtube_search(arguments):
     return item
 
 
-def _step_queue_playback(operation):
-    """Move queue playback once using the same policy for CLI and typed desktop controls."""
+def _step_queue_playback(operation, count=1):
+    """Move queue playback using the same policy for CLI and typed desktop controls."""
     if operation not in {'next', 'previous'}:
         raise QueueError('Queue playback step must be next or previous')
+    if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
+        raise QueueError('Queue navigation count must be a positive integer')
+    if count > _MAX_QUEUE_NAVIGATION_STEPS:
+        raise QueueError(f'Queue navigation count must be between 1 and {_MAX_QUEUE_NAVIGATION_STEPS}')
     snapshot = vas.controller.snapshot()
     if operation == 'next' and snapshot.media:
         RECOMMENDER.record_event(
@@ -1638,7 +1648,11 @@ def _step_queue_playback(operation):
             context={'position': snapshot.position, 'duration': snapshot.duration},
         )
         STATION.mark_played(snapshot.media)
-    item = _advance_queue_to_playable(previous=operation == 'previous')
+    item = None
+    for _ in range(count):
+        item = _advance_queue_to_playable(previous=operation == 'previous')
+        if item is None:
+            break
     if item:
         _play_queue_item(item)
     return item
@@ -1693,7 +1707,11 @@ def queue_command(arguments):
         _ensure_media_playable(items[position].media)
         _play_queue_item(QUEUE.jump(position))
     elif operation in {'next', 'previous'}:
-        if _step_queue_playback(operation) is None:
+        values = arguments[1:]
+        if len(values) > 1 or (values and (not values[0].isdigit() or int(values[0]) <= 0)):
+            raise QueueError('Usage: queue next|previous [positive-count]')
+        count = int(values[0]) if values else 1
+        if _step_queue_playback(operation, count) is None:
             IPrint('(end of queue)', visible=visible)
     elif operation == 'clear':
         yes, values = _confirmation_bypass(arguments[1:])
@@ -1787,6 +1805,9 @@ def playlist_command(arguments):
     operation = arguments[0].lower() if arguments else 'list'
     values = list(arguments[1:])
     store = QUEUE.playlists
+    if operation in {'next', 'prev', 'previous'}:
+        direction = '.prev' if operation in {'prev', 'previous'} else '.next'
+        return navigation_command(direction, [*values, '--in', 'playlist'])
     if operation == 'list':
         playlists = store.list()
         rows = [(item.name, item.revision, len(store.flattened_media(item.tree)), item.description or '') for item in playlists]
@@ -3359,7 +3380,12 @@ def favorite_command(arguments, *, play=False):
         if len(arguments) != 1 or not arguments[0].isdigit() or int(arguments[0]) <= 0:
             raise ValueError('Usage: .fav <favorite-index>')
         index = int(arguments[0])
-        return _play_favorite_selection(index, *_favorite_selection(index))
+        media = _play_favorite_selection(index, *_favorite_selection(index))
+        _remember_navigation_context(_favorite_navigation_context(media))
+        return media
+    if arguments and arguments[0].casefold() in {'next', 'prev', 'previous'}:
+        direction = '.prev' if arguments[0].casefold() in {'prev', 'previous'} else '.next'
+        return navigation_command(direction, [*arguments[1:], '--in', 'favorites'])
     if not arguments or arguments == ['current']:
         media = _preference_media(vas.controller.snapshot().media)
         if media is None:
@@ -3451,17 +3477,42 @@ def advanced_search_command(tokens):
     if not results:
         IPrint(colored.fg('hot_pink_1a') + '-- No results found --' + colored.attr('reset'), visible=visible)
         return []
+    navigation_entries = tuple(
+        NavigationEntry(
+            media=(media := _library_media(index)),
+            stable_id=media.stable_id,
+            position=index,
+            label=title,
+            source_scope=NavigationScope.LIBRARY,
+            occurrence_id=index,
+        )
+        for index, title in results
+    )
+    search_context = NavigationContext(
+        NavigationScope.RESULTS,
+        navigation_entries,
+        -1,
+        'library results',
+    )
+    _remember_navigation_context(search_context, search=True)
     marked_results = [
         (index, _blocked_label(title, _library_media(index)))
         for index, title in results
     ]
     if request.action == SearchAction.FIRST:
-        local_play_commands([None, str(results[0][0])])
+        _play_navigation_entry(navigation_entries[0])
+        selected_context = search_context.at(0)
+        _remember_navigation_context(selected_context, search=True)
+        _remember_navigation_context(selected_context)
     elif request.action == SearchAction.RANDOM:
         playable = [result for result in results if not _is_media_blocked(_library_media(result[0]))]
         if not playable:
             raise ValueError('No playable search result is available; unblock an item first')
-        local_play_commands([None, str(rand.choice(playable)[0])])
+        selected = rand.choice(playable)
+        _play_navigation_entry(navigation_entries[results.index(selected)])
+        selected_context = search_context.at(results.index(selected))
+        _remember_navigation_context(selected_context, search=True)
+        _remember_navigation_context(selected_context)
     else:
         IPrint(
             f'Found {len(results)} match{("es" if len(results) != 1 else "")}: '
@@ -4437,6 +4488,259 @@ def _library_song_index(songpath):
     )
 
 
+def _remember_navigation_context(context, *, search=False):
+    """Retain an ordered user-selected context without changing playback."""
+    global _NAVIGATION_CONTEXT, _LAST_SEARCH_CONTEXT
+    if search:
+        _LAST_SEARCH_CONTEXT = context
+    else:
+        _NAVIGATION_CONTEXT = context
+    return context
+
+
+def _bind_navigation_context(context, media):
+    """Bind a collection snapshot to the active occurrence without guessing duplicates."""
+    if context.matches(media):
+        return context
+    matches = [
+        index
+        for index, entry in enumerate(context.entries)
+        if media is not None and entry.stable_id == media.stable_id
+    ]
+    if not matches:
+        raise ValueError(f'Current media is not in {context.name or context.scope.value}')
+    if len(matches) > 1:
+        raise ValueError(
+            f'Current media occurs more than once in {context.name or context.scope.value}; '
+            'play the intended occurrence first'
+        )
+    return context.at(matches[0])
+
+
+def _favorite_navigation_context(media):
+    entries = []
+    for position, preference in enumerate(PREFERENCES.list(PreferenceState.FAVORITE), 1):
+        candidate = _preference_search_media(preference)
+        entries.append(NavigationEntry(
+            media=candidate,
+            stable_id=preference.stable_id,
+            position=position,
+            label=_favorite_display_label(preference, candidate),
+            source_scope=NavigationScope.FAVORITES,
+            occurrence_id=preference.stable_id,
+        ))
+    if not entries:
+        raise ValueError('No favorites are saved')
+    previous = _NAVIGATION_CONTEXT
+    cursor = previous.cursor if previous and previous.scope == NavigationScope.FAVORITES else -1
+    context = NavigationContext(NavigationScope.FAVORITES, tuple(entries), cursor, 'favorites')
+    return _bind_navigation_context(context, media)
+
+
+def _active_playlist_name():
+    previous = _NAVIGATION_CONTEXT
+    if previous and previous.scope == NavigationScope.PLAYLIST and previous.name:
+        return previous.name
+    origin = QUEUE.origin() or ''
+    if not origin.startswith('playlist:'):
+        return None
+    try:
+        return QUEUE.playlists.get(origin.removeprefix('playlist:')).name
+    except PlaylistError:
+        return None
+
+
+def _playlist_navigation_context(name, media):
+    playlist_name = name or _active_playlist_name()
+    if not playlist_name:
+        raise ValueError(
+            'No current playlist context; use --in playlist "<name>" or playlist play "<name>"'
+        )
+    try:
+        playlist = QUEUE.playlists.get(playlist_name)
+    except PlaylistError as error:
+        raise ValueError(str(error)) from error
+    entries = tuple(
+        NavigationEntry(
+            media=candidate,
+            stable_id=candidate.stable_id,
+            position=position,
+            label=_scoped_search_media_label(candidate),
+            source_scope=NavigationScope.PLAYLIST,
+            occurrence_id=f'{playlist.playlist_id}:{position}',
+        )
+        for position, candidate in enumerate(QUEUE.playlists.flattened_media(playlist.tree), 1)
+    )
+    if not entries:
+        raise ValueError(f'Playlist "{playlist.name}" is empty')
+    previous = _NAVIGATION_CONTEXT
+    cursor = (
+        previous.cursor
+        if previous
+        and previous.scope == NavigationScope.PLAYLIST
+        and previous.name == playlist.name
+        else -1
+    )
+    return _bind_navigation_context(
+        NavigationContext(NavigationScope.PLAYLIST, entries, cursor, playlist.name),
+        media,
+    )
+
+
+def _library_navigation(request, media):
+    if media is None or media.source != MediaSource.LOCAL:
+        raise ValueError('Library navigation requires a currently active indexed library item')
+    current_index = _library_song_index(media.original_uri)
+    if not isinstance(current_index, int):
+        raise ValueError('Current media is outside the indexed library')
+    target_index = current_index + request.offset
+    if target_index not in range(1, len(_sound_files) + 1):
+        boundary = 'end' if request.offset > 0 else 'beginning'
+        raise ValueError(f'Cannot navigate past the {boundary} of the library')
+    if request.immediate:
+        _ensure_media_playable(_library_media(target_index))
+        local_play_commands([None, str(target_index)])
+        return _library_media(target_index)
+    target = _library_media(target_index)
+    IPrint(
+        f'@{"n" if request.offset > 0 else "p"} '
+        f'{colored.fg("light_red")}library {target_index}/{len(_sound_files)}{colored.fg("aquamarine_3")} | '
+        f'{_scoped_search_media_label(target)}{colored.attr("reset")}',
+        visible=visible,
+    )
+    return target
+
+
+def _play_navigation_entry(entry):
+    """Play one validated occurrence through its owning collection boundary."""
+    if entry.media is None:
+        raise ValueError(f'{entry.label} is missing or unavailable')
+    if entry.source_scope == NavigationScope.FAVORITES:
+        if not any(
+            item.stable_id == entry.stable_id
+            for item in PREFERENCES.list(PreferenceState.FAVORITE)
+        ):
+            raise ValueError('Favourites changed after selection; inspect the list again')
+        selection = _favorite_selection(entry.position)
+        if selection[0].stable_id != entry.stable_id:
+            raise ValueError('Favorites changed; run the navigation command again')
+        return _play_favorite_selection(entry.position, *selection)
+    if entry.source_scope == NavigationScope.QUEUE:
+        item = next(
+            (item for item in QUEUE.items() if item.queue_id == entry.occurrence_id),
+            None,
+        )
+        if item is None or item.media.stable_id != entry.stable_id:
+            raise ValueError('Queue results changed; search or list the queue again')
+        _ensure_media_playable(item.media)
+        return _play_queue_item(QUEUE.jump(QUEUE.items().index(item)))
+    if entry.source_scope == NavigationScope.LIBRARY:
+        current = _library_media(entry.position)
+        if current.stable_id != entry.stable_id:
+            raise ValueError('Library results changed; search the library again')
+        _ensure_media_playable(current)
+        return local_play_commands([None, str(entry.position)])
+    media = entry.media
+    _ensure_media_playable(media)
+    if media.source == MediaSource.LOCAL:
+        library_index = _library_song_index(media.original_uri)
+        if isinstance(library_index, int):
+            return local_play_commands([None, str(library_index)])
+        if not Path(media.original_uri).is_file():
+            raise ValueError(f'{entry.label} is missing or unavailable')
+        return play_local_default_player(media.original_uri, _songindex=None, media=media)
+    stopsong()
+    vas.supervisor.play(media, origin='cli')
+    _set_current_media_state(media)
+    _show_local_copy_hint(media)
+    return media
+
+
+def _navigate_context(command, request, context):
+    target = context.target(request.offset)
+    if target is None:
+        boundary = 'end' if request.offset > 0 else 'beginning'
+        alias = ('.' if request.immediate else '') + ('+' if request.offset > 0 else '-')
+        if abs(request.offset) != 1:
+            alias += str(abs(request.offset))
+        raise ValueError(
+            f'Cannot navigate past the {boundary} of {context.name or context.scope.value} '
+            f'({context.cursor + 1}/{len(context.entries)}). '
+            f'To {"play" if request.immediate else "preview"} in another collection, '
+            f'use "{alias} library" or "{alias} queue".'
+        )
+    target_index, entry = target
+    if request.immediate:
+        played = _play_navigation_entry(entry)
+        selected_context = context.at(target_index)
+        if selected_context.scope == NavigationScope.RESULTS:
+            _remember_navigation_context(selected_context, search=True)
+        _remember_navigation_context(selected_context)
+        return played
+    # Peeking into another collection is not a scope switch. Only successful
+    # immediate selection above changes navigation ownership.
+    IPrint(
+        f'@{"n" if request.offset > 0 else "p"} '
+        f'{colored.fg("light_red")}{context.name or context.scope.value} {target_index + 1}/{len(context.entries)} '
+        f'({entry.source_scope.value} #{entry.position})'
+        f'{colored.fg("aquamarine_3")} | '
+        f'{_blocked_label(entry.label, entry.media) if entry.media else entry.label}'
+        f'{colored.attr("reset")}',
+        visible=visible,
+    )
+    return entry.media
+
+
+def navigation_command(command, arguments):
+    """Preview or play relative to the active or explicitly selected collection."""
+    request = parse_navigation(command, arguments)
+    snapshot = vas.controller.snapshot()
+    media = snapshot.media
+    if media is None:
+        raise ValueError('Cannot navigate because no media is currently active')
+
+    if request.scope == NavigationScope.LIBRARY:
+        return _library_navigation(request, media)
+
+    if request.scope in {NavigationScope.AUTO, NavigationScope.QUEUE}:
+        active_context = _NAVIGATION_CONTEXT
+        if request.scope == NavigationScope.AUTO and active_context and active_context.matches(media):
+            if active_context.scope == NavigationScope.FAVORITES:
+                active_context = _favorite_navigation_context(media)
+            elif active_context.scope == NavigationScope.PLAYLIST:
+                active_context = _playlist_navigation_context(active_context.name, media)
+            return _navigate_context(command, request, active_context)
+        if _navigate_active_queue(command, request.offset):
+            return None
+        if request.scope == NavigationScope.QUEUE:
+            raise ValueError('Current media is not the active queue item')
+        return _library_navigation(request, media)
+
+    if request.scope == NavigationScope.FAVORITES:
+        return _navigate_context(command, request, _favorite_navigation_context(media))
+    if request.scope == NavigationScope.PLAYLIST:
+        if (
+            request.scope_name is None
+            and (QUEUE.origin() or '').startswith('playlist:')
+            and _navigate_active_queue(command, request.offset)
+        ):
+            return None
+        return _navigate_context(
+            command,
+            request,
+            _playlist_navigation_context(request.scope_name, media),
+        )
+    if request.scope == NavigationScope.RESULTS:
+        if _LAST_SEARCH_CONTEXT is None:
+            raise ValueError('No search results are available for navigation')
+        return _navigate_context(
+            command,
+            request,
+            _bind_navigation_context(_LAST_SEARCH_CONTEXT, media),
+        )
+    raise ValueError(f'Unsupported navigation collection: {request.scope.value}')
+
+
 def _navigate_active_queue(command, offset):
     """Preview or play a queue-relative item when queue and playback agree."""
     current = QUEUE.current()
@@ -4474,7 +4778,9 @@ def _navigate_active_queue(command, offset):
         _play_queue_item(QUEUE.jump(target_position))
         return True
     library_index = _library_song_index(target.media.original_uri)
-    position_label = library_index if library_index != 'N/A' else f'queue {target_position + 1}'
+    position_label = f'queue {target_position + 1}/{len(items)}'
+    if library_index != 'N/A':
+        position_label += f' (library #{library_index})'
     title = _blocked_label(
         _media_display_label(target.media),
         target.media,
@@ -5493,6 +5799,10 @@ def process(command):
             'blocked': blocked_command,
             'region': region_command,
             'regions': regions_command,
+            'next': lambda values: navigation_command('next', values),
+            'prev': lambda values: navigation_command('prev', values),
+            '.next': lambda values: navigation_command('.next', values),
+            '.prev': lambda values: navigation_command('.prev', values),
         }
         if handler := routed.get(commandslist[0].casefold()):
             try:
@@ -5981,71 +6291,6 @@ def process(command):
             visible = not visible
             IPrint('visibility on', visible=visible)
 
-        elif commandslist[0] in ['prev', 'next', '.prev', '.next']:
-            if current_media_type is None: # default player currently active
-                offset = None
-                if songindex not in ['N/A', -1]:
-                    if len(commandslist) == 1: # default to 1 audio skip
-                        offset = 1
-                    elif len(commandslist) > 1:
-                        if commandslist[1].isnumeric():
-                            if int(commandslist[1]) != 0:
-                                # number of audios to be skipped is provided by the user
-                                # store offset as either +ve for fwd skip (next)
-                                # or                     -ve for bwd seeks (prev)
-                                offset = int(commandslist[1])
-                            else:
-                                SAY(visible=visible,
-                                    display_message = 'Provided 0 audios to skip. Not allowed',
-                                    log_message = 'Number of audios to skip was 0',
-                                    log_priority = 2)
-                        else:
-                            SAY(visible=visible,
-                                display_message = 'Number of audios to skip must be a positives integer',
-                                log_message = 'Number of audios to skip wasn not a valid +ve int',
-                                log_priority = 2)
-
-                    if offset:
-                        if commandslist[0] in ['prev', '.prev']: offset *= -1
-                        if _navigate_active_queue(commandslist[0], offset):
-                            return None
-                        offsetted_index = songindex + offset
-                        if offsetted_index in range(1, len(_sound_files)+1): # is audio found at offsetted index?
-                            if commandslist[0][0] == '.':
-                                local_play_commands(commandslist=[None, str(offsetted_index)])
-                            else:
-                                IPrint(f"@{commandslist[0][0]} {colored.fg('light_red')}{offsetted_index}{colored.fg('aquamarine_3')} | {_sound_files_names_only[offsetted_index-1]}{colored.attr('reset')}", visible=visible)
-                        else:
-                            if offset > 0:
-                                if offsetted_index == 1:
-                                    offset_err_disp_msg = 'Cannot skip backward as you have reached beginning of library'
-                                    offset_err_log_msg = 'Reached beginning of library, cannot skip bwd'
-                                else:
-                                    offset_err_disp_msg = f'Number of audios to skip forward was too large, try "next" command with <= {len(_sound_files)-songindex} skips'
-                                    offset_err_log_msg = 'Reached upper bound of index in library when skipping fwd'
-                            else:
-                                if offsetted_index == len(_sound_files_names_only):
-                                    offset_err_disp_msg = 'Cannot skip forward as you have reached end of library'
-                                    offset_err_log_msg = 'Reached end of library, cannot skip fwd'
-                                else:
-                                    offset_err_disp_msg = f'Number of audios to skip backward was too large, try "prev" command with <= {songindex} skips'
-                                    offset_err_log_msg = 'Reached index 0 in library when skipping bwd'
-
-                            SAY(visible=visible,
-                                display_message = offset_err_disp_msg,
-                                log_message = offset_err_log_msg,
-                                log_priority = 2)
-                else:
-                    if songindex == -1:
-                        SAY(visible=visible,
-                            display_message = 'Cannot skip. No audio is currently playing',
-                            log_message = 'Cannot skip when no audio is playing',
-                            log_priority = 2)
-                    if songindex == 'N/A':
-                        SAY(visible=visible,
-                            display_message = 'Cannot skip audios when playing individual audio files outside of your music library',
-                            log_message = 'Cannot skip when playing explicit filepaths outside library',
-                            log_priority = 2)
 
         elif commandslist == ['now']:
             _print_playback_status(now=True)

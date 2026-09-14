@@ -650,14 +650,23 @@ def test_refresh_all_confirmation_reprompts_and_can_cancel(cli, monkeypatch):
 
 
 def test_navigation_covers_play_print_and_unavailable_states(cli, monkeypatch):
+    monkeypatch.setattr(main, "_NAVIGATION_CONTEXT", None)
+    monkeypatch.setattr(main.QUEUE, "current", lambda: None)
+    monkeypatch.setattr(
+        main.vas.controller, "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=MediaRef(MediaSource.LOCAL, cli.songs[1])),
+    )
     main.process("next")
     main.process(".prev")
     assert any(action[0] == "local" for action in cli.actions)
-    monkeypatch.setattr(main, "songindex", -1)
+    monkeypatch.setattr(main.vas.controller, "snapshot", lambda: PlaybackSnapshot(PlaybackState.IDLE))
     main.process("next")
-    monkeypatch.setattr(main, "songindex", "N/A")
+    monkeypatch.setattr(
+        main.vas.controller, "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=MediaRef(MediaSource.LOCAL, "C:/Outside/item.mp3")),
+    )
     main.process("prev")
-    assert any("No audio" in message.get("display_message", "") for message in cli.messages)
+    assert any("no media is currently active" in message.get("display_message", "") for message in cli.messages)
     assert any("outside" in message.get("display_message", "") for message in cli.messages)
 
 
