@@ -31,6 +31,10 @@ from .models import MediaSource, PlaybackSnapshot, PlaybackState
 from .playback_status import _clean_display_text, project_playback_status
 
 SCHEMA_VERSION = 1
+TRUST_SCHEMA_VERSION = 2
+KDF_ITERATIONS = 600_000
+_KDF_DOMAIN = b"mariana-paired-device-v2\x00"
+_KDF_SLOTS = threading.BoundedSemaphore(2)
 SERVICE_NAME = "io.github.vivojay.mariana.paired-desktops"
 TLS_NAME = "paired.mariana.local"
 MAX_DEVICES = 32
@@ -163,10 +167,33 @@ class KeyringPairingSecrets:
             raise PairingError("The operating-system credential store rejected removal") from None
 
 
-def token_digest(token: str) -> str:
+def validate_token(token: str) -> str:
+    """Bound syntax only; a correctly shaped peer token need not be random."""
     if not isinstance(token, str) or not TOKEN.fullmatch(token):
         raise PairingError("Invalid pairing credential")
-    return hashlib.sha256(token.encode("ascii")).hexdigest()
+    return token
+
+
+def token_digest(token: str, identifier: str) -> str:
+    """Stretch peer-chosen credentials with a server-generated per-device salt.
+
+    The 128-bit request ID becomes the durable device ID. Its random bytes are
+    unique salt, not secret key material. Fixed costs are never peer-controlled.
+    At most two derivations run concurrently; overload never queues more work.
+    """
+    validate_token(token)
+    if not isinstance(identifier, str) or not IDENTIFIER.fullmatch(identifier):
+        raise PairingError("Invalid paired-device identity")
+    if not _KDF_SLOTS.acquire(blocking=False):
+        raise PairingError("Pairing credential verification is busy; retry the explicit operation")
+    try:
+        return hashlib.pbkdf2_hmac(
+            "sha256", token.encode("ascii"), _KDF_DOMAIN + bytes.fromhex(identifier), KDF_ITERATIONS, dklen=32,
+        ).hex()
+    except (ValueError, OverflowError, MemoryError):
+        raise PairingError("Pairing credential verification is unavailable") from None
+    finally:
+        _KDF_SLOTS.release()
 
 
 def device_label(value: object) -> str:
@@ -237,7 +264,8 @@ def companion_status(value: object) -> dict[str, Any]:
     return result
 
 
-def _read_document(path: Path, limit: int = MAX_STATE_BYTES) -> dict[str, Any]:
+def _read_document(path: Path, limit: int = MAX_STATE_BYTES,
+                   *, expected_version: int | None = SCHEMA_VERSION) -> dict[str, Any]:
     descriptor: int | None = None
     try:
         expected = path.lstat()
@@ -259,7 +287,7 @@ def _read_document(path: Path, limit: int = MAX_STATE_BYTES) -> dict[str, Any]:
             raise ValueError
         document = strict_json(payload)
         if not isinstance(document, dict) or type(document.get("schema_version")) is not int \
-                or document.get("schema_version") != SCHEMA_VERSION:
+                or (expected_version is not None and document.get("schema_version") != expected_version):
             raise ValueError
         return document
     except (OSError, ValueError, UnicodeError, PairingError):
@@ -410,14 +438,16 @@ def _server_identity(path: Path, credentials: PairingSecrets) -> ServerIdentity:
 
 
 class TrustStore:
-    """Atomic host-side metadata. Only high-entropy token digests are persisted."""
+    """Atomic host-side metadata containing only salted credential verifiers."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
         self._lock = threading.RLock()
         self._devices: dict[str, dict[str, Any]] = {}
         if path.exists():
-            value = _read_document(path)
+            value = _read_document(path, expected_version=None)
+            if value["schema_version"] != TRUST_SCHEMA_VERSION:
+                raise PairingError("Stored device trust uses an unsupported credential format; re-pair devices explicitly")
             devices = value.get("devices")
             if set(value) != {"schema_version", "devices"} or not isinstance(devices, dict) or len(devices) > MAX_DEVICES:
                 raise PairingError("Stored device trust is invalid")
@@ -436,7 +466,7 @@ class TrustStore:
             self._devices = devices
 
     def _commit(self, devices: dict[str, dict[str, Any]]) -> None:
-        _atomic_document(self.path, {"schema_version": SCHEMA_VERSION, "devices": devices})
+        _atomic_document(self.path, {"schema_version": TRUST_SCHEMA_VERSION, "devices": devices})
         self._devices = devices
 
     @contextmanager
@@ -463,12 +493,36 @@ class TrustStore:
 
     def authenticates(self, identifier: str, credential: str) -> bool:
         try:
-            digest = token_digest(credential)
+            validate_token(credential)
         except PairingError:
             return False
+        if not isinstance(identifier, str) or not IDENTIFIER.fullmatch(identifier):
+            return False
+        observed = self._authorized_record(identifier)
+        if observed is None:
+            return False
+        # Do not hold a thread/process lock while stretching an untrusted token.
+        digest = token_digest(credential, identifier)
+        return self._authenticates_derived(identifier, digest, observed=observed)
+
+    def _authorized_record(self, identifier: str) -> dict[str, Any] | None:
         with self._current():
             device = self._devices.get(identifier)
-            return bool(device and not device["revoked"] and hmac.compare_digest(device["digest"], digest))
+            if device is None or device["revoked"]:
+                return None
+            return dict(device)
+
+    def _authenticates_derived(self, identifier: str, digest: str,
+                              *, observed: dict[str, Any] | None = None) -> bool:
+        """Recheck persisted revocation after this process has derived a verifier.
+
+        This private boundary is also used after pending-request verification;
+        no transport route accepts a digest instead of a raw credential.
+        """
+        with self._current():
+            device = self._devices.get(identifier)
+            return bool(device and not device["revoked"] and (observed is None or observed == device)
+                        and hmac.compare_digest(device["digest"], digest))
 
     def revoke(self, identifier: str) -> None:
         with self._current():
@@ -522,28 +576,45 @@ class PairedReadOnlyService:
             if self._closed.is_set():
                 raise PairingError("The pairing service is stopped")
             secret, expires = secrets.token_urlsafe(32), self.now() + ttl_seconds
-            self._invitation = (token_digest(secret), expires, self.monotonic() + ttl_seconds)
+            self._invitation = (secret, expires, self.monotonic() + ttl_seconds)
             return secret, expires
 
     def _expire(self) -> None:
         self._pending = {key: row for key, row in self._pending.items() if row["deadline"] > self.monotonic()}
 
     def request(self, invitation: str, credential: str, label: str) -> dict[str, Any]:
-        invite_digest, credential_digest, label = token_digest(invitation), token_digest(credential), device_label(label)
+        validate_token(invitation)
+        validate_token(credential)
+        label = device_label(label)
         with self._lock:
             if self._closed.is_set():
                 raise PairingError("The pairing service is stopped")
             self._expire()
             if self._invitation is None or self._invitation[2] <= self.monotonic() \
-                    or not hmac.compare_digest(self._invitation[0], invite_digest):
+                    or not hmac.compare_digest(self._invitation[0], invitation):
                 raise PairingError("Pairing invitation is invalid, expired, or already used")
             if len(self._pending) >= MAX_PENDING:
                 raise PairingError("Too many pending pairing requests")
             expires, deadline = self._invitation[1:]
             self._invitation = None
             identifier = secrets.token_hex(16)
-            self._pending[identifier] = {"label": label, "digest": credential_digest,
-                                        "expires_at": expires, "deadline": deadline, "approved": False}
+            # Reserve capacity and consume the invitation before releasing the
+            # lock. An unfinished verifier is never shown or approvable.
+            row: dict[str, Any] = {"label": label, "digest": None, "expires_at": expires,
+                                   "deadline": deadline, "approved": False}
+            self._pending[identifier] = row
+        try:
+            credential_digest = token_digest(credential, identifier)
+        except PairingError:
+            with self._lock:
+                if self._pending.get(identifier) is row:
+                    del self._pending[identifier]
+            raise
+        with self._lock:
+            self._expire()
+            if self._closed.is_set() or self._pending.get(identifier) is not row:
+                raise PairingError("Pairing request expired, was cancelled, or the service stopped")
+            row["digest"] = credential_digest
             return {"request_id": identifier, "expires_at": expires, "proof": credential_digest[:16]}
 
     def pending(self) -> list[dict[str, Any]]:
@@ -552,7 +623,8 @@ class PairedReadOnlyService:
                 return []
             self._expire()
             return [{"request_id": key, "label": row["label"], "expires_at": row["expires_at"],
-                     "proof": row["digest"][:16]} for key, row in self._pending.items() if not row["approved"]]
+                     "proof": row["digest"][:16]} for key, row in self._pending.items()
+                    if not row["approved"] and isinstance(row["digest"], str)]
 
     def approve(self, identifier: str, *, verified_proof: str) -> None:
         with self._lock:
@@ -560,7 +632,7 @@ class PairedReadOnlyService:
                 raise PairingError("The pairing service is stopped")
             self._expire()
             row = self._pending.get(identifier)
-            if row is None or row["approved"] or not isinstance(verified_proof, str) \
+            if row is None or row["approved"] or not isinstance(row["digest"], str) or not isinstance(verified_proof, str) \
                     or not re.fullmatch(r"[a-f0-9]{16}", verified_proof) \
                     or not hmac.compare_digest(row["digest"][:16], verified_proof):
                 raise PairingError("Pairing request or verified device proof is invalid")
@@ -568,15 +640,26 @@ class PairedReadOnlyService:
             row["approved"] = True
 
     def poll(self, identifier: str, credential: str) -> dict[str, Any]:
-        digest = token_digest(credential)
+        validate_token(credential)
+        if not isinstance(identifier, str) or not IDENTIFIER.fullmatch(identifier):
+            raise PairingError("Pairing request is unavailable")
         with self._lock:
             if self._closed.is_set():
                 raise PairingError("The pairing service is stopped")
             self._expire()
             row = self._pending.get(identifier)
-            if row is None or not hmac.compare_digest(row["digest"], digest):
+            if row is None or not isinstance(row["digest"], str):
                 raise PairingError("Pairing request is unavailable")
-            approved = row["approved"] and self.trust.authenticates(identifier, credential)
+            approved_before_derivation = row["approved"]
+        if approved_before_derivation and self.trust._authorized_record(identifier) is None:
+            raise PairingError("Pairing request is unavailable")
+        digest = token_digest(credential, identifier)
+        with self._lock:
+            self._expire()
+            if self._closed.is_set() or self._pending.get(identifier) is not row \
+                    or not hmac.compare_digest(row["digest"], digest):
+                raise PairingError("Pairing request is unavailable")
+            approved = row["approved"] and self.trust._authenticates_derived(identifier, digest)
             return {"state": "approved" if approved else "pending", "device_id": identifier if approved else None,
                     "permissions": ["status.read"] if approved else []}
 
@@ -595,6 +678,8 @@ class PairedReadOnlyService:
         if not self.trust.authenticates(identifier, credential):
             raise PairingError("Device is not authorized for companion status")
         with self._lock:
+            if self._closed.is_set():
+                raise PairingError("The pairing service is stopped")
             return dict(self._status)
 
     def close(self) -> None:

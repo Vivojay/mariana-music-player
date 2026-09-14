@@ -170,7 +170,7 @@ def test_private_status_uses_shared_sanitization_and_never_resolver_data(tmp_pat
     service = trust.PairedReadOnlyService(trust.TrustStore(tmp_path / "trust.json"))
     credential = secrets.token_urlsafe(32)
     identifier = "a" * 32
-    service.trust.approve(identifier, "Desk", trust.token_digest(credential), now=time.time())
+    service.trust.approve(identifier, "Desk", trust.token_digest(credential, identifier), now=time.time())
     media = MediaRef(MediaSource.URL, "https://private.invalid/play?token=secret", title="token=secret",
                      artist="C:\\private\\artist", resolver_data={"cookie": "secret"})
     service.update_status(PlaybackSnapshot(PlaybackState.PLAYING, media=media, position=2))
@@ -243,11 +243,11 @@ def test_cross_instance_revocation_is_never_resurrected(tmp_path):
     path = tmp_path / "trust.json"
     first, second = trust.TrustStore(path), trust.TrustStore(path)
     token = secrets.token_urlsafe(32)
-    first.approve("a" * 32, "Desk", trust.token_digest(token), now=time.time())
+    first.approve("a" * 32, "Desk", trust.token_digest(token, "a" * 32), now=time.time())
     assert second.authenticates("a" * 32, token)
     first.revoke("a" * 32)
     assert not second.authenticates("a" * 32, token)
-    second.approve("b" * 32, "Other", trust.token_digest(secrets.token_urlsafe(32)), now=time.time())
+    second.approve("b" * 32, "Other", trust.token_digest(secrets.token_urlsafe(32), "b" * 32), now=time.time())
     assert not trust.TrustStore(path).authenticates("a" * 32, token)
 
 
@@ -255,7 +255,7 @@ def test_atomic_failure_keeps_existing_trust_and_process_lock_is_nonblocking(tmp
     path = tmp_path / "trust.json"
     store = trust.TrustStore(path)
     token = secrets.token_urlsafe(32)
-    store.approve("a" * 32, "Desk", trust.token_digest(token), now=time.time())
+    store.approve("a" * 32, "Desk", trust.token_digest(token, "a" * 32), now=time.time())
     saved = path.read_bytes()
     with trust._state_lock(path), pytest.raises(trust.PairingError, match="busy"):
         store.revoke("a" * 32)
@@ -381,7 +381,8 @@ def test_tls_rejects_control_origin_and_duplicate_json_without_consuming_invitat
     with pytest.raises(trust.PairingError, match="read-only"):
         server._route("POST /v1/play HTTP/1.1", {**headers, "authorization": f"Bearer {credential}"}, b"")
     assert service.pending() == []
-    assert server._route("POST /v1/pairing HTTP/1.1", headers, body)["proof"] == trust.token_digest(credential)[:16]
+    result = server._route("POST /v1/pairing HTTP/1.1", headers, body)
+    assert result["proof"] == trust.token_digest(credential, result["request_id"])[:16]
 
 
 def test_shutdown_bounds_open_tls_handshakes_and_releases_all_workers(paired):
@@ -438,7 +439,7 @@ def test_duplicate_or_privilege_expanded_stored_state_is_not_replaced(tmp_path):
     with pytest.raises(trust.PairingError):
         trust.TrustStore(path)
     assert path.read_bytes() == duplicate
-    malicious = {"schema_version": 1, "devices": {"a" * 32: {
+    malicious = {"schema_version": trust.TRUST_SCHEMA_VERSION, "devices": {"a" * 32: {
         "label": "Desk", "digest": "b" * 64, "permissions": ["status.read", "playback.control"],
         "paired_at": time.time(), "revoked": False,
     }}}
@@ -578,9 +579,9 @@ def test_device_capacity_does_not_evict_existing_trust(tmp_path, monkeypatch):
     monkeypatch.setattr(trust, "MAX_DEVICES", 1)
     store = trust.TrustStore(tmp_path / "trust.json")
     credential = secrets.token_urlsafe(32)
-    store.approve("a" * 32, "Desk", trust.token_digest(credential), now=time.time())
+    store.approve("a" * 32, "Desk", trust.token_digest(credential, "a" * 32), now=time.time())
     with pytest.raises(trust.PairingError, match="capacity"):
-        store.approve("b" * 32, "Other", trust.token_digest(secrets.token_urlsafe(32)), now=time.time())
+        store.approve("b" * 32, "Other", trust.token_digest(secrets.token_urlsafe(32), "b" * 32), now=time.time())
     assert store.authenticates("a" * 32, credential)
     assert len(store.devices()) == 1
 

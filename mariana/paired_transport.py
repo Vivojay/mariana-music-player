@@ -37,6 +37,7 @@ from .paired_trust import (
     server_identity,
     strict_json,
     token_digest,
+    validate_token,
 )
 
 MAX_HEADERS = 8192
@@ -352,7 +353,7 @@ class PairedClient:
     def _call(endpoint: PinnedEndpoint, method: str, path: str, *, payload: dict[str, Any] | None = None,
               credential: str | None = None, device_id: str | None = None) -> dict[str, Any]:
         if credential is not None:
-            token_digest(credential)
+            validate_token(credential)
         if device_id is not None and not IDENTIFIER.fullmatch(device_id):
             raise PairingError("Invalid paired-device identity")
         body = json.dumps(payload, ensure_ascii=True).encode("utf-8") if payload is not None else b""
@@ -396,11 +397,12 @@ class PairedClient:
                 or not math.isfinite(expiry) \
                 or not 0 < expiry - time.time() <= 305:
             raise PairingError("Pairing invitation is expired or outside its short validity window")
+        deadline = time.monotonic() + min(300, expiry - time.time())
         endpoint = PinnedEndpoint.from_dict(invitation["endpoint"])
         if not isinstance(verified_fingerprint, str) or not DIGEST.fullmatch(verified_fingerprint) \
                 or not hmac.compare_digest(endpoint.fingerprint, verified_fingerprint):
             raise PairingError("Explicit matching server-fingerprint verification is required")
-        token_digest(invitation["secret"])
+        validate_token(invitation["secret"])
         credential = secrets.token_urlsafe(32)
         response = self._call(endpoint, "POST", "/v1/pairing", payload={
             "invitation": invitation["secret"], "credential": credential, "label": device_label(label),
@@ -408,10 +410,12 @@ class PairedClient:
         identifier = response.get("request_id")
         if set(response) != {"request_id", "expires_at", "proof"} \
                 or response["expires_at"] != expiry or not isinstance(identifier, str) or not IDENTIFIER.fullmatch(identifier) \
-                or response.get("proof") != token_digest(credential)[:16]:
+                or response.get("proof") != token_digest(credential, identifier)[:16]:
             raise PairingError("Unexpected pairing verification response")
+        if time.monotonic() >= deadline or time.time() >= expiry:
+            raise PairingError("Pairing invitation expired during device verification")
         self._pending = (endpoint, identifier, credential)
-        self._pending_deadline = time.monotonic() + min(300, expiry - time.time())
+        self._pending_deadline = deadline
         return response
 
     def poll(self) -> dict[str, Any]:

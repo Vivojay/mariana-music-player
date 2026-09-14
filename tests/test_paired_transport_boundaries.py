@@ -64,7 +64,7 @@ def test_corrupt_persisted_device_never_uses_cached_authorization(tmp_path, fiel
     path = tmp_path / "trust.json"
     store = trust.TrustStore(path)
     token = secrets.token_urlsafe(32)
-    store.approve("a" * 32, "Listening room", trust.token_digest(token), now=time.time())
+    store.approve("a" * 32, "Listening room", trust.token_digest(token, "a" * 32), now=time.time())
     assert store.authenticates("a" * 32, token)
     document = json.loads(path.read_text(encoding="utf-8"))
     document["devices"]["a" * 32][field] = value
@@ -79,8 +79,8 @@ def test_corrupt_persisted_device_never_uses_cached_authorization(tmp_path, fiel
 
 @pytest.mark.parametrize("payload", [
     b"\xff", b"[]", b'{"schema_version":true,"devices":{}}',
-    b'{"schema_version":1,"devices":{},"unknown":"secret"}',
-    b'{"schema_version":1,"devices":[]}', b"x" * (trust.MAX_STATE_BYTES + 1),
+    b'{"schema_version":2,"devices":{},"unknown":"secret"}',
+    b'{"schema_version":2,"devices":[]}', b"x" * (trust.MAX_STATE_BYTES + 1),
 ], ids=["invalid-utf8", "wrong-root", "boolean-version", "unknown-field", "wrong-devices", "oversized"])
 def test_unreadable_or_wrong_shape_state_is_not_replaced(tmp_path, payload):
     path = tmp_path / "trust.json"
@@ -96,7 +96,7 @@ def test_removed_trust_file_revokes_cached_access_without_recreating_state(tmp_p
     path = tmp_path / "trust.json"
     store = trust.TrustStore(path)
     token = secrets.token_urlsafe(32)
-    store.approve("a" * 32, "Listening room", trust.token_digest(token), now=time.time())
+    store.approve("a" * 32, "Listening room", trust.token_digest(token, "a" * 32), now=time.time())
     path.unlink()
     assert not store.authenticates("a" * 32, token)
     assert store.devices() == [] and not path.exists()
@@ -250,7 +250,8 @@ def test_pairing_response_cannot_create_pending_state_with_changed_proof_or_expi
                   "expires_at": expires}
 
     def reply(_endpoint, _method, _path, *, payload):
-        response = {"request_id": "a" * 32, "expires_at": expires, "proof": trust.token_digest(payload["credential"])[:16]}
+        response = {"request_id": "a" * 32, "expires_at": expires,
+                    "proof": trust.token_digest(payload["credential"], "a" * 32)[:16]}
         if response_change == "proof":
             response["proof"] = "wrong"
         elif response_change == "expiry":
@@ -371,7 +372,7 @@ def test_real_tls_malformed_json_releases_worker_without_consuming_invitation(tm
         result = transport.PairedClient._call(endpoint, "POST", "/v1/pairing", payload={
             "invitation": invitation["secret"], "credential": token, "label": "Valid device",
         })
-        assert result["proof"] == trust.token_digest(token)[:16]
+        assert result["proof"] == trust.token_digest(token, result["request_id"])[:16]
         assert len(service.pending()) == 1 and service.trust.devices() == []
     finally:
         server.close()

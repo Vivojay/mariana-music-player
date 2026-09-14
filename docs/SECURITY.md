@@ -66,3 +66,43 @@ Security regressions are tested for URL redaction, credential persistence,
 subprocess arguments, events, logs, malformed archives, IPC boundaries,
 playback projection allowlisting and stale-event rejection, destructive target
 races, alias-equivalent guards, and failed transactional activation.
+
+## Paired-desktop credential verification
+
+The opt-in private-network companion remains read-only. Stock clients generate
+32-byte random bearer credentials, but the host does not assume that arbitrary
+peers use the stock client or choose strong tokens. Host trust format 2 stores a
+PBKDF2-HMAC-SHA256 verifier with 600,000 iterations and 32-byte output. The
+server-generated 128-bit request ID becomes the device ID and provides a unique
+per-record salt, prefixed with `mariana-paired-device-v2` and a zero byte for
+domain separation. Device IDs identify records; verifiers are not lookup keys.
+The displayed approval proof is the first 16 hexadecimal verifier characters,
+and the client independently derives it using the returned request ID. Bearer
+tokens remain in the supported OS-protected credential store, not trust files.
+
+Invitation secrets are independently generated 256-bit values held only for
+their short in-memory lifetime and compared in constant time. Syntax validation
+does not hash a keyring value. Unknown, malformed, and revoked device requests
+are rejected before expensive work. At most two credential derivations run at
+once; saturation returns a safe retry error instead of queuing unlimited work.
+The transport also retains its four-connection limit. Derivation occurs outside
+service and trust locks, with expiry, shutdown, and persisted revocation checked
+again afterward. These bounds limit concurrency, not total traffic: a hostile
+LAN peer that knows a current device ID can still consume the available work
+slots. No playback or audio callback waits for credential derivation.
+
+Trust format 1 contains fast verifiers and is not silently migrated or accepted
+as format 2. Old or unknown trust formats remain untouched and produce an
+explicit re-pair diagnostic. Both desktops must use the updated proof protocol.
+To re-pair an older development installation, stop its listener/application,
+explicitly retire the host's `trusted-devices.json` from the paired state
+directory, disconnect the old companion connection, and issue/approve a fresh
+invitation. Retain `server-identity.json` and its protected key: resetting trust
+does not require changing the server certificate. Normal status wire schema,
+client connection schema, and server-identity schema remain version 1.
+
+The work factor has a real latency cost and must be included in connection and
+shutdown acceptance. The KDF provides offline guessing resistance for weak peer
+credentials; it is not a password-strength guarantee or a traffic-rate limiter.
+The implementation follows [Python's key-derivation guidance](https://docs.python.org/3/library/hashlib.html#key-derivation)
+and [the password-hashing query guidance](https://codeql.github.com/codeql-query-help/python/py-weak-sensitive-data-hashing/).
