@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import random
 import re
 import time
@@ -11,6 +12,7 @@ import unicodedata
 import uuid
 from collections.abc import Callable
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -34,6 +36,12 @@ VALID_ALBUM_ORDERS = {"release", "shuffle", "smart", "custom"}
 
 class AlbumError(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class PlaybackCandidate:
+    media: MediaRef
+    match: str
 
 
 class AlbumMetadataClient(Protocol):
@@ -346,6 +354,91 @@ class AlbumCatalog:
                     )
                 )
         return tracks
+
+    def inspect_release(self, release_mbid: str) -> AlbumRef:
+        """Fetch one exact edition without changing CLI search or resolving playback."""
+        if str(uuid.UUID(release_mbid)) != release_mbid:
+            raise AlbumError("Invalid release identity")
+        payload = self.musicbrainz.release(release_mbid)
+        if not payload or payload.get("id") != release_mbid:
+            raise AlbumError("This release edition is unavailable")
+        album = self._release_stub(payload)
+        album.tracks = self._remote_tracks(album, payload)
+        if not album.tracks or len(album.tracks) > 100:
+            raise AlbumError("This release has no supported recording list")
+        return album
+
+    def playback_candidates(
+        self, album: AlbumRef, track: AlbumTrack, *, cancelled: Callable[[], bool] = lambda: False,
+    ) -> list[PlaybackCandidate]:
+        """Offer choices, never silently equate a provider search hit with an edition."""
+        candidates = []
+        for row, metadata, recording_mbid in self._local_rows():
+            if cancelled():
+                return []
+            exact = bool(track.recording_mbid and recording_mbid == track.recording_mbid)
+            matches = _normalized(metadata.get("title")) == _normalized(track.title) and (
+                not track.artist or _normalized(metadata.get("artist")) == _normalized(track.artist)
+            )
+            if not exact and not matches:
+                continue
+            media = self._local_media(row, metadata, recording_mbid)
+            candidates.append(PlaybackCandidate(media, "recording-id" if exact else "metadata"))
+            if len(candidates) == 10:
+                break
+        if cancelled():
+            return []
+        # Local choices remain useful if the external search is unavailable.
+        try:
+            results = self.youtube_search(
+                f"{track.artist or album.album_artist or ''} {track.title}",
+                limit=5, browser_profile=self.browser_profile,
+            )
+        except Exception:
+            if candidates:
+                return candidates
+            raise
+        seen = set()
+        for result in results[:5]:
+            if cancelled():
+                return []
+            video_id = result.get("id")
+            if not isinstance(video_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+                continue
+            if video_id in seen:
+                continue
+            seen.add(video_id)
+            canonical = f"https://www.youtube.com/watch?v={video_id}"
+            try:
+                details = self.youtube_info(canonical, detailed=True, browser_profile=self.browser_profile)
+            except Exception:
+                continue
+            duration = details.get("duration")
+            if (
+                details.get("is_live") or isinstance(duration, bool)
+                or not isinstance(duration, (int, float))
+            ):
+                continue
+            try:
+                duration = float(duration)
+            except OverflowError:
+                continue
+            if not math.isfinite(duration) or duration <= 0:
+                continue
+            title = details.get("title") or result.get("title")
+            if not isinstance(title, str) or not title.strip():
+                continue
+            # Keep the provider's actual identity; search similarity is not proof
+            # of a MusicBrainz recording/release identity.
+            media = MediaRef(
+                MediaSource.YOUTUBE, canonical, title=title,
+                artist=details.get("artist") or details.get("uploader"), duration=float(duration),
+                provenance="discovery-selection",
+                resolver_data={"youtube": True, "video_id": video_id},
+                capabilities=MediaCapabilities(metadata_available=True),
+            )
+            candidates.append(PlaybackCandidate(media, "provider-result"))
+        return candidates
 
     def _match_local(self, track: AlbumTrack) -> tuple[MediaRef | None, bool]:
         candidates = self._local_rows()
