@@ -1236,6 +1236,10 @@ def test_exit_closes_independent_services_without_serial_waits(monkeypatch):
     monkeypatch.setattr(main, "SLEEP_TIMER", SimpleNamespace(close=lambda: closed.append("sleep")))
     monkeypatch.setattr(main, "STATION", SimpleNamespace(close=lambda: closed.append("station")))
     monkeypatch.setattr(main, "BROADCASTER", SimpleNamespace(close=lambda: closed.append("broadcast")))
+    monkeypatch.setattr(main, "HOMEPAGE", SimpleNamespace(close=lambda: closed.append("homepage")))
+    monkeypatch.setattr(main, "ARTWORK", SimpleNamespace(close=lambda: closed.append("artwork")))
+    monkeypatch.setattr(main, "_ARTWORK_SINK_REMOVE", lambda: closed.append("artwork observer"))
+    monkeypatch.setattr(main, "_ARTWORK_OBSERVER_REVISION", main._ARTWORK_OBSERVER_REVISION)
     monkeypatch.setattr(
         main,
         "DESKTOP_CONTROL",
@@ -1245,6 +1249,8 @@ def test_exit_closes_independent_services_without_serial_waits(monkeypatch):
 
     main.exitplayer()
     assert {"sleep", "station", "broadcast", "desktop", "playback", "library", "save", "lyrics"} <= set(closed)
+    assert {"homepage", "artwork", "artwork observer"} <= set(closed)
+    assert closed.index("artwork observer") < closed.index("artwork")
     assert "ack" in closed
     assert any("Exiting" in value for value in messages)
 

@@ -31,6 +31,13 @@ appearance:
 desktop:
   close button: tray
 
+homepage:
+  show on startup: true
+  online content: false
+
+artwork:
+  automatic online retrieval: false
+
 integrations:
   discord:
     presence:

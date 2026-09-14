@@ -74,6 +74,7 @@ from first_boot_welcome_screen import notify;       _boot_progress(21, 'first ru
 from config_manager import load_system_settings, load_user_settings, save_user_settings
 from mariana import playback_diagnostics
 from mariana.albums import AlbumCatalog, AlbumError
+from mariana.artwork import ArtworkState, create_artwork_manager
 from mariana.broadcast import BroadcastError, BroadcastState, IcecastBroadcaster
 from mariana.chapters import normalize_chapters
 from mariana.command_catalog import serialize_command_catalog
@@ -93,6 +94,7 @@ from mariana.desktop_control import DesktopControl
 from mariana.download import DownloadError, download_media, prepare_download_target
 from mariana.download_jobs import DownloadJobError, DownloadManager
 from mariana.identity import AcoustIDClient, IdentificationService, LRCLIBClient, MusicBrainzClient
+from mariana.homepage import HOMEPAGE_CACHE_STATE_KEY, HomepageConfiguration, HomepageService, ListenBrainzFreshReleasesProvider, create_homepage_image_cache
 from mariana.library import LibraryCatalog, LibraryError
 from mariana.library_service import LibraryProfilerService
 from mariana.local_match import LocalMatchResult, LocalMatchStatus, LocalMediaMatcher
@@ -116,7 +118,7 @@ from mariana.navigation import NavigationContext, NavigationEntry, NavigationSco
 from mariana.output_devices import OutputDeviceError, default_output_device
 from mariana.output_targets import OutputTargetError, bind_output_target
 from mariana.paths import initialize_runtime_paths
-from mariana.platform import open_path, reveal_path
+from mariana.platform import PlatformCapabilityError, open_path, reveal_path
 from mariana.playlists import PlaylistError, PlaylistStore
 from mariana.playback_status import (
     FavoriteStatusProjection,
@@ -137,7 +139,7 @@ from mariana.queueing import PersistentQueue, QueueError
 from mariana.radio import RadioCatalog, RadioError
 from mariana.seek import SeekSyntaxError, parse_seek_target
 from mariana.sleep_timer import SleepAction, SleepTimer, parse_duration
-from mariana.sources import FailureCode, MediaFailure
+from mariana.sources import FailureCode, MediaFailure, ResolvedMedia
 from mariana.station import StationError, StationManager
 from mariana.station_discovery import StationDiscovery, StationSeedError
 from mariana.setup import SetupStateError, SetupStateStore
@@ -353,8 +355,88 @@ except OSError:
     sys.exit(1) # Fatal crash
 
 
+def _configured_homepage(settings):
+    """Return independent, validated homepage visibility/network preferences."""
+    return HomepageConfiguration.from_mapping(settings.get('homepage'))
+
+
+def _configured_automatic_artwork(settings):
+    """Return the opt-in automatic network-artwork preference."""
+    artwork_settings = settings.get('artwork')
+    if not isinstance(artwork_settings, dict):
+        return False
+    value = artwork_settings.get('automatic online retrieval', False)
+    return value if type(value) is bool else False
+
+
+
+def _emit_discovery_event(event, payload) -> None:
+    """Adapt typed service callbacks to the existing best-effort desktop emitter."""
+    DESKTOP_CONTROL.emit(event, dict(payload))
+
+
+def _trusted_artwork_reference(media: MediaRef, resolved: ResolvedMedia | None) -> str | None:
+    """Select resolver/provider artwork without trusting arbitrary URL metadata."""
+    candidate = resolved.metadata.get('artwork') if resolved is not None else None
+    if not candidate and media.source == MediaSource.PODCAST:
+        candidate = media.resolver_data.get('artwork')
+    if media.source not in {MediaSource.PODCAST, MediaSource.YOUTUBE, MediaSource.URL}:
+        return None
+    return str(candidate).strip() if isinstance(candidate, str) and candidate.strip() else None
+
+
+def _artwork_active_media_changed(
+    media: MediaRef | None,
+    resolved: ResolvedMedia | None,
+) -> None:
+    """Bind presentation-only artwork work to the authoritative active media."""
+    if media is None:
+        ARTWORK.clear()
+        return
+    ARTWORK.activate(
+        media.stable_id,
+        projection_media_id=media.stable_id,
+        local_path=media.original_uri if media.source == MediaSource.LOCAL else None,
+        trusted_provider_url=_trusted_artwork_reference(media, resolved),
+    )
+
+
+_ARTWORK_SINK_REMOVE = None
+_ARTWORK_OBSERVER_REVISION = 0
+
+
+def _connect_artwork_controller() -> None:
+    """Attach artwork observation whenever runtime configuration replaces the controller."""
+    global _ARTWORK_SINK_REMOVE, _ARTWORK_OBSERVER_REVISION
+    _ARTWORK_OBSERVER_REVISION += 1
+    revision = _ARTWORK_OBSERVER_REVISION
+    if _ARTWORK_SINK_REMOVE is not None:
+        try:
+            _ARTWORK_SINK_REMOVE()
+        except Exception:
+            pass
+    controller = vas.controller
+
+    def active_media_changed(media, resolved):
+        if revision == _ARTWORK_OBSERVER_REVISION and controller is vas.controller:
+            _artwork_active_media_changed(media, resolved)
+
+    _ARTWORK_SINK_REMOVE = controller.add_active_media_sink(active_media_changed)
+
+
+def _close_artwork_controller() -> None:
+    """Detach the presentation observer before closing its owned artwork service."""
+    global _ARTWORK_SINK_REMOVE, _ARTWORK_OBSERVER_REVISION
+    _ARTWORK_OBSERVER_REVISION += 1
+    remove = _ARTWORK_SINK_REMOVE
+    _ARTWORK_SINK_REMOVE = None
+    try:
+        if remove is not None:
+            remove()
+    finally:
+        ARTWORK.close()
 SETTINGS = load_user_settings()
-# Serialize EQ settings persistence from terminal and desktop requests.
+# Serialize shared settings persistence from terminal and desktop requests.
 _SETTINGS_WRITE_LOCK = threading.RLock()
 
 
@@ -432,6 +514,12 @@ vas.configure(
 get_lyrics.configure(IDENTITY, vas.controller)
 EQUALIZER = EqualizerService(lambda: vas.controller.equalizer, SETTINGS.get('equalizer'), _persist_equalizer_configuration)
 DESKTOP_CONTROL = DesktopControl()
+ARTWORK = create_artwork_manager(
+    RUNTIME_PATHS.state('cache', 'artwork'),
+    automatic_online=_configured_automatic_artwork(SETTINGS),
+    on_update=lambda payload: _emit_discovery_event('artwork', payload),
+)
+_connect_artwork_controller()
 DISCORD_PRESENCE = DiscordPresencePublisher(
     _configured_discord_application_id(SYSTEM_SETTINGS)
 )
@@ -651,6 +739,16 @@ def refresh_runtime_configuration(*, show_report=False):
     )
     if equalizer_service := globals().get('EQUALIZER'):
         vas.controller.equalizer.submit(vas.controller.equalizer.prepare(equalizer_service.settings))
+    if artwork_service := globals().get('ARTWORK'):
+        artwork_service.clear()
+        artwork_service.set_automatic_online(_configured_automatic_artwork(SETTINGS))
+        _connect_artwork_controller()
+    if homepage_service := globals().get('HOMEPAGE'):
+        homepage_configuration = _configured_homepage(SETTINGS)
+        homepage_service.configure(
+            show_on_startup=homepage_configuration.show_on_startup,
+            online_enabled=homepage_configuration.online_enabled,
+        )
     IDENTITY.fpcalc_bin = MEDIA_TOOLS.get('fpcalc bin')
     LIBRARY.ffmpeg_bin = MEDIA_TOOLS.get('ffmpeg bin')
     LIBRARY.fpcalc_bin = MEDIA_TOOLS.get('fpcalc bin')
@@ -795,6 +893,48 @@ def reload_sounds(quick_load = True, full = False):
 reload_sounds(quick_load = not FIRST_BOOT) # First boot requires quick_load to be disabled,
                                            # other boots can do away with quick_loads :)
 PREFERENCES.migrate_legacy(RUNTIME_PATHS.state('data', 'track-infos.yml'), LIBRARY)
+
+
+def _homepage_local_content():
+    """Build a bounded title-only local summary without publishing media identities."""
+    snapshot = vas.controller.snapshot()
+    items = []
+    if snapshot.media is not None:
+        items.append({
+            'kind': 'current',
+            'title': snapshot.media.title or 'Current media',
+            'subtitle': snapshot.media.artist or snapshot.media.source.value,
+        })
+    for entry in PREFERENCES.list(PreferenceState.FAVORITE, limit=4):
+        items.append({
+            'kind': 'favorite',
+            'title': entry.label,
+            'subtitle': entry.source.value if entry.source else 'Saved media',
+        })
+    for queued in QUEUE.items()[:4]:
+        items.append({
+            'kind': 'queue',
+            'title': queued.media.title or 'Queued media',
+            'subtitle': queued.media.artist or queued.media.source.value,
+        })
+    return {
+        'library_count': len(LIBRARY.media_refs()),
+        'favorite_count': len(PREFERENCES.list(PreferenceState.FAVORITE)),
+        'playlist_count': len(QUEUE.playlists.list()),
+        'queue_count': len(QUEUE.items()),
+        'items': items,
+    }
+
+
+HOMEPAGE = HomepageService(
+    configuration=_configured_homepage(SETTINGS),
+    local_loader=_homepage_local_content,
+    cache_load=lambda: DATABASE.get_state(HOMEPAGE_CACHE_STATE_KEY),
+    cache_save=lambda payload: DATABASE.set_state(HOMEPAGE_CACHE_STATE_KEY, payload),
+    additional_providers=(ListenBrainzFreshReleasesProvider(),),
+    image_cache=create_homepage_image_cache(RUNTIME_PATHS.state('cache', 'homepage')),
+    on_update=lambda payload: _emit_discovery_event('homepage', payload),
+)
 
 if _sound_files_names_only == []:
     if loglevel in [3, 4]:
@@ -3959,6 +4099,227 @@ def discord_command(arguments):
     return selected
 
 
+def _persist_homepage_configuration(
+    *,
+    show_on_startup: bool | None = None,
+    online_enabled: bool | None = None,
+):
+    """Persist independent homepage settings and update the live service atomically."""
+    if show_on_startup is not None and type(show_on_startup) is not bool:
+        raise ValueError('Homepage startup setting must be true or false')
+    if online_enabled is not None and type(online_enabled) is not bool:
+        raise ValueError('Homepage online setting must be true or false')
+    with _SETTINGS_WRITE_LOCK:
+        previous_present = 'homepage' in SETTINGS
+        previous_section = SETTINGS.get('homepage')
+        section = dict(previous_section) if isinstance(previous_section, dict) else {}
+        SETTINGS['homepage'] = section
+        if show_on_startup is not None:
+            section['show on startup'] = show_on_startup
+        if online_enabled is not None:
+            section['online content'] = online_enabled
+        try:
+            save_user_settings(SETTINGS, RUNTIME_PATHS.settings)
+        except Exception:
+            if previous_present:
+                SETTINGS['homepage'] = previous_section
+            else:
+                SETTINGS.pop('homepage', None)
+            previous = _configured_homepage(SETTINGS)
+            HOMEPAGE.configure(
+                show_on_startup=previous.show_on_startup,
+                online_enabled=previous.online_enabled,
+            )
+            raise
+        projection = HOMEPAGE.configure(
+            show_on_startup=show_on_startup,
+            online_enabled=online_enabled,
+        )
+        if online_enabled:
+            HOMEPAGE.refresh_async()
+        return projection
+
+
+def _print_homepage(projection):
+    state = projection['state']
+    IPrint(
+        f'Mariana Home | startup={"on" if projection["show_on_startup"] else "off"} | '
+        f'online={"on" if projection["online_enabled"] else "off"} | {state}',
+        visible=visible,
+    )
+    if projection.get('safe_message'):
+        IPrint(projection['safe_message'], visible=visible)
+    for section in projection['sections']:
+        IPrint(f'\n{section["title"]}', visible=visible)
+        if not section['items']:
+            IPrint('  Nothing to show yet.', visible=visible)
+            continue
+        rows = [
+            (
+                item['title'],
+                item['source'],
+                item.get('published_at') or '',
+            )
+            for item in section['items']
+        ]
+        IPrint(tbl(rows, headers=('Title', 'Source', 'Published'), tablefmt='plain'), visible=visible)
+        for item in section['items']:
+            if item.get('summary'):
+                IPrint(f'  {item["title"]}: {item["summary"]}', visible=visible)
+            if item.get('link'):
+                IPrint(f'  Original: {item["link"]}', visible=visible)
+
+
+def home_command(arguments):
+    """Show/configure the local-first homepage without conflating network consent."""
+    normalized = [value.casefold() for value in arguments]
+    if not normalized:
+        projection = HOMEPAGE.snapshot()
+        DESKTOP_CONTROL.emit('homepage', {**projection, 'open_requested': True})
+        _print_homepage(projection)
+        return projection
+    if normalized in (['status'], ['current']):
+        projection = HOMEPAGE.snapshot()
+        IPrint(
+            f'Homepage on startup: {"enabled" if projection["show_on_startup"] else "disabled"}; '
+            f'online discovery: {"enabled" if projection["online_enabled"] else "disabled"}; '
+            f'state: {projection["state"]}',
+            visible=visible,
+        )
+        return projection
+    if len(normalized) == 1 and normalized[0] in {'enable', 'disable'}:
+        enabled = normalized[0] == 'enable'
+        projection = _persist_homepage_configuration(show_on_startup=enabled)
+        IPrint(f'Homepage on startup {"enabled" if enabled else "disabled"}.', visible=visible)
+        return projection
+    if (
+        len(normalized) == 2
+        and normalized[0] == 'online'
+        and normalized[1] in {'enable', 'disable', 'on', 'off'}
+    ):
+        enabled = normalized[1] in {'enable', 'on'}
+        projection = _persist_homepage_configuration(online_enabled=enabled)
+        IPrint(f'Online homepage discovery {"enabled" if enabled else "disabled"}.', visible=visible)
+        return projection
+    if normalized == ['refresh']:
+        if not HOMEPAGE.snapshot()['online_enabled']:
+            raise ValueError('Online discovery is disabled; use "home online enable" first')
+        if not HOMEPAGE.refresh_async():
+            raise ValueError('Homepage refresh is unavailable')
+        IPrint('Homepage discovery refresh started in the background.', visible=visible)
+        return HOMEPAGE.snapshot()
+    raise ValueError(
+        'Usage: home [status|enable|disable|refresh|online enable|online disable]'
+    )
+
+
+def _persist_artwork_configuration(enabled: bool):
+    """Persist automatic network-artwork consent, rolling back on write failure."""
+    if type(enabled) is not bool:
+        raise ValueError('Artwork setting must be true or false')
+    with _SETTINGS_WRITE_LOCK:
+        previous_present = 'artwork' in SETTINGS
+        previous_section = SETTINGS.get('artwork')
+        section = dict(previous_section) if isinstance(previous_section, dict) else {}
+        previous_enabled = _configured_automatic_artwork(SETTINGS)
+        SETTINGS['artwork'] = section
+        section['automatic online retrieval'] = enabled
+        try:
+            save_user_settings(SETTINGS, RUNTIME_PATHS.settings)
+        except Exception:
+            if previous_present:
+                SETTINGS['artwork'] = previous_section
+            else:
+                SETTINGS.pop('artwork', None)
+            ARTWORK.set_automatic_online(previous_enabled)
+            raise
+        ARTWORK.set_automatic_online(enabled)
+        return ARTWORK.projection()
+
+
+def _show_current_artwork(
+    *,
+    fetch: bool,
+    desktop: bool,
+    expected_media_id: str | None = None,
+):
+    snapshot = vas.controller.snapshot()
+    if snapshot.media is None:
+        raise ValueError('No media is currently active')
+    if expected_media_id is not None and snapshot.media.stable_id != expected_media_id:
+        raise ValueError('Current media changed; try again')
+    expected_media_id = snapshot.media.stable_id
+    projection = ARTWORK.projection()
+    if projection.media_id != expected_media_id:
+        raise ValueError('Current media changed; try again')
+    if fetch and ARTWORK.fetch_current(expected_media_id) is None:
+        raise ValueError('Current media has no supported provider artwork to fetch')
+    projection = ARTWORK.projection()
+    if projection.media_id != expected_media_id:
+        raise ValueError('Current media changed; try again')
+    current_media = vas.controller.snapshot().media
+    if current_media is None or current_media.stable_id != expected_media_id:
+        raise ValueError('Current media changed; try again')
+    if desktop:
+        DESKTOP_CONTROL.emit('artwork', {**projection.to_dict(), 'show_requested': True})
+        return projection
+    if projection.state == ArtworkState.LOADING:
+        projection = ARTWORK.wait_for_idle(timeout=12.0 if fetch else 2.0)
+    current_media = vas.controller.snapshot().media
+    if projection.media_id != expected_media_id or current_media is None or current_media.stable_id != expected_media_id:
+        raise ValueError('Current media changed; try again')
+    image = ARTWORK.current_image(projection.cache_key)
+    if image is None:
+        if projection.state == ArtworkState.LOADING:
+            IPrint('Artwork is still loading; run "thumb show" again shortly.', visible=visible)
+            return projection
+        raise ValueError(projection.unavailable_reason or 'No supported artwork is available')
+    current_media = vas.controller.snapshot().media
+    current_projection = ARTWORK.projection()
+    if (
+        current_media is None or current_media.stable_id != expected_media_id
+        or current_projection.media_id != expected_media_id
+        or current_projection.cache_key != image.cache_key
+    ):
+        raise ValueError('Current media changed; try again')
+    try:
+        open_path(image.path)
+    except (OSError, PlatformCapabilityError) as error:
+        raise ValueError('Artwork viewer is unavailable on this system') from error
+    IPrint('Opened current media artwork.', visible=visible)
+    return projection
+
+
+def thumb_command(arguments):
+    """Configure and display identity-bound current-media artwork."""
+    normalized = [value.casefold() for value in arguments]
+    if not normalized or normalized in (['status'], ['current']):
+        projection = ARTWORK.projection()
+        availability = projection.state.value
+        IPrint(
+            f'Automatic online artwork: {"enabled" if projection.automatic_online else "disabled"}; '
+            f'current artwork: {availability}',
+            visible=visible,
+        )
+        return projection
+    if len(normalized) == 1 and normalized[0] in {'enable', 'disable'}:
+        enabled = normalized[0] == 'enable'
+        projection = _persist_artwork_configuration(enabled)
+        IPrint(f'Automatic online artwork {"enabled" if enabled else "disabled"}.', visible=visible)
+        return projection
+    if normalized == ['show']:
+        return _show_current_artwork(
+            fetch=False,
+            desktop=bool(getattr(DESKTOP_CONTROL, 'enabled', False)),
+        )
+    if normalized == ['show', '--fetch']:
+        return _show_current_artwork(
+            fetch=True,
+            desktop=bool(getattr(DESKTOP_CONTROL, 'enabled', False)),
+        )
+    raise ValueError('Usage: thumb [status|enable|disable|show [--fetch]]')
+
+
 THEME_PRESETS = {
     'aurora': 'Mariana Aurora',
     'windows': 'Windows Terminal Acrylic',
@@ -3968,8 +4329,9 @@ THEME_PRESETS = {
 
 
 def theme_command(arguments):
-    appearance = SETTINGS.setdefault('appearance', {})
-    current = str(appearance.get('terminal theme') or 'aurora')
+    with _SETTINGS_WRITE_LOCK:
+        appearance = SETTINGS.setdefault('appearance', {})
+        current = str(appearance.get('terminal theme') or 'aurora')
     operation = arguments[0].casefold() if arguments else 'current'
     if operation in {'list', 'ls'}:
         IPrint(tbl([(key, value, '*' if key == current else '') for key, value in THEME_PRESETS.items()],
@@ -3980,13 +4342,15 @@ def theme_command(arguments):
         return current
     if operation not in THEME_PRESETS or len(arguments) != 1:
         raise ValueError(f'Usage: theme [{"|".join(THEME_PRESETS)}|list|current]')
-    previous = appearance.get('terminal theme')
-    appearance['terminal theme'] = operation
-    try:
-        save_user_settings(SETTINGS, RUNTIME_PATHS.settings)
-    except Exception:
-        appearance['terminal theme'] = previous
-        raise
+    with _SETTINGS_WRITE_LOCK:
+        appearance = SETTINGS.setdefault('appearance', {})
+        previous = appearance.get('terminal theme')
+        appearance['terminal theme'] = operation
+        try:
+            save_user_settings(SETTINGS, RUNTIME_PATHS.settings)
+        except Exception:
+            appearance['terminal theme'] = previous
+            raise
     DESKTOP_CONTROL.emit('theme', {'name': operation})
     IPrint(f'Theme changed to {THEME_PRESETS[operation]}', visible=visible)
     return operation
@@ -4276,6 +4640,75 @@ def _playback_status_projection() -> PlaybackStatusProjection:
 
 def _desktop_control_request(action: str, payload: dict[str, object]) -> dict[str, object]:
     """Apply one allowlisted desktop intent against authoritative backend state."""
+    if action == 'homepage.open':
+        if payload:
+            return {'ok': False, 'error': 'Homepage request is invalid'}
+        projection = HOMEPAGE.snapshot()
+        DESKTOP_CONTROL.emit('homepage', {**projection, 'open_requested': True})
+        return {'ok': True}
+
+    if action == 'homepage.refresh':
+        if payload:
+            return {'ok': False, 'error': 'Homepage request is invalid'}
+        if not HOMEPAGE.snapshot()['online_enabled']:
+            return {'ok': False, 'error': 'Enable online discovery before refreshing'}
+        if not HOMEPAGE.refresh_async():
+            return {'ok': False, 'error': 'Homepage refresh is unavailable'}
+        return {'ok': True}
+
+    if action == 'homepage.configure':
+        if set(payload) != {'setting', 'enabled'}:
+            return {'ok': False, 'error': 'Homepage setting is invalid'}
+        setting = payload.get('setting')
+        enabled = payload.get('enabled')
+        if not isinstance(setting, str) or setting not in {'startup', 'online'} or type(enabled) is not bool:
+            return {'ok': False, 'error': 'Homepage setting is invalid'}
+        try:
+            if setting == 'startup':
+                _persist_homepage_configuration(show_on_startup=enabled)
+            else:
+                _persist_homepage_configuration(online_enabled=enabled)
+        except Exception:
+            return {'ok': False, 'error': 'Could not update homepage settings'}
+        return {'ok': True}
+
+    if action == 'artwork.configure':
+        enabled = payload.get('enabled')
+        if set(payload) != {'enabled'} or type(enabled) is not bool:
+            return {'ok': False, 'error': 'Artwork setting is invalid'}
+        try:
+            _persist_artwork_configuration(enabled)
+        except Exception:
+            return {'ok': False, 'error': 'Could not update artwork settings'}
+        return {'ok': True}
+
+    if action == 'artwork.show':
+        fetch = payload.get('fetch')
+        expected_media_id = payload.get('media_id')
+        if (
+            set(payload) != {'fetch', 'media_id'}
+            or type(fetch) is not bool
+            or not isinstance(expected_media_id, str)
+            or not expected_media_id
+        ):
+            return {'ok': False, 'error': 'Artwork request is invalid'}
+        try:
+            _show_current_artwork(
+                fetch=fetch,
+                desktop=True,
+                expected_media_id=expected_media_id,
+            )
+        except Exception as error:
+            safe_error = str(error)
+            if safe_error not in {
+                'No media is currently active',
+                'Current media changed; try again',
+                'Current media has no supported provider artwork to fetch',
+            }:
+                safe_error = 'Current artwork is unavailable'
+            return {'ok': False, 'error': safe_error}
+        return {'ok': True}
+
     if action == 'autocomplete.catalog':
         allowed_fields = {'include_compatibility', 'typed_prefix'}
         if not set(payload).issubset(allowed_fields):
@@ -4595,6 +5028,8 @@ def exitplayer(sys_exit=False):
         ('station', STATION.close),
         ('downloads', DOWNLOADS.close),
         ('broadcast', BROADCASTER.close),
+        ('homepage', HOMEPAGE.close),
+        ('artwork', _close_artwork_controller),
         ('desktop control', DESKTOP_CONTROL.close),
         ('playback', vas.supervisor.close),
         ('library profiler', LIBRARY_SERVICE.close),
@@ -6037,6 +6472,8 @@ def process(command):
             'discord': discord_command,
             'desktop': desktop_command,
             'theme': theme_command,
+            'home': home_command,
+            'thumb': thumb_command,
             'eq': eq_command,
             'media': media_command,
             'metadata': lambda values: media_command(['metadata', *values]),
@@ -7766,6 +8203,11 @@ def run():
         'theme': SETTINGS.get('appearance', {}).get('terminal theme', 'aurora'),
         'close_button_behavior': _configured_desktop_close_behavior(SETTINGS),
     })
+    homepage_projection = HOMEPAGE.snapshot()
+    DESKTOP_CONTROL.emit('homepage', dict(homepage_projection))
+    DESKTOP_CONTROL.emit('artwork', ARTWORK.projection().to_dict())
+    if homepage_projection['online_enabled']:
+        HOMEPAGE.refresh_async()
     _emit_queue_desktop_state()
     DESKTOP_CONTROL.emit('download', {'jobs': DOWNLOADS.status()})
     LIBRARY_SERVICE.start(initial_scan=True)
@@ -7779,7 +8221,10 @@ def run():
             vas.media_player(action='play')
         notify(Time = 6000) # For 6 seconds
 
-    if visible: showbanner()
+    if visible:
+        showbanner()
+        if homepage_projection['show_on_startup'] and not getattr(DESKTOP_CONTROL, 'enabled', False):
+            _print_homepage(homepage_projection)
     mainprompt()
 
 
