@@ -37,6 +37,14 @@ test('hosts the real Mariana PTY in the riced terminal shell', async () => {
     await expect(commandSuggestions).not.toHaveAttribute('aria-busy')
     await expect(page.getByRole('status')).toContainText(/^\d+ command suggestions/)
     await expect(page.getByRole('option', { name: /play/i }).first()).toBeVisible()
+    // Backend readiness precedes the interactive prompt reaching the renderer.
+    // Wait for that final startup output before testing transcript stability.
+    await expect(page.getByLabel('Terminal output')).toContainText(/ready\s*❱/, { timeout: 10_000 })
+    await application.evaluate(({ ipcMain }) => {
+      const observation = globalThis as typeof globalThis & { suggestionInputCount: number }
+      observation.suggestionInputCount = 0
+      ipcMain.on('terminal:write', () => { observation.suggestionInputCount += 1 })
+    })
     const terminalBeforeAcceptance = await page.getByLabel('Terminal output').textContent()
     await commandSuggestions.press('ArrowDown')
     await expect(commandSuggestions).toHaveAttribute('aria-activedescendant', /command-suggestion-/)
@@ -52,6 +60,9 @@ test('hosts the real Mariana PTY in the riced terminal shell', async () => {
     await commandSuggestions.fill('pla')
     await commandSuggestions.press('Escape')
     await expect(page.getByRole('listbox', { name: 'Available commands' })).toBeHidden()
+    expect(await application.evaluate(() => (
+      globalThis as typeof globalThis & { suggestionInputCount: number }
+    ).suggestionInputCount)).toBe(0)
     const commandCatalog = await page.evaluate(() => window.mariana.backend.commandCatalog())
     expect(commandCatalog.ok).toBe(true)
     if (commandCatalog.ok) {
