@@ -953,6 +953,7 @@ def test_help_covers_user_topics_examples_and_legacy_topic_names(monkeypatch):
         "Getting started",
         "Playback",
         "Seek and fade",
+        "Video and captions",
         "Queue",
         "Search and online sources",
         "Downloads",
@@ -1223,6 +1224,7 @@ def test_rich_prompt_reports_media_progress(monkeypatch):
 
 def test_exit_closes_independent_services_without_serial_waits(monkeypatch):
     closed = []
+    resume_snapshots = []
     messages = []
     empty = PlaybackSnapshot(PlaybackState.IDLE)
     monkeypatch.setattr(main, "visible", True)
@@ -1235,6 +1237,12 @@ def test_exit_closes_independent_services_without_serial_waits(monkeypatch):
     monkeypatch.setattr(main.vas.controller, "snapshot", lambda: empty)
     monkeypatch.setattr(main.vas.supervisor, "close", lambda: closed.append("playback"))
     monkeypatch.setattr(main, "SLEEP_TIMER", SimpleNamespace(close=lambda: closed.append("sleep")))
+    monkeypatch.setattr(main, "VIDEO", SimpleNamespace(close=lambda: closed.append("video")))
+    monkeypatch.setattr(main, "PLAYBACK_RESUME", SimpleNamespace(
+        capture_now=resume_snapshots.append,
+        close=lambda: closed.append("resume"),
+    ))
+    monkeypatch.setattr(main, "_disconnect_video_controller", lambda: closed.append("presentation observers"))
     monkeypatch.setattr(main, "STATION", SimpleNamespace(close=lambda: closed.append("station")))
     monkeypatch.setattr(main, "BROADCASTER", SimpleNamespace(close=lambda: closed.append("broadcast")))
     monkeypatch.setattr(main, "HOMEPAGE", SimpleNamespace(close=lambda: closed.append("homepage")))
@@ -1251,6 +1259,9 @@ def test_exit_closes_independent_services_without_serial_waits(monkeypatch):
     main.exitplayer()
     assert {"sleep", "station", "broadcast", "desktop", "playback", "library", "save", "lyrics"} <= set(closed)
     assert {"homepage", "artwork", "artwork observer"} <= set(closed)
+    assert {"video", "resume", "presentation observers"} <= set(closed)
+    assert resume_snapshots == [empty]
+    assert closed.index("presentation observers") < closed.index("video")
     assert closed.index("artwork observer") < closed.index("artwork")
     assert "ack" in closed
     assert any("Exiting" in value for value in messages)

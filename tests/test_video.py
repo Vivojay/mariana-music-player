@@ -277,6 +277,25 @@ def test_mode_request_rechecks_captured_playback_occurrence(tmp_path):
     service.close()
 
 
+def test_desktop_video_boundary_rejects_stale_and_extra_inputs(monkeypatch):
+    import main
+
+    media = MediaRef(MediaSource.LOCAL, "local.mp4", title="Local video")
+    snapshot = PlaybackSnapshot(PlaybackState.PAUSED, media=media)
+    calls = []
+    monkeypatch.setattr(main.vas.controller, "snapshot", lambda: snapshot)
+    monkeypatch.setattr(main, "VIDEO", SimpleNamespace(
+        request=lambda *args, **kwargs: calls.append((args, kwargs)) or {}, host_status=dict,
+    ))
+    monkeypatch.setattr(main, "_ensure_media_playable", lambda _media: None)
+    monkeypatch.setattr(main.DESKTOP_CONTROL, "emit", lambda *_args: True)
+    identity = video.project_playback_status(snapshot).media_id
+    assert not main._desktop_control_request('video.configure', {'mode': 'video', 'media_id': 'stale'})['ok']
+    assert not main._desktop_control_request('video.configure', {'mode': 'video', 'media_id': identity, 'path': 'private'})['ok']
+    assert not main._desktop_control_request('video.status', {'path': 'private'})['ok']
+    assert calls == []
+    assert main._desktop_control_request('video.configure', {'mode': 'video', 'media_id': identity})['ok']
+    assert calls == [(('video',), {'expected_media': media})]
 
 
 @pytest.mark.parametrize(("media_source", "mode"), [
@@ -444,8 +463,48 @@ def test_local_explicit_audio_suppresses_automatic_probe(monkeypatch, tmp_path):
         service.close()
 
 
+def test_play_path_and_current_flags_do_not_restart_current_playback(monkeypatch, tmp_path):
+    import main
+
+    source = tmp_path / "Real movie.mp4"
+    source.touch()
+    media = MediaRef(MediaSource.LOCAL, str(source))
+    calls, intents = [], []
+    monkeypatch.setattr(main, "VIDEO", SimpleNamespace(expect=lambda *args: intents.append(args),
+                        request=lambda *args, **kwargs: calls.append((args, kwargs)) or {}, host_status=dict))
+    monkeypatch.setattr(main.DESKTOP_CONTROL, "emit", lambda *_args: True)
+    monkeypatch.setattr(main.vas.controller, "snapshot", lambda: PlaybackSnapshot(PlaybackState.PAUSED, media=media))
+    started = []
+    monkeypatch.setattr(main, "play_local_default_player", lambda *args, **kwargs: started.append((args, kwargs)))
+    monkeypatch.setattr(main, "purge_old_lyrics_if_exist", lambda: None)
+    main.local_play_commands(["play", str(source), "--audio"])
+    assert started == [((str(source.resolve()), None), {"presentation": "audio"})]
+    main.local_play_commands(["play", "current", "--audio"])
+    assert len(started) == 1
+    assert calls == [(("audio",), {"expected_media": media})]
+    assert intents == [(media, "audio")]
 
 
+@pytest.mark.parametrize(("command", "kind"), [
+    ('/yl "https://youtu.be/abcdefghijk" --audio', 'link'),
+    ('/ml "https://example.org/movie.mp4" --audio', 'file'),
+    ('/ys "a concert" 5 --audio', 'search'),
+])
+def test_online_flags_survive_existing_command_selection(monkeypatch, command, kind):
+    import main
+
+    calls = []
+    monkeypatch.setattr(main, "play_vas_media", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(main, "choose_media_url", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(main, "url_is_valid", lambda _url: True)
+    monkeypatch.setattr(main.YT_query, "search_youtube", lambda **kwargs: [kwargs])
+    main.process(command)
+    assert len(calls) == 1
+    assert calls[0]["presentation"] == "audio"
+    if kind == 'search':
+        assert calls[0]['media_url_choices'] == [{'search': 'a concert', 'rescount': 5}]
+    elif kind == 'file':
+        assert calls[0]['media_url'] == 'https://example.org/movie.mp4'
 
 
 def test_long_local_media_prefetches_windows_and_rebases_paused_seeks(monkeypatch, tmp_path):

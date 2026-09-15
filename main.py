@@ -19,6 +19,7 @@
 import math
 import threading
 import time
+from typing import TypedDict, cast
 
 _BOOT_TOTAL = 31
 
@@ -87,6 +88,7 @@ from mariana.commands import (
     parse_search,
     search_rows,
 )
+from mariana.captions import CaptionError, CaptionPreferences
 from mariana.command_parser import CommandSyntaxError, split_command
 from mariana.collection_transfer import (
     CollectionTransferError,
@@ -126,6 +128,7 @@ from mariana.output_targets import OutputTargetError, bind_output_target
 from mariana.paths import initialize_runtime_paths
 from mariana.platform import PlatformCapabilityError, open_path, reveal_path
 from mariana.playlists import PlaylistError, PlaylistStore
+from mariana.playback_resume import PlaybackResumeTracker
 from mariana.playback_status import (
     FavoriteStatusProjection,
     PlaybackChapterProjection,
@@ -156,6 +159,7 @@ from mariana.tool_setup import discover_media_tools, persist_media_tools, setup_
 from mariana.toolchain import ToolchainError, ToolchainManager, find_javascript_runtime
 from mariana.user_state import load_user_data, write_user_data_atomic
 from mariana.version import __version__
+from mariana.video import LocalVideo, VideoUnavailable, presentation_arguments
 from mariana.integrations.discord_presence import (
     DiscordPresenceFailureCode,
     DiscordPresencePublisher,
@@ -455,6 +459,12 @@ def _persist_equalizer_configuration(value):
         save_user_settings({**SETTINGS, 'equalizer': value}, RUNTIME_PATHS.settings)
         SETTINGS['equalizer'] = value
 
+def _persist_caption_configuration(value):
+    with _SETTINGS_WRITE_LOCK:
+        save_user_settings({**SETTINGS, 'captions': value}, RUNTIME_PATHS.settings)
+        SETTINGS['captions'] = value
+
+
 YT_query.configure(
     browser_profile=SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile')
 )
@@ -523,6 +533,61 @@ vas.configure(
 get_lyrics.configure(IDENTITY, vas.controller)
 EQUALIZER = EqualizerService(lambda: vas.controller.equalizer, SETTINGS.get('equalizer'), _persist_equalizer_configuration)
 DESKTOP_CONTROL = DesktopControl()
+
+
+def _publish_video_state(payload: dict[str, object]) -> None:
+    DESKTOP_CONTROL.emit('video', payload)
+
+
+PLAYBACK_RESUME = PlaybackResumeTracker(
+    DATABASE,
+    lambda: vas.controller.snapshot(),
+    lambda payload: DESKTOP_CONTROL.emit('resume-offer', payload),
+)
+VIDEO = LocalVideo(
+    RUNTIME_PATHS.state('cache', 'video'), lambda: vas.controller.snapshot(),
+    _publish_video_state,
+    resolve_video=lambda media, resolved: vas.controller.resolvers.resolve_video(media, resolved),
+    enabled=lambda: DESKTOP_CONTROL.enabled,
+    youtube_cache_settings=SETTINGS.get('youtube video cache') if isinstance(SETTINGS.get('youtube video cache'), dict) else None,
+    caption_preferences=CaptionPreferences(SETTINGS.get('captions'), _persist_caption_configuration),
+)
+
+_PRESENTATION_OBSERVER_REMOVERS = []
+_PRESENTATION_OBSERVER_GENERATION = None
+
+
+def _connect_video_controller() -> None:
+    """Reconnect presentation observers when the authoritative controller changes."""
+    global _PRESENTATION_OBSERVER_GENERATION
+    _disconnect_video_controller()
+    controller = vas.controller
+    generation = object()
+    _PRESENTATION_OBSERVER_GENERATION = generation
+
+    def video_changed(media, resolved):
+        if vas.controller is controller and _PRESENTATION_OBSERVER_GENERATION is generation:
+            VIDEO.activate(media, resolved)
+
+    def resume_changed(media, resolved):
+        if vas.controller is controller and _PRESENTATION_OBSERVER_GENERATION is generation:
+            PLAYBACK_RESUME.activate(media, resolved)
+
+    _PRESENTATION_OBSERVER_REMOVERS.extend((
+        controller.add_active_media_sink(video_changed),
+        controller.add_active_media_sink(resume_changed),
+    ))
+
+
+def _disconnect_video_controller() -> None:
+    global _PRESENTATION_OBSERVER_GENERATION
+    _PRESENTATION_OBSERVER_GENERATION = None
+    while _PRESENTATION_OBSERVER_REMOVERS:
+        _PRESENTATION_OBSERVER_REMOVERS.pop()()
+
+
+_connect_video_controller()
+
 ARTWORK = create_artwork_manager(
     RUNTIME_PATHS.state('cache', 'artwork'),
     automatic_online=_configured_automatic_artwork(SETTINGS),
@@ -749,6 +814,7 @@ def refresh_runtime_configuration(*, show_report=False):
     )
     if equalizer_service := globals().get('EQUALIZER'):
         vas.controller.equalizer.submit(vas.controller.equalizer.prepare(equalizer_service.settings))
+    _connect_video_controller()
     if artwork_service := globals().get('ARTWORK'):
         artwork_service.clear()
         artwork_service.set_automatic_online(_configured_automatic_artwork(SETTINGS))
@@ -4133,6 +4199,7 @@ HELP_GROUPS = (
     ('Getting started', 'help <topic>, all, ls, <number>, now, progress'),
     ('Playback', 'play <number>, pause, stop, next, prev, mute, volume, autonext, loop status/once/infinite/off, reset, .reset, restart'),
     ('Seek and fade', 'seek <time>, fade in/out, fade to <volume>, fade from <v1> to <v2>'),
+    ('Video and captions', 'play <number|path|current> --audio|--video|--auto, captions status/tracks/select/auto/language/load/replace/on/off/clear/offset/shift, avsync status/set/shift/reset, chapters list/current/show/find/goto/next/prev/first/last/restart/help'),
     ('Queue', 'queue list/tree/add/insert/remove/move/jump/order/repeat/reset, queue ys|youtube'),
     ('Search and online sources', 'find/rfind/lfind, /ys, /yl, /ml, album, station, pod/pods, /rss'),
     ('Downloads', 'dl [y|yes|--yes], download-yv|dl-yv, download-ya|dl-ya, download-ml|dl-ml'),
@@ -4160,6 +4227,7 @@ HELP_EXAMPLES = {
     'Getting started': ('all', '1', 'now', 'help playback'),
     'Playback': ('play 4', 'p', '+', 'autonext on', 'loop once', 'reset', '.reset', 'restart'),
     'Seek and fade': ('seek +30s', 'seek 50%', 'fade out 10', 'fade from 20 to 80 in 6'),
+    'Video and captions': ('play current --audio', '/ys "concert" 5 --video', 'captions tracks', 'captions select 2', 'captions load "movie.srt"', 'captions shift +250', 'avsync shift -100', 'chapters next', '.chapter 3'),
     'Queue': ('queue add 4', 'queue ys "artist title" 5', '/ysq "artist title"', 'queue next'),
     'Search and online sources': ('find artist title 10', '/ys artist title 5', '/yl <YouTube URL>', '/ml <URL>'),
     'Downloads': ('dl', 'dl --yes', 'download-ya current --yes', 'download-ml <URL> mp3', 'download-ya status'),
@@ -4185,6 +4253,10 @@ HELP_TOPIC_ALIASES = {
     'tag': 'Tags',
     'transfer': 'Playlists',
     'online': 'Search and online sources',
+    'video': 'Video and captions',
+    'captions': 'Video and captions',
+    'avsync': 'Video and captions',
+    'chapters': 'Video and captions',
     'details': 'Diagnostics',
     'app': 'Settings',
 }
@@ -5065,6 +5137,79 @@ def _desktop_control_request(action: str, payload: dict[str, object]) -> dict[st
             },
         }
 
+    if action in {'video.status', 'video.configure', 'video.captions', 'video.audio-offset'}:
+        try:
+            if action == 'video.status':
+                if payload:
+                    raise VideoUnavailable('Invalid video status request')
+                state = VIDEO.status()
+            elif action == 'video.configure':
+                if set(payload) != {'media_id', 'mode'} or payload.get('mode') not in {'audio', 'video'}:
+                    raise VideoUnavailable('Invalid video presentation request')
+                snapshot = vas.controller.snapshot()
+                if not payload.get('media_id') or payload['media_id'] != project_playback_status(snapshot).media_id:
+                    raise VideoUnavailable('Current media changed; try again')
+                _ensure_media_playable(snapshot.media)
+                state = VIDEO.request(str(payload['mode']), expected_media=snapshot.media)
+            elif action == 'video.captions':
+                operation = payload.get('operation')
+                value = payload.get('value')
+                expected = {'media_id', 'operation'}
+                if operation in {'load', 'replace'}:
+                    expected.add('path')
+                elif operation in {'shift', 'set-offset'}:
+                    expected.add('value')
+                elif operation == 'select':
+                    expected.update({'track_id', 'revision'})
+                elif operation == 'languages':
+                    expected.add('languages')
+                if set(payload) != expected or operation not in {
+                    'load', 'replace', 'on', 'off', 'clear', 'shift', 'set-offset', 'select', 'languages', 'auto',
+                } or (operation in {'shift', 'set-offset'} and type(value) is not int):
+                    raise CaptionError('Invalid caption request')
+                snapshot = vas.controller.snapshot()
+                if not payload.get('media_id') or payload['media_id'] != project_playback_status(snapshot).media_id:
+                    raise VideoUnavailable('Current media changed; try again')
+                if operation == 'select':
+                    track_id, revision = payload.get('track_id'), payload.get('revision')
+                    if not isinstance(track_id, str) or not re.fullmatch(r'[a-f0-9]{32}', track_id) or type(revision) is not int:
+                        raise CaptionError('Invalid caption selection')
+                    state = VIDEO.select_caption(track_id, revision, expected_media=snapshot.media)
+                elif operation == 'languages':
+                    languages = payload.get('languages')
+                    if not isinstance(languages, list) or any(not isinstance(item, str) for item in languages):
+                        raise CaptionError('Invalid caption language preferences')
+                    state = VIDEO.set_caption_languages(languages)
+                elif operation == 'auto':
+                    state = VIDEO.caption_automatic(expected_media=snapshot.media)
+                elif operation in {'load', 'replace'}:
+                    path = payload.get('path')
+                    if not isinstance(path, str) or not path:
+                        raise CaptionError('Caption path is invalid')
+                    state = VIDEO.load_captions(path, replace=operation == 'replace', expected_media=snapshot.media)
+                else:
+                    state = VIDEO.configure_captions(
+                        str(operation), cast(int, value) if 'value' in payload else None,
+                        expected_media=snapshot.media,
+                    )
+            else:
+                value = payload.get('value')
+                relative = payload.get('relative')
+                if set(payload) != {'media_id', 'value', 'relative'} or type(value) is not int \
+                        or type(relative) is not bool:
+                    raise VideoUnavailable('Invalid audio synchronization request')
+                snapshot = vas.controller.snapshot()
+                if not payload.get('media_id') or payload['media_id'] != project_playback_status(snapshot).media_id:
+                    raise VideoUnavailable('Current media changed; try again')
+                state = VIDEO.configure_audio_offset(
+                    cast(int, value), relative=cast(bool, relative), expected_media=snapshot.media,
+                )
+            DESKTOP_CONTROL.emit('video', VIDEO.host_status())
+            return {'ok': True}
+        except (CaptionError, VideoUnavailable, PlaybackBlockedError) as error:
+            return {'ok': False, 'error': str(error)}
+        except Exception:
+            return {'ok': False, 'error': 'Local video is unavailable'}
     if action in {'equalizer.status', 'equalizer.configure'}:
         try:
             if action == 'equalizer.status':
@@ -5083,6 +5228,9 @@ def _desktop_control_request(action: str, payload: dict[str, object]) -> dict[st
             return {'ok': False, 'error': 'Could not update equalizer settings'}
 
     if action == 'playback.seek':
+        action_origin = payload.get('origin', 'desktop')
+        if not isinstance(action_origin, str) or action_origin not in {'desktop', 'mini-player', 'cli'}:
+            return {'ok': False, 'error': 'Playback action origin is invalid'}
         expected_media_id = payload.get('media_id')
         if not isinstance(expected_media_id, str) or not expected_media_id:
             return {'ok': False, 'error': 'Playback target is unavailable'}
@@ -5114,7 +5262,10 @@ def _desktop_control_request(action: str, payload: dict[str, object]) -> dict[st
             return {'ok': False, 'error': 'Current media is not seekable'}
 
         try:
-            vas.controller.seek(min(target, float(duration)))
+            if 'origin' in payload:
+                vas.controller.seek(min(target, float(duration)), origin=action_origin)
+            else:
+                vas.controller.seek(min(target, float(duration)))
         except Exception:
             return {'ok': False, 'error': 'Could not seek playback'}
         DESKTOP_CONTROL.emit('playback', _playback_status_projection().to_dict())
@@ -5182,6 +5333,207 @@ def _desktop_control_request(action: str, payload: dict[str, object]) -> dict[st
     # Publish the complete authoritative projection before acknowledging the request.
     DESKTOP_CONTROL.emit('playback', _playback_status_projection().to_dict())
     return {'ok': True}
+
+
+def chapters_command(parameters: list[str]) -> None:
+    """Inspect chapters or navigate through the identity-bound playback boundary."""
+    usage = 'Usage: chapters [list|current|show [N]|find <text>|N|goto N|next|prev|first|last|restart|+N|-N|help]'
+    values = [value.casefold() for value in parameters]
+    action = values[0] if values else 'list'
+    if action in {'help', '--help', '-h'}:
+        IPrint(usage, visible=visible)
+        IPrint('chapter is an alias. Numbers are 1-based; + / - and next / prev move one chapter; +3 or + 3 moves three.', visible=visible)
+        IPrint('show inspects the current chapter; show N inspects another. find only filters the list.', visible=visible)
+        IPrint('Jumps preserve pause state and do not wrap. restart returns to the current chapter start; preferred bounds still apply.', visible=visible)
+        return
+    if action in {'+', '-'} and len(values) == 2 and re.fullmatch(r'[0-9]{1,6}', values[1]):
+        action += values[1]
+        values = [action]
+    number = r'[1-9][0-9]{0,5}'
+    valid = (
+        (len(values) <= 1 and (action in {'list', 'current', 'show', 'next', 'prev', 'previous', 'first', 'last', 'restart', '+', '-'}
+                              or re.fullmatch(r'[+-]?' + number, action)))
+        or (len(values) == 2 and action in {'goto', 'show'} and re.fullmatch(number, values[1]))
+        or (len(values) >= 2 and action == 'find')
+    )
+    if not valid:
+        IPrint(usage, visible=visible)
+        return
+    status = _playback_status_projection()
+    if status.media_id is None:
+        IPrint('No active media.', visible=visible)
+        return
+    if not status.chapter_markers:
+        IPrint('No chapter timeline is available for the current media.', visible=visible)
+        return
+    markers = status.chapter_markers
+    current = next((marker for marker in markers if marker.current), None)
+    if action == 'find':
+        query = ' '.join(parameters[1:]).casefold()
+        markers = [marker for marker in markers if query in marker.title.casefold()]
+        if not markers:
+            IPrint('No matching chapters.', visible=visible)
+            return
+    elif action not in {'list', 'current'}:
+        target_index = None
+        if action in {'show', 'goto'} and len(values) == 2:
+            target_index = int(values[1])
+        elif action in {'first', 'last'}:
+            target_index = markers[0 if action == 'first' else -1].index
+        elif re.fullmatch(number, action):
+            target_index = int(action)
+        elif action in {'next', '+'}:
+            target_index = next((marker.index for marker in markers if marker.start_time > status.position_seconds), None)
+        elif action in {'prev', 'previous', '-'}:
+            anchor = current.start_time if current else status.position_seconds
+            target_index = next((marker.index for marker in reversed(markers) if marker.start_time < anchor), None)
+        elif current:
+            target_index = current.index if action in {'show', 'restart'} else current.index + int(action)
+        else:
+            IPrint('No current chapter at this position. Use chapters N or chapters next/prev.', visible=visible)
+            return
+        selected = next((marker for marker in markers if marker.index == target_index), None)
+        if selected is None:
+            IPrint('No chapter in that direction or at that number; chapter jumps do not wrap.', visible=visible)
+            return
+        if action == 'show':
+            markers = [selected]
+        else:
+            start = status.region.start_seconds or 0.0
+            end = status.region.end_seconds
+            target = max(selected.start_time, start)
+            if selected.end_time <= start or (end is not None and target >= end):
+                IPrint('That chapter is outside the preferred play region.', visible=visible)
+                return
+            result = _desktop_control_request(
+                'playback.seek',
+                {'media_id': status.media_id, 'target_seconds': target, 'origin': 'cli'},
+            )
+            if not result.get('ok'):
+                IPrint(str(result.get('error', 'Could not seek playback')), visible=visible)
+                return
+            IPrint(f'Chapter {selected.index}: {selected.title} — seeking to {_status_time(target)}', visible=visible)
+            return
+    IPrint(f'Chapters: {_status_media_label(status)} [{_status_source_label(status)}]', visible=visible)
+    rows = [
+        (
+            marker.index,
+            '*' if marker.current else '',
+            _status_time(marker.start_time),
+            _status_time(marker.end_time),
+            _status_time(marker.end_time - marker.start_time),
+            marker.title,
+        )
+        for marker in markers
+    ]
+    IPrint(tbl(rows, headers=('#', 'Now', 'Start', 'End', 'Duration', 'Chapter'), tablefmt='plain'), visible=visible)
+    IPrint('* marks the current chapter. chapters N jumps; chapters help lists navigation and inspection commands.', visible=visible)
+
+
+def captions_command(parameters: list[str]) -> None:
+    """Manage the bounded caption track for the active video presentation."""
+    usage = ('Usage: captions [status|tracks|select <number>|auto|language [auto|codes...]|'
+             'load <file>|replace <file>|on|off|clear|offset <ms>|shift <signed-ms>]')
+    action = parameters[0].casefold() if parameters else 'status'
+    snapshot = vas.controller.snapshot()
+    try:
+        if (not parameters) or (action in {'status', 'show'} and len(parameters) == 1):
+            state = cast(dict[str, object], VIDEO.status()['captions'])
+        elif action == 'tracks' and len(parameters) == 1:
+            state = cast(dict[str, object], VIDEO.status()['captions'])
+            tracks = cast(list[dict], state.get('tracks', []))
+            for index, track in enumerate(tracks, 1):
+                selected = '*' if track['id'] == state.get('selected_id') else ' '
+                flags = ', '.join(flag for flag in ('default', 'forced') if track.get(flag))
+                IPrint(f"{selected} {index}. {track['label']} | {track['source']} | {track['codec']}"
+                       f"{f' | {flags}' if flags else ''}", visible=visible)
+            if not tracks:
+                IPrint('No caption tracks listed for the current media. Open video and let discovery complete, '
+                       'or load a subtitle file explicitly.', visible=visible)
+        elif action == 'select' and len(parameters) == 2 and re.fullmatch(r'\d{1,2}', parameters[1]):
+            current = cast(dict, VIDEO.status()['captions'])
+            tracks = current.get('tracks', [])
+            index = int(parameters[1]) - 1
+            if not 0 <= index < len(tracks):
+                raise CaptionError('Choose a number from captions tracks')
+            state = cast(dict, VIDEO.select_caption(tracks[index]['id'], current['revision'],
+                                                   expected_media=snapshot.media)['captions'])
+        elif action == 'auto' and len(parameters) == 1:
+            state = cast(dict, VIDEO.caption_automatic(expected_media=snapshot.media)['captions'])
+        elif action == 'language':
+            languages = [] if parameters[1:] == ['auto'] else parameters[1:]
+            state = cast(dict, (VIDEO.set_caption_languages(languages) if len(parameters) > 1
+                               else VIDEO.status())['captions'])
+        elif action in {'load', 'replace'} and len(parameters) >= 2:
+            state = cast(dict[str, object], VIDEO.load_captions(
+                ' '.join(parameters[1:]), replace=action == 'replace', expected_media=snapshot.media,
+            )['captions'])
+        elif action in {'on', 'off', 'clear'} and len(parameters) == 1:
+            state = cast(dict[str, object], VIDEO.configure_captions(
+                action, expected_media=snapshot.media,
+            )['captions'])
+        elif action in {'offset', 'shift'} and len(parameters) == 2 and re.fullmatch(r'[+-]?\d{1,6}', parameters[1]):
+            state = cast(dict[str, object], VIDEO.configure_captions(
+                'set-offset' if action == 'offset' else 'shift', int(parameters[1]), expected_media=snapshot.media,
+            )['captions'])
+        else:
+            raise CaptionError(usage)
+        DESKTOP_CONTROL.emit('video', VIDEO.host_status())
+        available = state.get('available') is True
+        enabled_value = state.get('enabled') is True
+        label = state.get('label')
+        source = state.get('source')
+        offset = state.get('offset_ms')
+        languages = cast(list[str], state.get('preferred_languages', []))
+        if action in {'status', 'show', 'tracks', 'language', 'auto'}:
+            IPrint(f"Caption languages: {', '.join(languages) or 'automatic'}", visible=visible)
+        if state.get('message'):
+            IPrint(str(state['message']), visible=visible)
+        if state.get('auto_status') == 'loading':
+            IPrint('Caption selection is loading in the background; playback continues.', visible=visible)
+        if available and isinstance(label, str) and type(offset) is int:
+            enabled = 'on' if enabled_value else 'off'
+            source_text = f" | {source}" if source in {'manual', 'sidecar', 'embedded'} else ''
+            IPrint(
+                f"Captions: {enabled} | {label}{source_text} | offset {offset:+d} ms",
+                visible=visible,
+            )
+        else:
+            automatic = state.get('auto_status')
+            suffix = ' (checking local media)' if automatic == 'loading' else ''
+            IPrint(f'Captions: none loaded{suffix}', visible=visible)
+    except (CaptionError, OSError, VideoUnavailable) as error:
+        IPrint(f'Caption error: {error}', visible=visible)
+
+
+def avsync_command(parameters: list[str]) -> None:
+    """Shift picture time against authoritative audio without touching the decoder."""
+    usage = 'Usage: avsync [status|set <signed-ms>|shift <signed-ms>|reset]'
+    action = parameters[0].casefold() if parameters else 'status'
+    snapshot = vas.controller.snapshot()
+    try:
+        if (not parameters) or (action == 'status' and len(parameters) == 1):
+            state = VIDEO.status()
+        elif action == 'reset' and len(parameters) == 1:
+            state = VIDEO.configure_audio_offset(0, expected_media=snapshot.media)
+        elif action in {'set', 'shift'} and len(parameters) == 2 and re.fullmatch(r'[+-]?\d{1,5}', parameters[1]):
+            state = VIDEO.configure_audio_offset(
+                int(parameters[1]), relative=action == 'shift', expected_media=snapshot.media,
+            )
+        else:
+            raise VideoUnavailable(usage)
+        DESKTOP_CONTROL.emit('video', VIDEO.host_status())
+        offset_value = state.get('audio_offset_ms')
+        if type(offset_value) is not int:
+            raise VideoUnavailable('Video synchronization status is unavailable')
+        offset = offset_value
+        IPrint(
+            f'Video synchronization: audio {"later" if offset > 0 else "earlier" if offset < 0 else "aligned"}'
+            f'{f" by {abs(offset)} ms" if offset else ""}',
+            visible=visible,
+        )
+    except VideoUnavailable as error:
+        IPrint(f'Video synchronization error: {error}', visible=visible)
 
 
 def _status_time(seconds: float | int | None) -> str:
@@ -5345,6 +5697,7 @@ def exitplayer(sys_exit=False):
     IPrint(colored.fg('red')+'Exiting...'+colored.attr('reset'), visible=visible)
     DESKTOP_CONTROL.emit('shutdown-ack')
     snapshot = vas.controller.snapshot()
+    _disconnect_video_controller()
     if snapshot.media:
         RECOMMENDER.record_event(
             snapshot.media,
@@ -5353,12 +5706,20 @@ def exitplayer(sys_exit=False):
             context={'position': snapshot.position, 'duration': snapshot.duration},
         )
 
+    def close_resume():
+        # Keep the final authoritative position before playback closes, but perform
+        # persistence in the bounded shutdown worker rather than delaying its start.
+        PLAYBACK_RESUME.capture_now(snapshot)
+        PLAYBACK_RESUME.close()
+
     # These services are independent at shutdown. Closing them concurrently keeps
     # one slow network encoder, watcher, or device driver from serially delaying exit.
     closures = (
         ('sleep timer', SLEEP_TIMER.close),
         ('discord presence', PRESENCE.close),
         ('station', STATION.close),
+        ('video', VIDEO.close),
+        ('playback resume', close_resume),
         ('downloads', DOWNLOADS.close),
         ('broadcast', BROADCASTER.close),
         ('homepage', HOMEPAGE.close),
@@ -5761,7 +6122,7 @@ def _navigate_active_queue(command, offset):
     return True
 
 
-def play_local_default_player(songpath, _songindex, is_queue=False, media=None):
+def play_local_default_player(songpath, _songindex, is_queue=False, media=None, presentation=None):
     global isplaying, currentsong, currentsong_length, songindex
     global USER_DATA, current_media_type, SONG_CHANGED
 
@@ -5779,6 +6140,8 @@ def play_local_default_player(songpath, _songindex, is_queue=False, media=None):
         vas.set_media(_type='local', localpath=songpath)
         # Preserve the library/queue stable ID through decoder completion.
         vas.current_media = media
+        if media is not None:
+            VIDEO.expect(media, presentation)
         vas.media_player(action='play')
         vas.player.audio_set_volume(int(cached_volume*100))
 
@@ -6109,8 +6472,47 @@ def purge_old_lyrics_if_exist():
         except Exception:
             raise
 
+class _PresentationOptions(TypedDict, total=False):
+    presentation: str
+
+
+def _presentation_options(mode: str | None) -> _PresentationOptions:
+    return {'presentation': mode} if mode else {}
+
+
 def local_play_commands(commandslist, _command=False):
     global cached_volume, currentsong_length, lyrics_saved_for_song
+    mode = None
+    if any(flag in commandslist for flag in ('--video', '--audio', '--auto')) or (
+        len(commandslist) == 2 and isinstance(commandslist[1], str)
+        and not commandslist[1].isnumeric()
+    ):
+        try:
+            arguments, mode = presentation_arguments(commandslist)
+            if len(arguments) != 2:
+                raise VideoUnavailable('Usage: play <number|path|current> [--audio|--video|--auto]')
+            if mode == 'video' and not DESKTOP_CONTROL.enabled:
+                raise VideoUnavailable('Video currently requires the Mariana desktop; use --audio in this terminal')
+            if arguments[1] == 'current':
+                active = vas.controller.snapshot().media
+                if active is None:
+                    raise VideoUnavailable('No current media')
+                VIDEO.expect(active, mode)
+                state = VIDEO.request(mode or 'auto', expected_media=active)
+                DESKTOP_CONTROL.emit('video', VIDEO.host_status())
+                return
+            if not arguments[1].isnumeric():
+                path = Path(arguments[1]).expanduser()
+                if not path.is_file():
+                    raise VideoUnavailable('Choose an existing local file or library number')
+                purge_old_lyrics_if_exist()
+                lyrics_saved_for_song = None
+                play_local_default_player(str(path.resolve()), None, presentation=mode)
+                return
+            commandslist = arguments
+        except VideoUnavailable as error:
+            IPrint(str(error), visible=visible)
+            return
     # Output volume is controlled by the shared PCM stream.
 
     purge_old_lyrics_if_exist()
@@ -6124,7 +6526,7 @@ def local_play_commands(commandslist, _command=False):
                     if int(songindex) in range(1, len(_sound_files)+1):
                         currentsong_length = None
                         play_local_default_player(songpath = _sound_files[int(songindex)-1],
-                                                  _songindex = songindex)
+                                                  _songindex = songindex, **_presentation_options(mode))
                     else:
                         if any(_sound_files):
                             SAY(visible=visible,
@@ -6392,10 +6794,13 @@ def validate_time(rawtime):
 # `media_url` is the only mandatory param in `play_vas_media`
 def play_vas_media(media_url, single_video = None, media_name = None,
                    print_now_playing = True, media_type = 'video',
-                   show_link_chosen_msg = False, media_ref = None):
+                   show_link_chosen_msg = False, media_ref = None, presentation=None):
 
     global isplaying, visible, currentsong, cached_volume
     global currentsong_length, current_media_type, songindex
+
+    if presentation == 'video' and not DESKTOP_CONTROL.enabled:
+        raise VideoUnavailable('Video currently requires the Mariana desktop; use --audio in this terminal')
 
     if media_type == 'general' and media_ref is None and id_if_url_is_of_yt_format(media_url):
         media_type = 'video'
@@ -6490,6 +6895,8 @@ def play_vas_media(media_url, single_video = None, media_name = None,
     if media_type:
 
         # VAS Media Play
+        if prepared_media is not None:
+            VIDEO.expect(prepared_media, presentation)
         vas.media_player(action='play')
         vas.player.audio_set_volume(int(cached_volume*100))
 
@@ -6539,13 +6946,14 @@ def play_vas_media(media_url, single_video = None, media_name = None,
     _show_local_copy_hint(prepared_media)
 
 
-def choose_media_url(media_url_choices: list, yt: bool = True):
+def choose_media_url(media_url_choices: list, yt: bool = True, presentation=None):
     global isplaying, currentsong
 
     if yt:
         if len(media_url_choices) == 1:
             media_name, media_url = media_url_choices[0]
-            play_vas_media(media_name=media_name, media_url=media_url, single_video=True)
+            play_vas_media(media_name=media_name, media_url=media_url, single_video=True,
+                           **_presentation_options(presentation))
 
         else:
             chosen_index = input(f"{colored.fg('deep_pink_4c')}Choose video number between 1 and {len(media_url_choices)}" \
@@ -6562,7 +6970,7 @@ def choose_media_url(media_url_choices: list, yt: bool = True):
                 if chosen_index in range(1, len(media_url_choices)+1):
                     _, media_name, media_url = media_url_choices[chosen_index-1]
                     play_vas_media(media_name=media_name, media_url=media_url,
-                                   single_video=False)
+                                   single_video=False, **_presentation_options(presentation))
                 elif visible:
                     print("ERROR: Invalid choice, choose again: ", end='\r')
 
@@ -6807,6 +7215,16 @@ def process(command):
         SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
         return None
 
+    presentation = None
+    if commandslist and commandslist[0] in {'/ys', '/youtube-search', '/yl', '/youtube-link', '/ml', '/media-link'}:
+        try:
+            commandslist, presentation = presentation_arguments(commandslist)
+            if presentation == 'video' and not DESKTOP_CONTROL.enabled:
+                raise VideoUnavailable('Video currently requires the Mariana desktop; use --audio in this terminal')
+        except VideoUnavailable as error:
+            IPrint(str(error), visible=visible)
+            return None
+
     try:
         if vas.controller.snapshot().state == PlaybackState.IDLE and isplaying:
             currentsong = None
@@ -6829,6 +7247,9 @@ def process(command):
             'home': home_command,
             'thumb': thumb_command,
             'eq': eq_command,
+            'chapters': chapters_command,
+            'captions': captions_command,
+            'avsync': avsync_command,
             'media': media_command,
             'metadata': lambda values: media_command(['metadata', *values]),
             'rename': rename_command,
@@ -8175,15 +8596,16 @@ def process(command):
         elif commandslist[0] in ['/ys', '/youtube-search']:
             YOUTUBE_PLAY_TYPE = 1
             try:
-                user_query = list(re.finditer(r'\"(.+?)"', command))
-                if len(user_query):
-                    query_re_obj = user_query[0]
-                    qr_span = query_re_obj.span()
-                    qr_val = query_re_obj.group()[1:-1].strip()
-                    rescount = command[qr_span[1]:].strip()
-                else: # User casually forgot to place query in double quotes..., let's assume they're there
-                    qr_val = ' '.join(commandslist[1:])
-                    rescount=''
+                query_parts = commandslist[1:]
+                # Presentation flags have already been removed by the typed parser.
+                # Keep the established quoted-query/count distinction.
+                quoted_query = re.search(r'["\']', command)
+                if quoted_query and query_parts:
+                    qr_val = query_parts[0]
+                    rescount = ' '.join(query_parts[1:])
+                else:
+                    rescount = query_parts[-1] if len(query_parts) > 1 and query_parts[-1].isnumeric() else ''
+                    qr_val = ' '.join(query_parts[:-1] if rescount else query_parts)
 
                 ytv_choices = None
 
@@ -8216,7 +8638,8 @@ def process(command):
                         log_priority = 2)
 
                 if ytv_choices:
-                    choose_media_url(media_url_choices=ytv_choices)
+                    choose_media_url(media_url_choices=ytv_choices,
+                                     **_presentation_options(presentation))
 
             except PlaybackBlockedError as error:
                 SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
@@ -8229,7 +8652,8 @@ def process(command):
                 media_url = commandslist[1]
                 if id_if_url_is_of_yt_format(media_url):
                     try:
-                        play_vas_media(media_url=media_url, single_video=True)
+                        play_vas_media(media_url=media_url, single_video=True,
+                                       **_presentation_options(presentation))
                     except PlaybackBlockedError as error:
                         SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
                     except Exception as error:
@@ -8248,7 +8672,8 @@ def process(command):
                 user_aud_url = commandslist[1]
                 if url_is_valid(user_aud_url):
                     try:
-                        play_vas_media(media_url=commandslist[1], media_type='general')
+                        play_vas_media(media_url=commandslist[1], media_type='general',
+                                       **_presentation_options(presentation))
                     except PlaybackBlockedError as error:
                         SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
                     except Exception as error:

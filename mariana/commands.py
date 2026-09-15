@@ -18,6 +18,8 @@ class AliasCompatibility:
 
 
 ALIAS_COMPATIBILITY = (
+    AliasCompatibility(("chapter", ".chapter", ".chapters"), "chapters", "token", "native"),
+    AliasCompatibility(("caption",), "captions", "token", "native"),
     AliasCompatibility((".",), "now", "exact", "compatibility-only"),
     AliasCompatibility((".*",), "now*", "exact", "compatibility-only"),
     AliasCompatibility(("+",), "next", "both", "compatibility-only"),

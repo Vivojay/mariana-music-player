@@ -324,8 +324,44 @@ def test_timeout_and_cue_limit_are_enforced(monkeypatch):
         provider.load_provider_caption(candidate, threading.Event())
 
 
+def test_cli_and_typed_selection_share_provider_worker(online, monkeypatch):
+    import main
+
+    service, media, snapshot, _tracks, _saved = online
+    calls, _closed = responses(monkeypatch, [Response(), Response()])
+    printed = []
+    monkeypatch.setattr(main, "VIDEO", service)
+    monkeypatch.setattr(main.vas.controller, "snapshot", lambda: snapshot)
+    monkeypatch.setattr(main, "IPrint", lambda message, **_kwargs: printed.append(str(message)))
+    main.captions_command(["tracks"])
+    assert any("provider" in line for line in printed) and not calls
+    main.captions_command(["select", "2"])
+    assert settle(service)["source"] == "provider-generated"
+    current = service.status()["captions"]
+    request = {"media_id": video.project_playback_status(snapshot).media_id, "operation": "select",
+               "revision": current["revision"], "track_id": current["tracks"][0]["id"]}
+    assert not main._desktop_control_request("video.captions", {**request, "media_id": "stale"})["ok"]
+    assert not main._desktop_control_request("video.captions", {**request, "url": "https://other.example"})["ok"]
+    assert main._desktop_control_request("video.captions", request)["ok"]
+    assert settle(service)["source"] == "provider" and len(calls) == 2
+    assert snapshot.media is media and snapshot.position == 1 and snapshot.state == PlaybackState.PAUSED
 
 
+def test_empty_online_caption_catalogue_has_source_neutral_guidance_without_fetch(online, monkeypatch):
+    import main
+
+    service, _media, snapshot, _tracks, _saved = online
+    service._caption_tracks = ()
+    printed = []
+    monkeypatch.setattr(main, "VIDEO", service)
+    monkeypatch.setattr(main.vas.controller, "snapshot", lambda: snapshot)
+    monkeypatch.setattr(main, "IPrint", lambda message, **_kwargs: printed.append(str(message)))
+    monkeypatch.setattr(video_sources, "_connection", lambda _url: pytest.fail("Listing must not fetch"))
+    main.captions_command(["tracks"])
+    message = " ".join(printed)
+    assert "No caption tracks listed for the current media" in message
+    assert "local video" not in message and "subtitle file" in message
+    assert snapshot.state == PlaybackState.PAUSED and snapshot.position == 1
 
 
 def test_source_video_worker_publishes_provider_catalogue_without_fetching(monkeypatch, tmp_path):

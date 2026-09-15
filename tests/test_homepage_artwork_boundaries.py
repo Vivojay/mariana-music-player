@@ -140,16 +140,33 @@ def test_runtime_reconfiguration_rebinds_artwork_and_applies_independent_setting
     })
     homepage = HomepageStub(_homepage_projection())
     artwork = ArtworkStub(ArtworkProjection(1, None, ArtworkState.IDLE, False))
-    order = []
+    order, active_callbacks, all_callbacks, deliveries = [], [], [], []
+
+    def subscribe(callback):
+        active_callbacks.append(callback)
+        all_callbacks.append(callback)
+        order.append("attached")
+
+        def remove():
+            active_callbacks.remove(callback)
+            order.append("detached")
+
+        return remove
+
     replacement = SimpleNamespace(
         equalizer=SimpleNamespace(prepare=lambda value: value, submit=lambda _value: order.append("equalizer")),
-        add_active_media_sink=lambda _callback: order.append("attached") or (lambda: None),
+        add_active_media_sink=subscribe,
     )
     monkeypatch.setattr(main, "SETTINGS", main.SETTINGS)
     monkeypatch.setattr(main, "load_user_settings", lambda: settings)
     monkeypatch.setattr(main, "HOMEPAGE", homepage)
     monkeypatch.setattr(main, "ARTWORK", artwork)
     monkeypatch.setattr(main, "_ARTWORK_SINK_REMOVE", lambda: order.append("detached"))
+    monkeypatch.setattr(main, "_PRESENTATION_OBSERVER_REMOVERS", [])
+    monkeypatch.setattr(main, "_PRESENTATION_OBSERVER_GENERATION", None)
+    monkeypatch.setattr(main, "_artwork_active_media_changed", lambda media, _resolved: deliveries.append(("artwork", media)))
+    monkeypatch.setattr(main, "VIDEO", SimpleNamespace(activate=lambda media, _resolved: deliveries.append(("video", media))))
+    monkeypatch.setattr(main, "PLAYBACK_RESUME", SimpleNamespace(activate=lambda media, _resolved: deliveries.append(("resume", media))))
     monkeypatch.setattr(main, "EQUALIZER", SimpleNamespace(settings=object()))
     monkeypatch.setattr(main.vas, "controller", main.vas.controller)
     monkeypatch.setattr(main.vas, "configure", lambda **_kwargs: setattr(main.vas, "controller", replacement))
@@ -161,10 +178,34 @@ def test_runtime_reconfiguration_rebinds_artwork_and_applies_independent_setting
         monkeypatch.setattr(main, name, getattr(main, name))
 
     main.refresh_runtime_configuration()
-    assert order == ["equalizer", "detached", "attached"]
+    assert order == ["equalizer", "attached", "attached", "detached", "attached"]
+    assert len(active_callbacks) == 3
     assert artwork.clear_calls == 1 and artwork.enabled_calls == [True]
     assert homepage.configure_calls == [(False, True)]
     assert homepage.refresh_calls == 0
+
+    previous_callbacks = tuple(active_callbacks)
+    order.clear()
+    main.refresh_runtime_configuration()
+    assert order == [
+        "equalizer", "detached", "detached", "attached", "attached", "detached", "attached",
+    ]
+    assert len(active_callbacks) == 3 and len(all_callbacks) == 6
+    media = MediaRef(MediaSource.LOCAL, "C:/fixture/movie.mp4")
+    for callback in previous_callbacks:
+        callback(media, None)
+    assert deliveries == []
+    for callback in active_callbacks:
+        callback(media, None)
+    assert sorted(deliveries) == [("artwork", media), ("resume", media), ("video", media)]
+
+    # Detaching video/resume must not tear down the independent artwork observer.
+    main._disconnect_video_controller()
+    assert len(active_callbacks) == 1
+    deliveries.clear()
+    for callback in all_callbacks:
+        callback(media, None)
+    assert deliveries == [("artwork", media)]
 
 
 @pytest.mark.parametrize("startup", [False, True])

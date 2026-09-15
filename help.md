@@ -46,6 +46,53 @@ run `library scan changed` after correcting them.
 `autonext off` leaves playback stopped at the end of the active item. Local
 stop, pause, and exit always remain under the user's control.
 
+## Video, captions, and chapters
+
+`chapters` and `chapters list` show the complete chapter timeline with the
+current chapter marked. `chapter`, `.chapter`, and `.chapters` are aliases.
+`chapters current`, `chapters show [N]`, and `chapters find <text>` inspect
+metadata without seeking. `chapters N` or `chapters goto N` selects a one-based
+chapter. `next`, `prev`, `first`, `last`, `restart`, `+N`, and `-N`
+are also supported after `chapters`. Navigation preserves pause state, respects
+preferred play-region bounds, and does not wrap. Use `chapters help` for details.
+
+`play <number|path|current> [--audio|--video|--auto]` chooses presentation.
+Quote paths containing spaces. Selecting `current` changes presentation without
+restarting audio. The same flags work with `/ys`, `/yl`, and `/ml`; for
+example, `/ys "concert" 5 --video` preserves the existing result-choice flow.
+Explicit video requires the desktop host. YouTube, radio, and live sources stay
+audio-first under automatic presentation; local video can be presented when the
+desktop video surface is connected. Unsupported picture preparation leaves the
+authoritative audio pipeline unchanged.
+
+| Command | Purpose |
+| --- | --- |
+| `captions`, `captions status` | Show caption availability, selection, language preferences, and offset |
+| `captions tracks` | List available embedded, matching sidecar, or resolver-supplied tracks without fetching one merely to list it |
+| `captions select N` | Select the numbered track from the current catalogue |
+| `captions auto` | Restore automatic selection for the current media |
+| `captions language en hi` | Persist ordered language preferences; `captions language auto` clears the preference |
+| `captions load "movie.srt"` | Load a user-selected local subtitle file |
+| `captions replace "replacement.vtt"` | Explicitly replace the selected subtitle file |
+| `captions on`, `captions off`, `captions clear` | Enable, hide, or clear the current caption selection |
+| `captions offset 250`, `captions shift -250` | Set an absolute caption delay or apply a relative shift, in whole milliseconds |
+| `avsync`, `avsync status` | Inspect picture/audio synchronization offset |
+| `avsync set 250`, `avsync shift -100`, `avsync reset` | Set, adjust, or clear synchronization offset without restarting the audio decoder |
+
+`caption` is an alias for `captions`. Positive caption offsets display text
+later. Positive `avsync` offsets mean audio is later relative to picture: Mariana
+adjusts picture timing against its authoritative audio timeline rather than
+creating another audible player. Caption selection and offset preferences use
+hashed local-media identity; public control state does not expose local paths or
+private resolver URLs. Captions are not generated and no subtitle-search service
+is contacted automatically. `help video`, `help captions`, and `help chapters`
+provide a compact command guide.
+
+Long finite media can receive a saved resume-position offer after reopening.
+Offering a position never seeks automatically; accepting it uses the ordinary
+identity-bound seek boundary. Resume records stay in the local database, retain
+at most 500 items for one year, and omit paths and transient playback URLs.
+
 ## Seek and fade
 
 Seeking is available only for media that Mariana has verified as finite and

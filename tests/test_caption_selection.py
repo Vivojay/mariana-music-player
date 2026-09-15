@@ -238,6 +238,39 @@ def test_catalogue_includes_embedded_alternatives_and_drops_private_fields(monke
     assert captions.discover_caption_tracks(source, "ffprobe", cancelled) == ()
 
 
+def test_typed_boundary_and_cli_use_shared_selection(local, monkeypatch):
+    import main
+
+    service, _source, media, _saved, snapshot = local
+    printed = []
+    monkeypatch.setattr(main, "VIDEO", service)
+    monkeypatch.setattr(main.vas.controller, "snapshot", lambda: snapshot)
+    monkeypatch.setattr(main.DESKTOP_CONTROL, "emit", lambda *_args: True)
+    monkeypatch.setattr(main, "IPrint", lambda text, **_kwargs: printed.append(str(text)))
+    main.captions_command(["tracks"])
+    assert any("1. Sidecar" in line for line in printed)
+    main.captions_command(["select", "2"])
+    assert settle(service)["text"] == "Hindi"
+    main.captions_command(["language", "en", "hi"])
+    assert service.caption_preferences.languages == ("eng", "hin")
+    main.captions_command(["auto"])
+    assert settle(service)["text"] == "English"
+    identity = video.project_playback_status(snapshot).media_id
+    state = service.status()["captions"]
+    request = {"media_id": identity, "operation": "select", "revision": state["revision"],
+               "track_id": state["tracks"][1]["id"]}
+    for invalid in [{**request, "media_id": "stale"}, {**request, "revision": True},
+                    {**request, "track_id": "../../x"}, {**request, "path": "secret"}]:
+        assert not main._desktop_control_request("video.captions", invalid)["ok"]
+    assert main._desktop_control_request("video.captions", request)["ok"]
+    assert settle(service)["text"] == "Hindi"
+    assert main._desktop_control_request("video.captions", {
+        "media_id": identity, "operation": "languages", "languages": ["hi"],
+    })["ok"]
+    assert not main._desktop_control_request("video.captions", {
+        "media_id": identity, "operation": "languages", "languages": ["not-a-language"],
+    })["ok"]
+    assert service.snapshot().media is media
 
 
 def test_native_multiple_embedded_tracks_select_real_text_and_clean_conversion(tmp_path):
