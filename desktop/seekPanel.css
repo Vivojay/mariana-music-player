@@ -1,0 +1,45 @@
+.seek-precision-panel {
+  position: fixed; z-index: 40; display: flex; flex-direction: column; gap: 4px;
+  box-sizing: border-box; padding: 10px; border: 1px solid var(--border); border-radius: 8px;
+  overflow: auto; background: var(--app-bg, #101528); color: var(--text, #e8eeff);
+  box-shadow: 0 4px 18px #0006; font-size: 11px; line-height: 1.3;
+  font-variant-numeric: tabular-nums; pointer-events: auto;
+}
+.seek-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.seek-panel-heading button { color: inherit; background: transparent; border: 0; border-radius: 4px; min-width: 24px; min-height: 24px; cursor: pointer; }
+.seek-panel-caption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
+.seek-precision-track { display: block; width: 100%; min-height: 36px; padding: 0; border: 0; border-radius: 3px; background: transparent; cursor: crosshair; flex-shrink: 0; }
+.seek-precision-track svg { display: block; width: 100%; height: 36px; pointer-events: none; overflow: hidden; }
+.seek-precision-track:disabled { cursor: wait; opacity: .65; }
+.seek-precision-panel button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.seek-panel-scale { display: flex; justify-content: space-between; gap: 8px; white-space: nowrap; }
+.seek-panel-scale, .seek-panel-hint { color: var(--muted, #8c98b8); font-size: 10px; }
+
+/* The same panel fits the auxiliary window without hiding its close/seek controls. */
+@media (max-height: 260px) {
+  .seek-precision-panel { padding: 6px; gap: 2px; }
+  .seek-panel-hint { display: none; }
+  .seek-precision-track { min-height: 30px; }
+  .seek-precision-track svg { height: 30px; }
+}
+/* Compact the content as well as its box: the seek track must stay reachable
+   without scrolling in the short space above an audio Mini-player timeline. */
+.seek-precision-panel[data-compact="true"] { padding: 4px; gap: 2px; }
+.seek-precision-panel[data-compact="true"] .seek-panel-heading { position: absolute; top: 2px; right: 2px; }
+.seek-precision-panel[data-compact="true"] .seek-panel-heading strong,
+.seek-precision-panel[data-compact="true"] .seek-panel-hint { display: none; }
+.seek-precision-panel[data-compact="true"] .seek-panel-heading button { min-width: 22px; min-height: 22px; padding: 0; }
+.seek-precision-panel[data-compact="true"] .seek-panel-caption { min-height: 20px; padding-right: 24px; }
+.seek-precision-panel[data-compact="true"] .seek-precision-track { min-height: 24px; }
+.seek-precision-panel[data-compact="true"] .seek-precision-track svg { height: 24px; }
+.seek-precision-panel[data-tight="true"] .seek-panel-scale { display: none; }
+.mini-player .playback-seek-target { min-height: 18px; }
+.mini-player-titlebar strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.mini-player-actions { flex-shrink: 0; font-size: 11px; }
+.mini-player-now-playing { row-gap: 4px; }
+.mini-player .mini-player-playback-context { grid-column: 1 / -1; margin-top: 0; }
+@media (max-height: 200px) {
+  main.mini-player { padding: 8px; }
+  .mini-player .mini-player-titlebar { margin-bottom: 4px; gap: 6px; }
+  .mini-player .mini-player-controls { margin-top: 4px; }
+}

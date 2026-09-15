@@ -82,6 +82,27 @@ export type PlaybackStatus = {
   }
 }
 
+export type PlaybackHotspotBin = {
+  start_seconds: number
+  end_seconds: number
+  play_starts: number
+  play_resumes: number
+  pauses: number
+  seek_destinations: number
+  total: number
+  intensity: number
+  scaling: 'log1p'
+}
+
+export type PlaybackHotspots = {
+  schema_version: 1
+  media_id: string
+  label: 'Personal interaction hotspots'
+  scaling: 'log1p'
+  bin_seconds: number
+  bins: PlaybackHotspotBin[]
+}
+
 export function formatChapterLabel(chapter: PlaybackStatus['chapter']): string {
   if (!chapter) return ''
   const title = chapter.title?.trim() ?? ''
