@@ -236,6 +236,9 @@ export type MarianaDesktopApi = {
     toggleFavorite(mediaId: string): Promise<FavoriteToggleResult>
     seek(mediaId: string, targetSeconds: number): Promise<SeekResult>
     onEvent(callback: (event: BackendEvent) => void): () => void
+    videoCaptionSelect?(mediaId: string, revision: number, trackId: string): Promise<DesktopControlResult>
+    videoCaptionLanguages?(mediaId: string, languages: string[]): Promise<DesktopControlResult>
+    videoCaptionAutomatic?(mediaId: string): Promise<DesktopControlResult>
   }
   updates: {
     check(): Promise<void>
