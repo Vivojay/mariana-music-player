@@ -27,7 +27,9 @@ test('hosts the real Mariana PTY in the riced terminal shell', async () => {
       queue_count: expect.any(Number),
     })
     expect(await page.evaluate(() => Object.keys(window.mariana.backend).sort())).toEqual([
-      'commandCatalog', 'onEvent', 'seek', 'snapshot', 'toggleFavorite',
+      'commandCatalog', 'next', 'onEvent', 'pause', 'play', 'previous', 'seek', 'snapshot',
+      'toggleFavorite', 'videoAudioOffset', 'videoCaptionAutomatic', 'videoCaptionConfigure',
+      'videoCaptionFile', 'videoCaptionLanguages', 'videoCaptionSelect', 'videoConfigure', 'videoStatus',
     ])
     const commandSuggestions = page.getByRole('combobox', { name: 'Command suggestions' })
     await commandSuggestions.focus()
@@ -235,6 +237,7 @@ test('creates one Mini-player window and hides it instead of closing it', async 
     await expect(miniPlayer.getByRole('button', { name: 'Next' })).toBeDisabled()
     expect(await miniPlayer.evaluate(() => Object.keys(window.marianaMini).sort())).toEqual([
       'hide', 'next', 'onSnapshot', 'pause', 'platform', 'play', 'previous', 'showMain', 'snapshot',
+      'videoAudioOffset', 'videoCaptionConfigure', 'videoStatus',
     ])
     expect(await miniPlayer.evaluate(() => typeof window.mariana)).toBe('undefined')
     expect(await miniPlayer.evaluate(() => window.marianaMini.next('missing-media'))).toEqual({
