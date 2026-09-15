@@ -23,7 +23,7 @@ describe('Mini-player video surface', () => {
     render(<MiniPlayerVideo status={status()} timestamp={Date.now()} />)
     const video = screen.getByLabelText('Current video')
     expect(video).toHaveAttribute('src', `mariana-video://current/${handle}.mp4`)
-    expect(video).toHaveAttribute('muted')
+    expect((video as HTMLVideoElement).muted).toBe(true)
     expect(video).not.toHaveAttribute('controls')
   })
 
@@ -40,7 +40,7 @@ describe('Mini-player video surface', () => {
 
   it('renders caption text when the backend supplies it', () => {
     render(<MiniPlayerVideo
-      status={status({ captions: { available: true, enabled: true, label: null, source: null, auto_status: 'idle', offset_ms: 0, text: 'Hello captions' } })}
+      status={status({ captions: { available: true, enabled: true, label: 'English', source: 'sidecar', auto_status: 'idle', offset_ms: 0, text: 'Hello captions' } })}
       timestamp={Date.now()}
     />)
     expect(screen.getByText('Hello captions')).toBeInTheDocument()
