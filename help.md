@@ -419,6 +419,28 @@ never affects playback or startup.
 There is no general `config set` command. Other validated settings remain in
 Mariana's writable user settings file.
 
+### Personal interaction hotspots
+
+Local interaction history is disabled by default. It stores successful play,
+pause, and seek actions, not listening duration or global popularity.
+
+```text
+hotspots status
+hotspots enable
+hotspots disable
+hotspots retention 90
+hotspots logging on
+hotspots clear --yes
+hotspots current 10 linear
+hotspots current 10 log1p
+```
+
+Retention accepts 1–3650 days. Disabling capture retains existing history; clearing
+requires explicit confirmation. Ordinary logging is optional and independent of
+structured persistence. See [capture and aggregation](docs/PERSONAL_INTERACTION_HOTSPOTS.md)
+for privacy, overflow, shutdown, and normalization behavior. The visual overlay is
+a separate delivery.
+
 ## Diagnostics
 
 | Command | Purpose |

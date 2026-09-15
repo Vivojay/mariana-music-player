@@ -21,13 +21,15 @@ def desktop_playback(monkeypatch):
         def snapshot(self):
             return PlaybackSnapshot(state['value'], duration=self.duration, media=media)
 
-        def seek(self, target):
+        def seek(self, target, *, origin):
+            assert origin == 'desktop'
             if self.seek_error:
                 raise RuntimeError('private transport details')
             self.seeks.append(target)
 
-    def toggle(*, softtoggle):
+    def toggle(*, softtoggle, action_origin):
         assert softtoggle is False
+        assert action_origin == 'desktop'
         state['value'] = (
             PlaybackState.PLAYING
             if state['value'] == PlaybackState.PAUSED

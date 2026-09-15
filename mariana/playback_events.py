@@ -313,7 +313,10 @@ class LocalPlaybackEvents:
         bins: dict[int, dict[str, int]] = {}
         width = float(bin_seconds)
         for row in rows:
-            index = max(0, int(float(row["position_seconds"]) // width))
+            raw_index = float(row["position_seconds"]) // width
+            if not math.isfinite(raw_index):
+                raise ValueError("Hotspot bin width is too small for stored positions")
+            index = max(0, int(raw_index))
             counts = bins.setdefault(index, {"play_starts": 0, "play_resumes": 0, "pauses": 0, "seek_destinations": 0})
             if row["action"] == "play":
                 counts["play_starts" if row["play_kind"] == "start" else "play_resumes"] += 1

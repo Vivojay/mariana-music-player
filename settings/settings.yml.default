@@ -54,6 +54,11 @@ playback:
   buffer seconds: 8
   autoplay: true
 
+playback events:
+  enabled: false
+  retention days: 90
+  forward to log: false
+
 replaygain:
   enabled: false
   mode: track

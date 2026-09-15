@@ -137,6 +137,7 @@ from mariana.playback_status import (
     project_playback_status,
 )
 from mariana.playback import BYTES_PER_FRAME, SAMPLE_RATE, PlaybackError
+from mariana.playback_events import LocalPlaybackEvents, Scaling
 from mariana.play_regions import (
     PlayRegionError,
     PlayRegionStore,
@@ -368,6 +369,23 @@ except OSError:
     sys.exit(1) # Fatal crash
 
 
+def _configured_playback_events(settings):
+    """Return validated, privacy-conservative local interaction settings."""
+    section = settings.get('playback events')
+    if not isinstance(section, dict):
+        section = {}
+    enabled = section.get('enabled', False)
+    forwarding = section.get('forward to log', False)
+    retention = section.get('retention days', 90)
+    return {
+        'enabled': enabled if type(enabled) is bool else False,
+        'forward_to_log': forwarding if type(forwarding) is bool else False,
+        'retention_days': retention
+        if isinstance(retention, int) and not isinstance(retention, bool) and 1 <= retention <= 3650
+        else 90,
+    }
+
+
 def _configured_homepage(settings):
     """Return independent, validated homepage visibility/network preferences."""
     return HomepageConfiguration.from_mapping(settings.get('homepage'))
@@ -476,6 +494,12 @@ AUTOPLAY_ENABLED = bool(SETTINGS.get('playback', {}).get('autoplay', True))
 TOOLCHAIN = ToolchainManager(RUNTIME_PATHS)
 DATABASE = MarianaDatabase(RUNTIME_PATHS.database)
 DATABASE.migrate_legacy_play_counts(RUNTIME_PATHS.user_data)
+PLAYBACK_EVENT_SETTINGS = _configured_playback_events(SETTINGS)
+PLAYBACK_EVENTS = LocalPlaybackEvents(
+    DATABASE,
+    **PLAYBACK_EVENT_SETTINGS,
+    log_sink=lambda message: SAY(visible=False, log_priority=3, log_message=message),
+)
 LOCAL_MATCHER = LocalMediaMatcher(DATABASE)
 _LOCAL_COPY_HINTED_MEDIA_IDS: set[str] = set()
 _LOCAL_COPY_HINT_LOCK = threading.Lock()
@@ -529,6 +553,7 @@ vas.configure(
     replaygain=REPLAYGAIN_SETTINGS,
     live_leveling=LIVE_LEVELING_SETTINGS,
     play_region_provider=PLAY_REGIONS.get,
+    playback_event_sink=PLAYBACK_EVENTS.capture,
 )
 get_lyrics.configure(IDENTITY, vas.controller)
 EQUALIZER = EqualizerService(lambda: vas.controller.equalizer, SETTINGS.get('equalizer'), _persist_equalizer_configuration)
@@ -811,7 +836,9 @@ def refresh_runtime_configuration(*, show_report=False):
         replaygain=REPLAYGAIN_SETTINGS,
         live_leveling=LIVE_LEVELING_SETTINGS,
         play_region_provider=PLAY_REGIONS.get,
+        playback_event_sink=PLAYBACK_EVENTS.capture,
     )
+    PLAYBACK_EVENTS.configure(**_configured_playback_events(SETTINGS))
     if equalizer_service := globals().get('EQUALIZER'):
         vas.controller.equalizer.submit(vas.controller.equalizer.prepare(equalizer_service.settings))
     _connect_video_controller()
@@ -4212,7 +4239,7 @@ HELP_GROUPS = (
     ('Lyrics', 'lyrics|lyr, lyrics edit|lyr edit, open lyrics'),
     ('Radio', 'radio search/list/play/add/info/metadata/resync/health/leveling'),
     ('Discord Presence', 'discord presence off/app/track/session/status/refresh'),
-    ('Settings', 'theme, desktop close, autoplay|autonext, sleep, youtube auth, replaygain, output device, eq status/on/off/band/preamp/reset/preset'),
+    ('Settings', 'theme, desktop close, autoplay|autonext, sleep, youtube auth, replaygain, output device, eq status/on/off/band/preamp/reset/preset, hotspots status/enable/disable/retention/logging/clear/current'),
     (
         'Diagnostics',
         'now, progress, media info/probe/fingerprint/identify/local-match, tools/setup/library status, check_dev',
@@ -4259,6 +4286,7 @@ HELP_TOPIC_ALIASES = {
     'chapters': 'Video and captions',
     'details': 'Diagnostics',
     'app': 'Settings',
+    'hotspots': 'Settings',
 }
 
 
@@ -4281,6 +4309,132 @@ def eq_command(arguments):
         IPrint(tbl([(row['name'], 'Factory' if row['factory'] else 'User') for row in status['presets']],
                    headers=('Preset', 'Origin')), visible=visible)
     return status
+
+
+def _persist_playback_event_configuration(
+    *,
+    enabled: bool | None = None,
+    retention_days: int | None = None,
+    forward_to_log: bool | None = None,
+):
+    """Persist local event-capture controls before publishing live changes."""
+    if enabled is not None and type(enabled) is not bool:
+        raise ValueError('Hotspot capture setting must be true or false')
+    if forward_to_log is not None and type(forward_to_log) is not bool:
+        raise ValueError('Hotspot log forwarding must be true or false')
+    if retention_days is not None and (
+        isinstance(retention_days, bool)
+        or not isinstance(retention_days, int)
+        or not 1 <= retention_days <= 3650
+    ):
+        raise ValueError('Hotspot retention must be between 1 and 3650 days')
+    with _SETTINGS_WRITE_LOCK:
+        previous_present = 'playback events' in SETTINGS
+        previous_section = SETTINGS.get('playback events')
+        section = dict(previous_section) if isinstance(previous_section, dict) else {}
+        if enabled is not None:
+            section['enabled'] = enabled
+        if retention_days is not None:
+            section['retention days'] = retention_days
+        if forward_to_log is not None:
+            section['forward to log'] = forward_to_log
+        SETTINGS['playback events'] = section
+        try:
+            save_user_settings(SETTINGS, RUNTIME_PATHS.settings)
+        except Exception:
+            if previous_present:
+                SETTINGS['playback events'] = previous_section
+            else:
+                SETTINGS.pop('playback events', None)
+            raise
+        PLAYBACK_EVENTS.configure(
+            enabled=enabled,
+            retention_days=retention_days,
+            forward_to_log=forward_to_log,
+        )
+    return PLAYBACK_EVENTS.status()
+
+
+def hotspots_command(arguments):
+    """Control and inspect local personal interaction hotspot capture."""
+    normalized = [value.casefold() for value in arguments]
+    operation = normalized[0] if normalized else 'status'
+    if not normalized or normalized == ['status']:
+        status = PLAYBACK_EVENTS.status()
+        IPrint(
+            f'Personal interaction hotspots: {"enabled" if status["enabled"] else "disabled"}; '
+            f'retention {status["retention_days"]} days; stored {status["stored"]}; '
+            f'pending {status["pending"]}/{status["capacity"]}; dropped {status["dropped"]}; '
+            f'log forwarding {"on" if status["forward_to_log"] else "off"}',
+            visible=visible,
+        )
+        return status
+    if len(normalized) == 1 and operation in {'enable', 'disable'}:
+        status = _persist_playback_event_configuration(enabled=operation == 'enable')
+        IPrint(f'Personal interaction hotspot capture {operation}d.', visible=visible)
+        return status
+    if len(normalized) == 2 and operation == 'retention':
+        try:
+            days = int(normalized[1])
+        except ValueError:
+            raise ValueError('Hotspot retention must be a whole number of days') from None
+        status = _persist_playback_event_configuration(retention_days=days)
+        IPrint(f'Personal interaction hotspot retention set to {days} days.', visible=visible)
+        return status
+    if len(normalized) == 2 and operation == 'logging' and normalized[1] in {'on', 'off'}:
+        status = _persist_playback_event_configuration(forward_to_log=normalized[1] == 'on')
+        IPrint(f'Playback-event log forwarding {normalized[1]}.', visible=visible)
+        return status
+    if normalized == ['clear', '--yes']:
+        if not PLAYBACK_EVENTS.clear():
+            raise ValueError('Could not clear personal interaction hotspot history')
+        IPrint('Personal interaction hotspot history cleared.', visible=visible)
+        return PLAYBACK_EVENTS.status()
+    if operation == 'clear':
+        raise ValueError('Clearing personal interaction hotspot history requires: hotspots clear --yes')
+    if operation == 'current':
+        if len(normalized) > 3:
+            raise ValueError('Usage: hotspots current [bin-seconds] [linear|log1p]')
+        snapshot = vas.controller.snapshot()
+        if snapshot.media is None:
+            raise ValueError('No media is currently active')
+        try:
+            bin_seconds = float(normalized[1]) if len(normalized) >= 2 else 10.0
+        except ValueError:
+            raise ValueError('Hotspot bin width must be a positive number') from None
+        raw_scaling = normalized[2] if len(normalized) == 3 else 'linear'
+        if raw_scaling not in {'linear', 'log1p'}:
+            raise ValueError('Hotspot scaling must be linear or log1p')
+        scaling: Scaling = 'log1p' if raw_scaling == 'log1p' else 'linear'
+        rows = PLAYBACK_EVENTS.aggregate(
+            snapshot.media.stable_id,
+            bin_seconds=bin_seconds,
+            scaling=scaling,
+        )
+        IPrint('Personal interaction hotspots (local user actions only)', visible=visible)
+        IPrint(
+            tbl(
+                [
+                    (
+                        _status_time(row['start_seconds']),
+                        row['play_starts'],
+                        row['play_resumes'],
+                        row['pauses'],
+                        row['seek_destinations'],
+                        f'{row["intensity"]:.3f}',
+                    )
+                    for row in rows
+                ],
+                headers=('Position', 'Starts', 'Resumes', 'Pauses', 'Seek destinations', 'Intensity'),
+                tablefmt='plain',
+            ),
+            visible=visible,
+        )
+        return rows
+    raise ValueError(
+        'Usage: hotspots [status|enable|disable|retention DAYS|logging on|logging off|'
+        'clear --yes|current [bin-seconds] [linear|log1p]]'
+    )
 
 
 def loop_command(arguments):
@@ -5262,10 +5416,7 @@ def _desktop_control_request(action: str, payload: dict[str, object]) -> dict[st
             return {'ok': False, 'error': 'Current media is not seekable'}
 
         try:
-            if 'origin' in payload:
-                vas.controller.seek(min(target, float(duration)), origin=action_origin)
-            else:
-                vas.controller.seek(min(target, float(duration)))
+            vas.controller.seek(min(target, float(duration)), origin=action_origin)
         except Exception:
             return {'ok': False, 'error': 'Could not seek playback'}
         DESKTOP_CONTROL.emit('playback', _playback_status_projection().to_dict())
@@ -5278,6 +5429,9 @@ def _desktop_control_request(action: str, payload: dict[str, object]) -> dict[st
         'playback.next': 'next',
     }
     if action in playback_actions:
+        action_origin = payload.get('origin', 'desktop')
+        if not isinstance(action_origin, str) or action_origin not in {'desktop', 'mini-player'}:
+            return {'ok': False, 'error': 'Playback action origin is invalid'}
         expected_media_id = payload.get('media_id')
         if not isinstance(expected_media_id, str) or not expected_media_id:
             return {'ok': False, 'error': 'Playback target is unavailable'}
@@ -5291,13 +5445,13 @@ def _desktop_control_request(action: str, payload: dict[str, object]) -> dict[st
             if operation == 'play':
                 if snapshot.state != PlaybackState.PAUSED:
                     return {'ok': False, 'error': 'Play is unavailable in the current state'}
-                playpausetoggle(softtoggle=False)
+                playpausetoggle(softtoggle=False, action_origin=action_origin)
                 if vas.controller.snapshot().state != PlaybackState.PLAYING:
                     return {'ok': False, 'error': 'Could not resume playback'}
             elif operation == 'pause':
                 if snapshot.state not in {PlaybackState.PLAYING, PlaybackState.CROSSFADING}:
                     return {'ok': False, 'error': 'Pause is unavailable in the current state'}
-                playpausetoggle(softtoggle=False)
+                playpausetoggle(softtoggle=False, action_origin=action_origin)
                 if vas.controller.snapshot().state != PlaybackState.PAUSED:
                     return {'ok': False, 'error': 'Could not pause playback'}
             elif _step_queue_playback(operation) is None:
@@ -5724,6 +5878,7 @@ def exitplayer(sys_exit=False):
         ('broadcast', BROADCASTER.close),
         ('homepage', HOMEPAGE.close),
         ('artwork', _close_artwork_controller),
+        ('playback events', PLAYBACK_EVENTS.close),
         ('desktop control', DESKTOP_CONTROL.close),
         ('playback', vas.supervisor.close),
         ('library profiler', LIBRARY_SERVICE.close),
@@ -8720,6 +8875,12 @@ def process(command):
                 playlist_command(commandslist[1:])
             except (PlaylistError, QueueError, MediaFailure, ValueError, IndexError) as error:
                 SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+
+        elif commandslist[0].lower() == 'hotspots':
+            try:
+                hotspots_command(commandslist[1:])
+            except (ValueError, OSError, SQLiteError) as error:
+                IPrint(str(error), visible=visible)
 
         elif commandslist[0].lower() == 'tag':
             try:

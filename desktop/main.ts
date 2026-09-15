@@ -632,7 +632,7 @@ function registerIpc() {
     if (!validation.ok) return validation
     return requestBackendControl(
       'playback.seek',
-      { media_id: mediaId, target_seconds: validation.targetSeconds },
+      { media_id: mediaId, target_seconds: validation.targetSeconds, origin: 'desktop' },
       seekControlMessages,
     )
   })
@@ -681,7 +681,7 @@ function registerIpc() {
     if (!validateMiniPlayerSender(event) || !validControlMediaId(mediaId)) {
       return Promise.resolve({ ok: false, error: 'Playback target is unavailable' })
     }
-    return requestBackendControl(action, { media_id: mediaId }, playbackControlMessages)
+    return requestBackendControl(action, { media_id: mediaId, origin: 'mini-player' }, playbackControlMessages)
   }
   ipcMain.handle('mini:play', (event, mediaId) => miniPlaybackControl(event, mediaId, 'playback.play'))
   ipcMain.handle('mini:pause', (event, mediaId) => miniPlaybackControl(event, mediaId, 'playback.pause'))

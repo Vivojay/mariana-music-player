@@ -1246,6 +1246,7 @@ def test_exit_closes_independent_services_without_serial_waits(monkeypatch):
     monkeypatch.setattr(main, "STATION", SimpleNamespace(close=lambda: closed.append("station")))
     monkeypatch.setattr(main, "BROADCASTER", SimpleNamespace(close=lambda: closed.append("broadcast")))
     monkeypatch.setattr(main, "HOMEPAGE", SimpleNamespace(close=lambda: closed.append("homepage")))
+    monkeypatch.setattr(main, "PLAYBACK_EVENTS", SimpleNamespace(close=lambda: closed.append("playback events")))
     monkeypatch.setattr(main, "ARTWORK", SimpleNamespace(close=lambda: closed.append("artwork")))
     monkeypatch.setattr(main, "_ARTWORK_SINK_REMOVE", lambda: closed.append("artwork observer"))
     monkeypatch.setattr(main, "_ARTWORK_OBSERVER_REVISION", main._ARTWORK_OBSERVER_REVISION)
@@ -1259,6 +1260,7 @@ def test_exit_closes_independent_services_without_serial_waits(monkeypatch):
     main.exitplayer()
     assert {"sleep", "station", "broadcast", "desktop", "playback", "library", "save", "lyrics"} <= set(closed)
     assert {"homepage", "artwork", "artwork observer"} <= set(closed)
+    assert closed.count("playback events") == 1
     assert {"video", "resume", "presentation observers"} <= set(closed)
     assert resume_snapshots == [empty]
     assert closed.index("presentation observers") < closed.index("video")
