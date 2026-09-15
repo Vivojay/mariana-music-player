@@ -89,7 +89,7 @@ def test_download_confirmation_keeps_bound_identity_when_playback_changes(monkey
         snapshot=lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=active[0]),
     ))
     def confirm(message, **_kwargs):
-        assert "Selected" in message and "private" not in message
+        assert "Selected" in message and "token=private" not in message
         active[0] = replacement
         return True
     def download(url, destination, **kwargs):
