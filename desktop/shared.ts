@@ -114,7 +114,7 @@ export function formatChapterLabel(chapter: PlaybackStatus['chapter']): string {
   return position && title ? `${position} · ${title}` : position || title
 }
 
-type BackendEventName = 'starting' | 'ready' | 'playback' | 'station' | 'sleep' | 'broadcast' | 'loudness' | 'queue' | 'playlist' | 'album' | 'download' | 'theme' | 'desktop-preferences' | 'desktop-notice' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error' | 'control-result'
+type BackendEventName = 'starting' | 'ready' | 'playback' | 'video' | 'station' | 'sleep' | 'broadcast' | 'loudness' | 'queue' | 'playlist' | 'album' | 'download' | 'theme' | 'desktop-preferences' | 'desktop-notice' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error' | 'control-result'
 
 export type BackendEvent = {
   event: Exclude<BackendEventName, 'playback'>
@@ -140,6 +140,8 @@ export type MiniPlayerSnapshot = {
   ready: boolean
   diagnostic: string | null
   playback: PlaybackStatus | null
+  video?: import('./localVideo.js').LocalVideoStatus | null
+  videoTimestamp?: number | null
 }
 
 export type DesktopControlResult = {
@@ -236,9 +238,18 @@ export type MarianaDesktopApi = {
     toggleFavorite(mediaId: string): Promise<FavoriteToggleResult>
     seek(mediaId: string, targetSeconds: number): Promise<SeekResult>
     onEvent(callback: (event: BackendEvent) => void): () => void
+    play(mediaId: string): Promise<DesktopControlResult>
+    pause(mediaId: string): Promise<DesktopControlResult>
+    previous(mediaId: string): Promise<DesktopControlResult>
+    next(mediaId: string): Promise<DesktopControlResult>
+    videoStatus?(): Promise<DesktopControlResult>
+    videoConfigure?(mediaId: string, mode: 'audio' | 'video'): Promise<DesktopControlResult>
+    videoCaptionFile?(mediaId: string, replace: boolean): Promise<DesktopControlResult>
     videoCaptionSelect?(mediaId: string, revision: number, trackId: string): Promise<DesktopControlResult>
     videoCaptionLanguages?(mediaId: string, languages: string[]): Promise<DesktopControlResult>
     videoCaptionAutomatic?(mediaId: string): Promise<DesktopControlResult>
+    videoCaptionConfigure?(mediaId: string, action: 'on' | 'off' | 'clear' | 'shift' | 'set-offset', value?: number): Promise<DesktopControlResult>
+    videoAudioOffset?(mediaId: string, value: number, relative: boolean): Promise<DesktopControlResult>
   }
   updates: {
     check(): Promise<void>
@@ -257,6 +268,9 @@ export type MarianaDesktopApi = {
 }
 
 export type MarianaMiniPlayerApi = {
+  videoStatus?(): Promise<DesktopControlResult>
+  videoCaptionConfigure?(mediaId: string, action: 'on' | 'off' | 'clear' | 'shift' | 'set-offset', value?: number): Promise<DesktopControlResult>
+  videoAudioOffset?(mediaId: string, value: number, relative: boolean): Promise<DesktopControlResult>
   snapshot(): Promise<MiniPlayerSnapshot>
   onSnapshot(callback: (snapshot: MiniPlayerSnapshot) => void): () => void
   play(mediaId: string): Promise<DesktopControlResult>

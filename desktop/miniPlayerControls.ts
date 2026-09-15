@@ -1,4 +1,9 @@
-import type { MiniPlayerSnapshot } from './shared'
+import type { MiniPlayerSnapshot, PlaybackStatus } from './shared'
+
+export function playbackToggleAction(status: PlaybackStatus | null, ready: boolean): 'play' | 'pause' | null {
+  if (!ready || !status?.media_id || status.policy?.blocked || status.policy?.playable === false) return null
+  return status.state === 'paused' ? 'play' : ['playing', 'crossfading'].includes(status.state) ? 'pause' : null
+}
 
 export type MiniPlayerControlProjection = {
   toggleAction: 'play' | 'pause' | null
@@ -19,9 +24,7 @@ export function projectMiniPlayerControls(snapshot: MiniPlayerSnapshot): MiniPla
     && status.policy?.playable !== false
     && !status.policy?.blocked,
   )
-  const toggleAction = available
-    ? state === 'paused' ? 'play' : state === 'playing' || state === 'crossfading' ? 'pause' : null
-    : null
+  const toggleAction = playbackToggleAction(status, snapshot.ready)
   const queuePosition = Number(status?.queue_position)
   const queueCount = Number(status?.queue_count)
   const queueBound = available

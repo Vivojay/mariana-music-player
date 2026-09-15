@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, shell, Tray } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, protocol, shell, Tray } from 'electron'
 import electronUpdater from 'electron-updater'
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
@@ -9,6 +9,10 @@ import * as pty from 'node-pty'
 import { projectCommandCatalog, validateCommandCatalogOptions } from './commandCatalog.js'
 import { acceptPlaybackStatusEvent } from './playbackProjection.js'
 import { validateSeekIntent } from './playbackSeek.js'
+import { projectLocalVideo, type LocalVideoStatus } from './localVideo.js'
+import { projectHostVideoResource, serveLocalVideo, serveSourceVideo, type HostVideoResource } from './localVideoProtocol.js'
+import { hasCurrentVideo, miniWindowGeometry } from './miniVideoLayout.js'
+import { shouldDeliverMiniSnapshot } from './miniPlayerUpdates.js'
 import type {
   BackendEvent,
   CommandCatalogOptions,
@@ -35,6 +39,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const repositoryRoot = path.resolve(__dirname, '..')
 const isDevelopment = !app.isPackaged
 const usesViteRenderer = isDevelopment && process.env.MARIANA_E2E_USE_DIST !== '1'
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'mariana-video', privileges: { standard: true, secure: true, stream: true } },
+])
 if (process.env.MARIANA_E2E === '1') {
   app.setPath(
     'userData',
@@ -61,6 +68,10 @@ let quitting = false
 let playbackState = 'idle'
 let playbackStatus: PlaybackStatus | null = null
 let playbackEventTimestamp: number | null = null
+let localVideoStatus: LocalVideoStatus | null = null
+let hostVideoResource: HostVideoResource | null = null
+let localVideoTimestamp: number | null = null
+let miniVideoMode = false
 let sleepActive = false
 let backendReady = false
 let backendShutdownAcknowledged = false
@@ -121,10 +132,24 @@ const miniPlayerSnapshot = (): MiniPlayerSnapshot => ({
   ready: backendReady,
   diagnostic: backendDiagnostic,
   playback: playbackStatus,
+  video: hasCurrentVideo(backendReady, playbackStatus?.media_id, localVideoStatus) ? localVideoStatus : null,
+  videoTimestamp: localVideoTimestamp,
 })
 
-const sendMiniPlayerSnapshot = () => {
-  if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()) {
+const sendMiniPlayerSnapshot = (event?: string) => {
+  if (miniPlayerWindow && !miniPlayerWindow.isDestroyed()
+    && shouldDeliverMiniSnapshot(miniPlayerWindow.isVisible(), miniPlayerWindow.isMinimized(), event)) {
+    const videoMode = hasCurrentVideo(backendReady, playbackStatus?.media_id, localVideoStatus)
+    if (videoMode !== miniVideoMode) {
+      miniVideoMode = videoMode
+      const geometry = miniWindowGeometry(videoMode)
+      miniPlayerWindow.setResizable(true)
+      if (videoMode) miniPlayerWindow.setMaximumSize(geometry.maxWidth, geometry.maxHeight)
+      miniPlayerWindow.setMinimumSize(geometry.minWidth, geometry.minHeight)
+      if (!videoMode) miniPlayerWindow.setMaximumSize(geometry.maxWidth, geometry.maxHeight)
+      miniPlayerWindow.setSize(geometry.width, geometry.height)
+      miniPlayerWindow.setResizable(geometry.resizable)
+    }
     miniPlayerWindow.webContents.send('mini:snapshot-updated', miniPlayerSnapshot())
   }
 }
@@ -305,6 +330,17 @@ function handleBackendEvent(event: BackendEvent) {
     playbackStatus = accepted.status
     forwardedEvent = { ...event, payload: accepted.status }
   }
+  if (event.event === 'video') {
+    const projected = projectLocalVideo(event.payload)
+    if (!projected || (localVideoStatus && projected.revision < localVideoStatus.revision)) return
+    const timestamp = event.timestamp * 1000
+    if (!Number.isFinite(timestamp) || Date.now() - timestamp > 1000 || timestamp - Date.now() > 100
+      || (localVideoTimestamp !== null && timestamp < localVideoTimestamp)) return
+    localVideoStatus = projected
+    hostVideoResource = projectHostVideoResource(event.payload, projected)
+    localVideoTimestamp = timestamp
+    forwardedEvent = { ...event, payload: projected }
+  }
   if (event.event === 'sleep') sleepActive = Boolean(event.payload.active)
   if (event.event === 'update-safe') backendSafeOverride = Boolean(event.payload.safe)
   if (event.event === 'ready') {
@@ -359,7 +395,7 @@ function handleBackendEvent(event: BackendEvent) {
     setTimeout(() => autoUpdater.quitAndInstall(false, true), 1200)
   }
   if (event.event !== 'control-result') send('backend:event', forwardedEvent)
-  sendMiniPlayerSnapshot()
+  sendMiniPlayerSnapshot(event.event)
   if (updateState.state === 'downloaded') setUpdateState(updateState)
 }
 
@@ -437,6 +473,8 @@ function startTerminal() {
   playbackState = 'idle'
   playbackStatus = null
   playbackEventTimestamp = null
+  localVideoStatus = null
+  localVideoTimestamp = null
   sendMiniPlayerSnapshot()
   backendShutdownAcknowledged = false
   backendExitClosesView = true
@@ -552,16 +590,11 @@ async function ensureMiniPlayerWindow(): Promise<BrowserWindow> {
   let created = false
   const window = ensureSingleWindow(miniPlayerWindow, () => {
     created = true
+    miniVideoMode = hasCurrentVideo(backendReady, playbackStatus?.media_id, localVideoStatus)
     return new BrowserWindow({
-      width: 400,
-      height: 172,
-      minWidth: 340,
-      minHeight: 150,
-      maxWidth: 600,
-      maxHeight: 240,
+      ...miniWindowGeometry(miniVideoMode),
       show: false,
       frame: false,
-      resizable: true,
       skipTaskbar: false,
       alwaysOnTop: false,
       backgroundColor: '#15151d',
@@ -636,6 +669,107 @@ function registerIpc() {
       seekControlMessages,
     )
   })
+  protocol.handle('mariana-video', (request) => localVideoStatus?.transport === 'source' ? serveSourceVideo(
+    request, () => ({ status: backendReady ? localVideoStatus : null,
+      mediaId: playbackStatus?.media_id ?? null, resource: hostVideoResource }),
+  ) : serveLocalVideo(
+    request, path.join(app.getPath('userData'), 'runtime', 'cache', 'video'),
+    backendReady ? localVideoStatus : null, playbackStatus?.media_id ?? null,
+  ))
+  ipcMain.handle('backend:video-status', async (event) => {
+    if (!validateSender(event)) return { ok: false, error: 'Video request is invalid' }
+    return requestBackendControl('video.status', {}, playbackControlMessages)
+  })
+  ipcMain.handle('backend:video-configure', async (event, mediaId: unknown, mode: unknown) => {
+    if (!validateSender(event) || !validControlMediaId(mediaId)
+      || mediaId !== playbackStatus?.media_id || !['audio', 'video'].includes(String(mode))) {
+      return { ok: false, error: 'Video target is unavailable' }
+    }
+    return requestBackendControl('video.configure', { media_id: mediaId, mode }, playbackControlMessages)
+  })
+  const captionConfigure = (
+    validSender: boolean, mediaId: unknown, action: unknown, value: unknown,
+  ) => {
+    const needsValue = ['shift', 'set-offset'].includes(String(action))
+    if (!validSender || !validControlMediaId(mediaId) || mediaId !== playbackStatus?.media_id
+      || !['on', 'off', 'clear', 'shift', 'set-offset'].includes(String(action))
+      || (needsValue ? !Number.isInteger(value) : value !== undefined)) {
+      return Promise.resolve({ ok: false, error: 'Caption request is invalid' })
+    }
+    return requestBackendControl('video.captions', {
+      media_id: mediaId, operation: action, ...(needsValue ? { value } : {}),
+    }, playbackControlMessages)
+  }
+  ipcMain.handle('backend:video-caption-file', async (event, mediaId: unknown, replace: unknown) => {
+    if (!validateSender(event) || !validControlMediaId(mediaId) || mediaId !== playbackStatus?.media_id
+      || typeof replace !== 'boolean') {
+      return { ok: false, error: 'Caption request is invalid' }
+    }
+    const options = {
+      title: replace ? 'Replace captions' : 'Load captions',
+      properties: ['openFile'] as Array<'openFile'>,
+      filters: [{ name: 'Caption files', extensions: ['srt', 'vtt'] }],
+    }
+    const owner = BrowserWindow.fromWebContents(event.sender)
+    const selection = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
+    if (selection.canceled || selection.filePaths.length !== 1) return { ok: true }
+    if (mediaId !== playbackStatus?.media_id) return { ok: false, error: 'Current media changed; try again' }
+    return requestBackendControl('video.captions', {
+      media_id: mediaId, operation: replace ? 'replace' : 'load', path: selection.filePaths[0],
+    }, playbackControlMessages)
+  })
+  ipcMain.handle('backend:video-caption-select', (event, mediaId: unknown, revision: unknown, trackId: unknown) => {
+    if (!validateSender(event) || !validControlMediaId(mediaId) || mediaId !== playbackStatus?.media_id
+      || !Number.isSafeInteger(revision) || (revision as number) < 0
+      || typeof trackId !== 'string' || !/^[a-f0-9]{32}$/.test(trackId)) {
+      return { ok: false, error: 'Caption selection is invalid' }
+    }
+    return requestBackendControl('video.captions', {
+      media_id: mediaId, operation: 'select', revision, track_id: trackId,
+    }, playbackControlMessages)
+  })
+  ipcMain.handle('backend:video-caption-languages', (event, mediaId: unknown, languages: unknown) => {
+    if (!validateSender(event) || !validControlMediaId(mediaId) || mediaId !== playbackStatus?.media_id
+      || !Array.isArray(languages) || languages.length > 5
+      || languages.some((item) => typeof item !== 'string' || !/^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$/i.test(item))) {
+      return { ok: false, error: 'Caption languages are invalid' }
+    }
+    return requestBackendControl('video.captions', { media_id: mediaId, operation: 'languages', languages }, playbackControlMessages)
+  })
+  ipcMain.handle('backend:video-caption-automatic', (event, mediaId: unknown) => {
+    if (!validateSender(event) || !validControlMediaId(mediaId) || mediaId !== playbackStatus?.media_id) {
+      return { ok: false, error: 'Caption target is unavailable' }
+    }
+    return requestBackendControl('video.captions', { media_id: mediaId, operation: 'auto' }, playbackControlMessages)
+  })
+  const audioOffset = (validSender: boolean, mediaId: unknown, value: unknown, relative: unknown) => {
+    if (!validSender || !validControlMediaId(mediaId) || mediaId !== playbackStatus?.media_id
+      || !Number.isInteger(value) || (value as number) < -5000 || (value as number) > 5000
+      || typeof relative !== 'boolean') {
+      return Promise.resolve({ ok: false, error: 'Audio synchronization request is invalid' })
+    }
+    return requestBackendControl('video.audio-offset', {
+      media_id: mediaId, value, relative,
+    }, playbackControlMessages)
+  }
+  ipcMain.handle('backend:video-caption-configure', (event, mediaId, action, value) => (
+    captionConfigure(validateSender(event), mediaId, action, value)
+  ))
+  ipcMain.handle('backend:video-audio-offset', (event, mediaId, value, relative) => (
+    audioOffset(validateSender(event), mediaId, value, relative)
+  ))
+  for (const action of ['play', 'pause', 'previous', 'next'] as const) {
+    ipcMain.handle(`backend:${action}`, async (event, mediaId: unknown) => {
+      if (!validateSender(event) || !validControlMediaId(mediaId)) {
+        return { ok: false, error: 'Playback target is unavailable' } satisfies DesktopControlResult
+      }
+      return requestBackendControl(
+        `playback.${action}`,
+        { media_id: mediaId, origin: 'desktop' },
+        playbackControlMessages,
+      )
+    })
+  }
   ipcMain.on('terminal:write', (event, data: unknown) => {
     if (validateSender(event) && typeof data === 'string' && data.length <= 1_000_000) terminalProcess?.write(data)
   })
@@ -673,6 +807,16 @@ function registerIpc() {
     if (!validateMiniPlayerSender(event)) throw new Error('Invalid IPC sender')
     return miniPlayerSnapshot()
   })
+  ipcMain.handle('mini:video-status', (event) => {
+    if (!validateMiniPlayerSender(event)) return { ok: false, error: 'Video request is invalid' }
+    return requestBackendControl('video.status', {}, playbackControlMessages)
+  })
+  ipcMain.handle('mini:video-caption-configure', (event, mediaId, action, value) => (
+    captionConfigure(validateMiniPlayerSender(event), mediaId, action, value)
+  ))
+  ipcMain.handle('mini:video-audio-offset', (event, mediaId, value, relative) => (
+    audioOffset(validateMiniPlayerSender(event), mediaId, value, relative)
+  ))
   const miniPlaybackControl = (
     event: Electron.IpcMainInvokeEvent,
     mediaId: unknown,
