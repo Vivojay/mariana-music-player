@@ -62,7 +62,7 @@ validation, current-media binding, preferred-region clamping, stale response
 handling, and authoritative projection reconciliation without terminal writes.
 
 The playback projection slice additionally locks Python's complete serialized
-schema-7 field sets and exercises finite, unknown-duration, live, and idle
+schema-8 field sets and exercises finite, unknown-duration, live, and idle
 source shapes against Electron's runtime allowlist. Desktop tests prove unknown
 fields are dropped, private or malformed allowlisted values fail closed,
 duplicate/older events cannot replace current state, and both the main window

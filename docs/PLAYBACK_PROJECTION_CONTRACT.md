@@ -38,11 +38,11 @@ perform network work, mutate playback, or persist state.
 The current projection schema is versioned. Consumers must tolerate missing
 optional fields and must not infer backend state from formatted labels. Python
 serializes the explicit `PlaybackStatusProjection` dataclass; its source tests
-lock the complete top-level and nested field sets for schema 7.
+lock the complete top-level and nested field sets for schema 8.
 
 Electron treats every decoded backend payload as untrusted runtime data rather
 than relying on a TypeScript cast. The main-process boundary reconstructs a new
-object from the schema-7 allowlist and validates field types, lengths, numeric
+object from the schema-8 allowlist and validates field types, lengths, numeric
 bounds, source/state enums, nested shapes, and cross-field invariants. Unknown
 properties are dropped. An unsupported schema, missing or malformed field,
 private reference in an allowlisted display field, or inconsistent capability
@@ -110,8 +110,12 @@ identity fields.
 - The current chapter is selected by backend playback position. UIs may format
   it, but must not independently advance chapter state from wall-clock time.
 - Favourite projection contains only availability, current boolean state,
-  toggle enablement, and a safe unavailable reason. It does not expose a
+  toggle enablement, a safe unavailable reason, and an independent zero-to-five
+  star `rating` with a `maximum` that is always 5. It does not expose a
   preference key, path, URL, or database row.
+- Zero means unrated; an older heart-only payload projects `rating` 0. A heart
+  saves a favourite while stars express a separate assessment: neither control
+  changes the other, and a nonzero rating never implies availability.
 - A favourite toggle sends typed intent with the projected opaque `media_id`.
   The backend compares it with the current snapshot before mutation, then the
   UI reconciles from the next authoritative projection. Renderer-only or

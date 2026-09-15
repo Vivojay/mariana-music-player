@@ -48,7 +48,7 @@ let exitEvent: ((event: { code: number; intentional: boolean }) => void) | undef
 let backendSnapshot: BackendSnapshot
 
 const playbackStatus = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus => ({
-  schema_version: 7,
+  schema_version: 8,
   state: 'playing',
   display_state: 'Playing',
   media_id: 'track-1',
@@ -65,7 +65,7 @@ const playbackStatus = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus
   library_index: null,
   queue_position: 1,
   queue_count: 3,
-  favorite: { available: true, is_favorite: false, toggle_enabled: true, unavailable_reason: null },
+  favorite: { available: true, is_favorite: false, toggle_enabled: true, unavailable_reason: null, rating: 0, maximum: 5 },
   chapter: null,
   chapter_markers: [],
   replaygain_db: 0,
@@ -511,7 +511,7 @@ describe('Mariana desktop shell', () => {
     expect(screen.getByRole('button', { name: 'Updating favourite' })).toBeDisabled()
 
     act(() => backendEvent?.({ event: 'playback', payload: playbackStatus({
-      favorite: { available: true, is_favorite: true, toggle_enabled: true, unavailable_reason: null },
+      favorite: { available: true, is_favorite: true, toggle_enabled: true, unavailable_reason: null, rating: 0, maximum: 5 },
     }), timestamp: 2 }))
     await act(async () => { resolveToggle?.({ ok: true }) })
     expect(screen.getByRole('button', { name: 'Remove from favourites' })).toHaveTextContent('♥')
@@ -520,7 +520,7 @@ describe('Mariana desktop shell', () => {
   it('tracks CLI favourite changes and clears stale state on track changes', () => {
     render(<App />)
     act(() => backendEvent?.({ event: 'playback', payload: playbackStatus({
-      favorite: { available: true, is_favorite: true, toggle_enabled: true, unavailable_reason: null },
+      favorite: { available: true, is_favorite: true, toggle_enabled: true, unavailable_reason: null, rating: 0, maximum: 5 },
     }), timestamp: 1 }))
     expect(screen.getByRole('button', { name: 'Remove from favourites' })).toHaveTextContent('♥')
 
@@ -532,6 +532,8 @@ describe('Mariana desktop shell', () => {
         is_favorite: false,
         toggle_enabled: false,
         unavailable_reason: 'Only indexed local media can be added to favourites',
+        rating: 0,
+        maximum: 5,
       },
     }), timestamp: 2 }))
     expect(screen.getByRole('button', { name: 'Add to favourites' })).toBeDisabled()

@@ -4,7 +4,7 @@ import { MiniPlayerNowPlaying } from './MiniPlayerNowPlaying'
 import type { PlaybackStatus } from './shared'
 
 const status = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus => ({
-  schema_version: 7,
+  schema_version: 8,
   state: 'playing',
   display_state: 'Playing',
   media_id: 'track-1',
@@ -21,7 +21,7 @@ const status = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus => ({
   library_index: null,
   queue_position: 2,
   queue_count: 5,
-  favorite: { available: false, is_favorite: false, toggle_enabled: false, unavailable_reason: null },
+  favorite: { available: false, is_favorite: false, toggle_enabled: false, unavailable_reason: null, rating: 0, maximum: 5 },
   chapter: null,
   chapter_markers: [],
   replaygain_db: 0,

@@ -1,8 +1,12 @@
 export type FavoriteStatus = {
   available: boolean
+  /** Saved-favourite heart, independent of the star assessment. */
   is_favorite: boolean
   toggle_enabled: boolean
   unavailable_reason: string | null
+  /** Zero means unrated; an older heart-only payload remains unrated. */
+  rating?: number
+  maximum?: 5
 }
 
 export type PlaybackChapterMarker = {
@@ -36,7 +40,7 @@ export type PlaybackSource =
   | 'recommendation'
 
 export type PlaybackStatus = {
-  schema_version: 7
+  schema_version: 8
   state: PlaybackState
   display_state: string
   media_id: string | null

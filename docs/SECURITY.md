@@ -18,7 +18,7 @@
   playback controls carry only the projected current-media identity and a
   fixed allowlisted action.
 - Playback JSON is runtime-validated at the Electron main-process boundary.
-  Only the schema-7 allowlist is reconstructed; unknown fields are dropped and
+  Only the schema-8 allowlist is reconstructed; unknown fields are dropped and
   malformed, out-of-range, internally inconsistent, private-reference-bearing,
   duplicate, or older projections are not cached or forwarded. The main window
   and Mini-player defensively revalidate the accepted projection.

@@ -56,7 +56,7 @@
 - Command-catalog risk labels are informational. They do not replace runtime
   validation or confirmation, and autocomplete cannot approve or execute a
   destructive command.
-- Desktop playback projection validation currently accepts schema 7 only and
+- Desktop playback projection validation currently accepts schema 8 only and
   fails closed when development builds mix incompatible backend and renderer
   versions. Malformed updates are silently ignored, leaving the last accepted
   status visible; a dedicated user-facing protocol diagnostic is not yet

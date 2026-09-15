@@ -28,6 +28,8 @@ const projection = (overrides: Record<string, unknown> = {}) => ({
     is_favorite: false,
     toggle_enabled: true,
     unavailable_reason: null,
+    rating: 0,
+    maximum: 5,
   },
   chapter: null,
   chapter_markers: [],
@@ -50,6 +52,8 @@ describe('playback projection boundary', () => {
         is_favorite: false,
         toggle_enabled: true,
         unavailable_reason: null,
+        rating: 0,
+        maximum: 5,
         preference_key: 'C:\\private\\preference',
       },
     }))
@@ -124,8 +128,27 @@ describe('playback projection boundary', () => {
     projection({ live: true, finite: false, seekable: false, duration_seconds: 100, percent: 10 }),
     projection({ queue_position: 4, queue_count: 3 }),
     projection({ policy: { blocked: true, playable: true, unavailable_reason: null } }),
+    projection({ favorite: { available: false, is_favorite: false, toggle_enabled: false, unavailable_reason: null, rating: 3, maximum: 5 } }),
+    projection({ favorite: { available: true, is_favorite: true, toggle_enabled: true, unavailable_reason: null, rating: 6, maximum: 5 } }),
+    projection({ favorite: { available: true, is_favorite: false, toggle_enabled: true, unavailable_reason: null, rating: 0, maximum: 6 } }),
+    projection({ favorite: { available: true, is_favorite: false, toggle_enabled: true, unavailable_reason: null, rating: 0, maximum: 4 } }),
+    projection({ favorite: { available: true, is_favorite: false, toggle_enabled: true, unavailable_reason: null, rating: 2.5, maximum: 5 } }),
   ])('rejects malformed, inconsistent, or private payloads', (candidate) => {
     expect(projectPlaybackStatus(candidate)).toBeNull()
+  })
+
+  it.each([[true, 0], [false, 5], [true, 3], [false, 0]])('keeps heart %s separate from rating %s', (heart, rating) => {
+    const result = projectPlaybackStatus(projection({
+      favorite: { available: true, is_favorite: heart, toggle_enabled: true, unavailable_reason: null, rating, maximum: 5 },
+    }))
+    expect(result?.favorite).toMatchObject({ is_favorite: heart, rating })
+  })
+
+  it('does not manufacture stars for an older heart-only projection', () => {
+    const result = projectPlaybackStatus(projection({
+      favorite: { available: true, is_favorite: true, toggle_enabled: true, unavailable_reason: null },
+    }))
+    expect(result?.favorite).toMatchObject({ is_favorite: true, rating: 0 })
   })
 
   it('accepts only newer valid playback events', () => {

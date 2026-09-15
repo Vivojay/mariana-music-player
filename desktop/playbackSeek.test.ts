@@ -3,7 +3,7 @@ import { seekTargetFromPointer, validateSeekIntent } from './playbackSeek'
 import type { PlaybackStatus } from './shared'
 
 const status = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus => ({
-  schema_version: 7,
+  schema_version: 8,
   state: 'playing',
   display_state: 'Playing',
   media_id: 'track-1',
@@ -20,7 +20,7 @@ const status = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus => ({
   library_index: 1,
   queue_position: 1,
   queue_count: 2,
-  favorite: { available: true, is_favorite: false, toggle_enabled: true, unavailable_reason: null },
+  favorite: { available: true, is_favorite: false, toggle_enabled: true, unavailable_reason: null, rating: 0, maximum: 5 },
   chapter: null,
   chapter_markers: [],
   replaygain_db: 0,

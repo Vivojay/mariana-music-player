@@ -109,7 +109,7 @@ def test_projection_includes_safe_finite_metadata_and_chapter():
         queue_position=2,
         queue_count=5,
     )
-    assert projection.schema_version == 7
+    assert projection.schema_version == 8
     assert projection.title == "Track" and projection.artist == "Artist"
     assert projection.source == "local" and projection.media_id
     assert projection.finite and projection.seekable and not projection.live
@@ -158,7 +158,7 @@ def test_serialized_projection_matches_the_desktop_allowlist_contract():
         policy=PlaybackPolicyProjection(False, True),
     ).to_dict()
 
-    assert payload["schema_version"] == 7
+    assert payload["schema_version"] == 8
     assert set(payload) == {
         "schema_version",
         "state",
@@ -191,6 +191,8 @@ def test_serialized_projection_matches_the_desktop_allowlist_contract():
         "is_favorite",
         "toggle_enabled",
         "unavailable_reason",
+        "rating",
+        "maximum",
     }
     assert set(payload["policy"]) == {"blocked", "playable", "unavailable_reason"}
     assert set(payload["region"]) == {"active", "start_seconds", "end_seconds"}
@@ -322,13 +324,29 @@ def test_projection_carries_only_sanitized_favorite_state():
         "is_favorite": True,
         "toggle_enabled": True,
         "unavailable_reason": None,
+        "rating": 0,
+        "maximum": 5,
     }
     assert set(projection.to_dict()["favorite"]) == {
         "available",
         "is_favorite",
         "toggle_enabled",
         "unavailable_reason",
+        "rating",
+        "maximum",
     }
+
+
+def test_favorite_rating_allows_zero_to_five_and_requires_maximum_five():
+    assert FavoriteStatusProjection(True, False, True, rating=3, maximum=5).rating == 3
+    assert FavoriteStatusProjection(True, True, True).rating == 0
+    assert FavoriteStatusProjection(True, False, True, rating=None).rating == 0
+    for bad_rating in (-1, 6, True, False, 2.5, "3", None.__class__):
+        with pytest.raises(ValueError):
+            FavoriteStatusProjection(True, False, True, rating=bad_rating)
+    for bad_maximum in (0, 4, 6, None, "5", True, 5.0):
+        with pytest.raises(ValueError):
+            FavoriteStatusProjection(True, False, True, rating=0, maximum=bad_maximum)
 
 
 def test_projection_represents_live_nonseekable_media_without_percentage():

@@ -164,6 +164,8 @@ def test_podcast_favorite_projection_and_desktop_toggle_use_durable_feed_identit
         "is_favorite": False,
         "toggle_enabled": True,
         "unavailable_reason": None,
+        "rating": 0,
+        "maximum": 5,
     }
     serialized = json.dumps(emitted)
     assert "media.test" not in serialized
@@ -219,6 +221,8 @@ def test_desktop_favorite_toggle_binds_expected_current_media_and_emits_projecti
         "is_favorite": True,
         "toggle_enabled": True,
         "unavailable_reason": None,
+        "rating": 0,
+        "maximum": 5,
     }
     serialized = json.dumps(emitted[-1][1])
     assert "youtube.com" not in serialized

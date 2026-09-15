@@ -6,7 +6,7 @@ import type {
   PlaybackStatus,
 } from './shared.js'
 
-export const PLAYBACK_STATUS_SCHEMA_VERSION = 7
+export const PLAYBACK_STATUS_SCHEMA_VERSION = 8
 
 const MAX_SECONDS = 315_576_000
 const MAX_INDEX = 1_000_000
@@ -85,14 +85,23 @@ function nullableText(value: unknown, maximum: number): string | null {
 
 function favorite(value: unknown, mediaId: string | null): FavoriteStatus {
   const candidate = record(value)
+  const legacyFavorite = boolean(candidate.is_favorite)
+  const rating = candidate.rating === undefined
+    ? 0
+    : number(candidate.rating, 0, 5, true)
+  const maximum = candidate.maximum === undefined
+    ? 5
+    : number(candidate.maximum, 5, 5, true)
   const projected: FavoriteStatus = {
     available: boolean(candidate.available),
-    is_favorite: boolean(candidate.is_favorite),
+    is_favorite: legacyFavorite,
     toggle_enabled: boolean(candidate.toggle_enabled),
     unavailable_reason: nullableText(candidate.unavailable_reason, 160),
+    rating,
+    maximum: maximum as 5,
   }
   if (
-    (!projected.available && (projected.is_favorite || projected.toggle_enabled))
+    (!projected.available && (projected.is_favorite || projected.toggle_enabled || rating > 0))
     || (projected.toggle_enabled && !mediaId)
   ) invalid()
   return projected

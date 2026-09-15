@@ -9,7 +9,7 @@ from typing import Any
 
 from .models import MediaSource, PlaybackSnapshot, PlaybackState
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 MAX_ERROR_LENGTH = 160
 _GENERIC_ERROR = "Playback failed; see logs for details"
 _SPACE_PATTERN = re.compile(r"\s+")
@@ -47,12 +47,26 @@ class PlaybackChapterMarkerProjection:
 
 @dataclass(frozen=True, slots=True)
 class FavoriteStatusProjection:
-    """Sanitized preference state for the current playback item."""
+    """Sanitized zero-to-five rating state for the current playback item.
+
+    A heart saves a favourite; zero-to-five stars express an independent
+    assessment. Neither control changes the other or the block policy.
+    """
 
     available: bool
     is_favorite: bool
     toggle_enabled: bool
     unavailable_reason: str | None = None
+    rating: int | None = None
+    maximum: int = 5
+
+    def __post_init__(self) -> None:
+        rating = 0 if self.rating is None else self.rating
+        if isinstance(rating, bool) or not isinstance(rating, int) or not 0 <= rating <= 5:
+            raise ValueError("Rating must be a whole number from 0 to 5")
+        if type(self.maximum) is not int or self.maximum != 5:
+            raise ValueError("Maximum must equal 5")
+        object.__setattr__(self, "rating", rating)
 
 
 @dataclass(frozen=True, slots=True)

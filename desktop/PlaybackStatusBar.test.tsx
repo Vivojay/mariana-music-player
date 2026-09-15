@@ -4,7 +4,7 @@ import { PlaybackStatusBar } from './PlaybackStatusBar'
 import { formatChapterLabel, type PlaybackStatus } from './shared'
 
 const status = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus => ({
-  schema_version: 7,
+  schema_version: 8,
   state: 'playing',
   display_state: 'Playing',
   media_id: 'track-1',
@@ -21,7 +21,7 @@ const status = (overrides: Partial<PlaybackStatus> = {}): PlaybackStatus => ({
   library_index: null,
   queue_position: 2,
   queue_count: 8,
-  favorite: { available: true, is_favorite: false, toggle_enabled: true, unavailable_reason: null },
+  favorite: { available: true, is_favorite: false, toggle_enabled: true, unavailable_reason: null, rating: 0, maximum: 5 },
   chapter: null,
   chapter_markers: [],
   replaygain_db: 0,
@@ -62,7 +62,7 @@ describe('PlaybackStatusBar', () => {
     expect(toggle).toHaveBeenCalledOnce()
 
     rerender(<PlaybackStatusBar status={status({
-      favorite: { available: true, is_favorite: true, toggle_enabled: true, unavailable_reason: null },
+      favorite: { available: true, is_favorite: true, toggle_enabled: true, unavailable_reason: null, rating: 0, maximum: 5 },
     })} onToggleFavorite={toggle} />)
     expect(screen.getByRole('button', { name: 'Remove from favourites' })).toHaveTextContent('♥')
   })
@@ -74,6 +74,8 @@ describe('PlaybackStatusBar', () => {
         is_favorite: false,
         toggle_enabled: false,
         unavailable_reason: 'Only indexed local media can be added to favourites',
+        rating: 0,
+        maximum: 5,
       },
     })} onToggleFavorite={() => undefined} />)
     expect(screen.getByRole('button', { name: 'Add to favourites' })).toBeDisabled()
