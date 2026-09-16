@@ -197,6 +197,46 @@ Mariana does not currently provide SoundCloud catalog search, so `queue sc`
 and `/scq` are not commands. Known public SoundCloud URLs remain supported by
 the extractor-backed `/ml` playback and `download-ml` commands.
 
+### LibriVox audiobooks
+
+LibriVox uses its official, keyless catalog API only after an explicit command.
+Search result numbers belong to the latest LibriVox search; use
+`id:<catalog-id>` when you need an unambiguous reference that does not depend on
+that result list. The short aliases are `lv` and `libri`.
+
+| Command | Purpose |
+| --- | --- |
+| `librivox help`, `lv help` | Show the complete audiobook command family |
+| `librivox status` | Show local result state and the official API reference without making a network request |
+| `librivox search <title> [--limit N] [--offset N]` | Search audiobook titles |
+| `librivox author <surname> [--limit N] [--offset N]` | Search by author surname |
+| `librivox genre <genre> [--limit N] [--offset N]` | Search catalog genre text |
+| `librivox recent [days] [--limit N] [--offset N]` | List projects added during a recent time window |
+| `librivox show <result|id:ID|current>` | Show project, attribution, source, feed, archive, artwork, and description metadata |
+| `librivox chapters <result|id:ID|current>` | List playable sections, readers, languages, and durations |
+| `librivox play <result|id:ID|current> [chapter]` | Play a section and append any missing sections from that book to the persistent queue |
+| `librivox current` | Show the active/selected book, chapter number, reader, state, and safe stable IDs without a network request |
+| `librivox goto <chapter>` | Play a numbered chapter from the current audiobook |
+| `librivox next [count]`, `librivox previous [count]` | Move between the current book's separate section files without wrapping; `prev` aliases `previous` |
+| `librivox first`, `librivox last` | Play the first or final chapter of the current audiobook |
+| `librivox restart` | Seek the current chapter to its start while preserving the controller's playback state |
+| `librivox resume` | Resume a paused current chapter, or start the chapter selected by the restart-persistent queue cursor |
+| `librivox queue <result|id:ID|current> [chapter|all]` | Append one section or the complete book to the existing queue |
+| `librivox download <result|id:ID|current> [chapter|all] [--format mp3|flac|wav|m4a|opus] [--to <folder>] [--yes]` | Confirm and download finite chapter audio through the existing media downloader |
+| `librivox rss <result|id:ID|current>` | Open the official project RSS feed |
+| `librivox open <result|id:ID|current> [catalog|text|archive|download|rss]` | Open an official project destination or whole-book ZIP link |
+
+Chapter favourites and queued entries use the LibriVox catalog ID plus section
+ID within the official project feed. The downloadable MP3 address is transport,
+not identity, so an updated archive URL does not turn the same chapter into a
+different favourite. LibriVox sections are separate finite audio resources rather
+than timestamp markers inside one file: ordinary `seek` and the progress bar move
+within a section, while the `librivox goto/next/previous` family moves between
+sections. Normal automatic queue advancement applies when autoplay is enabled.
+Artwork and descriptions come only from catalog metadata;
+Mariana does not scrape book-cover images. See [docs/LIBRIVOX.md](docs/LIBRIVOX.md)
+for source, privacy, and availability details.
+
 YouTube operations share one optional browser-profile reference:
 
 ```text

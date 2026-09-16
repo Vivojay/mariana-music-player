@@ -1,4 +1,5 @@
 import threading
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -403,3 +404,43 @@ def test_duplicate_local_recordings_remain_explicit_choices_when_network_fails()
     catalog._local_rows = list
     with pytest.raises(OSError, match="offline"):
         catalog.playback_candidates(album(), track)
+
+
+def test_desktop_boundary_rejects_injection_and_uses_typed_selection(monkeypatch):
+    import main
+
+    service = Mock()
+    monkeypatch.setattr(main, "DISCOVERY", service)
+    assert main._desktop_control_request("discovery.begin", {"item_id": "release:one", "request_id": REQUEST}) == {"ok": True}
+    service.begin.assert_called_once_with("release:one", REQUEST)
+    invalid_payloads: tuple[dict[str, object], ...] = (
+        {"request_id": REQUEST, "command": "delete 1"},
+        {"request_id": "play\r", "item_id": "release:one"},
+        {"request_id": REQUEST, "revision": True, "choice_id": "b" * 32, "intent": "queue"},
+    )
+    for payload in invalid_payloads:
+        assert not main._desktop_control_request("discovery.choose", payload)["ok"]
+    service.choose.assert_not_called()
+
+
+def test_queue_action_only_appends_and_play_does_not_replace_queue(monkeypatch):
+    import main
+
+    media = MediaRef(MediaSource.YOUTUBE, "https://www.youtube.com/watch?v=abcdefghijk", title="Version")
+    queue = Mock()
+    supervisor = Mock()
+    monkeypatch.setattr(main, "QUEUE", queue)
+    monkeypatch.setattr(main, "vas", SimpleNamespace(supervisor=supervisor))
+    monkeypatch.setattr(main, "COMMAND_BUSY", threading.Event())
+    monkeypatch.setattr(main, "_discovery_unavailable", lambda _: None)
+    monkeypatch.setattr(main, "_ensure_media_playable", lambda value: value)
+    monkeypatch.setattr(main, "_emit_queue_desktop_state", Mock())
+    monkeypatch.setattr(main, "_set_current_media_state", Mock())
+    monkeypatch.setattr(main, "RECOMMENDER", Mock())
+    main._apply_discovery_selection(media, "queue")
+    assert queue.mock_calls == [("add", (media,), {})]
+    supervisor.play.assert_not_called()
+    queue.reset_mock()
+    main._apply_discovery_selection(media, "play")
+    supervisor.play.assert_called_once_with(media, origin="desktop")
+    assert not queue.mock_calls

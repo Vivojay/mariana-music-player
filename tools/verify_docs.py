@@ -17,6 +17,7 @@ REQUIRED_COMMAND_FAMILIES = {
     "download-ml",
     "discord",
     "library",
+    "librivox",
     "queue",
     "radio",
     "recommend",

@@ -100,12 +100,21 @@ from mariana.collection_transfer import (
 from mariana.credentials import CredentialError, CredentialStore
 from mariana.database import MarianaDatabase
 from mariana.desktop_control import DesktopControl
+from mariana.discovery import DiscoverySelection
+from mariana.entertainment_catalog import BY_ID as ENTERTAINMENT_ENTRIES
+from mariana.entertainment_catalog import CatalogueReader
 from mariana.download import DownloadError, download_media, prepare_download_target
 from mariana.download_jobs import DownloadJobError, DownloadManager
 from mariana.identity import AcoustIDClient, IdentificationService, LRCLIBClient, MusicBrainzClient, MIN_FINGERPRINT_SECONDS, IdentificationError, find_fpcalc
 from mariana.homepage import HOMEPAGE_CACHE_STATE_KEY, HomepageConfiguration, HomepageService, ListenBrainzFreshReleasesProvider, create_homepage_image_cache
 from mariana.library import LibraryCatalog, LibraryError
 from mariana.library_service import LibraryProfilerService
+from mariana.librivox import (
+    API_INFO_URL as LIBRIVOX_API_INFO_URL,
+    DEFAULT_LIMIT as LIBRIVOX_DEFAULT_LIMIT,
+    LibrivoxCatalog,
+    LibrivoxError,
+)
 from mariana.local_match import LocalMatchResult, LocalMatchStatus, LocalMediaMatcher
 from mariana.loudness import LoudnessError, RSGainAnalyzer
 from mariana.media_details import clean_component, flattened_details, format_file_size, format_probed_media_type, short_filename_plan, display_media_error, display_media_uri, normalized_provider_metadata
@@ -540,6 +549,7 @@ ALBUMS = AlbumCatalog(
     musicbrainz=IDENTITY.musicbrainz,
     browser_profile=SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile'),
 )
+LIBRIVOX = LibrivoxCatalog()
 DOWNLOADS = DownloadManager(
     DATABASE,
     ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'),
@@ -1038,6 +1048,16 @@ HOMEPAGE = HomepageService(
     additional_providers=(ListenBrainzFreshReleasesProvider(),),
     image_cache=create_homepage_image_cache(RUNTIME_PATHS.state('cache', 'homepage')),
     on_update=lambda payload: _emit_discovery_event('homepage', payload),
+)
+
+CATALOGUE_READER = CatalogueReader()
+DISCOVERY = DiscoverySelection(
+    catalog=ALBUMS,
+    source=lambda item_id: HOMEPAGE.release_target(item_id),
+    apply=lambda media, intent: _apply_discovery_selection(media, intent),
+    unavailable=lambda media: _discovery_unavailable(media),
+    on_update=lambda payload: _emit_discovery_event('discovery', payload),
+    catalogue_choices=lambda identifier, cancelled: _catalogue_choices(identifier, cancelled),
 )
 
 if _sound_files_names_only == []:
@@ -2732,6 +2752,559 @@ def album_command(arguments):
         _emit_queue_desktop_state()
     else:
         raise AlbumError(f'Invalid album command: {operation}')
+
+
+_LIBRIVOX_DOWNLOAD_FORMATS = frozenset({'mp3', 'flac', 'wav', 'm4a', 'opus'})
+
+
+def _librivox_duration(value):
+    if value is None:
+        return ''
+    seconds = max(0, round(float(value)))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f'{hours:d}:{minutes:02d}:{seconds:02d}' if hours else f'{minutes:d}:{seconds:02d}'
+
+
+def _librivox_integer(value, *, name, minimum=0, maximum=None):
+    try:
+        number = int(value)
+    except (TypeError, ValueError, OverflowError):
+        raise LibrivoxError(f'LibriVox {name} must be a whole number') from None
+    if number < minimum or (maximum is not None and number > maximum):
+        boundary = f'between {minimum} and {maximum}' if maximum is not None else f'at least {minimum}'
+        raise LibrivoxError(f'LibriVox {name} must be {boundary}')
+    return number
+
+
+def _print_librivox_results(books):
+    rows = [
+        (
+            index,
+            book.catalog_id,
+            book.author_label,
+            book.title,
+            book.language or '',
+            book.section_count or '',
+            book.total_time or _librivox_duration(book.total_seconds),
+        )
+        for index, book in enumerate(books, 1)
+    ]
+    IPrint(
+        tbl(
+            rows,
+            headers=('#', 'Catalog ID', 'Author', 'Audiobook', 'Language', 'Sections', 'Duration'),
+            tablefmt='plain',
+        ) if rows else '(no LibriVox audiobooks found)',
+        visible=visible,
+    )
+    if rows:
+        IPrint('Use a result number below, or id:<catalog-id> at any time.', visible=visible)
+
+
+def _print_librivox_book(book):
+    rows = (
+        ('Catalog ID', book.catalog_id),
+        ('Title', book.title),
+        ('Author', book.author_label),
+        ('Translator', ', '.join(book.translators) or 'Not supplied'),
+        ('Language', book.language or 'Unknown'),
+        ('Copyright year', book.copyright_year or 'Not supplied'),
+        ('Sections', book.section_count or len(book.sections)),
+        ('Duration', book.total_time or _librivox_duration(book.total_seconds) or 'Unknown'),
+        ('Genres', ', '.join(book.genres) or 'Not supplied'),
+        ('Catalog', book.catalog_url or 'Unavailable'),
+        ('Text source', book.text_url or 'Unavailable'),
+        ('RSS', book.rss_url or 'Unavailable'),
+        ('Whole-book ZIP', book.zip_url or 'Unavailable'),
+        ('Internet Archive', book.archive_url or 'Unavailable'),
+        ('Artwork', book.artwork_url or 'Unavailable'),
+    )
+    IPrint(tbl(rows, tablefmt='plain'), visible=visible)
+    if book.description:
+        IPrint(f'Description\n{book.description}', visible=visible)
+
+
+def _print_librivox_chapters(book):
+    rows = [
+        (
+            index,
+            section.number,
+            section.title,
+            ', '.join(section.readers) or book.author_label,
+            _librivox_duration(section.duration_seconds),
+            section.language or book.language or '',
+        )
+        for index, section in enumerate(book.sections, 1)
+    ]
+    IPrint(
+        tbl(
+            rows,
+            headers=('#', 'Feed section', 'Title', 'Reader', 'Duration', 'Language'),
+            tablefmt='plain',
+        ) if rows else '(no playable LibriVox sections found)',
+        visible=visible,
+    )
+
+
+def _librivox_search(operation, arguments):
+    limit, values = _command_option(arguments, '--limit')
+    offset, values = _command_option(values, '--offset')
+    result_limit = _librivox_integer(
+        limit or LIBRIVOX_DEFAULT_LIMIT,
+        name='result count',
+        minimum=1,
+        maximum=50,
+    )
+    result_offset = _librivox_integer(offset or 0, name='offset', minimum=0)
+    if operation == 'recent':
+        if len(values) > 1:
+            raise LibrivoxError('Usage: librivox recent [days] [--limit N] [--offset N]')
+        days = _librivox_integer(values[0] if values else 30, name='recent days', minimum=1, maximum=3660)
+        books = LIBRIVOX.search('recent', limit=result_limit, offset=result_offset, days=days)
+    else:
+        query = ' '.join(values).strip()
+        if not query:
+            raise LibrivoxError(
+                f'Usage: librivox {operation} <text> [--limit N] [--offset N]'
+            )
+        kind = 'title' if operation == 'search' else operation
+        books = LIBRIVOX.search(kind, query, limit=result_limit, offset=result_offset)
+    _print_librivox_results(books)
+    return books
+
+
+def _download_librivox_sections(book, sections, *, output_format, destination, assume_yes):
+    if output_format not in _LIBRIVOX_DOWNLOAD_FORMATS:
+        choices = ', '.join(sorted(_LIBRIVOX_DOWNLOAD_FORMATS))
+        raise LibrivoxError(f'LibriVox download format must be one of: {choices}')
+    output_directory = _download_destination(destination)
+    downloads = []
+    book_stem = clean_component(book.title, fallback=f'LibriVox {book.catalog_id}')[:80]
+    for section in sections:
+        media = LIBRIVOX.media(book, section)
+        chapter_stem = clean_component(section.title, fallback='Section')[:80]
+        filename = f'{book_stem} - {section.number:03d} - {chapter_stem}.{output_format}'
+        downloads.append((media, output_directory / filename))
+    existing = sum(path.exists() for _, path in downloads)
+    overwrite = f'; {existing} existing file(s) will be overwritten' if existing else ''
+    if not _confirm_action(
+        f'Download {len(downloads)} section(s) from "{book.title}" as '
+        f'{output_format.upper()} into "{output_directory}"{overwrite}?',
+        assume_yes=assume_yes,
+    ):
+        IPrint('LibriVox download cancelled', visible=visible)
+        return ()
+    completed = []
+    for media, path in downloads:
+        completed.append(
+            _download_media_link(
+                media.original_uri,
+                output_format=output_format,
+                destination=path,
+                bound_media=media,
+                assume_yes=True,
+            )
+        )
+    return tuple(completed)
+
+
+def _librivox_media_coordinates(media):
+    """Return stable book/section coordinates without exposing transport URLs."""
+    if media is None:
+        return None
+    data = media.resolver_data
+    book_id = str(data.get('librivox_book_id') or '').strip()
+    section_id = str(data.get('librivox_section_id') or '').strip()
+    if not book_id or not section_id:
+        return None
+    try:
+        number = int(data.get('librivox_section_number'))
+        count = int(data.get('librivox_section_count'))
+    except (TypeError, ValueError, OverflowError):
+        number = count = 0
+    return book_id, section_id, number, count
+
+
+def _librivox_book_queue(book_id):
+    """Return this book's persistent queue entries in feed-section order."""
+    rows = []
+    for queue_position, item in enumerate(QUEUE.items()):
+        coordinates = _librivox_media_coordinates(item.media)
+        if coordinates is None or coordinates[0] != book_id:
+            continue
+        rows.append((coordinates[2] or queue_position + 1, queue_position, item))
+    rows.sort(key=lambda row: (row[0], row[1]))
+    return [row[2] for row in rows]
+
+
+def _queue_librivox_book(book):
+    """Append missing book sections and return all sections in catalog order."""
+    media_items = [LIBRIVOX.media(book, section) for section in book.sections]
+    existing_ids = {item.media.stable_id for item in QUEUE.items()}
+    added = QUEUE.extend(media for media in media_items if media.stable_id not in existing_ids)
+    for item in added:
+        RECOMMENDER.record_event(
+            item.media,
+            'manual_queue',
+            candidate=Candidate(item.media),
+        )
+    queue_by_identity = {}
+    for item in QUEUE.items():
+        queue_by_identity.setdefault(item.media.stable_id, item)
+    ordered = [queue_by_identity[media.stable_id] for media in media_items]
+    return ordered, added
+
+
+def _play_librivox_queue_item(item):
+    items = QUEUE.items()
+    position = next(
+        (index for index, queued in enumerate(items) if queued.queue_id == item.queue_id),
+        None,
+    )
+    if position is None:
+        raise LibrivoxError('The selected LibriVox chapter is no longer queued')
+    selected = QUEUE.jump(position)
+    _play_queue_item(selected)
+    _emit_queue_desktop_state()
+    return selected.media
+
+
+def _play_librivox_book_section(book, chapter):
+    chapter_number = _librivox_integer(
+        chapter,
+        name='chapter',
+        minimum=1,
+        maximum=len(book.sections),
+    )
+    ordered, _added = _queue_librivox_book(book)
+    return _play_librivox_queue_item(ordered[chapter_number - 1])
+
+
+def _current_librivox_media():
+    """Prefer authoritative active media, then the persistent queue cursor."""
+    snapshot = vas.controller.snapshot()
+    if snapshot.media is not None:
+        if _librivox_media_coordinates(snapshot.media) is None:
+            raise LibrivoxError('The active media is not a LibriVox audiobook chapter')
+        return snapshot.media, snapshot
+    queued = QUEUE.current()
+    if queued is None or _librivox_media_coordinates(queued.media) is None:
+        raise LibrivoxError('No LibriVox audiobook chapter is active or selected')
+    return queued.media, snapshot
+
+
+def _resolve_librivox_reference(reference):
+    if reference.casefold() != 'current':
+        return LIBRIVOX.resolve(reference)
+    media, _snapshot = _current_librivox_media()
+    coordinates = _librivox_media_coordinates(media)
+    if coordinates is None:
+        raise LibrivoxError('The current media has no LibriVox book identity')
+    book_id, _section_id, _number, _count = coordinates
+    return LIBRIVOX.resolve(f'id:{book_id}')
+
+
+def _print_current_librivox_chapter():
+    media, snapshot = _current_librivox_media()
+    coordinates = _librivox_media_coordinates(media)
+    if coordinates is None:
+        raise LibrivoxError('The current media has no LibriVox chapter identity')
+    book_id, section_id, number, count = coordinates
+    if number <= 0:
+        queued = _librivox_book_queue(book_id)
+        number = next(
+            (index for index, item in enumerate(queued, 1) if item.media.stable_id == media.stable_id),
+            0,
+        )
+    if count <= 0:
+        count = max(number, len(_librivox_book_queue(book_id)))
+    active = snapshot.media is not None and snapshot.media.stable_id == media.stable_id
+    state = snapshot.state.value if active else 'selected in queue'
+    position = _librivox_duration(snapshot.position) if active else ''
+    rows = (
+        ('Audiobook', media.album or media.title or 'LibriVox audiobook'),
+        ('Chapter', f'{number}/{count}' if number and count else str(number or 'Unknown')),
+        ('Title', media.title or 'Untitled chapter'),
+        ('Reader', media.artist or 'Not supplied'),
+        ('State', state),
+        ('Position', position or 'Not currently playing'),
+        ('Catalog ID', book_id),
+        ('Section ID', section_id),
+    )
+    IPrint(tbl(rows, tablefmt='plain'), visible=visible)
+    return {
+        'book_id': book_id,
+        'section_id': section_id,
+        'chapter': number,
+        'chapter_count': count,
+        'state': state,
+        'media_id': media.stable_id,
+    }
+
+
+def _navigate_librivox_book(operation, amount=1):
+    """Navigate separate chapter resources without treating them as one file."""
+    media, _snapshot = _current_librivox_media()
+    coordinates = _librivox_media_coordinates(media)
+    if coordinates is None:
+        raise LibrivoxError('The current media has no LibriVox chapter identity')
+    book_id, section_id, current_number, section_count = coordinates
+    queued = _librivox_book_queue(book_id)
+    if current_number <= 0:
+        current_number = next(
+            (
+                index
+                for index, item in enumerate(queued, 1)
+                if (_librivox_media_coordinates(item.media) or ('', '', 0, 0))[1] == section_id
+            ),
+            0,
+        )
+    if section_count <= 0:
+        section_count = len(queued)
+    if current_number <= 0 or section_count <= 0:
+        book = LIBRIVOX.resolve(f'id:{book_id}')
+        current_number = next(
+            (
+                index
+                for index, section in enumerate(book.sections, 1)
+                if section.section_id == section_id
+            ),
+            0,
+        )
+        section_count = len(book.sections)
+        queued, _added = _queue_librivox_book(book)
+    if current_number <= 0:
+        raise LibrivoxError('The current LibriVox chapter is no longer in this audiobook')
+    target = {
+        'first': 1,
+        'last': section_count,
+        'next': current_number + amount,
+        'previous': current_number - amount,
+    }.get(operation, amount)
+    if target not in range(1, section_count + 1):
+        raise LibrivoxError('No LibriVox chapter in that direction; book navigation does not wrap')
+    selected = next(
+        (
+            item
+            for item in queued
+            if (_librivox_media_coordinates(item.media) or ('', '', 0, 0))[2] == target
+        ),
+        None,
+    )
+    if selected is None:
+        book = LIBRIVOX.resolve(f'id:{book_id}')
+        queued, _added = _queue_librivox_book(book)
+        selected = queued[target - 1]
+        section_count = len(queued)
+    result = _play_librivox_queue_item(selected)
+    IPrint(
+        f'LibriVox chapter {target}/{section_count}: {result.title or "Untitled chapter"}',
+        visible=visible,
+    )
+    return result
+
+
+def _librivox_help():
+    IPrint(
+        'LibriVox public-domain audiobook catalog\n'
+        '  librivox status|help\n'
+        '  librivox search <title> [--limit N] [--offset N]\n'
+        '  librivox author <surname> [--limit N] [--offset N]\n'
+        '  librivox genre <genre> [--limit N] [--offset N]\n'
+        '  librivox recent [days] [--limit N] [--offset N]\n'
+        '  librivox show|chapters <result-number|id:catalog-id|current>\n'
+        '  librivox play <result-number|id:catalog-id|current> [chapter]\n'
+        '  librivox current|resume\n'
+        '  librivox goto <chapter>|next [count]|previous [count]|first|last|restart\n'
+        '  librivox queue <result-number|id:catalog-id|current> [chapter|all]\n'
+        '  librivox download <result-number|id:catalog-id|current> [chapter|all] '
+        '[--format mp3|flac|wav|m4a|opus] [--to <folder>] [--yes]\n'
+        '  librivox rss <result-number|id:catalog-id|current>\n'
+        '  librivox open <result-number|id:catalog-id|current> '
+        '[catalog|text|archive|download|rss]\n'
+        'Aliases: lv, libri. Playing a chapter appends missing sections of that book to the '
+        'persistent queue, enabling automatic, next/previous, and restart-safe navigation. '
+        'Search result numbers last only until the next LibriVox search; id:<catalog-id> is '
+        'explicit and reusable.',
+        visible=visible,
+    )
+
+
+def librivox_command(arguments):
+    """Browse and play the official LibriVox public-domain audiobook catalog."""
+    operation = arguments[0].casefold() if arguments else 'help'
+    values = list(arguments[1:])
+    if operation in {'help', '?'}:
+        if values:
+            raise LibrivoxError('Usage: librivox help')
+        _librivox_help()
+        return None
+    if operation == 'status':
+        if values:
+            raise LibrivoxError('Usage: librivox status')
+        IPrint(
+            f'LibriVox catalog integration: ready for on-demand requests; '
+            f'no account or API key required; '
+            f'last results: {LIBRIVOX.result_count}; API reference: {LIBRIVOX_API_INFO_URL}',
+            visible=visible,
+        )
+        return {'last_results': LIBRIVOX.result_count, 'api': LIBRIVOX_API_INFO_URL}
+    if operation in {'search', 'author', 'genre', 'recent'}:
+        return _librivox_search(operation, values)
+    if operation in {'show', 'chapters'}:
+        if len(values) != 1:
+            raise LibrivoxError(f'Usage: librivox {operation} <result-number|id:catalog-id>')
+        book = _resolve_librivox_reference(values[0])
+        if operation == 'show':
+            _print_librivox_book(book)
+        else:
+            _print_librivox_chapters(book)
+        return book
+    if operation == 'play':
+        if len(values) not in {1, 2}:
+            raise LibrivoxError('Usage: librivox play <result-number|id:catalog-id> [chapter]')
+        book = _resolve_librivox_reference(values[0])
+        selector = values[1] if len(values) == 2 else '1'
+        if selector.casefold() == 'all':
+            raise LibrivoxError('Use librivox queue <reference> all to add the complete audiobook')
+        LIBRIVOX.select_sections(book, selector)
+        return _play_librivox_book_section(book, selector)
+    if operation == 'queue':
+        if len(values) not in {1, 2}:
+            raise LibrivoxError(
+                'Usage: librivox queue <result-number|id:catalog-id> [chapter|all]'
+            )
+        book = _resolve_librivox_reference(values[0])
+        sections = LIBRIVOX.select_sections(book, values[1] if len(values) == 2 else 'all')
+        media_items = [LIBRIVOX.media(book, section) for section in sections]
+        queued = QUEUE.extend(media_items)
+        for item in queued:
+            RECOMMENDER.record_event(
+                item.media,
+                'manual_queue',
+                candidate=Candidate(item.media),
+            )
+        IPrint(f'Queued {len(queued)} LibriVox section(s): {book.title}', visible=visible)
+        _emit_queue_desktop_state()
+        return queued
+    if operation == 'current':
+        if values:
+            raise LibrivoxError('Usage: librivox current')
+        return _print_current_librivox_chapter()
+    if operation in {'goto', 'next', 'previous', 'prev', 'first', 'last'}:
+        normalized = 'previous' if operation == 'prev' else operation
+        if normalized == 'goto':
+            if len(values) != 1:
+                raise LibrivoxError('Usage: librivox goto <chapter>')
+            amount = _librivox_integer(values[0], name='chapter', minimum=1)
+        elif normalized in {'next', 'previous'}:
+            if len(values) > 1:
+                raise LibrivoxError(f'Usage: librivox {normalized} [positive-count]')
+            amount = _librivox_integer(
+                values[0] if values else 1,
+                name='chapter count',
+                minimum=1,
+            )
+        else:
+            if values:
+                raise LibrivoxError(f'Usage: librivox {normalized}')
+            amount = 1
+        return _navigate_librivox_book(normalized, amount)
+    if operation == 'restart':
+        if values:
+            raise LibrivoxError('Usage: librivox restart')
+        media, snapshot = _current_librivox_media()
+        if snapshot.media is not None and snapshot.media.stable_id == media.stable_id:
+            try:
+                vas.controller.seek(0, origin='cli')
+            except Exception as error:
+                raise LibrivoxError('Could not restart the current LibriVox chapter') from error
+            DESKTOP_CONTROL.emit('playback', _playback_status_projection().to_dict())
+            IPrint(f'Restarted LibriVox chapter: {media.title or "Untitled chapter"}', visible=visible)
+            return media
+        selected = next(
+            (item for item in QUEUE.items() if item.media.stable_id == media.stable_id),
+            None,
+        )
+        if selected is None:
+            raise LibrivoxError('The selected LibriVox chapter is no longer queued')
+        return _play_librivox_queue_item(selected)
+    if operation == 'resume':
+        if values:
+            raise LibrivoxError('Usage: librivox resume')
+        media, snapshot = _current_librivox_media()
+        if snapshot.media is not None and snapshot.media.stable_id == media.stable_id:
+            if snapshot.state == PlaybackState.PAUSED:
+                try:
+                    vas.controller.resume(origin='cli')
+                except Exception as error:
+                    raise LibrivoxError('Could not resume the current LibriVox chapter') from error
+                _set_current_media_state(media)
+                DESKTOP_CONTROL.emit('playback', _playback_status_projection().to_dict())
+                IPrint(f'Resumed LibriVox chapter: {media.title or "Untitled chapter"}', visible=visible)
+                return media
+            if snapshot.state in {PlaybackState.PLAYING, PlaybackState.CROSSFADING}:
+                IPrint(f'LibriVox chapter is already playing: {media.title or "Untitled chapter"}', visible=visible)
+                return media
+        selected = next(
+            (item for item in QUEUE.items() if item.media.stable_id == media.stable_id),
+            None,
+        )
+        if selected is None:
+            raise LibrivoxError('The selected LibriVox chapter is no longer queued')
+        return _play_librivox_queue_item(selected)
+    if operation == 'download':
+        if values.count('--yes') > 1:
+            raise LibrivoxError('Use --yes only once for a LibriVox download')
+        assume_yes, values = _command_flag(values, '--yes')
+        output_format, values = _command_option(values, '--format')
+        destination, values = _command_option(values, '--to')
+        if len(values) not in {1, 2}:
+            raise LibrivoxError(
+                'Usage: librivox download <result-number|id:catalog-id> [chapter|all] '
+                '[--format mp3|flac|wav|m4a|opus] [--to <folder>] [--yes]'
+            )
+        book = _resolve_librivox_reference(values[0])
+        sections = LIBRIVOX.select_sections(book, values[1] if len(values) == 2 else 'all')
+        return _download_librivox_sections(
+            book,
+            sections,
+            output_format=(output_format or 'mp3').casefold(),
+            destination=destination,
+            assume_yes=assume_yes,
+        )
+    if operation in {'rss', 'open'}:
+        if operation == 'rss':
+            if len(values) != 1:
+                raise LibrivoxError('Usage: librivox rss <result-number|id:catalog-id>')
+            reference, destination_name = values[0], 'rss'
+        else:
+            if len(values) not in {1, 2}:
+                raise LibrivoxError(
+                    'Usage: librivox open <result-number|id:catalog-id> '
+                    '[catalog|text|archive|download|rss]'
+                )
+            reference = values[0]
+            destination_name = values[1].casefold() if len(values) == 2 else 'catalog'
+        book = _resolve_librivox_reference(reference)
+        destinations = {
+            'catalog': book.catalog_url,
+            'text': book.text_url,
+            'archive': book.archive_url,
+            'download': book.zip_url,
+            'rss': book.rss_url,
+        }
+        if destination_name not in destinations:
+            raise LibrivoxError('LibriVox link must be catalog, text, archive, download, or rss')
+        target = destinations[destination_name]
+        if not target:
+            raise LibrivoxError(f'This audiobook has no {destination_name} link')
+        if not webbrowser.open(target):
+            raise LibrivoxError(f'Could not open the LibriVox {destination_name} link')
+        IPrint(f'Opened LibriVox {destination_name}: {book.title}', visible=visible)
+        return target
+    raise LibrivoxError(f'Unknown LibriVox operation: {operation}; use librivox help')
 
 
 def _download_destination(value=None):
@@ -5611,8 +6184,100 @@ def _playback_status_projection() -> PlaybackStatusProjection:
     )
 
 
+def _catalogue_choices(identifier, cancelled):
+    entry = ENTERTAINMENT_ENTRIES.get(identifier)
+    if entry is None or not entry.native or cancelled():
+        raise ValueError('Catalogue selection is unavailable')
+    if entry.kind == 'programme':
+        choices = CATALOGUE_READER.episodes(entry, cancelled)
+    elif entry.kind == 'station' and entry.station_id:
+        station = RADIO.get(entry.station_id)
+        endpoints = RADIO.endpoints(station)
+        choices = [MediaRef(
+            MediaSource.RADIO, endpoints[0], title=station.name,
+            resolver_data={'station_id': station.station_id, 'endpoints': endpoints},
+            capabilities=MediaCapabilities(finite=False, live=True, seekable=False, downloadable=False),
+        )]
+    else:
+        raise ValueError('Catalogue selection is unavailable')
+    for media in choices:
+        media.resolver_data['catalogue_id'] = entry.id
+    return choices
+
+
+def _discovery_unavailable(media: MediaRef) -> str | None:
+    if _is_media_blocked(media):
+        return 'Playback blocked'
+    if media.source == MediaSource.LOCAL:
+        info = LIBRARY.info(media.original_uri)
+        if (
+            not info or info.get('state') != 'available'
+            or info.get('library_id') != media.stable_id
+            or not Path(media.original_uri).is_file()
+        ):
+            return 'Local media is unavailable'
+    elif media.source in {MediaSource.RADIO, MediaSource.PODCAST}:
+        catalogue_id = media.resolver_data.get('catalogue_id')
+        entry = ENTERTAINMENT_ENTRIES.get(catalogue_id) if isinstance(catalogue_id, str) else None
+        if not entry or not entry.native or ((entry.kind == 'station') != (media.source == MediaSource.RADIO)):
+            return 'Unverified catalogue source'
+    elif media.source != MediaSource.YOUTUBE:
+        return 'Unsupported discovery source'
+    return None
+
+
+def _apply_discovery_selection(media: MediaRef, intent: str) -> None:
+    """Apply an explicit bound choice without interpreting CLI command text."""
+    if COMMAND_BUSY.is_set() or _discovery_unavailable(media):
+        raise ValueError('Selected version is temporarily unavailable')
+    _ensure_media_playable(media)
+    if intent == 'queue':
+        QUEUE.add(media)
+        _emit_queue_desktop_state()
+    elif intent == 'play':
+        # Direct playback leaves the existing queue intact.
+        vas.supervisor.play(media, origin='desktop')
+        _set_current_media_state(media)
+        _record_successful_start(media)
+    else:
+        raise ValueError('Unsupported discovery action')
+
+
 def _desktop_control_request(action: str, payload: dict[str, object]) -> dict[str, object]:
     """Apply one allowlisted desktop intent against authoritative backend state."""
+    if action in {'discovery.begin', 'discovery.choose', 'discovery.cancel'}:
+        request_id = payload.get('request_id')
+        if not isinstance(request_id, str) or not re.fullmatch(r'[0-9a-f]{32}', request_id):
+            return {'ok': False, 'error': 'Release selection request is invalid'}
+        try:
+            if action == 'discovery.begin':
+                item_id = payload.get('item_id')
+                if (set(payload) not in ({'request_id', 'item_id'}, {'request_id', 'item_id', 'page'})
+                        or not isinstance(item_id, str)):
+                    raise ValueError('Release selection request is invalid')
+                if 'page' in payload:
+                    page = payload['page']
+                    if type(page) is not int:
+                        raise ValueError('Release selection request is invalid')
+                    DISCOVERY.begin(item_id, request_id, page=page)
+                else:
+                    DISCOVERY.begin(item_id, request_id)
+            elif action == 'discovery.choose':
+                revision, choice_id, intent = payload.get('revision'), payload.get('choice_id'), payload.get('intent')
+                if (
+                    set(payload) != {'request_id', 'revision', 'choice_id', 'intent'}
+                    or type(revision) is not int or not isinstance(choice_id, str) or not isinstance(intent, str)
+                ):
+                    raise ValueError('Release selection request is invalid')
+                DISCOVERY.choose(request_id, revision, choice_id, intent)
+            else:
+                if set(payload) != {'request_id'}:
+                    raise ValueError('Release selection request is invalid')
+                DISCOVERY.cancel(request_id)
+        except Exception:
+            return {'ok': False, 'error': 'Selection unavailable or changed; find versions again'}
+        return {'ok': True}
+
     if action == 'homepage.open':
         if payload:
             return {'ok': False, 'error': 'Homepage request is invalid'}
@@ -6304,6 +6969,8 @@ def exitplayer(sys_exit=False):
         ('downloads', DOWNLOADS.close),
         ('broadcast', BROADCASTER.close),
         ('homepage', HOMEPAGE.close),
+        ('catalogue', CATALOGUE_READER.close),
+        ('release selection', DISCOVERY.close),
         ('artwork', _close_artwork_controller),
         ('playback events', PLAYBACK_EVENTS.close),
         ('desktop control', DESKTOP_CONTROL.close),
@@ -7839,6 +8506,7 @@ def process(command):
             'avsync': avsync_command,
             'media': media_command,
             'metadata': lambda values: media_command(['metadata', *values]),
+            'librivox': librivox_command,
             'rename': rename_command,
             'station': station_command,
             'download-ya': download_audio_command,

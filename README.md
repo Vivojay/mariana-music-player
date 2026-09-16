@@ -265,6 +265,15 @@ rename short [current|library-index|indexed-path] [--dry-run] [y|yes|--yes]
 theme aurora|windows|kitty|gruvbox|list|current
 desktop close [tray|quit|status]
 youtube auth status|set <browser[:profile]>|clear|test <YouTube URL>
+librivox help|status
+librivox search|author|genre <text> [--limit N] [--offset N]
+librivox recent [days] [--limit N] [--offset N]
+librivox show|chapters|play|queue <result|id:ID|current> [chapter|all]
+librivox current|resume|first|last|restart
+librivox goto <chapter>|next [count]|previous [count]
+librivox download <result|id:ID|current> [chapter|all] [--format ...] [--to <folder>] [--yes]
+librivox rss <result|id:ID|current>
+librivox open <result|id:ID|current> [catalog|text|archive|download|rss]
 download-yv [YouTube URL] [y|yes|--yes]
 download-ya [current|YouTube URL] [--track] [--quality best|worst] [--to <directory>] [y|yes|--yes]
 download-ya --album [current|album-ref|YouTube-playlist-URL] [--tracks <selector>] [y|yes|--yes]

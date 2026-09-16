@@ -5,8 +5,9 @@ import pytest
 
 from beta.podcasts import vendors
 from mariana.artwork import ArtworkCancelled, FetchedArtwork
+from mariana.discovery import DiscoverySelection
 from mariana.entertainment_catalog import BY_ID, ENTRIES, CatalogueReader, catalogue_details, search_catalogue
-from mariana.homepage import HomepageService
+from mariana.homepage import HomepageConfiguration, HomepageService
 from mariana.models import MediaRef, MediaSource
 from mariana.podcast_feeds import MAX_PODCAST_BYTES, PodcastFeedError, episode_media, parse_podcast_feed
 
@@ -41,8 +42,10 @@ def test_feed_preserves_identity_metadata_order_and_chapters():
     restored = MediaRef.from_dict(media.to_dict())
     assert restored.to_dict() == media.to_dict()
     changed = parse_podcast_feed(feed().replace(b"episode.mp3", b"replacement.mp3"), "https://publisher.example/feed")
-    assert episode_media(changed[0]).stable_id == media.stable_id
-    assert episode_media(parse_podcast_feed(feed(), "https://different.example/feed")[0]).stable_id != media.stable_id
+    changed_media = episode_media(changed[0])
+    different_feed_media = episode_media(parse_podcast_feed(feed(), "https://different.example/feed")[0])
+    assert changed_media is not None and changed_media.stable_id == media.stable_id
+    assert different_feed_media is not None and different_feed_media.stable_id != media.stable_id
 
 
 @pytest.mark.parametrize("payload", [
@@ -141,3 +144,32 @@ def test_home_cards_are_offline_deduplicated_and_permission_bound():
         assert service.release_target("catalogue:circle-round") is None
     finally:
         service.close()
+
+
+def test_catalogue_choices_page_and_reject_old_revision_without_playing_on_browse():
+    home = HomepageService(configuration=HomepageConfiguration(online_enabled=True))
+    apply = Mock()
+    choices = [MediaRef(MediaSource.PODCAST, f"https://media.example/{i}.mp3", title=f"Episode {i}") for i in range(18)]
+    service = DiscoverySelection(catalog=Mock(), source=home.release_target, apply=apply,
+                                 unavailable=lambda _: None, on_update=lambda _: None,
+                                 catalogue_choices=lambda _, cancelled: [] if cancelled() else choices)
+    try:
+        service.begin("catalogue:circle-round", "a" * 32)
+        assert service.wait()
+        old = service.snapshot()
+        assert len(old["candidates"]) == 15 and old["has_more"]
+        apply.assert_not_called()
+        service.begin("catalogue:circle-round", "b" * 32, page=1)
+        assert service.wait()
+        new = service.snapshot()
+        assert new["candidates"][0]["title"] == "Episode 15" and not new["has_more"]
+        with pytest.raises(ValueError):
+            service.choose("a" * 32, old["revision"], old["candidates"][0]["id"], "play")
+        service.choose("b" * 32, new["revision"], new["candidates"][0]["id"], "queue")
+        assert service.wait()
+        apply.assert_called_once_with(choices[15], "queue")
+        with pytest.raises(ValueError):
+            service.begin("catalogue:circle-round", "c" * 32, page=8)
+    finally:
+        service.close()
+        home.close()
