@@ -10260,10 +10260,12 @@ def prompt_text():
 
 def mainprompt():
     global visible
+    from mariana.command_prompt import read_command
+
     while True:
         try:
             prompt = prompt_text()
-            command = input(prompt) if visible else getpass(prompt)
+            command = read_command(prompt) if visible else getpass(prompt)
             print(colored.attr('reset'), end='')
             COMMAND_BUSY.set()
             try:
