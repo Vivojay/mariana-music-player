@@ -236,6 +236,7 @@ export type MarianaDesktopApi = {
     snapshot(): Promise<BackendSnapshot>
     commandCatalog(options?: CommandCatalogOptions): Promise<CommandCatalogResult>
     toggleFavorite(mediaId: string): Promise<FavoriteToggleResult>
+    setRating(mediaId: string, rating: number): Promise<DesktopControlResult>
     seek(mediaId: string, targetSeconds: number): Promise<SeekResult>
     onEvent(callback: (event: BackendEvent) => void): () => void
     play(mediaId: string): Promise<DesktopControlResult>

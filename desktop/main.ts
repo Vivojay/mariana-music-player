@@ -657,6 +657,19 @@ function registerIpc() {
     }
     return requestBackendControl('favorite.toggle', { media_id: mediaId })
   })
+  ipcMain.handle('backend:rating-set', async (event, mediaId: unknown, rating: unknown) => {
+    if (
+      !validateSender(event)
+      || !validControlMediaId(mediaId)
+      || typeof rating !== 'number'
+      || !Number.isInteger(rating)
+      || rating < 0
+      || rating > 5
+    ) {
+      return { ok: false, error: 'Rating must be a whole number from 0 to 5' } satisfies DesktopControlResult
+    }
+    return requestBackendControl('rating.set', { media_id: mediaId, rating })
+  })
   ipcMain.handle('backend:seek', async (event, mediaId: unknown, targetSeconds: unknown) => {
     if (!validateSender(event) || !validControlMediaId(mediaId)) {
       return { ok: false, error: 'Playback target is unavailable' } satisfies DesktopControlResult

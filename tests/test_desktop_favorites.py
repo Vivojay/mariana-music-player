@@ -54,8 +54,8 @@ def test_favorite_projection_disables_unbound_and_unsafe_media(monkeypatch):
 
     assert not empty.available and empty.unavailable_reason == "No active media"
     assert not local.toggle_enabled and "indexed local media" in (local.unavailable_reason or "")
-    assert not online.toggle_enabled and "durable favourite identity" in (online.unavailable_reason or "")
-    assert not podcast.toggle_enabled and "durable favourite identity" in (podcast.unavailable_reason or "")
+    assert not online.toggle_enabled and "durable rating identity" in (online.unavailable_reason or "")
+    assert not podcast.toggle_enabled and "durable rating identity" in (podcast.unavailable_reason or "")
     assert "private" not in json.dumps(local.unavailable_reason)
     assert "example.test" not in json.dumps(online.unavailable_reason)
 
@@ -150,7 +150,7 @@ def test_podcast_favorite_projection_and_desktop_toggle_use_durable_feed_identit
     printed = []
     monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
     assert main.favorite_command([]) == PreferenceState.FAVORITE
-    assert printed == ["Current media is favorited"]
+    assert printed == ["Current media favourite: yes"]
     assert main._desktop_control_request("favorite.toggle", {"media_id": media.stable_id}) == {
         "ok": True,
     }
@@ -247,9 +247,49 @@ def test_desktop_favorite_control_returns_only_safe_failures(monkeypatch):
 
     assert main._desktop_control_request("favorite.toggle", {"media_id": "youtube-item"}) == {
         "ok": False,
-        "error": "Could not update favourite state",
+        "error": "Could not update rating",
     }
     assert main._desktop_control_request("other.action", {}) == {
         "ok": False,
         "error": "Unsupported desktop control request",
     }
+
+
+def test_desktop_rating_set_is_identity_bound_and_validated(monkeypatch):
+    media = MediaRef(
+        MediaSource.YOUTUBE,
+        "https://youtu.be/public",
+        stable_id="youtube-item",
+        title="Track",
+    )
+    ratings = []
+    monkeypatch.setattr(
+        main.vas,
+        "controller",
+        SimpleNamespace(snapshot=lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=media)),
+    )
+    monkeypatch.setattr(
+        main,
+        "PREFERENCES",
+        SimpleNamespace(
+            rating=lambda _media: ratings[-1] if ratings else 0,
+            set_rating=lambda selected, value: ratings.append(value) or True,
+        ),
+    )
+    monkeypatch.setattr(main.QUEUE, "playback_position", lambda _stable_id: (None, 0))
+    monkeypatch.setattr(
+        main,
+        "DESKTOP_CONTROL",
+        SimpleNamespace(emit=lambda *_args, **_kwargs: True),
+    )
+
+    assert main._desktop_control_request(
+        "rating.set", {"media_id": "youtube-item", "rating": 3}
+    ) == {"ok": True}
+    assert ratings == [3]
+    assert main._desktop_control_request(
+        "rating.set", {"media_id": "youtube-item", "rating": 6}
+    ) == {"ok": False, "error": "Rating must be a whole number from 0 to 5"}
+    assert main._desktop_control_request(
+        "rating.set", {"media_id": "stale", "rating": 2}
+    ) == {"ok": False, "error": "Current media changed; try again"}

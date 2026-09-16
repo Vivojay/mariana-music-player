@@ -20,6 +20,7 @@ const api: MarianaDesktopApi = {
     snapshot: () => ipcRenderer.invoke('backend:snapshot'),
     commandCatalog: (options) => ipcRenderer.invoke('backend:command-catalog', options),
     toggleFavorite: (mediaId) => ipcRenderer.invoke('backend:favorite-toggle', mediaId),
+    setRating: (mediaId, rating) => ipcRenderer.invoke('backend:rating-set', mediaId, rating),
     seek: (mediaId, targetSeconds) => ipcRenderer.invoke('backend:seek', mediaId, targetSeconds),
     play: (mediaId) => ipcRenderer.invoke('backend:play', mediaId),
     pause: (mediaId) => ipcRenderer.invoke('backend:pause', mediaId),

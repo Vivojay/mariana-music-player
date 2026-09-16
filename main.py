@@ -3707,11 +3707,22 @@ def preference_command(arguments, state):
         IPrint(f'Preference: {current.value}', visible=visible)
         return current
     operation = arguments[0] if arguments else None
+    if state == PreferenceState.FAVORITE and media.source != MediaSource.LOCAL and operation in {None, '!', '+', '-'}:
+        status = _favorite_status_projection(media)
+        if not status.available or not status.toggle_enabled:
+            if operation is None:
+                current = PREFERENCES.get(media)
+            elif operation == '-' or (operation == '!' and _is_media_favorite(media)):
+                # Older builds could save transient online identities. Permit
+                # removal without persisting their current transport again.
+                PREFERENCES.set(media.stable_id, PreferenceState.NEUTRAL)
+                current = PreferenceState.NEUTRAL
+            else:
+                raise ValueError(status.unavailable_reason or 'Favourite is unavailable')
+            IPrint(f'Preference: {current.value}', visible=visible)
+            return current
     if operation is None:
         current = PREFERENCES.get(media)
-        # Self-heal preferences created by older builds that retained only the
-        # stable identifier and therefore could not display media metadata.
-        PREFERENCES.set(media, current)
     elif operation == '!':
         current = PREFERENCES.toggle(media, state)
     elif operation in {'+', '-'}:
@@ -3908,23 +3919,24 @@ def regions_command(arguments):
     return rows
 
 
-def _favorite_selection(index):
-    """Bind one favourite-local index to one durable media identity."""
-    entries = PREFERENCES.list(PreferenceState.FAVORITE)
+def _favorite_selection(index, *, rated=False):
+    """Bind an index in the requested collection to one durable identity."""
+    entries = PREFERENCES.list_rated() if rated else PREFERENCES.list(PreferenceState.FAVORITE)
+    collection_label = 'Rated media' if rated else 'Favourite'
     if not entries:
-        raise ValueError('No favorites are saved')
+        raise ValueError(f'No {collection_label.lower()} entries are saved')
     if index not in range(1, len(entries) + 1):
-        raise ValueError(f'Favorite number must be between 1 and {len(entries)}')
+        raise ValueError(f'{collection_label} number must be between 1 and {len(entries)}')
     entry = entries[index - 1]
     stored = PREFERENCES.media(entry.stable_id)
     source = entry.source or (stored.source if stored else None)
     if source == MediaSource.LOCAL:
         info = LIBRARY.info(entry.stable_id)
         if not info or info.get('state') != 'available':
-            raise ValueError(f'Favorite #{index} is missing or unavailable in the indexed library')
+            raise ValueError(f'{collection_label} #{index} is missing or unavailable in the indexed library')
         canonical_path = info.get('canonical_path')
         if not isinstance(canonical_path, str) or not Path(canonical_path).is_file():
-            raise ValueError(f'Favorite #{index} is missing or unavailable in the indexed library')
+            raise ValueError(f'{collection_label} #{index} is missing or unavailable in the indexed library')
         metadata = info.get('metadata') or {}
         media = MediaRef(
             MediaSource.LOCAL,
@@ -3943,7 +3955,7 @@ def _favorite_selection(index):
         library_index = _library_song_index(canonical_path)
         return entry, media, library_index if isinstance(library_index, int) else None
     if stored is None:
-        raise ValueError(f'Favorite #{index} is unavailable')
+        raise ValueError(f'{collection_label} #{index} is unavailable')
     return entry, stored, None
 
 
@@ -3966,16 +3978,21 @@ def _favorite_display_label(entry: PreferenceEntry, media: MediaRef | None = Non
     }.get((media.source if media else entry.source), 'Media')
 
 
-def _show_favorite_selection(index, entry, media, library_index):
+def _show_favorite_selection(index, entry, media, library_index, *, rated=False):
     source = media.source.value.replace('_', ' ').title()
     label = _blocked_label(_favorite_display_label(entry, media), media)
-    IPrint(f'Favorite #{index}: {label}', visible=visible)
+    collection_label = 'Rated' if rated else 'Favourite'
+    IPrint(f'{collection_label} #{index}: {label}', visible=visible)
+    IPrint(f'Favourite: {"yes" if _is_media_favorite(media) else "no"}', visible=visible)
+    IPrint(f'Rating: {entry.rating}/5', visible=visible)
     IPrint(f'Source: {source}', visible=visible)
     if media.source == MediaSource.LOCAL:
         IPrint(
             f'Library: #{library_index}' if library_index is not None else 'Library: indexed item',
             visible=visible,
         )
+        size, media_type = _media_listing_fields(media)
+        IPrint(f'File: {size} · {media_type}', visible=visible)
 
 
 def _play_favorite_selection(index, entry, media, library_index):
@@ -3990,17 +4007,17 @@ def _play_favorite_selection(index, entry, media, library_index):
             )
         else:
             stopsong()
-            vas.supervisor.play(media)
+            vas.supervisor.play(media, origin='cli')
             _set_current_media_state(media)
             _show_local_copy_hint(media)
     except (MediaFailure, OSError) as error:
-        raise ValueError(f'Favorite #{index} could not be played') from error
-    IPrint(f'Playing favorite #{index}: {_favorite_display_label(entry, media)}', visible=visible)
+        raise ValueError(f'Selected media #{index} could not be played') from error
+    IPrint(f'Playing selected media #{index}: {_favorite_display_label(entry, media)}', visible=visible)
     return media
 
 
 def favorite_command(arguments, *, play=False):
-    """List, inspect, edit, or play favourite-local selections."""
+    """Inspect and change binary favourites without changing star assessments."""
     if play:
         if len(arguments) != 1 or not arguments[0].isdigit() or int(arguments[0]) <= 0:
             raise ValueError('Usage: .fav <favorite-index>')
@@ -4017,9 +4034,7 @@ def favorite_command(arguments, *, play=False):
             raise ValueError('No current media to favorite/check')
         current = PREFERENCES.get(media)
         IPrint(
-            'Current media is favorited'
-            if current == PreferenceState.FAVORITE
-            else 'Current media is not favorited',
+            f'Current media favourite: {"yes" if _is_media_favorite(media) else "no"}',
             visible=visible,
         )
         return current
@@ -4032,14 +4047,87 @@ def favorite_command(arguments, *, play=False):
         selection = _favorite_selection(index)
         _show_favorite_selection(index, *selection)
         return selection
-    raise ValueError('Usage: fav [list|favorite-index|current|!|+|-] | .fav <favorite-index>')
+    raise ValueError(
+        'Usage: fav [list|favorite-index|current|!|+|-|next [N]|prev [N]] | '
+        '.fav <favorite-index>'
+    )
 
 
-def list_preferences(state, arguments, *, default_limit=MAX_RESULT_COUNT):
+def _rating_value(value):
+    normalized = value.casefold()
+    if normalized in {'clear', 'none', 'unrated'}:
+        return 0
+    if not value.isdigit():
+        raise ValueError('Rating must be a whole number from 1 to 5, or clear')
+    rating = int(value)
+    if not 1 <= rating <= 5:
+        raise ValueError('Rating must be a whole number from 1 to 5, or clear')
+    return rating
+
+
+def rating_command(arguments, *, play=False):
+    """Inspect or set the durable zero-to-five rating for current/library media."""
+    usage = (
+        'rating [current] | rating <1-5|clear> | '
+        'rating <current|library-index> <1-5|clear> | rating show <rated-index> | '
+        '.rating <rated-index>'
+    )
+    if play:
+        if len(arguments) != 1 or not arguments[0].isdigit() or int(arguments[0]) <= 0:
+            raise ValueError('Usage: .rating <rated-index>')
+        index = int(arguments[0])
+        return _play_favorite_selection(index, *_favorite_selection(index, rated=True))
+    if len(arguments) == 2 and arguments[0].casefold() == 'show':
+        if not arguments[1].isdigit() or int(arguments[1]) <= 0:
+            raise ValueError(f'Usage: {usage}')
+        index = int(arguments[1])
+        selection = _favorite_selection(index, rated=True)
+        _show_favorite_selection(index, *selection, rated=True)
+        return selection
+    snapshot_media = _preference_media(vas.controller.snapshot().media)
+    if not arguments or arguments == ['current']:
+        if snapshot_media is None:
+            raise ValueError('No current media to rate')
+        rating = _media_rating(snapshot_media)
+        IPrint(f'Rating: {rating}/5' if rating else 'Rating: unrated', visible=visible)
+        return rating
+
+    if len(arguments) == 1:
+        media = snapshot_media
+        value = arguments[0]
+    elif len(arguments) == 2:
+        target, value = arguments
+        if target.casefold() == 'current':
+            media = snapshot_media
+        elif target.isdigit() and int(target) > 0:
+            media = _library_media(int(target))
+        else:
+            raise ValueError(f'Usage: {usage}')
+    else:
+        raise ValueError(f'Usage: {usage}')
+    if media is None:
+        raise ValueError('No current media to rate')
+    status = _favorite_status_projection(media)
+    if not status.available or not status.toggle_enabled:
+        raise ValueError(status.unavailable_reason or 'Rating is unavailable')
+    rating = _rating_value(value)
+    changed = PREFERENCES.set_rating(media, rating)
+    label = 'unrated' if rating == 0 else f'{rating}/5'
+    IPrint(f'Rating: {label}' if changed else f'Rating already set: {label}', visible=visible)
+    return rating
+
+
+def ratings_command(arguments):
+    """List all positively rated media, highest rating first within recency order."""
+    return list_preferences(PreferenceState.FAVORITE, arguments, default_limit=None, rated=True)
+
+
+def list_preferences(state, arguments, *, default_limit=MAX_RESULT_COUNT, rated=False):
     if len(arguments) > 1 or (arguments and not arguments[0].isdigit()):
         raise ValueError('Preference list accepts an optional numeric limit')
     limit = int(arguments[0]) if arguments else default_limit
-    entries = PREFERENCES.list(state, limit)
+    entries = PREFERENCES.list_rated(limit) if rated else PREFERENCES.list(state, limit)
+    show_hearts = rated or PreferenceState(state) != PreferenceState.FAVORITE
 
     def reference(entry):
         if entry.source == MediaSource.LOCAL:
@@ -4065,17 +4153,34 @@ def list_preferences(state, arguments, *, default_limit=MAX_RESULT_COUNT):
             origin = 'Media'
         return origin
 
+    rows = []
+    for index, entry in enumerate(entries):
+        media = PREFERENCES.media(entry.stable_id)
+        listing_media = media
+        if listing_media is None and entry.source == MediaSource.LOCAL and entry.uri:
+            listing_media = MediaRef(
+                MediaSource.LOCAL,
+                entry.uri,
+                stable_id=entry.stable_id,
+                provenance='library',
+            )
+        size, media_type = _media_listing_fields(listing_media)
+        row = (
+            index + 1,
+            _active_media_marker(listing_media),
+            _blocked_label(_favorite_display_label(entry, listing_media), listing_media),
+            *((_favorite_marker(listing_media),) if show_hearts else ()),
+            '★' * entry.rating,
+            reference(entry),
+            size,
+            media_type,
+        )
+        rows.append(row)
+    headers = ('#', 'Now', 'Title', *(('Fav',) if show_hearts else ()), 'Rating', 'Source', 'Size', 'Media format')
     IPrint(
         tbl(
-            [
-                (
-                    index + 1,
-                    _blocked_label(_favorite_display_label(entry), PREFERENCES.media(entry.stable_id)),
-                    reference(entry),
-                )
-                for index, entry in enumerate(entries)
-            ],
-            headers=('#', 'Title', 'Source'),
+            rows,
+            headers=headers,
             tablefmt='plain',
         ) if entries else '(none)',
         visible=visible,
@@ -5131,46 +5236,45 @@ def get_current_progress():
 
 
 def _favorite_status_projection(media: MediaRef | None) -> FavoriteStatusProjection:
-    """Project current-media preference state without exposing its durable key."""
+    """Project independent hearts and stars without exposing their durable key."""
     if media is None:
         return FavoriteStatusProjection(False, False, False, 'No active media')
     bound = _preference_media(media)
     if bound is None:
-        return FavoriteStatusProjection(False, False, False, 'Favourite state unavailable')
+        return FavoriteStatusProjection(False, False, False, 'Rating unavailable')
     if bound.source == MediaSource.LOCAL and bound.provenance != 'library':
         return FavoriteStatusProjection(
             False,
             False,
             False,
-            'Only indexed local media can be added to favourites',
+            'Only indexed local media can be rated',
         )
     if bound.source == MediaSource.URL and bound.provenance == 'user':
         return FavoriteStatusProjection(
             False,
             False,
             False,
-            'This online source has no durable favourite identity',
+            'This online source has no durable rating identity',
         )
     if bound.source == MediaSource.PODCAST and not has_durable_podcast_identity(bound):
         return FavoriteStatusProjection(
             False,
             False,
             False,
-            'This podcast episode has no durable favourite identity',
+            'This podcast episode has no durable rating identity',
         )
     try:
-        if checker := getattr(PREFERENCES, 'is_favorite', None):
-            favorite = bool(checker(bound))
-        else:
-            favorite = PREFERENCES.get(bound) == PreferenceState.FAVORITE
+        rating = _media_rating(bound)
+        is_favorite = _is_media_favorite(bound)
     except Exception:
         return FavoriteStatusProjection(
             False,
             False,
             False,
-            'Favourite state is temporarily unavailable',
+            'Rating is temporarily unavailable',
         )
-    return FavoriteStatusProjection(True, favorite, True)
+    rating = min(5, max(0, rating))
+    return FavoriteStatusProjection(True, is_favorite, True, rating=rating)
 
 
 def _playback_status_projection() -> PlaybackStatusProjection:
@@ -5461,11 +5565,11 @@ def _desktop_control_request(action: str, payload: dict[str, object]) -> dict[st
         DESKTOP_CONTROL.emit('playback', _playback_status_projection().to_dict())
         return {'ok': True}
 
-    if action != 'favorite.toggle':
+    if action not in {'favorite.toggle', 'rating.set'}:
         return {'ok': False, 'error': 'Unsupported desktop control request'}
     expected_media_id = payload.get('media_id')
     if not isinstance(expected_media_id, str) or not expected_media_id:
-        return {'ok': False, 'error': 'Favourite target is unavailable'}
+        return {'ok': False, 'error': 'Rating target is unavailable'}
 
     snapshot = vas.controller.snapshot()
     if snapshot.media is None or snapshot.media.stable_id != expected_media_id:
@@ -5474,15 +5578,28 @@ def _desktop_control_request(action: str, payload: dict[str, object]) -> dict[st
     if not status.toggle_enabled:
         return {
             'ok': False,
-            'error': status.unavailable_reason or 'Favourite toggle is unavailable',
+            'error': status.unavailable_reason or 'Rating is unavailable',
         }
     media = _preference_media(snapshot.media)
     if media is None:
-        return {'ok': False, 'error': 'Favourite target is unavailable'}
+        return {'ok': False, 'error': 'Rating target is unavailable'}
     try:
-        PREFERENCES.toggle(media, PreferenceState.FAVORITE)
+        if action == 'rating.set':
+            rating = payload.get('rating')
+            if (
+                set(payload) != {'media_id', 'rating'}
+                or isinstance(rating, bool)
+                or not isinstance(rating, int)
+                or not 0 <= rating <= 5
+            ):
+                return {'ok': False, 'error': 'Rating must be a whole number from 0 to 5'}
+            PREFERENCES.set_rating(media, rating)
+        else:
+            if set(payload) != {'media_id'}:
+                return {'ok': False, 'error': 'Rating request is invalid'}
+            PREFERENCES.toggle(media, PreferenceState.FAVORITE)
     except Exception:
-        return {'ok': False, 'error': 'Could not update favourite state'}
+        return {'ok': False, 'error': 'Could not update rating'}
 
     # Publish the complete authoritative projection before acknowledging the request.
     DESKTOP_CONTROL.emit('playback', _playback_status_projection().to_dict())

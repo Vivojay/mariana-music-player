@@ -6,6 +6,7 @@ import pytest
 
 from mariana.database import MarianaDatabase
 from mariana.models import MediaRef, MediaSource
+from mariana.playback_status import FavoriteStatusProjection
 from mariana.preferences import MediaPreferences, PreferenceState
 
 
@@ -65,3 +66,16 @@ def test_existing_rating_and_heart_values_are_not_reinterpreted_during_upgrade(t
             assert preferences.rating('heart-only') == 0
             assert preferences.is_blocked('legacy-block')
             assert preferences.list(PreferenceState.BLOCKED)[0].rating == 4
+
+
+@pytest.mark.parametrize("favorite,rating", [(True, 0), (False, 5), (True, 3), (False, None)])
+def test_public_projection_preserves_independent_values(favorite, rating):
+    projection = FavoriteStatusProjection(True, favorite, True, rating=rating)
+    assert projection.is_favorite == favorite
+    assert projection.rating == (0 if rating is None else rating)
+
+
+@pytest.mark.parametrize("rating", [True, False, -1, 6, 2.5, float('nan'), float('inf')])
+def test_public_projection_rejects_invalid_star_values(rating):
+    with pytest.raises(ValueError, match="whole number"):
+        FavoriteStatusProjection(True, False, True, rating=rating)

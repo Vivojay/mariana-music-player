@@ -108,4 +108,16 @@ describe('host-authored playback origins', () => {
     })
     expect(scene.request).not.toHaveBeenCalled()
   })
+
+  it('forwards valid star ratings and rejects non whole numbers at the host', async () => {
+    const scene = host()
+    expect(await scene.invoke('backend:rating-set', scene.desktop, 'media-1', 4)).toEqual({ ok: true })
+    expect(scene.request).toHaveBeenCalledExactlyOnceWith('rating.set', { media_id: 'media-1', rating: 4 }, {})
+    for (const rating of [true, 2.5, 6, -1, '4', null]) {
+      expect(await scene.invoke('backend:rating-set', scene.desktop, 'media-1', rating)).toEqual({
+        ok: false, error: 'Rating must be a whole number from 0 to 5',
+      })
+    }
+    expect(scene.request).toHaveBeenCalledTimes(1)
+  })
 })
