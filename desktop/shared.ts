@@ -103,6 +103,90 @@ export type PlaybackHotspots = {
   bins: PlaybackHotspotBin[]
 }
 
+export type HomepageItem = {
+  catalogue?: {
+    language: string, region: string, category: string,
+    kind: 'programme' | 'station', health: string, validated_at: string
+  }
+  id: string
+  title: string
+  summary: string | null
+  source: string
+  published_at: string | null
+  link: string | null
+  image_key: string | null
+  image_mime: 'image/jpeg' | 'image/png' | 'image/webp' | null
+}
+
+export type HomepageSection = {
+  key: string
+  title: string
+  items: HomepageItem[]
+}
+
+export type HomepageProjection = {
+  schema_version: 2
+  show_on_startup: boolean
+  online_enabled: boolean
+  state: 'offline' | 'loading' | 'ready' | 'stale' | 'partial' | 'error'
+  refreshed_at: number | null
+  safe_message: string | null
+  sections: HomepageSection[]
+  open_requested?: boolean
+}
+
+export type ArtworkStatus = {
+  schema_version: 1
+  media_id: string | null
+  state: 'idle' | 'loading' | 'ready' | 'unavailable' | 'error' | 'disabled'
+  available: boolean
+  automatic_online: boolean
+  cache_key: string | null
+  mime_type: 'image/jpeg' | 'image/png' | 'image/webp' | null
+  source: 'embedded' | 'adjacent' | 'cache' | 'provider' | null
+  unavailable_reason: string | null
+  show_requested?: boolean
+}
+
+export type DiscoveryTrack = {
+  id: string
+  title: string
+  artist: string
+  duration: number | null
+  position: number
+}
+
+export type DiscoveryCandidate = Omit<DiscoveryTrack, 'position'> & {
+  source: 'local' | 'youtube' | 'podcast' | 'radio'
+  match: 'recording-id' | 'metadata' | 'provider-result' | 'published-media'
+  playable: boolean
+  published_at?: string
+  explicit?: boolean
+}
+
+export type DiscoverySelection = {
+  page?: number
+  has_more?: boolean
+  schema_version: 1
+  request_id: string
+  revision: number
+  item_id: string
+  state: 'loading' | 'tracks' | 'choices' | 'working' | 'complete' | 'error' | 'closed'
+  title: string
+  artist: string | null
+  tracks: DiscoveryTrack[]
+  candidates: DiscoveryCandidate[]
+  message: string | null
+}
+
+export type ArtworkDataResult = {
+  ok: true
+  dataUrl: string
+} | {
+  ok: false
+  error: string
+}
+
 export function formatChapterLabel(chapter: PlaybackStatus['chapter']): string {
   if (!chapter) return ''
   const title = chapter.title?.trim() ?? ''
@@ -114,7 +198,7 @@ export function formatChapterLabel(chapter: PlaybackStatus['chapter']): string {
   return position && title ? `${position} · ${title}` : position || title
 }
 
-type BackendEventName = 'starting' | 'ready' | 'playback' | 'video' | 'station' | 'sleep' | 'broadcast' | 'loudness' | 'queue' | 'playlist' | 'album' | 'download' | 'theme' | 'desktop-preferences' | 'desktop-notice' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error' | 'control-result'
+type BackendEventName = 'starting' | 'ready' | 'playback' | 'video' | 'discovery' | 'station' | 'sleep' | 'broadcast' | 'loudness' | 'queue' | 'playlist' | 'album' | 'download' | 'theme' | 'desktop-preferences' | 'desktop-notice' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error' | 'control-result'
 
 export type BackendEvent = {
   event: Exclude<BackendEventName, 'playback'>
@@ -251,6 +335,9 @@ export type MarianaDesktopApi = {
     videoCaptionAutomatic?(mediaId: string): Promise<DesktopControlResult>
     videoCaptionConfigure?(mediaId: string, action: 'on' | 'off' | 'clear' | 'shift' | 'set-offset', value?: number): Promise<DesktopControlResult>
     videoAudioOffset?(mediaId: string, value: number, relative: boolean): Promise<DesktopControlResult>
+    discoveryBegin(itemId: string, requestId: string, page?: number): Promise<DesktopControlResult>
+    discoveryChoose(requestId: string, revision: number, choiceId: string, intent: 'versions' | 'play' | 'queue'): Promise<DesktopControlResult>
+    discoveryCancel(requestId: string): Promise<DesktopControlResult>
   }
   updates: {
     check(): Promise<void>
