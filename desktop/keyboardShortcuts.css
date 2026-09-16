@@ -1,0 +1,23 @@
+.shortcut-dialog {
+  position: fixed;
+  z-index: 100;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  width: min(34rem, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 16px;
+  background: var(--panel, #15151d);
+  color: var(--text, #eee);
+  border: 1px solid var(--accent, #6ef7db);
+  border-radius: 12px;
+  box-shadow: 0 12px 50px #0009;
+  -webkit-app-region: no-drag;
+}
+.shortcut-dialog header { display: flex; justify-content: space-between; align-items: center; }
+.shortcut-dialog button { color: inherit; background: transparent; border: 1px solid currentColor; border-radius: 5px; padding: 4px 8px; }
+.shortcut-dialog label { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.shortcut-dialog p { font-size: 12px; line-height: 1.5; white-space: normal; }
+.shortcut-dialog dl > div { display: grid; grid-template-columns: 4rem 1fr; gap: 8px; padding: 4px 0; }
+.shortcut-dialog dd { margin: 0; white-space: normal; }

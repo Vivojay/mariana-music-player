@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
@@ -7,15 +7,48 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import type { MarianaTheme } from './themes'
 
-type Props = { theme: MarianaTheme; fontSize: number; reducedMotion: boolean; tabId?: number }
+type Props = {
+  theme: MarianaTheme
+  fontSize: number
+  reducedMotion: boolean
+  tabId?: number
+  interactive?: boolean
+  onActivateFocus?: () => boolean
+}
 type SearchRequest = { query: string; direction?: 'incremental' | 'next' | 'previous'; tabId?: number }
 // Terminal output contains ANSI CSI control sequences by design.
 // eslint-disable-next-line no-control-regex
 const ANSI_ESCAPE = new RegExp('\\u001b\\[[0-?]*[ -/]*[@-~]', 'g')
 
-export function TerminalSurface({ theme, fontSize, reducedMotion, tabId = 1 }: Props) {
+export function TerminalSurface({ theme, fontSize, reducedMotion, tabId = 1, interactive = true, onActivateFocus }: Props) {
   const container = useRef<HTMLDivElement>(null)
+  const terminalRef = useRef<Terminal | null>(null)
+  const interactiveRef = useRef(interactive)
+  const activationFocusRef = useRef(onActivateFocus)
   const [accessibleOutput, setAccessibleOutput] = useState('')
+
+  useLayoutEffect(() => { activationFocusRef.current = onActivateFocus }, [onActivateFocus])
+
+  const focusTerminal = useCallback((terminal: Terminal) => {
+    if (!interactiveRef.current || terminalRef.current !== terminal || activationFocusRef.current?.()) return
+    const focused = document.activeElement
+    // An overlay may have just returned focus to its trigger. Keep that
+    // deliberate destination instead of stealing it on the next frame.
+    if (focused instanceof HTMLElement && focused !== document.body && !container.current?.contains(focused)) return
+    terminal.focus()
+  }, [])
+
+  useLayoutEffect(() => {
+    interactiveRef.current = interactive
+    const terminal = terminalRef.current
+    if (!terminal) return
+    if (interactive) {
+      const frame = requestAnimationFrame(() => focusTerminal(terminal))
+      return () => cancelAnimationFrame(frame)
+    }
+    const helper = container.current?.querySelector<HTMLElement>('.xterm-helper-textarea')
+    helper?.blur()
+  }, [interactive, focusTerminal])
 
   useEffect(() => {
     if (!container.current) return
@@ -32,6 +65,7 @@ export function TerminalSurface({ theme, fontSize, reducedMotion, tabId = 1 }: P
       allowTransparency: true,
       convertEol: false,
     })
+    terminalRef.current = terminal
     const fit = new FitAddon()
     const search = new SearchAddon()
     terminal.loadAddon(fit)
@@ -69,6 +103,7 @@ export function TerminalSurface({ theme, fontSize, reducedMotion, tabId = 1 }: P
     if (screen) resize.observe(screen)
     let pendingInput = ''
     const input = terminal.onData((data) => {
+      if (!interactiveRef.current) return
       if (data.startsWith('\u001b')) {
         pendingInput = ''
       } else {
@@ -112,15 +147,21 @@ export function TerminalSurface({ theme, fontSize, reducedMotion, tabId = 1 }: P
       else search.findNext(request.query, options)
     }
     window.addEventListener('mariana-search', onSearch)
-    requestAnimationFrame(() => { fitTerminal(); terminal.focus() })
+    const initialFrame = requestAnimationFrame(() => {
+      if (terminalRef.current !== terminal) return
+      fitTerminal()
+      focusTerminal(terminal)
+    })
     return () => {
+      cancelAnimationFrame(initialFrame)
       window.removeEventListener('mariana-search', onSearch)
       output()
       input.dispose()
       resize.disconnect()
       terminal.dispose()
+      if (terminalRef.current === terminal) terminalRef.current = null
     }
-  }, [theme, fontSize, reducedMotion, tabId])
+  }, [theme, fontSize, reducedMotion, tabId, focusTerminal])
 
   return <>
     <div ref={container} className="terminal-surface" aria-label="Mariana command terminal" />
