@@ -7,6 +7,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as pty from 'node-pty'
 import { projectCommandCatalog, validateCommandCatalogOptions } from './commandCatalog.js'
+import { projectEqualizer, validEqualizerIntent, type EqualizerState } from './equalizer.js'
 import { acceptPlaybackStatusEvent } from './playbackProjection.js'
 import { validateSeekIntent } from './playbackSeek.js'
 import { projectLocalVideo, type LocalVideoStatus } from './localVideo.js'
@@ -72,6 +73,7 @@ let localVideoStatus: LocalVideoStatus | null = null
 let hostVideoResource: HostVideoResource | null = null
 let localVideoTimestamp: number | null = null
 let miniVideoMode = false
+let equalizerProjection: EqualizerState | null = null
 let sleepActive = false
 let backendReady = false
 let backendShutdownAcknowledged = false
@@ -341,6 +343,12 @@ function handleBackendEvent(event: BackendEvent) {
     localVideoTimestamp = timestamp
     forwardedEvent = { ...event, payload: projected }
   }
+  if (event.event === 'equalizer') {
+    const projected = projectEqualizer(event.payload)
+    if (!projected || (equalizerProjection && projected.revision < equalizerProjection.revision)) return
+    equalizerProjection = projected
+    forwardedEvent = { ...event, payload: projected }
+  }
   if (event.event === 'sleep') sleepActive = Boolean(event.payload.active)
   if (event.event === 'update-safe') backendSafeOverride = Boolean(event.payload.safe)
   if (event.event === 'ready') {
@@ -475,6 +483,7 @@ function startTerminal() {
   playbackEventTimestamp = null
   localVideoStatus = null
   localVideoTimestamp = null
+  equalizerProjection = null
   sendMiniPlayerSnapshot()
   backendShutdownAcknowledged = false
   backendExitClosesView = true
@@ -771,6 +780,16 @@ function registerIpc() {
   ipcMain.handle('backend:video-audio-offset', (event, mediaId, value, relative) => (
     audioOffset(validateSender(event), mediaId, value, relative)
   ))
+  ipcMain.handle('backend:equalizer-status', async (event) => {
+    if (!validateSender(event)) return { ok: false, error: 'Equalizer request is invalid' }
+    const result = await requestBackendControl('equalizer.status', {}, playbackControlMessages)
+    return result.ok && equalizerProjection ? { ok: true, state: equalizerProjection } : { ok: false, error: 'Equalizer is unavailable' }
+  })
+  ipcMain.handle('backend:equalizer-configure', async (event, intent: unknown) => {
+    if (!validateSender(event) || !validEqualizerIntent(intent)) return { ok: false, error: 'Equalizer request is invalid' }
+    const result = await requestBackendControl('equalizer.configure', intent, playbackControlMessages)
+    return result.ok && equalizerProjection ? { ok: true, state: equalizerProjection } : { ok: false, error: 'Equalizer update was rejected; refresh or choose a new preset name' }
+  })
   for (const action of ['play', 'pause', 'previous', 'next'] as const) {
     ipcMain.handle(`backend:${action}`, async (event, mediaId: unknown) => {
       if (!validateSender(event) || !validControlMediaId(mediaId)) {

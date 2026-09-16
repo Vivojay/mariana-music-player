@@ -27,7 +27,7 @@ test('hosts the real Mariana PTY in the riced terminal shell', async () => {
       queue_count: expect.any(Number),
     })
     expect(await page.evaluate(() => Object.keys(window.mariana.backend).sort())).toEqual([
-      'commandCatalog', 'discoveryBegin', 'discoveryCancel', 'discoveryChoose', 'next', 'onEvent', 'pause', 'play', 'previous', 'seek', 'setRating', 'snapshot',
+      'commandCatalog', 'discoveryBegin', 'discoveryCancel', 'discoveryChoose', 'equalizerConfigure', 'equalizerStatus', 'next', 'onEvent', 'pause', 'play', 'previous', 'seek', 'setRating', 'snapshot',
       'toggleFavorite', 'videoAudioOffset', 'videoCaptionAutomatic', 'videoCaptionConfigure',
       'videoCaptionFile', 'videoCaptionLanguages', 'videoCaptionSelect', 'videoConfigure', 'videoStatus',
     ])
