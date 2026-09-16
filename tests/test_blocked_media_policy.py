@@ -125,6 +125,25 @@ def test_library_block_target_is_not_poisoned_by_search_or_queue(monkeypatch, bl
     assert not state.preferences.is_blocked(state.media[0])
 
 
+def test_rating_command_sets_lists_and_clears_current_media(monkeypatch, blocked_cli):
+    state = blocked_cli
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=state.media[1]),
+    )
+
+    assert main.rating_command(["3"]) == 3
+    assert state.preferences.rating(state.media[1]) == 3
+    assert main.rating_command([]) == 3
+    listed = main.ratings_command([])
+    assert [entry.stable_id for entry in listed] == [state.media[1].stable_id]
+    assert "★★★" in "\n".join(state.printed)
+
+    assert main.rating_command(["clear"]) == 0
+    assert state.preferences.rating(state.media[1]) == 0
+
+
 def test_block_current_preserves_favorite_and_projection_is_sanitized(monkeypatch, blocked_cli):
     state = blocked_cli
     state.preferences.set(state.media[1], PreferenceState.FAVORITE)
@@ -209,6 +228,146 @@ def test_blocked_list_and_search_mark_items_without_hiding_them(blocked_cli):
     output = "\n".join(state.printed)
     assert "Track 1 [Blocked]" in output
     assert "Track 2" in output and "Track 3" in output
+
+
+def test_local_listing_surfaces_show_indexed_size_and_probed_type_not_filename_suffix(
+    monkeypatch,
+    blocked_cli,
+):
+    state = blocked_cli
+    first_info = main.LIBRARY.info(state.media[0].stable_id)
+    first_info["size"] = 1536
+    first_info["metadata"].update({"format": "matroska,webm", "codec": "opus"})
+    state.preferences.set(state.media[0], PreferenceState.FAVORITE)
+    state.preferences.set_rating(state.media[0], 5)
+    state.preferences.set_blocked(state.media[0])
+    queue = PersistentQueue(state.database)
+    queue.clear()
+    queue.add(state.media[0], allow_duplicate=True)
+    monkeypatch.setattr(main, "QUEUE", queue)
+
+    main.process("favs list")
+    favorite_output = "\n".join(state.printed)
+    assert "1.5 KiB" in favorite_output
+    assert "WebM / Opus" in favorite_output
+    assert "★★★★★" in favorite_output
+    assert "Fav" not in favorite_output
+    state.printed.clear()
+
+    main.process("blacklist")
+    main.advanced_search_command(["find", "Track 1"])
+    main.queue_command(["list"])
+    main.process("all")
+    main.process("list")
+
+    output = "\n".join(state.printed)
+    assert output.count("1.5 KiB") >= 5
+    assert output.count("WebM / Opus") >= 5
+    assert "Media format" in output
+    assert output.count("★★★★★") >= 5
+    assert "Rating" in output
+    assert output.count("♥") >= 5
+    assert "Fav" in output
+    assert main._favorite_marker(state.media[0]) == "♥"
+    assert main._favorite_marker(state.media[1]) == ""
+    assert str(state.paths[0]) not in output
+    assert main._media_listing_fields(state.media[1])[1] == "Unknown"
+
+
+@pytest.mark.parametrize("playback_state", [PlaybackState.PLAYING, PlaybackState.PAUSED])
+def test_media_listing_surfaces_mark_the_stable_active_identity(
+    monkeypatch,
+    blocked_cli,
+    playback_state,
+):
+    state = blocked_cli
+    active = state.media[0]
+    state.preferences.set(active, PreferenceState.FAVORITE)
+    state.preferences.set_blocked(active)
+    queue = PersistentQueue(state.database)
+    queue.clear()
+    queue.add(active, allow_duplicate=True)
+    queue.add(state.media[1], allow_duplicate=True)
+    monkeypatch.setattr(main, "QUEUE", queue)
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(playback_state, media=active),
+    )
+
+    renderers = (
+        lambda: main.favorite_command(["list"]),
+        lambda: main.blocked_command([]),
+        lambda: main.advanced_search_command(["find", "Track"]),
+        lambda: main.queue_command(["list"]),
+        lambda: main.process("all"),
+        lambda: main.process("list"),
+    )
+    for render in renderers:
+        state.printed.clear()
+        render()
+        output = "\n".join(state.printed)
+        assert "Now" in output
+        assert "▶" in output
+        assert "Track 1" in output
+
+    same_title = MediaRef(
+        MediaSource.LOCAL,
+        str(state.paths[1]),
+        stable_id="different-library-item",
+        title=active.title,
+        provenance="library",
+    )
+    assert main._active_media_marker(active) == "▶"
+    assert main._active_media_marker(same_title) == ""
+
+
+def test_active_listing_marker_rejects_idle_failed_and_unrelated_media(monkeypatch, blocked_cli):
+    state = blocked_cli
+    snapshot = {"value": PlaybackSnapshot(PlaybackState.IDLE, media=state.media[0])}
+    monkeypatch.setattr(main.vas.controller, "snapshot", lambda: snapshot["value"])
+
+    assert main._active_media_marker(state.media[0]) == ""
+    snapshot["value"] = PlaybackSnapshot(PlaybackState.FAILED, media=state.media[0])
+    assert main._active_media_marker(state.media[0]) == ""
+    snapshot["value"] = PlaybackSnapshot(PlaybackState.PLAYING, media=state.media[1])
+    assert main._active_media_marker(state.media[0]) == ""
+
+
+def test_active_listing_marker_uses_durable_podcast_and_radio_identity(monkeypatch):
+    active_podcast = MediaRef(
+        MediaSource.PODCAST,
+        "https://media.test/old-enclosure.mp3",
+        stable_id="podcast-episode-id",
+        title="Episode",
+    )
+    rediscovered_podcast = MediaRef(
+        MediaSource.PODCAST,
+        "https://media.test/new-enclosure.mp3",
+        stable_id="podcast-episode-id",
+        title="Episode",
+    )
+    snapshot = {
+        "value": PlaybackSnapshot(PlaybackState.PAUSED, media=active_podcast),
+    }
+    monkeypatch.setattr(main.vas.controller, "snapshot", lambda: snapshot["value"])
+
+    assert main._active_media_marker(rediscovered_podcast) == "▶"
+
+    active_radio = MediaRef(
+        MediaSource.RADIO,
+        "https://stream.test/live",
+        stable_id="resolved-stream-id",
+        resolver_data={"station_id": "station-id"},
+    )
+    listed_radio = MediaRef(
+        MediaSource.RADIO,
+        "radio:station-id",
+        stable_id="radio:station-id",
+        resolver_data={"station_id": "station-id"},
+    )
+    snapshot["value"] = PlaybackSnapshot(PlaybackState.PLAYING, media=active_radio)
+    assert main._active_media_marker(listed_radio) == "▶"
 
 
 def test_queue_list_marks_blocked_item_and_unblock_restores_playability(monkeypatch, blocked_cli):
@@ -406,11 +565,11 @@ def test_blocked_list_labels_durable_sources_without_exposing_locations(blocked_
 
 def test_favorite_selection_validation_remains_safe_with_block_policy(blocked_cli):
     state = blocked_cli
-    with pytest.raises(ValueError, match="No favorites"):
+    with pytest.raises(ValueError, match="No favourite entries"):
         main._favorite_selection(1)
 
     state.preferences.set(state.media[0], PreferenceState.FAVORITE)
-    with pytest.raises(ValueError, match="Favorite number"):
+    with pytest.raises(ValueError, match="Favourite number"):
         main._favorite_selection(2)
     with pytest.raises(ValueError, match=r"Usage: \.fav"):
         main.favorite_command([], play=True)

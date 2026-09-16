@@ -2032,16 +2032,27 @@ def _step_queue_playback(operation, count=1):
 def queue_command(arguments):
     operation = arguments[0].lower() if arguments else 'list'
     if operation == 'list':
-        rows = [
-            (
+        rows = []
+        for index, item in enumerate(QUEUE.items()):
+            size, media_type = _media_listing_fields(item.media)
+            rows.append((
                 index + 1,
                 '*' if QUEUE.current() and QUEUE.current().queue_id == item.queue_id else '',
+                _active_media_marker(item.media),
                 item.priority,
-                _blocked_label(item.media.title or 'Media', item.media),
-            )
-            for index, item in enumerate(QUEUE.items())
-        ]
-        IPrint(tbl(rows, headers=('#', '', 'Priority', 'Media'), tablefmt='plain') if rows else '(queue empty)', visible=visible)
+                _blocked_label(_media_display_label(item.media), item.media),
+                *_preference_markers(item.media),
+                size,
+                media_type,
+            ))
+        IPrint(
+            tbl(
+                rows,
+                headers=('#', 'Queue', 'Now', 'Priority', 'Media', 'Fav', 'Rating', 'Size', 'Media format'),
+                tablefmt='plain',
+            ) if rows else '(queue empty)',
+            visible=visible,
+        )
         IPrint(f'Queue source: {QUEUE.origin() or "legacy/custom"}', visible=visible)
     elif operation == 'tree':
         _print_queue_tree(QUEUE.tree())
@@ -4225,10 +4236,18 @@ def advanced_search_command(tokens):
         'library results',
     )
     _remember_navigation_context(search_context, search=True)
-    marked_results = [
-        (index, _blocked_label(title, _library_media(index)))
-        for index, title in results
-    ]
+    marked_results = []
+    for index, title in results:
+        media = _library_media(index)
+        size, media_type = _media_listing_fields(media)
+        marked_results.append((
+            index,
+            _active_media_marker(media),
+            _blocked_label(title, media),
+            *_preference_markers(media),
+            size,
+            media_type,
+        ))
     if request.action == SearchAction.FIRST:
         _play_navigation_entry(navigation_entries[0])
         selected_context = search_context.at(0)
@@ -4249,7 +4268,14 @@ def advanced_search_command(tokens):
             f'{" ".join(request.query)}',
             visible=visible,
         )
-        IPrint(tbl(marked_results, tablefmt='mysql', headers=('#', 'Song')), visible=visible)
+        IPrint(
+            tbl(
+                marked_results,
+                tablefmt='mysql',
+                headers=('#', 'Now', 'Song', 'Fav', 'Rating', 'Size', 'Media format'),
+            ),
+            visible=visible,
+        )
     return results
 
 
@@ -7590,12 +7616,22 @@ def process(command):
             results_enum = enumerate(
                 _sound_files_names_only if commandslist == ['all*'] else _sound_files_names_only[:rescount]
             )
+            rows = []
+            for index, name in ((i + 1, value) for i, value in results_enum):
+                media = _library_media(index)
+                size, media_type = _media_listing_fields(media)
+                rows.append((
+                    index,
+                    _active_media_marker(media),
+                    _blocked_label(name, media),
+                    *_preference_markers(media),
+                    size,
+                    media_type,
+                ))
             IPrint(
                 tbl(
-                    [
-                        (index, _blocked_label(name, _library_media(index)))
-                        for index, name in ((i + 1, value) for i, value in results_enum)
-                    ],
+                    rows,
+                    headers=('#', 'Now', 'Media', 'Fav', 'Rating', 'Size', 'Media format'),
                     tablefmt='plain',
                 ),
                 visible=visible,
@@ -7682,12 +7718,22 @@ def process(command):
 
                     if indices or len([i for i in commandslist if i.isnumeric()]) in [0, 1]:
                         if range_command_is_valid:
+                            rows = []
+                            for i, name in results_enum:
+                                media = _library_media(i + 1)
+                                size, media_type = _media_listing_fields(media)
+                                rows.append((
+                                    i + 1,
+                                    _active_media_marker(media),
+                                    _blocked_label(name, media),
+                                    *_preference_markers(media),
+                                    size,
+                                    media_type,
+                                ))
                             IPrint(
                                 tbl(
-                                    [
-                                        (i + 1, _blocked_label(j, _library_media(i + 1)))
-                                        for i, j in results_enum
-                                    ],
+                                    rows,
+                                    headers=('#', 'Now', 'Media', 'Fav', 'Rating', 'Size', 'Media format'),
                                     tablefmt='plain',
                                 ),
                                 visible=visible,

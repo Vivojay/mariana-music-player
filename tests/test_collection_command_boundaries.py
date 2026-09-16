@@ -64,7 +64,7 @@ def test_transfer_to_favourites_enforces_existing_durable_identity_policy(collec
     collection.queue.playlists.add_media("Source", stream)
     monkeypatch.setattr(main, "_confirm_action", lambda *_args, **_kwargs: pytest.fail("Invalid source prompted"))
 
-    with pytest.raises(CollectionTransferError, match="durable favourite identity"):
+    with pytest.raises(CollectionTransferError, match=r"no durable (?:favourite|rating) identity"):
         main.transfer_command(["move", "to", "favs", "from", "playlist", "Source", "items", "2"])
 
     assert main.PREFERENCES.list(PreferenceState.FAVORITE) == []

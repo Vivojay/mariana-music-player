@@ -129,12 +129,12 @@ def test_bare_fav_checks_current_media_and_current_alias_remains_compatible(monk
     main.process("fav")
     main.process("fav current")
 
-    assert state.printed.count("Current media is favorited") == 2
+    assert state.printed.count("Current media favourite: yes") == 2
 
     state.printed.clear()
     monkeypatch.setattr(main.PREFERENCES, "get", lambda _media: PreferenceState.NEUTRAL)
     main.process("fav")
-    assert state.printed == ["Current media is not favorited"]
+    assert state.printed == ["Current media favourite: no"]
 
 
 def test_bare_fav_without_current_media_reports_clear_error(monkeypatch, tmp_path):
@@ -151,7 +151,7 @@ def test_fav_numeric_is_independent_from_library_numeric_selection(monkeypatch, 
 
     main.process("fav 2")
     favorite_output = "\n".join(state.printed)
-    assert "Favorite #2: Alpha favorite" in favorite_output
+    assert "Favourite #2: Alpha favorite" in favorite_output
     assert "Library: #1" in favorite_output
     assert "Library Two" not in favorite_output
 
@@ -182,8 +182,8 @@ def test_favorite_list_detail_and_play_confirmation_share_safe_catalog_label(mon
     main.process("fav 2")
     main.process(".fav 2")
     output = "\n".join(state.printed)
-    assert f"Favorite #2: {state.paths[0].stem}" in output
-    assert f"Playing favorite #2: {state.paths[0].stem}" in output
+    assert f"Favourite #2: {state.paths[0].stem}" in output
+    assert f"Playing selected media #2: {state.paths[0].stem}" in output
     assert "Local media" not in output
 
 
@@ -217,7 +217,7 @@ def test_dot_fav_plays_the_bound_favorite_despite_search_and_queue_state(monkeyp
     assert Path(path) == state.paths[0]
     assert library_index == "1"
     assert media.stable_id == "alpha-id"
-    assert any("Playing favorite #2: Alpha favorite" in line for line in state.printed)
+    assert any("Playing selected media #2: Alpha favorite" in line for line in state.printed)
 
 
 def test_missing_or_tombstoned_favorite_is_refused_without_playback(monkeypatch, tmp_path):
@@ -228,7 +228,7 @@ def test_missing_or_tombstoned_favorite_is_refused_without_playback(monkeypatch,
 
     assert state.played == []
     assert state.messages[-1]["display_message"] == (
-        "Favorite #2 is missing or unavailable in the indexed library"
+        "Favourite #2 is missing or unavailable in the indexed library"
     )
 
 
@@ -259,15 +259,19 @@ def test_online_favorite_uses_durable_media_without_exposing_its_url(monkeypatch
     )
     monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
     monkeypatch.setattr(main, "stopsong", lambda: None)
-    monkeypatch.setattr(main.vas.supervisor, "play", lambda selected: played.append(selected))
+    monkeypatch.setattr(
+        main.vas.supervisor,
+        "play",
+        lambda selected, *, origin: played.append((selected, origin)),
+    )
     monkeypatch.setattr(main, "_set_current_media_state", lambda _media: None)
     monkeypatch.setattr(main, "_show_local_copy_hint", lambda _media: None)
 
     main.favorite_command(["1"])
     main.favorite_command(["1"], play=True)
 
-    assert played == [media]
-    assert any("Favorite #1: Online favorite" in line for line in printed)
+    assert played == [(media, "cli")]
+    assert any("Favourite #1: Online favorite" in line for line in printed)
     output = "\n".join(printed)
     assert "youtube.com" not in output and "private-id" not in output
 
