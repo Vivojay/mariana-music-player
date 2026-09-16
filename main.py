@@ -84,6 +84,7 @@ from mariana.commands import (
     DOWNLOAD_TYPOS,
     SEARCH_COMMANDS,
     SearchAction,
+    SearchScope,
     normalize_command,
     parse_search,
     search_rows,
@@ -122,7 +123,7 @@ from mariana.models import (
     has_durable_podcast_identity,
     truncate_display_cells,
 )
-from mariana.navigation import NavigationContext, NavigationEntry, NavigationScope, parse_navigation
+from mariana.navigation import NavigationContext, NavigationEntry, NavigationScope, parse_navigation, parse_relative_reference
 from mariana.output_devices import OutputDeviceError, default_output_device
 from mariana.output_targets import OutputTargetError, bind_output_target
 from mariana.paths import initialize_runtime_paths
@@ -1095,7 +1096,81 @@ def open_in_youtube(local_song_file_path):
         return 1
 
 
+def _relative_media_reference(request):
+    """Resolve a collection-relative target without moving its cursor or playback."""
+    media = vas.controller.snapshot().media
+    if media is None:
+        raise ValueError('Relative media references require currently active media')
+    context = None
+    scope = request.scope
+    if scope == NavigationScope.AUTO and _NAVIGATION_CONTEXT and _NAVIGATION_CONTEXT.matches(media):
+        context = _NAVIGATION_CONTEXT
+        if context.scope == NavigationScope.FAVORITES:
+            context = _favorite_navigation_context(media)
+        elif context.scope == NavigationScope.PLAYLIST:
+            context = _playlist_navigation_context(context.name, media)
+    if scope == NavigationScope.FAVORITES:
+        context = _favorite_navigation_context(media)
+    elif scope == NavigationScope.PLAYLIST:
+        context = _playlist_navigation_context(request.scope_name, media)
+    elif scope == NavigationScope.RESULTS:
+        if _LAST_SEARCH_CONTEXT is None:
+            raise ValueError('No search results are available for navigation')
+        context = _bind_navigation_context(_LAST_SEARCH_CONTEXT, media)
+    if context is not None:
+        target = context.target(request.offset)
+        if target is None:
+            raise ValueError('Relative media reference is outside the collection')
+        entry = target[1]
+        if entry.media is None:
+            raise ValueError('The referenced media is missing or unavailable')
+        return entry.media
+    if scope in {NavigationScope.AUTO, NavigationScope.QUEUE}:
+        current = QUEUE.current()
+        items = QUEUE.items()
+        if current is not None and current.media.stable_id == media.stable_id:
+            position = next((i for i, item in enumerate(items) if item.queue_id == current.queue_id), None)
+            if position is not None:
+                repeat = QUEUE.state().get('repeat_mode')
+                target = position if repeat == 'one' else position + request.offset
+                if repeat == 'all':
+                    target %= len(items)
+                if target not in range(len(items)):
+                    raise ValueError('Relative media reference is outside the queue')
+                return items[target].media
+        if scope == NavigationScope.QUEUE:
+            raise ValueError('Current media is not the active queue item')
+    if media.source != MediaSource.LOCAL:
+        raise ValueError('No ordered collection is available for current media')
+    index = _library_song_index(media.original_uri)
+    if not isinstance(index, int):
+        raise ValueError('Current media is outside the indexed library')
+    target_index = index + request.offset
+    if target_index not in range(1, len(_sound_files) + 1):
+        raise ValueError('Relative media reference is outside the library')
+    return _library_media(target_index)
+
+
+def _expand_relative_library_target(tokens):
+    """Extend explicit library-target commands, not time/gain or preference signs."""
+    if not tokens or tokens[0] not in {'path', 'open', 'play', 'block', 'unblock'}:
+        return tokens
+    request = parse_relative_reference(' '.join(tokens[1:]))
+    if request is None:
+        return tokens
+    media = _relative_media_reference(request)
+    if media.source != MediaSource.LOCAL:
+        raise ValueError('This command requires a local library item; use media info for online media')
+    index = _library_song_index(media.original_uri)
+    if not isinstance(index, int):
+        raise ValueError('The referenced media is outside the indexed library')
+    return [tokens[0], str(index)]
+
+
 def _media_from_argument(argument):
+    relative = parse_relative_reference(argument)
+    if relative is not None:
+        return _relative_media_reference(relative)
     if argument.isnumeric() and int(argument) in range(1, len(_sound_files) + 1):
         return MediaRef(MediaSource.LOCAL, str(Path(_sound_files[int(argument) - 1]).resolve()))
     if Path(argument).is_file():
@@ -4212,8 +4287,207 @@ def set_download_library_inclusion(enabled):
     return result
 
 
+def _scoped_search_entries(request):
+    """Return stable, one-based search entries for one explicit collection."""
+    if request.scope in {SearchScope.FAVORITES, SearchScope.BLOCKED}:
+        state = (
+            PreferenceState.FAVORITE
+            if request.scope == SearchScope.FAVORITES
+            else PreferenceState.BLOCKED
+        )
+        entries = []
+        for position, preference in enumerate(PREFERENCES.list(state), 1):
+            media = _preference_search_media(preference)
+            label = _favorite_display_label(preference, media)
+            entries.append({
+                'position': position,
+                'media': media,
+                'stable_id': preference.stable_id,
+                'label': label,
+                'search': ' '.join(filter(None, (
+                    label,
+                    getattr(media, 'artist', None),
+                    getattr(media, 'album', None),
+                    getattr(media, 'provenance', None),
+                ))),
+            })
+        return entries
+    if request.scope == SearchScope.QUEUE:
+        return [
+            {
+                'position': position,
+                'media': item.media,
+                'stable_id': item.media.stable_id,
+                'label': _scoped_search_media_label(item.media),
+                'search': ' '.join(filter(None, (
+                    _scoped_search_media_label(item.media),
+                    item.media.artist,
+                    item.media.album,
+                    item.media.provenance,
+                ))),
+                'queue_id': item.queue_id,
+            }
+            for position, item in enumerate(QUEUE.items(), 1)
+        ]
+    if request.scope == SearchScope.PLAYLIST:
+        try:
+            playlist = QUEUE.playlists.get(request.scope_name or '')
+        except PlaylistError as error:
+            raise ValueError(str(error)) from error
+        return [
+            {
+                'position': position,
+                'media': media,
+                'stable_id': media.stable_id,
+                'label': _scoped_search_media_label(media),
+                'search': ' '.join(filter(None, (
+                    _scoped_search_media_label(media),
+                    media.artist,
+                    media.album,
+                    media.provenance,
+                ))),
+                'playlist': playlist.name,
+            }
+            for position, media in enumerate(QUEUE.playlists.flattened_media(playlist.tree), 1)
+        ]
+    raise ValueError(f'Unsupported search scope: {request.scope.value}')
+
+
+def _search_scope_description(request):
+    if request.scope == SearchScope.FAVORITES:
+        return 'favorites'
+    if request.scope == SearchScope.BLOCKED:
+        return 'blocked media'
+    if request.scope == SearchScope.QUEUE:
+        return 'queue'
+    if request.scope == SearchScope.PLAYLIST:
+        return f'playlist "{request.scope_name}"'
+    return 'library'
+
+
+def _play_scoped_search_entry(entry, request):
+    """Play the bound scoped result without converting it into a library index."""
+    media = entry['media']
+    if media is None:
+        raise ValueError(f'Search result #{entry["position"]} is unavailable')
+    _ensure_media_playable(media)
+    if request.scope == SearchScope.QUEUE:
+        items = QUEUE.items()
+        position = next(
+            (index for index, item in enumerate(items) if item.queue_id == entry['queue_id']),
+            None,
+        )
+        if position is None:
+            raise ValueError('The selected queue result is no longer available')
+        return _play_queue_item(QUEUE.jump(position))
+    if request.scope == SearchScope.FAVORITES:
+        return _play_favorite_selection(entry['position'], *_favorite_selection(entry['position']))
+    if media.source == MediaSource.LOCAL:
+        library_index = _library_song_index(media.original_uri)
+        if isinstance(library_index, int):
+            return local_play_commands([None, str(library_index)])
+        if not Path(media.original_uri).is_file():
+            raise ValueError(f'Search result #{entry["position"]} is missing or unavailable')
+        return play_local_default_player(media.original_uri, _songindex=None, media=media)
+    stopsong()
+    vas.supervisor.play(media, origin='cli')
+    _set_current_media_state(media)
+    _show_local_copy_hint(media)
+    return media
+
+
+def _advanced_scoped_search(request):
+    entries = _scoped_search_entries(request)
+    by_position = {entry['position']: entry for entry in entries}
+    results = search_rows(
+        [(entry['position'], entry['search']) for entry in entries],
+        request,
+    )
+    if not results:
+        IPrint(colored.fg('hot_pink_1a') + '-- No results found --' + colored.attr('reset'), visible=visible)
+        return []
+    source_scope = {
+        SearchScope.FAVORITES: NavigationScope.FAVORITES,
+        SearchScope.QUEUE: NavigationScope.QUEUE,
+        SearchScope.PLAYLIST: NavigationScope.PLAYLIST,
+    }.get(request.scope, NavigationScope.RESULTS)
+    navigation_entries = tuple(
+        NavigationEntry(
+            media=by_position[position]['media'],
+            stable_id=by_position[position]['stable_id'],
+            position=position,
+            label=by_position[position]['label'],
+            source_scope=source_scope,
+            occurrence_id=by_position[position].get('queue_id'),
+        )
+        for position, _search_text in results
+    )
+    search_context = NavigationContext(
+        NavigationScope.RESULTS,
+        navigation_entries,
+        -1,
+        f'{_search_scope_description(request)} results',
+    )
+    _remember_navigation_context(search_context, search=True)
+    if request.action in {SearchAction.FIRST, SearchAction.INDEXED}:
+        result_index = request.result_index or 1
+        if len(results) < result_index:
+            raise ValueError(
+                f'Search found only {len(results)} match{("es" if len(results) != 1 else "")}; '
+                f'result {result_index} is unavailable'
+            )
+        _play_scoped_search_entry(by_position[results[result_index - 1][0]], request)
+        selected_context = search_context.at(result_index - 1)
+        _remember_navigation_context(selected_context, search=True)
+        _remember_navigation_context(selected_context)
+    elif request.action == SearchAction.RANDOM:
+        playable = [
+            result
+            for result in results
+            if by_position[result[0]]['media'] is not None
+            and not _is_media_blocked(by_position[result[0]]['media'])
+        ]
+        if not playable:
+            raise ValueError('No playable search result is available; unblock an item first')
+        selected = rand.choice(playable)
+        _play_scoped_search_entry(by_position[selected[0]], request)
+        selected_context = search_context.at(results.index(selected))
+        _remember_navigation_context(selected_context, search=True)
+        _remember_navigation_context(selected_context)
+    else:
+        marked_results = []
+        for position, _search_text in results:
+            entry = by_position[position]
+            media = entry['media']
+            size, media_type = _media_listing_fields(media)
+            marked_results.append((
+                position,
+                _active_media_marker(media),
+                _blocked_label(entry['label'], media) if media is not None else entry['label'],
+                *_preference_markers(media),
+                size,
+                media_type,
+            ))
+        IPrint(
+            f'Found {len(results)} match{("es" if len(results) != 1 else "")} in '
+            f'{_search_scope_description(request)}: {" ".join(request.query)}',
+            visible=visible,
+        )
+        IPrint(
+            tbl(
+                marked_results,
+                tablefmt='mysql',
+                headers=('#', 'Now', 'Media', 'Fav', 'Rating', 'Size', 'Media format'),
+            ),
+            visible=visible,
+        )
+    return [(position, by_position[position]['label']) for position, _search_text in results]
+
+
 def advanced_search_command(tokens):
     request = parse_search(tokens)
+    if request.scope != SearchScope.LIBRARY:
+        return _advanced_scoped_search(request)
     results = search_rows(_sound_files_names_enumerated, request)
     if not results:
         IPrint(colored.fg('hot_pink_1a') + '-- No results found --' + colored.attr('reset'), visible=visible)
@@ -4248,9 +4522,15 @@ def advanced_search_command(tokens):
             size,
             media_type,
         ))
-    if request.action == SearchAction.FIRST:
-        _play_navigation_entry(navigation_entries[0])
-        selected_context = search_context.at(0)
+    if request.action in {SearchAction.FIRST, SearchAction.INDEXED}:
+        result_index = request.result_index or 1
+        if len(results) < result_index:
+            raise ValueError(
+                f'Search found only {len(results)} match{("es" if len(results) != 1 else "")}; '
+                f'result {result_index} is unavailable'
+            )
+        _play_navigation_entry(navigation_entries[result_index - 1])
+        selected_context = search_context.at(result_index - 1)
         _remember_navigation_context(selected_context, search=True)
         _remember_navigation_context(selected_context)
     elif request.action == SearchAction.RANDOM:
@@ -4258,7 +4538,7 @@ def advanced_search_command(tokens):
         if not playable:
             raise ValueError('No playable search result is available; unblock an item first')
         selected = rand.choice(playable)
-        _play_navigation_entry(navigation_entries[results.index(selected)])
+        local_play_commands([None, str(selected[0])])
         selected_context = search_context.at(results.index(selected))
         _remember_navigation_context(selected_context, search=True)
         _remember_navigation_context(selected_context)
@@ -5081,6 +5361,10 @@ def _media_info(arguments):
     snapshot = vas.controller.snapshot()
     target = ' '.join(arguments).strip()
     media = snapshot.media
+    relative = parse_relative_reference(target)
+    if relative is not None:
+        media = _relative_media_reference(relative)
+        target = media.original_uri if media.source == MediaSource.LOCAL else ''
     if target and target not in {'current', 'now'}:
         info = LIBRARY.info(target)
         if not info:
@@ -7514,6 +7798,11 @@ def process(command):
         return None
 
     presentation = None
+    try:
+        commandslist = _expand_relative_library_target(commandslist)
+    except ValueError as error:
+        IPrint(str(error), visible=visible)
+        return None
     if commandslist and commandslist[0] in {'/ys', '/youtube-search', '/yl', '/youtube-link', '/ml', '/media-link'}:
         try:
             commandslist, presentation = presentation_arguments(commandslist)

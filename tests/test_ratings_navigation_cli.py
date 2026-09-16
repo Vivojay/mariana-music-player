@@ -10,7 +10,7 @@ import main
 from mariana.database import MarianaDatabase
 from mariana.library import LibraryCatalog
 from mariana.models import MediaRef, MediaSource, PlaybackSnapshot, PlaybackState, podcast_episode_identity
-from mariana.navigation import NavigationEntry, NavigationScope
+from mariana.navigation import NavigationContext, NavigationEntry, NavigationScope
 from mariana.preferences import MediaPreferences, PreferenceState
 from mariana.queueing import PersistentQueue
 
@@ -315,6 +315,91 @@ def test_rating_clear_aliases_preserve_block_and_playback(collection, clear):
     _no_playback(collection)
 
 
+def test_relative_queue_targets_use_duplicate_occurrence_and_do_not_advance(collection):
+    first, second, third = collection.media
+    collection.queue.extend([first, second, first, third], allow_duplicate=True)
+    collection.queue.jump(2)
+    before = collection.queue.export_snapshot()
+    assert main._media_from_argument("-1 --in queue").stable_id == second.stable_id
+    assert main._media_from_argument("+1 --in queue").stable_id == third.stable_id
+    assert collection.queue.export_snapshot() == before
+    _no_playback(collection)
+
+
+def test_relative_favourites_refresh_after_heart_change_without_changing_scope(collection, monkeypatch):
+    first, second, third = collection.media
+    for media, rating in reversed(list(zip(collection.media, (5, 4, 3), strict=True))):
+        collection.preferences.set_rating(media, rating)
+        collection.preferences.set(media, PreferenceState.FAVORITE)
+    context = main._favorite_navigation_context(first)
+    monkeypatch.setattr(main, "_NAVIGATION_CONTEXT", context)
+    assert main._media_from_argument("+1").stable_id == second.stable_id
+    collection.preferences.set(second, PreferenceState.NEUTRAL)
+    assert main._media_from_argument("+1").stable_id == third.stable_id
+    assert main._media_from_argument("+1 --in favorites").stable_id == third.stable_id
+    assert main._NAVIGATION_CONTEXT is context
+    assert context.cursor == 0
+    _no_playback(collection)
+
+
+def test_relative_playlist_requires_known_duplicate_occurrence(collection, monkeypatch):
+    first, second, third = collection.media
+    collection.queue.extend([first, second, first, third], allow_duplicate=True)
+    collection.queue.save("Evening")
+    before = collection.queue.export_snapshot()
+    with pytest.raises(ValueError, match="more than once"):
+        main._media_from_argument("+1 --in playlist Evening")
+    entries = tuple(
+        NavigationEntry(item.media, item.media.stable_id, index + 1, "Track", NavigationScope.PLAYLIST)
+        for index, item in enumerate(collection.queue.items())
+    )
+    context = NavigationContext(NavigationScope.PLAYLIST, entries, 2, "Evening")
+    monkeypatch.setattr(main, "_NAVIGATION_CONTEXT", context)
+    assert main._media_from_argument("+1").stable_id == third.stable_id
+    assert main._media_from_argument("-1 --in playlist Evening").stable_id == second.stable_id
+    assert main._NAVIGATION_CONTEXT is context
+    assert collection.queue.export_snapshot() == before
+    _no_playback(collection)
+
+
+def test_relative_results_and_global_library_inspection_do_not_replace_context(collection, monkeypatch):
+    first, second, third = collection.media
+    context = NavigationContext(NavigationScope.RESULTS, (
+        NavigationEntry(second, second.stable_id, 2, "Second", NavigationScope.LIBRARY),
+        NavigationEntry(first, first.stable_id, 1, "First", NavigationScope.LIBRARY),
+    ), 0, "Search results")
+    collection.active.media = second
+    monkeypatch.setattr(main, "_NAVIGATION_CONTEXT", context)
+    monkeypatch.setattr(main, "_LAST_SEARCH_CONTEXT", context)
+    assert main._media_from_argument("+1").stable_id == first.stable_id
+    assert main._media_from_argument("+1 --in results").stable_id == first.stable_id
+    assert main._media_from_argument("+1 --in library").stable_id == third.stable_id
+    collection.active.media = third
+    with pytest.raises(ValueError, match="not in Search results"):
+        main._media_from_argument("-1 --in results")
+    assert main._NAVIGATION_CONTEXT is context
+    assert main._LAST_SEARCH_CONTEXT is context
+    _no_playback(collection)
+
+
+def test_missing_search_reference_and_misaligned_queue_fail_without_library_substitution(collection, monkeypatch):
+    first, second, third = collection.media
+    context = NavigationContext(NavigationScope.RESULTS, (
+        NavigationEntry(first, first.stable_id, 1, "First", NavigationScope.LIBRARY),
+        NavigationEntry(None, "missing-id", 2, "Missing item", NavigationScope.LIBRARY),
+    ), 0)
+    monkeypatch.setattr(main, "_LAST_SEARCH_CONTEXT", context)
+    with pytest.raises(ValueError, match="missing or unavailable"):
+        main._media_from_argument("+1 --in results")
+    collection.queue.extend([second, third])
+    collection.queue.jump(0)
+    before = collection.queue.export_snapshot()
+    with pytest.raises(ValueError, match="not the active queue"):
+        main._media_from_argument("+1 --in queue")
+    assert collection.queue.export_snapshot() == before
+    _no_playback(collection)
+
+
 @pytest.mark.parametrize("scope", [NavigationScope.FAVORITES, NavigationScope.LIBRARY, NavigationScope.QUEUE])
 def test_stale_collection_selection_rejects_replacement_before_playback(collection, monkeypatch, scope):
     first, second, _third = collection.media
@@ -351,5 +436,4 @@ def test_missing_rated_local_media_keeps_rating_but_cannot_be_selected(collectio
         main.rating_command(["show", "1"])
     assert collection.preferences.rating(media) == 5
     _no_playback(collection)
-
 

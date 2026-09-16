@@ -152,6 +152,12 @@ Group paths are one-based, such as `2.3.1`; durable node IDs are also accepted.
 | `find <terms> [count]`, `f <terms> [count]` | Match all normalized terms in the local library |
 | `rfind <terms> [count]`, `rf <terms> [count]` | Match terms while treating numbers literally |
 | `lfind <terms> [count]`, `lf <terms> [count]` | Match any normalized term |
+| `find --regex <pattern> [count]`, `find --re <pattern> [count]` | Search the selected collection with a case-insensitive regular expression |
+| `.fN <terms>`, `.findN <terms>` | Play the Nth matching result (one-based), collecting at most N matches |
+| `find --in favs <terms> [count]` | Search saved favourites |
+| `find --in blocked <terms> [count]` | Search playback-blocked media without making it playable |
+| `find --in queue <terms> [count]` | Search the current queue without changing its order |
+| `find --in playlist "<name>" <terms> [count]` | Search one named playlist in playlist order |
 | `/ys <query> [count]` | Search YouTube and play the selected result |
 | `queue ys "<query>" [count]`, `/ysq "<query>" [count]` | Search YouTube and queue the selected result without playing it |
 | `/yl <YouTube URL>` | Play a YouTube URL |
@@ -164,7 +170,24 @@ Group paths are one-based, such as `2.3.1`; durable node IDs are also accepted.
 | `recommend autofill [count]`, `recommend train` | Fill the queue or train the lightweight local model |
 
 Prefix `find`, `rfind`, or `lfind` with `.` to play the first match, or `/` to
-play a random match. Online resolution can fail because of network
+play a random playable match. Append a positive result number to a dotted command,
+such as `.f3 artist title`, to play that numbered match. The numbered form also
+works with `find`, `rfind`/`rf`, and `lfind`/`lf`, including explicit scopes.
+Available scopes are `library` (default), `favs`/`favorites`/`favourites`,
+`blocked`/`blacklist`, `queue`, and `playlist "<name>"`.
+Scoped matching includes trusted title, artist, album, and provenance text.
+Results retain collection positions, active-media markers, independent hearts
+and stars, local sizes, and detected formats. Immediate selection remains bound
+to the displayed media identity and refuses stale collection positions.
+
+Add `--regex` (or `--re`) to interpret the complete query as one case-insensitive
+regular expression, for example `find --regex "^(Alpha|Gamma) - Live$"`.
+Regex mode also works with scopes and immediate selection. Library searches
+match displayed titles; other scopes match their trusted metadata projection.
+Expressions are limited to 512 characters; invalid expressions are reported
+without changing playback.
+
+Online resolution can fail because of network
 availability, authentication, rate limits, geographic restrictions, DRM, or
 provider changes. Mariana reports these failures and does not bypass service
 protections. `/ml` supports sources that yt-dlp and FFmpeg can access; it is not
@@ -208,6 +231,11 @@ limitations described under online sources apply to extractor-backed downloads.
 `lib.lib` remains the human-editable source of library roots. The incremental
 profiler stores its catalog and resumable work in Mariana's writable SQLite
 database.
+
+Use `ls all` or `ls *` for the whole library, or a case-insensitive title
+expression such as `ls "^Alpha|Gamma$"` to filter it. `recents` accepts the same
+filtering syntax. Existing count, index, numeric range, `o`, and `desc` forms
+remain available; hyphens inside a pattern are not numeric ranges.
 
 | Command | Purpose |
 | --- | --- |

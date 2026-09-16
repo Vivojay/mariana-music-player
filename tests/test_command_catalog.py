@@ -169,9 +169,9 @@ def test_serialized_destructive_aliases_retain_risk_without_execution_metadata()
         ),
         (
             (
-                replace(COMMAND_CATALOG[2], aliases=()),
-                *COMMAND_CATALOG[:2],
-                *COMMAND_CATALOG[3:],
+                replace(COMMAND_CATALOG[4], aliases=()),
+                *COMMAND_CATALOG[:4],
+                *COMMAND_CATALOG[5:],
             ),
             "compatibility alias registry",
         ),
