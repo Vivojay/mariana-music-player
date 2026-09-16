@@ -10,7 +10,7 @@ import main
 from mariana.database import MarianaDatabase
 from mariana.library import LibraryCatalog
 from mariana.models import MediaRef, MediaSource, PlaybackSnapshot, PlaybackState, podcast_episode_identity
-from mariana.navigation import NavigationContext, NavigationEntry, NavigationScope
+from mariana.navigation import NavigationEntry, NavigationScope
 from mariana.preferences import MediaPreferences, PreferenceState
 from mariana.queueing import PersistentQueue
 
