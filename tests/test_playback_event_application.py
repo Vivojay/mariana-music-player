@@ -75,7 +75,7 @@ def test_capture_settings_commit_before_live_change_and_retain_other_keys(monkey
 
 
 def test_startup_capture_sink_is_the_authoritative_controller_only():
-    assert main.vas.controller._playback_event_sink == main.PLAYBACK_EVENTS.capture
+    assert main.vas.controller._playback_event_sink == main._capture_committed_playback_event
 
 
 @pytest.mark.parametrize("enabled", [False, True])
@@ -108,10 +108,12 @@ def test_runtime_refresh_reuses_capture_worker_and_rebinds_replacement_controlle
     main.refresh_runtime_configuration()
     main.refresh_runtime_configuration()
     assert len(controllers) == 2
-    assert all(controller.sink is service.capture for controller in controllers)
+    assert all(controller.sink is main._capture_committed_playback_event for controller in controllers)
     service.configure.assert_called_with(enabled=enabled, retention_days=7, forward_to_log=False)
     assert service.configure.call_count == 2
     service.capture.assert_not_called()
+    assert controllers[0].sink(action='refresh-probe') is True
+    service.capture.assert_called_once_with(action='refresh-probe')
 
 
 @pytest.fixture
@@ -139,6 +141,7 @@ def capture_scene(monkeypatch, tmp_path):
         )
         monkeypatch.setattr(main, "vas", facade)
         monkeypatch.setattr(main, "PLAYBACK_EVENTS", service)
+        monkeypatch.setattr(main, "SESSIONS", SimpleNamespace(status=lambda: {'state': 'idle'}))
         monkeypatch.setattr(main, "_is_media_blocked", lambda _media: False)
         monkeypatch.setattr(main, "_playback_status_projection", lambda: SimpleNamespace(to_dict=dict))
         monkeypatch.setattr(main, "DESKTOP_CONTROL", SimpleNamespace(emit=Mock()))

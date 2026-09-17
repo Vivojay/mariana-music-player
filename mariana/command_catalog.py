@@ -199,7 +199,7 @@ COMMAND_CATALOG = (
     _spec("rating", "rating", CommandCategory.FAVORITES, "Inspect or set a zero-to-five media rating", risk=CommandRisk.STATE_CHANGING, forms=_forms("current", "clear", "show")),
     _spec("rating.play", ".rating", CommandCategory.FAVORITES, "Play one entry from the rated-media list", risk=CommandRisk.STATE_CHANGING),
     _spec("ratings", "ratings", CommandCategory.FAVORITES, "List positively rated media"),
-    _spec("favorite", "fav", CommandCategory.FAVORITES, "Save, inspect, or navigate favourite hearts independently of ratings", risk=CommandRisk.STATE_CHANGING, forms=_forms("current", "list", "next", "prev")),
+    _spec("favorite", "fav", CommandCategory.FAVORITES, "Save, inspect, or navigate favourite hearts independently of ratings", risk=CommandRisk.STATE_CHANGING, forms=_forms("current", "list", "next", "prev", "previous")),
     _spec("favorites", "favs", CommandCategory.FAVORITES, "List saved favourites, including unrated media", forms=_forms("list")),
     _spec("block", "block", CommandCategory.FAVORITES, "Block media from playback", risk=CommandRisk.STATE_CHANGING, forms=_forms("current")),
     _spec("unblock", "unblock", CommandCategory.FAVORITES, "Restore media playability", risk=CommandRisk.STATE_CHANGING),
