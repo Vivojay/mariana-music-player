@@ -292,11 +292,17 @@ remain available; hyphens inside a pattern are not numeric ranges.
 | `include downloads`, `exclude downloads` | Add or remove Mariana's managed download root without editing user roots |
 | `rename short [current|index|path] [--dry-run] [y|yes|--yes]` | Preview a confidence-labeled rename from trusted metadata; placeholder-only or equivalent proposals are refused |
 | `replaygain scan [changed|full]`, `replaygain rescan <index|path>` | Queue non-destructive loudness analysis |
-| `fav`, `fav current` | Check whether the current media is favorited |
-| `fav list`, `favs`, `favs list` | List all favorites using stable favorite-local numbering |
-| `fav <favorite-index>` | Inspect that favorite without interpreting the number as a library index |
-| `.fav <favorite-index>` | Immediately play that favorite |
-| `fav [!|+|-]` | Toggle, set, or clear favourite state for active media |
+| `rating`, `rating current` | Show the current media rating (zero means unrated) |
+| `rating <1-5>`, `rate <1-5>` | Rate the current media with one to five stars |
+| `rating clear` | Clear the current media rating |
+| `rating <current|library-index> <1-5|clear>` | Set or clear a durable rating for current or indexed media |
+| `ratings [count]` | List positively rated media, highest ratings first |
+| `rating show <rated-index>` | Inspect one entry using its stable number from `ratings` |
+| `.rating <rated-index>` | Immediately play that rated entry |
+| `fav`, `fav current` | Inspect the current media's saved-favourite heart without changing it |
+| `fav +`, `fav -`, `fav !` | Add, remove, or toggle the heart; preserve stars and block policy |
+| `favs [count]`, `fav list` | List saved favourites, whether rated or unrated |
+| `fav <favorite-index>`, `.fav <favorite-index>` | Inspect or immediately play an entry from the favourite list (not the rated list) |
 | `block current`, `block <library-index>` | Block future playback without hiding, deleting, or unfavouriting the media |
 | `unblock <library-index|current>` | Restore playback eligibility |
 | `blocked`, `blocked list`, `blocked <count>` | List playback-blocked media; legacy `blacklist` remains an alias |
@@ -312,8 +318,34 @@ remain available; hyphens inside a pattern are not numeric ranges.
 Unavailable roots do not block startup. Missing media remains as history-aware
 tombstones until explicitly cleaned.
 
+Hearts and stars answer different questions: **a heart saves a favourite** for
+quick access; **one to five stars assess the media**, with zero meaning unrated.
+Neither implies the other: an unrated favourite and a rated non-favourite are
+both valid. Clearing stars leaves the heart; removing the heart leaves stars.
+Blocking remains independent of both. `rate` is the short alias for `rating`.
+The desktop footer exposes both controls and waits for backend-confirmed state.
+Both use the same durable media identity; transient generic URLs remain ineligible.
+
+Upgrades preserve saved hearts and explicit star values. Older heart-only records
+remain unrated rather than receiving an invented five-star assessment. If a prior
+development build already stored both values from one action, both are retained:
+the original intent cannot be inferred safely, so either can now be cleared independently.
+
+Local media rows in library/search, favourites, rated-media, blocked, queue, playlist,
+recommendation, station, region, album-track, and recent listings include a
+human-readable file size plus the FFprobe-detected container/audio codec (for
+example `WebM / Opus`). `Unknown` means the profiler has not established the
+actual format; Mariana does not infer it from the filename extension. These
+media tables show a heart (`♥`) in `Fav` for saved favourites and independent
+stars in `Rating`; an empty star cell means unrated. Only the favourite list omits
+the redundant heart column. It retains stars because its entries may be unrated
+or have different assessments. Favourite and rated lists have separate index spaces.
+`▶` in the `Now` column marks the authoritative active item across these media
+lists while it is playing or paused. The marker is bound by stable identity, so
+matching titles or stale search/queue indices cannot highlight the wrong row.
+
 Blocking is a playback policy, not deletion or hiding. Blocked items remain in
-the library, searches, favourites, and queue with a `Blocked` marker. Direct
+the library, searches, ratings, and queue with a `Blocked` marker. Direct
 play refuses them; random and automatic queue traversal skip them. Bare numeric
 targets in `block N` and `unblock N` always mean library indices.
 
@@ -421,6 +453,33 @@ confirmation. See [tags and reusable groups](docs/TAGS.md) for every operation.
 Resolution prefers embedded or adjacent local lyrics, then cached or provider
 results. Missing identities or provider records produce a clear no-lyrics
 result; Mariana does not fabricate lyric text.
+
+## Local session recipes
+
+Use `session record <name>` to start an opt-in local listening recipe, then
+`session stop` to seal it. `session status` reports preparation, recording,
+replay, errors, and incomplete capture. `session list` lists names;
+`session inspect <name>` validates and describes one without playing anything.
+
+`session play <name>` asks before replacing current playback and the queue.
+Use `--yes` only when you explicitly intend that replacement. During replay,
+`session seek <seconds|mm:ss|hh:mm:ss>` restores effective recipe state and
+`session stop` stops replay. Ordinary playback/queue controls remain guarded.
+
+Replay supports verified finite local files and freshly verified public YouTube
+identities in flat or nested queues. Missing/changed provider identity or duration stops
+replay; no other recording is substituted. Generic URLs/podcasts and preferred
+regions are not supported for replay. Version-three recipes also restore supported
+two-source equal-power crossfades and their frozen program gains. Nested groups,
+effective order, duplicate occurrences, seeds and policies are preserved; private
+group names are replaced with generated labels. Older recipes are validated and
+upgraded in memory without modifying the original file.
+Source seeks or gain-setting changes during an overlap remain unsupported;
+use recipe-relative seeking to restore an already recorded mix. Stop active sleep,
+station, Focus, loop, and stem sessions first. No audio recording, terminal
+commands, paths, signed URLs, deletion, downloads, or credentials are stored in
+the journal. ReplayGain settings are included; local EQ and volume are not.
+See [Session recipes](docs/SESSION_RECIPES.md) for exact limits and timing behavior.
 
 ## Radio
 

@@ -168,6 +168,9 @@ from mariana.presence import PresenceCoordinator, PresencePrivacyMode, sanitize_
 from mariana.queueing import PersistentQueue, QueueError
 from mariana.radio import RadioCatalog, RadioError
 from mariana.seek import SeekSyntaxError, parse_seek_target
+from mariana.recipe_queue import restore_snapshot as restore_recipe_queue_snapshot
+from mariana.session_recipes import RecipeError
+from mariana.session_service import SessionRecipeService
 from mariana.sleep_timer import SleepAction, SleepTimer, parse_duration
 from mariana.sources import FailureCode, MediaFailure, ResolvedMedia
 from mariana.station import StationError, StationManager
@@ -440,6 +443,7 @@ def _artwork_active_media_changed(
     resolved: ResolvedMedia | None,
 ) -> None:
     """Bind presentation-only artwork work to the authoritative active media."""
+    _remember_session_media(media)
     if media is None:
         ARTWORK.clear()
         return
@@ -520,6 +524,125 @@ PLAYBACK_EVENTS = LocalPlaybackEvents(
     **PLAYBACK_EVENT_SETTINGS,
     log_sink=lambda message: SAY(visible=False, log_priority=3, log_message=message),
 )
+_SESSION_REPLAY_ACTIVE = threading.Event()
+_SESSION_MEDIA_LOCK = threading.Lock()
+_SESSION_MEDIA: dict[str, MediaRef] = {}
+_SESSION_ACTIVE_ID: str | None = None
+_SESSION_LAST_SETTINGS: dict | None = None
+
+
+def _capture_committed_playback_event(**event):
+    """Multicast one committed event; optional capture never breaks playback."""
+    accepted = False
+    for sink in (PLAYBACK_EVENTS.capture, getattr(globals().get('SESSIONS'), 'capture_playback_event', None)):
+        if sink is not None:
+            try:
+                accepted = bool(sink(**event)) or accepted
+            except Exception:
+                pass
+    return accepted
+
+
+def _remember_session_media(media):
+    global _SESSION_ACTIVE_ID
+    with _SESSION_MEDIA_LOCK:
+        previous = _SESSION_ACTIVE_ID
+        _SESSION_ACTIVE_ID = media.stable_id if media else None
+        if media is not None:
+            _SESSION_MEDIA.pop(media.stable_id, None)
+            _SESSION_MEDIA[media.stable_id] = MediaRef.from_dict(media.to_dict())
+            while len(_SESSION_MEDIA) > 512:
+                _SESSION_MEDIA.pop(next(iter(_SESSION_MEDIA)))
+    service = globals().get('SESSIONS')
+    if media is None and previous is not None and service is not None:
+        service.capture_stop(reason='automatic')
+    if media is not None and _SESSION_REPLAY_ACTIVE.is_set():
+        _set_current_media_state(media)
+
+
+def _session_media(stable_id):
+    """Worker-only catalog lookup; paths never enter the portable journal."""
+    snapshot = vas.controller.snapshot()
+    media = snapshot.media if snapshot.media and snapshot.media.stable_id == stable_id else None
+    if media is None:
+        media = PREFERENCES.media(stable_id)
+    if media is None:
+        media = next((item.media for item in QUEUE.items() if item.media.stable_id == stable_id), None)
+    if media is None:
+        with _SESSION_MEDIA_LOCK:
+            media = _SESSION_MEDIA.get(stable_id)
+    if media is not None:
+        _ensure_media_playable(media)
+        if PLAY_REGIONS.get(media) is not None:
+            raise RecipeError('Preferred play regions are not supported by recipe replay yet')
+    return media
+
+
+def _session_queue_settings(settings):
+    snapshot = QUEUE.export_snapshot()
+    snapshot['state'].update({
+        'repeat_mode': settings['repeat'], 'consume_mode': settings['consume'], 'autofill': settings['autofill'],
+    })
+    QUEUE.restore_snapshot(snapshot)
+
+
+def _session_restore_queue(state, resolved):
+    """Restore a validated hierarchy and its committed order in one transaction."""
+    snapshot = restore_recipe_queue_snapshot(state, resolved)
+    for key in state['queue']:
+        _ensure_media_playable(resolved[key])
+    QUEUE.restore_snapshot(snapshot)
+    _emit_queue_desktop_state()
+
+
+def _session_settings(queue_state):
+    controller = vas.controller
+    return {
+        'repeat': queue_state.get('repeat_mode', 'off'),
+        'consume': bool(queue_state.get('consume_mode')), 'autofill': bool(queue_state.get('autofill')),
+        'crossfade_ms': round(controller.crossfade_seconds * 1000),
+        'replaygain': {
+            'enabled': controller.replaygain_enabled, 'mode': controller.replaygain_mode,
+            'preamp_db': controller.replaygain_preamp_db,
+            'prevent_clipping': controller.replaygain_prevent_clipping,
+        },
+    }
+
+
+def _capture_session_queue():
+    """Observe committed queue/settings changes, not raw input or diagnostic logs."""
+    global _SESSION_LAST_SETTINGS
+    service = globals().get('SESSIONS')
+    if service is None or service.status()['state'] not in {'preparing', 'recording'}:
+        return
+    try:
+        snapshot = QUEUE.export_snapshot()
+        if _LOOP_OVERRIDE['mode'] != 'off' or _STEM_SELECTION['names'] or STATION.session() is not None:
+            service.mark_unsupported()
+            return
+        state = snapshot['state']
+        active = vas.controller.snapshot().media
+        if active is not None and PLAY_REGIONS.get(active) is not None:
+            service.mark_unsupported()
+            return
+        service.capture_queue_snapshot(snapshot)
+        settings = _session_settings(state)
+        previous = _SESSION_LAST_SETTINGS
+        if previous is not None:
+            for kind, data, old in (
+                ('gain_settings', settings['replaygain'], previous['replaygain']),
+                ('crossfade_settings', {'crossfade_ms': settings['crossfade_ms']},
+                 {'crossfade_ms': previous['crossfade_ms']}),
+                ('queue_settings', {key: settings[key] for key in ('repeat', 'consume', 'autofill')},
+                 {key: previous[key] for key in ('repeat', 'consume', 'autofill')}),
+            ):
+                if data != old:
+                    service.capture_settings(kind, data)
+        _SESSION_LAST_SETTINGS = settings
+    except Exception:
+        service.mark_unsupported()
+
+
 LOCAL_MATCHER = LocalMediaMatcher(DATABASE)
 _LOCAL_COPY_HINTED_MEDIA_IDS: set[str] = set()
 _LOCAL_COPY_HINT_LOCK = threading.Lock()
@@ -574,7 +697,7 @@ vas.configure(
     replaygain=REPLAYGAIN_SETTINGS,
     live_leveling=LIVE_LEVELING_SETTINGS,
     play_region_provider=PLAY_REGIONS.get,
-    playback_event_sink=PLAYBACK_EVENTS.capture,
+    playback_event_sink=_capture_committed_playback_event,
 )
 ADHOC_IDENTIFICATION = AdHocIdentificationService(
     lambda media, pcm: IDENTITY.identify_pcm_window(media, pcm),
@@ -595,10 +718,18 @@ vas.controller.add_active_media_sink(ADHOC_IDENTIFICATION.active_media_changed)
 get_lyrics.configure(IDENTITY, vas.controller)
 EQUALIZER = EqualizerService(lambda: vas.controller.equalizer, SETTINGS.get('equalizer'), _persist_equalizer_configuration)
 DESKTOP_CONTROL = DesktopControl()
+_STEM_SELECTION = {'media_id': None, 'names': ()}
 
 
 def _publish_video_state(payload: dict[str, object]) -> None:
     DESKTOP_CONTROL.emit('video', payload)
+
+
+SESSIONS = SessionRecipeService(
+    RUNTIME_PATHS.state('sessions'), playback=lambda: vas.controller, lookup_media=_session_media,
+    restore_queue=_session_restore_queue, configure_queue=_session_queue_settings,
+    set_replay_active=lambda active: _SESSION_REPLAY_ACTIVE.set() if active else _SESSION_REPLAY_ACTIVE.clear(),
+)
 
 
 PLAYBACK_RESUME = PlaybackResumeTracker(
@@ -873,7 +1004,7 @@ def refresh_runtime_configuration(*, show_report=False):
         replaygain=REPLAYGAIN_SETTINGS,
         live_leveling=LIVE_LEVELING_SETTINGS,
         play_region_provider=PLAY_REGIONS.get,
-        playback_event_sink=PLAYBACK_EVENTS.capture,
+        playback_event_sink=_capture_committed_playback_event,
     )
     PLAYBACK_EVENTS.configure(**_configured_playback_events(SETTINGS))
     if equalizer_service := globals().get('EQUALIZER'):
@@ -1639,7 +1770,7 @@ def _set_current_media_state(media):
 
 
 def _prefetch_after(item):
-    if not AUTOPLAY_ENABLED:
+    if _SESSION_REPLAY_ACTIVE.is_set() or not AUTOPLAY_ENABLED:
         return
     items = QUEUE.items()
     try:
@@ -1814,6 +1945,15 @@ def _replay_completed_media(media):
 
 
 def _on_queue_item_complete(media):
+    if _SESSION_REPLAY_ACTIVE.is_set():
+        return
+    try:
+        return _complete_queue_item(media)
+    finally:
+        _capture_session_queue()
+
+
+def _complete_queue_item(media):
     RECOMMENDER.record_event(media, 'completion')
     STATION.mark_played(media)
     if _loop_replay_requested(media):
@@ -1969,6 +2109,7 @@ def _queue_node_payload(node):
 
 
 def _emit_queue_desktop_state():
+    _capture_session_queue()
     if not getattr(DESKTOP_CONTROL, 'enabled', False):
         return
     DESKTOP_CONTROL.emit(
@@ -6361,6 +6502,20 @@ def _apply_discovery_selection(media: MediaRef, intent: str) -> None:
 
 def _desktop_control_request(action: str, payload: dict[str, object]) -> dict[str, object]:
     """Apply one allowlisted desktop intent against authoritative backend state."""
+    if _SESSION_REPLAY_ACTIVE.is_set() and action not in {
+        'lyrics.status', 'lyrics.request', 'lyrics.offset', 'lyrics.hide',
+        'playback.hotspots', 'equalizer.status', 'download.status', 'video.status',
+        'homepage.open', 'autocomplete.catalog',
+    }:
+        return {'ok': False, 'error': 'Session replay owns playback; use session stop before other controls'}
+    try:
+        return _apply_desktop_control_request(action, payload)
+    finally:
+        _capture_session_queue()
+
+
+def _apply_desktop_control_request(action: str, payload: dict[str, object]) -> dict[str, object]:
+    """Apply one allowlisted desktop intent against authoritative backend state."""
     if action in {'discovery.begin', 'discovery.choose', 'discovery.cancel'}:
         request_id = payload.get('request_id')
         if not isinstance(request_id, str) or not re.fullmatch(r'[0-9a-f]{32}', request_id):
@@ -6695,6 +6850,67 @@ def _desktop_control_request(action: str, payload: dict[str, object]) -> dict[st
     # Publish the complete authoritative projection before acknowledging the request.
     DESKTOP_CONTROL.emit('playback', _playback_status_projection().to_dict())
     return {'ok': True}
+
+
+def session_command(arguments):
+    """Explicit local recording and verified replay through the existing player."""
+    global _SESSION_LAST_SETTINGS
+    operation = arguments[0].casefold() if arguments else 'status'
+    if operation == 'status' and len(arguments) <= 1:
+        result = SESSIONS.status()
+    elif operation == 'list' and len(arguments) == 1:
+        directory = RUNTIME_PATHS.state('sessions')
+        names = sorted(path.stem for path in directory.glob('*.jsonl')
+                       if re.fullmatch(r'[A-Za-z0-9_-]{1,64}', path.stem)) if directory.is_dir() else []
+        IPrint('\n'.join(names[:512]) or 'No local session recipes.', visible=visible)
+        return names[:512]
+    elif operation == 'inspect' and len(arguments) == 2:
+        result = SESSIONS.inspect(arguments[1])
+    elif operation == 'stop' and len(arguments) == 1:
+        complete = SESSIONS.stop_replay() if SESSIONS.status()['replay_active'] else SESSIONS.stop()
+        result = SESSIONS.status()
+        result['flushed'] = complete
+    elif operation == 'seek' and len(arguments) == 2:
+        seconds = parse_region_time(arguments[1])
+        result = SESSIONS.seek_replay(round(seconds * 1000), active_only=True)
+    elif operation in {'record', 'play'}:
+        confirmed, values = _confirmation_bypass(arguments[1:])
+        if len(values) != 1 or (operation == 'record' and confirmed):
+            raise RecipeError('Usage: session record <name> | session play <name> [--yes]')
+        focus_active = bool(
+            getattr(getattr(globals().get('FOCUS_MODE'), 'state', None), 'active', False)
+        )
+        if SLEEP_TIMER.status().active or STATION.session() is not None or focus_active:
+            raise RecipeError('Stop the sleep timer, station, and Focus session before using session recipes')
+        if _LOOP_OVERRIDE['mode'] != 'off' or _STEM_SELECTION['names']:
+            raise RecipeError('Disable loop and stem monitoring before using session recipes')
+        if operation == 'play':
+            if not confirmed and not _confirm_action(
+                'Replay replaces the current queue and playback, including recorded ReplayGain settings. Continue?',
+            ):
+                return None
+            result = SESSIONS.replay(values[0])
+        else:
+            snapshot = vas.controller.snapshot()
+            if snapshot.state not in {
+                PlaybackState.IDLE, PlaybackState.PLAYING, PlaybackState.PAUSED, PlaybackState.CROSSFADING,
+            }:
+                raise RecipeError('Wait until playback is ready before starting a recording')
+            queue = QUEUE.export_snapshot()
+            settings = _session_settings(queue['state'])
+            result = SESSIONS.start(
+                values[0], initial_media_id=snapshot.media.stable_id if snapshot.media else None,
+                initial_playback_session_id=snapshot.session_id, position_ms=round(snapshot.position * 1000),
+                playing=snapshot.state in {PlaybackState.PLAYING, PlaybackState.CROSSFADING},
+                queue_snapshot=queue, settings=settings,
+            )
+            _SESSION_LAST_SETTINGS = settings
+    else:
+        raise RecipeError(
+            'Usage: session [status|list|record <name>|stop|inspect <name>|play <name> [--yes]|seek <time>]'
+        )
+    IPrint(json.dumps(result, ensure_ascii=False, indent=2), visible=visible)
+    return result
 
 
 def chapters_command(parameters: list[str]) -> None:
@@ -7091,6 +7307,7 @@ def exitplayer(sys_exit=False):
         ('playback events', PLAYBACK_EVENTS.close),
         ('desktop control', DESKTOP_CONTROL.close),
         ('playback', vas.supervisor.close),
+        ('session recipes', SESSIONS.close),
         ('library profiler', LIBRARY_SERVICE.close),
     )
     threads = []
@@ -8580,6 +8797,12 @@ def process(command):
         SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
         return None
 
+    if _SESSION_REPLAY_ACTIVE.is_set() and commandslist and commandslist[0].casefold() not in {
+        'session', 'help', 'h', '?', 'exit', 'quit', 'lyrics',
+    }:
+        IPrint('Session replay owns playback and queue changes; use session stop first.', visible=visible)
+        return None
+
     presentation = None
     try:
         commandslist = _expand_relative_library_target(commandslist)
@@ -8627,6 +8850,11 @@ def process(command):
             'rename': rename_command,
             'station': station_command,
             'download-ya': download_audio_command,
+            'rate': rating_command,
+            'rating': rating_command,
+            '.rating': lambda values: rating_command(values, play=True),
+            'ratings': ratings_command,
+            'session': session_command,
             'fav': favorite_command,
             '.fav': lambda values: favorite_command(values, play=True),
             'block': block_command,

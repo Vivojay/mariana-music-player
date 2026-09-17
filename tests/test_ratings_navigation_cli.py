@@ -437,3 +437,20 @@ def test_missing_rated_local_media_keeps_rating_but_cannot_be_selected(collectio
     assert collection.preferences.rating(media) == 5
     _no_playback(collection)
 
+
+def test_command_dispatch_keeps_rate_alias_list_and_detail_consistent(collection, monkeypatch):
+    monkeypatch.setattr(main, "_capture_session_queue", Mock())
+    main.process("rate 3")
+    main.process("rating current")
+    main.process("ratings")
+    main.process("rating show 1")
+    assert collection.preferences.rating(collection.active.media) == 3
+    output = "\n".join(collection.output)
+    assert "Rating: 3/5" in output
+    assert "Rated #1" in output
+    assert "Library: #1" in output
+    assert str(collection.paths[0]) not in output
+    main.process("fav -")
+    assert collection.preferences.rating(collection.active.media) == 3
+    assert not collection.preferences.is_favorite(collection.active.media)
+    _no_playback(collection)
