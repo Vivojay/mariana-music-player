@@ -274,7 +274,7 @@ def test_replay_ownership_freezes_independent_advancement(session_cli, monkeypat
     main._SESSION_REPLAY_ACTIVE.set()
     try:
         main._remember_session_media(media)
-        assert main._SESSION_ACTIVE_ID == media.stable_id
+        assert media.stable_id == main._SESSION_ACTIVE_ID
         main._on_queue_item_complete(media)
         service.capture_queue_snapshot.assert_not_called()
     finally:
