@@ -9,7 +9,7 @@ from mariana.database import MarianaDatabase
 from mariana.models import MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
 from mariana.queueing import PersistentQueue
 from mariana.recipe_queue import GroupIdentityMap, flat_tree
-from mariana.session_recipes import default_settings, initial_state
+from mariana.session_recipes import RecipeError, default_settings, initial_state
 
 
 @pytest.fixture
@@ -203,3 +203,79 @@ def test_nested_recipe_restore_validates_every_source_before_queue_mutation(tmp_
     assert snapshot['state']['current_position'] == 2
     assert len(snapshot['groups']) == 1 and snapshot['groups'][0]['kind'] == 'album'
     assert snapshot['groups'][0]['source_ref'] is None
+
+
+def test_session_status_list_inspect_and_stop_report_service_state(session_cli, tmp_path, monkeypatch):
+    service, _, _ = session_cli
+    service.inspect.return_value = {'name': 'example', 'valid': True}
+    service.stop.return_value = True
+    assert main.session_command(['status']) == {'state': 'idle', 'replay_active': False}
+    assert main.session_command(['inspect', 'example']) == {'name': 'example', 'valid': True}
+    assert main.session_command(['stop'])['state'] == 'idle'
+    monkeypatch.setattr(main, 'RUNTIME_PATHS', SimpleNamespace(state=lambda *parts: tmp_path))
+    assert main.session_command(['list']) == []
+    with pytest.raises(RecipeError, match='Usage'):
+        main.session_command(['bogus'])
+    with pytest.raises(RecipeError, match='Usage'):
+        main.session_command(['record'])
+    with pytest.raises(RecipeError, match='Usage'):
+        main.session_command(['seek', '01:30', 'extra'])
+
+
+def test_session_record_guards_require_ready_idle_services(session_cli, monkeypatch):
+    service, _, _ = session_cli
+    monkeypatch.setattr(main.SLEEP_TIMER, 'status', lambda: SimpleNamespace(active=True))
+    with pytest.raises(RecipeError, match='Stop the sleep timer'):
+        main.session_command(['record', 'example'])
+    monkeypatch.setattr(main.SLEEP_TIMER, 'status', lambda: SimpleNamespace(active=False))
+    monkeypatch.setattr(main, '_LOOP_OVERRIDE', {'mode': 'infinite'})
+    with pytest.raises(RecipeError, match='Disable loop'):
+        main.session_command(['record', 'example'])
+    monkeypatch.setattr(main, '_LOOP_OVERRIDE', {'mode': 'off'})
+    service.status.return_value = {'state': 'idle', 'replay_active': False}
+    monkeypatch.setattr(
+        main.vas.controller, 'snapshot',
+        lambda: PlaybackSnapshot(PlaybackState.FAILED, media=None, position=0),
+    )
+    with pytest.raises(RecipeError, match='ready before starting'):
+        main.session_command(['record', 'example'])
+
+
+def test_session_seek_reports_replay_position(session_cli):
+    service, _, _ = session_cli
+    service.seek_replay.return_value = {'state': 'replaying', 'position_ms': 90000}
+    assert main.session_command(['seek', '01:30']) == {'state': 'replaying', 'position_ms': 90000}
+    service.seek_replay.assert_called_once_with(90000, active_only=True)
+
+
+def test_capture_marks_unsupported_sessions_without_recording(session_cli, monkeypatch):
+    service, _, _ = session_cli
+    service.status.return_value = {'state': 'preparing'}
+    monkeypatch.setattr(main, '_LOOP_OVERRIDE', {'mode': 'infinite'})
+    main._capture_session_queue()
+    service.mark_unsupported.assert_called_once_with()
+    service.capture_queue_snapshot.assert_not_called()
+    monkeypatch.setattr(main, '_LOOP_OVERRIDE', {'mode': 'off'})
+    monkeypatch.setattr(main, '_STEM_SELECTION', {'names': ('vocals',)})
+    main._capture_session_queue()
+    assert service.mark_unsupported.call_count == 2
+    monkeypatch.setattr(main, '_STEM_SELECTION', {'names': ()})
+    monkeypatch.setattr(main.STATION, 'session', lambda: SimpleNamespace())
+    main._capture_session_queue()
+    assert service.mark_unsupported.call_count == 3
+    monkeypatch.setattr(main.STATION, 'session', lambda: None)
+    monkeypatch.setattr(main.QUEUE, 'export_snapshot', Mock(side_effect=RuntimeError('unavailable')))
+    main._capture_session_queue()
+    assert service.mark_unsupported.call_count == 4
+
+
+def test_replay_ownership_freezes_independent_advancement(session_cli, monkeypatch):
+    service, media, _ = session_cli
+    main._SESSION_REPLAY_ACTIVE.set()
+    try:
+        main._remember_session_media(media)
+        assert main._SESSION_ACTIVE_ID == media.stable_id
+        assert main._on_queue_item_complete(media) is None
+        service.capture_queue_snapshot.assert_not_called()
+    finally:
+        main._SESSION_REPLAY_ACTIVE.clear()
