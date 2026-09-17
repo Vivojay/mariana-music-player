@@ -105,6 +105,14 @@ from mariana.entertainment_catalog import BY_ID as ENTERTAINMENT_ENTRIES
 from mariana.entertainment_catalog import CatalogueReader
 from mariana.download import DownloadError, download_media, prepare_download_target
 from mariana.download_jobs import DownloadJobError, DownloadManager
+from mariana.adhoc_identification import (
+    DEFAULT_CAPTURE_SECONDS,
+    MAX_CAPTURE_SECONDS,
+    MIN_CAPTURE_SECONDS,
+    AdHocIdentificationError,
+    AdHocIdentificationService,
+    CapturePhase,
+)
 from mariana.identity import AcoustIDClient, IdentificationService, LRCLIBClient, MusicBrainzClient, MIN_FINGERPRINT_SECONDS, IdentificationError, find_fpcalc
 from mariana.homepage import HOMEPAGE_CACHE_STATE_KEY, HomepageConfiguration, HomepageService, ListenBrainzFreshReleasesProvider, create_homepage_image_cache
 from mariana.library import LibraryCatalog, LibraryError
@@ -566,6 +574,22 @@ vas.configure(
     play_region_provider=PLAY_REGIONS.get,
     playback_event_sink=PLAYBACK_EVENTS.capture,
 )
+ADHOC_IDENTIFICATION = AdHocIdentificationService(
+    lambda media, pcm: IDENTITY.identify_pcm_window(media, pcm),
+    on_update=lambda status: _adhoc_identification_update(status),
+)
+vas.controller.add_identification_sink(
+    lambda samples, frames, media_id, session_id, decoder_token, position, mixed: ADHOC_IDENTIFICATION.offer(
+        samples,
+        frames,
+        media_id=media_id,
+        playback_session_id=session_id,
+        decoder_token=decoder_token,
+        start_position_seconds=position,
+        mixed=mixed,
+    )
+)
+vas.controller.add_active_media_sink(ADHOC_IDENTIFICATION.active_media_changed)
 get_lyrics.configure(IDENTITY, vas.controller)
 EQUALIZER = EqualizerService(lambda: vas.controller.equalizer, SETTINGS.get('equalizer'), _persist_equalizer_configuration)
 DESKTOP_CONTROL = DesktopControl()
@@ -6003,8 +6027,98 @@ def _media_info(arguments):
     return _media_info_with_fingerprint(media, info)
 
 
+def _adhoc_capture_interval(status):
+    start = status.captured_start_seconds
+    end = status.captured_end_seconds
+    if start is None or end is None:
+        return 'waiting for decoded audio'
+    return f'{format_region_time(start)} -> {format_region_time(end)}'
+
+
+def _print_adhoc_identification(status):
+    IPrint(
+        f'Time-specific identification: {status.phase.value}; '
+        f'captured {status.captured_seconds:.1f}/{status.target_seconds:g} seconds; '
+        f'interval {_adhoc_capture_interval(status)}',
+        visible=visible,
+    )
+    if status.reason:
+        IPrint(status.reason, visible=visible)
+    result = status.result
+    if result is not None and hasattr(result, 'to_dict'):
+        rows = [
+            (key.replace('_', ' ').title(), value)
+            for key, value in result.to_dict().items()
+            if value not in (None, '', [], {})
+        ]
+        IPrint(tbl(rows, tablefmt='plain'), visible=visible)
+
+
+def _adhoc_identification_update(status):
+    if status.phase in {CapturePhase.COMPLETE, CapturePhase.FAILED}:
+        _print_adhoc_identification(status)
+
+
+def _adhoc_identification_command(arguments):
+    action = arguments[0].casefold() if arguments else 'listen'
+    if action in {'listen', 'start'}:
+        if len(arguments) > 2:
+            raise AdHocIdentificationError(
+                'Usage: media identify listen [seconds] | status | stop | cancel'
+            )
+        try:
+            duration = float(arguments[1]) if len(arguments) == 2 else DEFAULT_CAPTURE_SECONDS
+        except (TypeError, ValueError, OverflowError) as error:
+            raise AdHocIdentificationError('Capture duration must be a number of seconds') from error
+        if not math.isfinite(duration) or not MIN_CAPTURE_SECONDS <= duration <= MAX_CAPTURE_SECONDS:
+            raise AdHocIdentificationError(
+                f'Capture duration must be between {MIN_CAPTURE_SECONDS:g} and {MAX_CAPTURE_SECONDS:g} seconds'
+            )
+        if ADHOC_IDENTIFICATION.status().phase in {CapturePhase.CAPTURING, CapturePhase.IDENTIFYING}:
+            raise AdHocIdentificationError('A time-specific identification is already active')
+        media, session_id, decoder_token, _position = vas.controller.identification_capture_context()
+        invocation_identity = (media.stable_id, session_id, decoder_token)
+        if not _prepare_fingerprint_tool():
+            IPrint('Time-specific identification cancelled; no audio was captured.', visible=visible)
+            return None
+        # Setup may take time while playback continues. Never capture against
+        # the position or source that preceded a confirmation dialog.
+        media, session_id, decoder_token, position = vas.controller.identification_capture_context()
+        if (media.stable_id, session_id, decoder_token) != invocation_identity:
+            raise AdHocIdentificationError('Playback changed during identification setup; retry the command')
+        status = ADHOC_IDENTIFICATION.start(
+            media,
+            session_id,
+            decoder_token,
+            position,
+            duration,
+        )
+        IPrint(
+            f'Listening to newly played audio for {status.target_seconds:g} seconds from '
+            f'{format_region_time(position)}. Playback may continue normally.',
+            visible=visible,
+        )
+        return status
+    if len(arguments) != 1 or action not in {'status', 'stop', 'cancel'}:
+        raise AdHocIdentificationError(
+            'Usage: media identify listen [seconds] | status | stop | cancel'
+        )
+    if action == 'status':
+        status = ADHOC_IDENTIFICATION.status()
+    elif action == 'stop':
+        status = ADHOC_IDENTIFICATION.stop()
+    else:
+        status = ADHOC_IDENTIFICATION.cancel()
+    _print_adhoc_identification(status)
+    return status
+
+
 def media_command(arguments):
     operation = arguments[0].casefold() if arguments else 'info'
+    if operation == 'identify' and len(arguments) >= 2 and arguments[1].casefold() in {
+        'listen', 'start', 'status', 'stop', 'cancel',
+    }:
+        return _adhoc_identification_command(arguments[1:])
     if operation == 'local-match':
         if len(arguments) != 2 or arguments[1].casefold() != 'current':
             raise ValueError('Usage: media local-match current')

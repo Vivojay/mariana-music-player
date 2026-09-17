@@ -32,7 +32,11 @@ def get_settings():
 
     return SUPPORTED_FILE_TYPES, LYRICS_SETTINGS
 
-SUPPORTED_FILE_TYPES, LYRICS_SETTINGS = get_settings()
+# Settings are needed only for an explicit lyrics request. Loading them while
+# importing the application duplicated startup I/O and could perform an atomic
+# settings migration before the desktop had rendered.
+SUPPORTED_FILE_TYPES = ()
+LYRICS_SETTINGS = {}
 FOOT_TEXT = "Lyrics provided by LRCLIB; identification by Chromaprint/AcoustID/MusicBrainz"
 
 def atoi(text):
