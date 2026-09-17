@@ -494,9 +494,15 @@ one versioned, default-yes repair offer; declining it does not rerun the setup
 wizard and `tools setup` remains available.
 
 The CLI uses a two-line, media-aware prompt showing the active item, elapsed and
-total time, percentage, and playback state. The external June 2022 testing
-snapshot used the same mirrored blue-gradient banner as this repository—not a
-rainbow banner—so no nonexistent rainbow asset is claimed or synthesized.
+total time, percentage, and playback state. The ordinary banner retains its
+mirrored blue gradient. Occasion dates can change its palette and add a greeting,
+using an offline country/subdivision calendar plus curated international dates.
+`banner country IN`, `banner subdivision MH`, `banner preview 2026-11-08`, and
+`banner occasions off` select, preview, or disable this behavior. The default
+country comes from OS region settings, without a network lookup. Optional
+`banner country detect` asks permission before contacting a country lookup
+service. Estimated/local calendar differences remain labelled.
+See [occasion, identification, and collection behavior](docs/OCCASIONS_IDENTIFICATION_AND_COLLECTIONS.md).
 
 The Electron shell supports multiple terminal views over the one authoritative
 Mariana PTY. Each view keeps terminal state and can be searched independently;

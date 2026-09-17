@@ -164,6 +164,10 @@ def fbs(about, store: SetupStateStore | None = None):
         print(f"\n\n{'=' * (len(greet) + 8)}")
         print(f"||  {' ' * len(greet)}  ||\n||  {greet}  ||\n||  {' ' * len(greet)}  ||")
         print("=" * (len(greet) + 8))
+        print(
+            "\nHome opens at startup by default. Online discovery and automatic online artwork "
+            "stay off until you enable them in Settings or with the home/thumb commands."
+        )
 
         try:
             state = store.begin("tools")

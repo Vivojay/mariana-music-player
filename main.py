@@ -141,6 +141,7 @@ from mariana.models import (
     truncate_display_cells,
 )
 from mariana.navigation import NavigationContext, NavigationEntry, NavigationScope, parse_navigation, parse_relative_reference
+from mariana.occasions import configured_country, detect_country, occasion_greeting, occasion_palette, prewarm_occasion_calendars, validate_region
 from mariana.output_devices import OutputDeviceError, default_output_device
 from mariana.output_targets import OutputTargetError, bind_output_target
 from mariana.paths import initialize_runtime_paths
@@ -485,6 +486,7 @@ def _close_artwork_controller() -> None:
     finally:
         ARTWORK.close()
 SETTINGS = load_user_settings()
+prewarm_occasion_calendars(SETTINGS)
 # Serialize shared settings persistence from terminal and desktop requests.
 _SETTINGS_WRITE_LOCK = threading.RLock()
 
@@ -8612,6 +8614,7 @@ def process(command):
             'discord': discord_command,
             'desktop': desktop_command,
             'theme': theme_command,
+            'banner': banner_command,
             'home': home_command,
             'thumb': thumb_command,
             'eq': eq_command,
@@ -10287,11 +10290,103 @@ def showversion():
             pass
 
 
-def showbanner():
+def banner_command(arguments):
+    """Configure occasion greetings independently of overall banner visibility."""
+    normalized = [value.casefold() for value in arguments]
+    section = SETTINGS.get('banner') if isinstance(SETTINGS.get('banner'), dict) else {}
+    enabled = bool(section.get('occasion greetings', True))
+    country_setting = section.get('country', 'auto')
+    if normalized == ['help']:
+        IPrint('banner status|show|preview YYYY-MM-DD|occasions on|off|country auto|ISO|detect|subdivision CODE|none\n'
+               'Country detection contacts ipapi.co only after confirmation and saves its country code. '
+               'Automatic region uses OS settings. Calendars are offline; lunar dates can vary locally.', visible=visible)
+        return None
+    if len(arguments) == 2 and normalized[0] == 'preview':
+        from datetime import date
+        showbanner(current=date.fromisoformat(arguments[1]))
+        return None
+    if not normalized or normalized == ['status']:
+        country = configured_country(country_setting)
+        IPrint(
+            f'Occasion greetings: {"enabled" if enabled else "disabled"}; '
+            f'country: {country or "unresolved"} '
+            f'({"operating-system region" if str(country_setting).casefold() == "auto" else "explicit"})',
+            visible=visible,
+        )
+        IPrint(f'Subdivision: {section.get("subdivision") or "none"}; calendar: offline; '
+               'use banner help for controls.', visible=visible)
+        return {'enabled': enabled, 'country': country, 'country_setting': country_setting}
+    if normalized == ['show']:
+        showbanner()
+        return None
+    requested_enabled = None
+    requested_country = None
+    requested_subdivision = section.get('subdivision')
+    subdivision_changed = False
+    if len(normalized) == 2 and normalized[0] == 'occasions' and normalized[1] in {
+        'on', 'off', 'enable', 'disable',
+    }:
+        requested_enabled = normalized[1] in {'on', 'enable'}
+    elif normalized[:2] == ['country', 'detect']:
+        yes, extra = _confirmation_bypass(arguments[2:])
+        if extra:
+            raise ValueError('Usage: banner country detect [--yes]')
+        if not _confirm_action('Contact ipapi.co with your public network address to detect and save only your country?', assume_yes=yes):
+            return None
+        requested_country = detect_country()
+        requested_subdivision = None
+        subdivision_changed = True
+    elif len(arguments) == 2 and normalized[0] == 'country':
+        requested_country = arguments[1]
+        validate_region(configured_country(requested_country))
+        requested_subdivision = None
+        subdivision_changed = True
+    elif len(arguments) == 2 and normalized[0] == 'subdivision':
+        requested_subdivision = validate_region(configured_country(country_setting), arguments[1])
+        subdivision_changed = True
+    else:
+        raise ValueError('Usage: banner status|show|help|preview YYYY-MM-DD|occasions on|off|country auto|ISO|detect|subdivision CODE|none')
+    with _SETTINGS_WRITE_LOCK:
+        previous = SETTINGS.get('banner')
+        updated = dict(previous) if isinstance(previous, dict) else {}
+        if requested_enabled is not None:
+            updated['occasion greetings'] = requested_enabled
+        if requested_country is not None:
+            updated['country'] = requested_country.casefold() if requested_country.casefold() == 'auto' \
+                else requested_country.upper()
+        if subdivision_changed:
+            updated['subdivision'] = requested_subdivision
+        SETTINGS['banner'] = updated
+        try:
+            save_user_settings(SETTINGS, RUNTIME_PATHS.settings)
+        except Exception:
+            if previous is None:
+                SETTINGS.pop('banner', None)
+            else:
+                SETTINGS['banner'] = previous
+            raise
+    return banner_command(['status'])
+
+
+def showbanner(*, current=None):
     global visible
     banner_lines = []
 
     if visible:
+        banner_settings = SETTINGS.get('banner')
+        banner_settings = banner_settings if isinstance(banner_settings, dict) else {}
+        greeting = None
+        palette = None
+        if bool(banner_settings.get('occasion greetings', True)):
+            try:
+                greeting, occasions, _country = occasion_greeting(
+                    current=current,
+                    country_setting=banner_settings.get('country', 'auto'),
+                    subdivision=banner_settings.get('subdivision'),
+                )
+                palette = occasion_palette(occasions)
+            except ValueError:
+                pass
         try:
             with RUNTIME_PATHS.resource('res', 'banner.banner').open(encoding='utf-8') as file:
                 banner_lines = file.read().splitlines()
@@ -10303,11 +10398,15 @@ def showbanner():
                                                      # and would be more visually pleasing...
                 banner_lines = [(x + ' ' * (maxlen - len(x))) for x in banner_lines]
                 for banner_line in banner_lines:
-                    blue_gradient_print(banner_line, cols+cols[::-1])
+                    blue_gradient_print(banner_line, palette or cols+cols[::-1])
         except OSError:
             pass
 
+        if greeting:
+            IPrint(f'♫ {greeting} ♫', visible=visible)
+
     if visible: showversion()
+
 
 def initialize_audio_output():
     if os.environ.get('MARIANA_E2E') == '1':

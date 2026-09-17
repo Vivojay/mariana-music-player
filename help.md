@@ -474,6 +474,12 @@ never affects playback or startup.
 | --- | --- |
 | `theme aurora|windows|kitty|gruvbox` | Select a terminal preset |
 | `theme list`, `theme current` | List presets or show the active one |
+| `banner status`, `banner show` | Inspect occasion greeting policy or redraw the startup banner |
+| `banner occasions on|off` | Enable or disable date-aware greetings without hiding the normal banner |
+| `banner country auto|<ISO>` | Use the operating-system region or an explicit two-letter country code |
+| `banner subdivision <code|none>` | Select a supported state/province calendar; an invalid code lists available choices |
+| `banner country detect [--yes]` | Confirm a country-only network lookup, then save that country; never runs automatically |
+| `banner preview YYYY-MM-DD`, `banner help` | Preview an occasion palette/greeting or explain calendar controls |
 | `desktop close [tray|quit|status]` | Hide to the system tray on window close (default), quit on close, or show the current policy |
 | `autonext [on|off|status]` | Configure automatic queue progression |
 | `sleep <duration> [pause|stop] [fade <duration>]` | Start a session-scoped sleep timer |
