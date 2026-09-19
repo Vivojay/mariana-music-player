@@ -311,13 +311,13 @@ def test_scoped_play_rejects_unavailable_queue_results(monkeypatch):
     with pytest.raises(ValueError, match="unavailable"):
         main._play_scoped_search_entry(missing, request)
     gone = {"position": 2, "media": _relative_media(), "queue_id": "gone"}
-    monkeypatch.setattr(main.QUEUE, "items", lambda: [])
+    monkeypatch.setattr(main.QUEUE, "items", list)
     with pytest.raises(ValueError, match="no longer available"):
         main._play_scoped_search_entry(gone, request)
 
 
 def test_advanced_scoped_search_reports_empty_and_short_results(monkeypatch):
-    monkeypatch.setattr(main.QUEUE, "items", lambda: [])
+    monkeypatch.setattr(main.QUEUE, "items", list)
     empty = SimpleNamespace(
         scope=main.SearchScope.QUEUE, scope_name=None, action="list",
         query=("zzz-no-match",), mode="all", limit=None, result_index=None,
