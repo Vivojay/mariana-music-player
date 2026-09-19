@@ -279,3 +279,63 @@ def test_replay_ownership_freezes_independent_advancement(session_cli, monkeypat
         service.capture_queue_snapshot.assert_not_called()
     finally:
         main._SESSION_REPLAY_ACTIVE.clear()
+        main._SESSION_ACTIVE_ID = None
+
+
+def test_session_stop_seek_and_usage_errors_report_without_side_effects(session_cli, monkeypatch, tmp_path):
+    service, _, _ = session_cli
+    service.stop_replay.return_value = True
+    service.status.return_value = {'state': 'replaying', 'replay_active': True}
+    stopped = main.session_command(['stop'])
+    assert stopped['flushed'] is True
+    service.stop_replay.assert_called_once_with()
+    monkeypatch.setattr(main, 'RUNTIME_PATHS', SimpleNamespace(state=lambda *parts: tmp_path))
+    (tmp_path / 'evening.jsonl').write_text('{}\n', encoding='utf-8')
+    assert main.session_command(['list']) == ['evening']
+    with pytest.raises(RecipeError, match='Usage'):
+        main.session_command(['bogus'])
+    with pytest.raises(RecipeError, match='Usage'):
+        main.session_command(['record'])
+    with pytest.raises(RecipeError, match='Usage'):
+        main.session_command(['status', 'extra'])
+    with pytest.raises(RecipeError, match='Stop the sleep timer'):
+        monkeypatch.setattr(main.STATION, 'session', lambda: SimpleNamespace())
+        try:
+            main.session_command(['record', 'example'])
+        finally:
+            monkeypatch.setattr(main.STATION, 'session', lambda: None)
+    monkeypatch.setattr(
+        main, 'FOCUS_MODE',
+        SimpleNamespace(state=SimpleNamespace(active=True)), raising=False,
+    )
+    try:
+        with pytest.raises(RecipeError, match='Focus session'):
+            main.session_command(['record', 'example'])
+    finally:
+        delattr(main, 'FOCUS_MODE')
+
+
+def test_capture_records_settings_changes_only(session_cli, monkeypatch):
+    from mariana.session_recipes import default_settings as _defaults
+    service, _, _ = session_cli
+    service.status.return_value = {'state': 'preparing'}
+    changed = _defaults()
+    changed['repeat'] = 'one'
+    monkeypatch.setattr(main, '_SESSION_LAST_SETTINGS', changed)
+    main._capture_session_queue()
+    service.capture_settings.assert_called_once()
+    service.capture_settings.reset_mock()
+    monkeypatch.setattr(main, '_SESSION_LAST_SETTINGS', _defaults())
+    main._capture_session_queue()
+    service.capture_settings.assert_not_called()
+
+
+def test_idle_media_clear_stops_capture_worker(session_cli):
+    service, _, _ = session_cli
+    main._SESSION_ACTIVE_ID = 'previous-media'
+    try:
+        main._remember_session_media(None)
+        assert main._SESSION_ACTIVE_ID is None
+        service.capture_stop.assert_called_once_with(reason='automatic')
+    finally:
+        main._SESSION_ACTIVE_ID = None
