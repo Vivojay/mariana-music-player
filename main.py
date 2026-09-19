@@ -19,7 +19,10 @@
 import math
 import threading
 import time
-from typing import TypedDict, cast
+from typing import TYPE_CHECKING, TypedDict, cast
+
+if TYPE_CHECKING:
+    from mariana.paired_companion import PairedCompanion
 
 _BOOT_TOTAL = 31
 
