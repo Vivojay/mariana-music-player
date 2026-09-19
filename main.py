@@ -730,6 +730,7 @@ SESSIONS = SessionRecipeService(
     restore_queue=_session_restore_queue, configure_queue=_session_queue_settings,
     set_replay_active=lambda active: _SESSION_REPLAY_ACTIVE.set() if active else _SESSION_REPLAY_ACTIVE.clear(),
 )
+PAIRED_COMPANION: 'PairedCompanion | None' = None
 
 
 PLAYBACK_RESUME = PlaybackResumeTracker(
@@ -5387,6 +5388,8 @@ HELP_GROUPS = (
     ),
     ('Playlists', 'playlist list/create/show/add/remove/move/order/play/queue/import/export; transfer copy/move'),
     ('Tags', 'tag help/list/create/attach/detach/show/rename/delete/find/play/queue/group'),
+    ('Session recipes', 'session record/list/status/stop/inspect/play/seek; verified sources and two-source crossfades'),
+    ('Paired desktops', 'room status/host/stop/invite/requests/approve/reject/devices/revoke/connect/poll/now/cancel/disconnect'),
     ('Lyrics', 'lyrics|lyr, lyrics edit|lyr edit, open lyrics'),
     ('Radio', 'radio search/list/play/add/info/metadata/resync/health/leveling'),
     ('Discord Presence', 'discord presence off/app/track/session/status/refresh'),
@@ -5404,6 +5407,10 @@ HELP_GROUPS = (
 HELP_EXAMPLES = {
     'Getting started': ('all', '1', 'now', 'help playback'),
     'Playback': ('play 4', 'p', '+', 'autonext on', 'loop once', 'reset', '.reset', 'restart'),
+    'Session recipes': ('session record evening', 'session stop', 'session inspect evening',
+                        'session play evening', 'session seek 01:30'),
+    'Paired desktops': ('room status', 'room host 192.168.1.10 8765', 'room invite "desktop-invitation.json"',
+                       'room requests', 'room devices', 'room stop'),
     'Seek and fade': ('seek +30s', 'seek 50%', 'fade out 10', 'fade from 20 to 80 in 6'),
     'Video and captions': ('play current --audio', '/ys "concert" 5 --video', 'captions tracks', 'captions select 2', 'captions load "movie.srt"', 'captions shift +250', 'avsync shift -100', 'chapters next', '.chapter 3'),
     'Queue': ('queue add 4', 'queue ys "artist title" 5', '/ysq "artist title"', 'queue next'),
@@ -5431,13 +5438,10 @@ HELP_TOPIC_ALIASES = {
     'tag': 'Tags',
     'transfer': 'Playlists',
     'online': 'Search and online sources',
-    'video': 'Video and captions',
-    'captions': 'Video and captions',
-    'avsync': 'Video and captions',
-    'chapters': 'Video and captions',
     'details': 'Diagnostics',
     'app': 'Settings',
     'hotspots': 'Settings',
+    'room': 'Paired desktops',
 }
 
 
@@ -6852,6 +6856,64 @@ def _apply_desktop_control_request(action: str, payload: dict[str, object]) -> d
     return {'ok': True}
 
 
+def _paired_companion():
+    """Import optional pairing infrastructure only after an explicit command."""
+    global PAIRED_COMPANION
+    if PAIRED_COMPANION is None:
+        from mariana.paired_companion import PairedCompanion
+
+        PAIRED_COMPANION = PairedCompanion(
+            RUNTIME_PATHS.state('paired-desktops'), snapshot=lambda: vas.controller.snapshot(),
+        )
+    return PAIRED_COMPANION
+
+
+def _close_paired_companion():
+    if PAIRED_COMPANION is not None:
+        return PAIRED_COMPANION.close()
+    return True
+
+
+def room_command(arguments):
+    """Explicit, read-only desktop pairing; slow operations run off the CLI."""
+    from mariana.paired_trust import PairingError
+
+    operation = arguments[0].casefold() if arguments else 'status'
+    values = arguments[1:]
+    if operation == 'help' and not values:
+        return help_command(['room'])
+    if operation == 'status' and not values:
+        result = _paired_companion().status()
+    else:
+        arities = {
+            'host': (1, 2), 'stop': (0,), 'invite': (1,), 'requests': (0,),
+            'approve': (2,), 'reject': (1,), 'devices': (0,), 'revoke': (1,),
+            'connect': (2, 3), 'poll': (0,), 'now': (0,), 'cancel': (0,), 'disconnect': (0,),
+        }
+        if operation not in arities or len(values) not in arities[operation]:
+            raise ValueError('Usage: room <operation> [arguments]; run help room for exact forms')
+        prepared = list(values)
+        if operation == 'host':
+            try:
+                port = int(values[1]) if len(values) == 2 else 0
+            except ValueError:
+                raise ValueError('Room port must be a whole number from 0 to 65535') from None
+            if not 0 <= port <= 65535:
+                raise ValueError('Room port must be a whole number from 0 to 65535')
+            prepared = [values[0], port]
+        elif operation == 'connect' and len(values) == 2:
+            prepared.append('Mariana desktop')
+        try:
+            result = _paired_companion().submit(operation, *prepared)
+        except PairingError as error:
+            raise ValueError(str(error)) from None
+    IPrint(json.dumps(result, ensure_ascii=False, indent=2), visible=visible)
+    if result.get('state') in {'pending', 'working'}:
+        IPrint('Use room status for the result. Playback and terminal input remain available.', visible=visible)
+    return result
+
+
+
 def session_command(arguments):
     """Explicit local recording and verified replay through the existing player."""
     global _SESSION_LAST_SETTINGS
@@ -7308,6 +7370,7 @@ def exitplayer(sys_exit=False):
         ('desktop control', DESKTOP_CONTROL.close),
         ('playback', vas.supervisor.close),
         ('session recipes', SESSIONS.close),
+        ('paired desktops', _close_paired_companion),
         ('library profiler', LIBRARY_SERVICE.close),
     )
     threads = []
@@ -8855,6 +8918,7 @@ def process(command):
             '.rating': lambda values: rating_command(values, play=True),
             'ratings': ratings_command,
             'session': session_command,
+            'room': room_command,
             'fav': favorite_command,
             '.fav': lambda values: favorite_command(values, play=True),
             'block': block_command,

@@ -715,3 +715,53 @@ These testing-snapshot aliases remain recognized and route to modern behavior:
 are always available. Misspelled download commands offer a correction and do
 not execute. The legacy Google Drive `weblinks` collection and RPAN service are
 retired; use radio, queue, and supported online-source commands instead.
+
+## Read-only paired desktops
+
+`room` is a local-network companion foundation, not a public room or a chat
+service. Nothing listens or reconnects automatically at startup. Opening Home
+does not enable pairing. Every paired device initially receives only permission
+to read a sanitized current-playback snapshot; it cannot seek, change queues,
+browse files, download media, or publish anything.
+
+On the host, choose its actual private IPv4 address and an available port:
+
+```text
+room host 192.168.1.10 8765
+room status
+room invite "desktop-invitation.json"
+room status
+```
+
+Operations are queued in the background. Use `room status` to inspect completion
+before proceeding. Omitting the port selects an available temporary port. Use a
+fixed port when restarting an already paired host. No router or firewall rules
+are created; existing network policy can prevent connection.
+
+Share the new invitation file only with the intended recipient. It contains a
+single-use pairing secret and expires after five minutes. Compare the host's
+full certificate fingerprint using a separate trusted channel, not merely the
+same invitation file. On the recipient:
+
+```text
+room connect "desktop-invitation.json" <verified-host-fingerprint> "Music desktop"
+room status
+```
+
+Compare the displayed device proof on both desktops. Then the host uses
+`room requests` followed by `room status`, and explicitly approves the matching
+request with `room approve <request-id> <verified-device-proof>`.
+`room reject <request-id>` refuses it. On the recipient, `room poll` checks
+approval and `room now` fetches the host's current status. Inspect each result
+with `room status`; no automatic remote playback commands are available.
+
+`room devices` lists trust records. `room revoke <device-id>` prevents subsequent
+access. `room stop` stops the listener and pending invitations for this run but
+preserves approved trust. `room cancel` cancels a pending outgoing pairing;
+`room disconnect` forgets the outgoing connection and its local credential. It
+does not replace revocation on the host. Delete invitation files after use.
+
+Credentials require supported operating-system protected storage. An unavailable
+or plaintext-only backend is refused, without a file or environment-variable
+fallback. See [paired desktop boundaries](docs/PAIRED_DESKTOPS.md) for resource
+limits, trust lifecycle, and the separate two-device acceptance requirement.

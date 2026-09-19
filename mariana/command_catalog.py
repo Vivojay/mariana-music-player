@@ -19,6 +19,7 @@ class CommandCategory(StrEnum):
     LIBRARY = "Library"
     FAVORITES = "Favourites and blocked media"
     PLAYLISTS = "Playlists and albums"
+    PAIRED_DESKTOPS = "Paired desktops"
     LYRICS = "Lyrics"
     RADIO = "Radio and stations"
     DISCORD = "Discord Presence"
@@ -266,6 +267,20 @@ COMMAND_CATALOG = (
     _spec("session.inspect", "session inspect", CommandCategory.PLAYBACK, "Inspect a validated recipe without executing it", forms=_forms(arguments=("recipe-name",))),
     _spec("session.play", "session play", CommandCategory.PLAYBACK, "Replay verified sources after confirming queue replacement", risk=CommandRisk.STATE_CHANGING, forms=_forms(arguments=("recipe-name",), flags=("--yes",))),
     _spec("session.seek", "session seek", CommandCategory.PLAYBACK, "Restore effective state at a recipe-relative time", risk=CommandRisk.STATE_CHANGING, forms=_forms(arguments=("time",))),
+    _spec("room", "room", CommandCategory.PAIRED_DESKTOPS, "Inspect cached companion status; no listener starts", forms=_forms("status", "help")),
+    _spec("room.host", "room host", CommandCategory.PAIRED_DESKTOPS, "Start read-only TLS on an explicit private IPv4 interface for this run", risk=CommandRisk.EXTERNAL_ACTION, forms=_forms(arguments=("private-ipv4", "optional-port"))),
+    _spec("room.stop", "room stop", CommandCategory.PAIRED_DESKTOPS, "Stop the local listener and expire pending invitations", risk=CommandRisk.STATE_CHANGING),
+    _spec("room.invite", "room invite", CommandCategory.PAIRED_DESKTOPS, "Save a five-minute single-use invitation to a new file", risk=CommandRisk.EXTERNAL_ACTION, forms=_forms(arguments=("new-invitation-file",))),
+    _spec("room.requests", "room requests", CommandCategory.PAIRED_DESKTOPS, "Inspect pending devices and verification proofs"),
+    _spec("room.approve", "room approve", CommandCategory.PAIRED_DESKTOPS, "Approve status access after independently comparing the device proof", risk=CommandRisk.STATE_CHANGING, forms=_forms(arguments=("request-id", "device-proof"))),
+    _spec("room.reject", "room reject", CommandCategory.PAIRED_DESKTOPS, "Reject one pending device", risk=CommandRisk.STATE_CHANGING, forms=_forms(arguments=("request-id",))),
+    _spec("room.devices", "room devices", CommandCategory.PAIRED_DESKTOPS, "List trusted devices and their read-only permission"),
+    _spec("room.revoke", "room revoke", CommandCategory.PAIRED_DESKTOPS, "Revoke one device's subsequent access", risk=CommandRisk.STATE_CHANGING, forms=_forms(arguments=("device-id",))),
+    _spec("room.connect", "room connect", CommandCategory.PAIRED_DESKTOPS, "Request pairing after independently verifying the host fingerprint", risk=CommandRisk.EXTERNAL_ACTION, forms=_forms(arguments=("invitation-file", "server-fingerprint", "optional-device-name"))),
+    _spec("room.poll", "room poll", CommandCategory.PAIRED_DESKTOPS, "Check whether the host approved this device", risk=CommandRisk.EXTERNAL_ACTION),
+    _spec("room.now", "room now", CommandCategory.PAIRED_DESKTOPS, "Fetch the paired host's sanitized playback status", risk=CommandRisk.EXTERNAL_ACTION),
+    _spec("room.cancel", "room cancel", CommandCategory.PAIRED_DESKTOPS, "Cancel this device's pending pairing attempt", risk=CommandRisk.STATE_CHANGING),
+    _spec("room.disconnect", "room disconnect", CommandCategory.PAIRED_DESKTOPS, "Forget this device's outgoing companion connection", risk=CommandRisk.STATE_CHANGING),
     _spec("radio", "radio", CommandCategory.RADIO, "Search, play, or inspect radio", risk=CommandRisk.STATE_CHANGING, forms=_forms("search", "list", "play", "add", "info", "metadata", "resync", "health", "leveling")),
     _spec("station", "station", CommandCategory.RADIO, "Control recommendation stations", risk=CommandRisk.STATE_CHANGING, forms=_forms("start", "stop", "pause", "resume", "status", "next")),
     _spec("discord", "discord", CommandCategory.DISCORD, "Configure Discord Rich Presence", risk=CommandRisk.STATE_CHANGING, forms=_forms("presence")),
