@@ -1,9 +1,11 @@
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
 import main
 from mariana.models import MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
+from mariana.navigation import NavigationRequest, NavigationScope
 from mariana.playlists import PlaylistError
 from mariana.preferences import PreferenceEntry, PreferenceState
 
@@ -161,3 +163,173 @@ def test_blocked_scope_lists_matches_but_refuses_immediate_playback(monkeypatch,
     ]
     with pytest.raises(main.PlaybackBlockedError, match="Playback blocked"):
         main.advanced_search_command([".find", "session", "--in", "blocked"])
+
+
+def _relative_media(media_id="relative-media", source=MediaSource.LOCAL):
+    return MediaRef(source, "C:/relative.mp3", stable_id=media_id, title="Relative")
+
+
+def test_relative_reference_requires_active_media(monkeypatch):
+    monkeypatch.setattr(
+        main.vas.controller, "snapshot", lambda: PlaybackSnapshot(PlaybackState.IDLE, media=None),
+    )
+    request = NavigationRequest(offset=1, immediate=False)
+    with pytest.raises(ValueError, match="currently active media"):
+        main._relative_media_reference(request)
+
+
+def test_relative_results_scope_uses_bound_search_context(monkeypatch):
+    media = _relative_media()
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=media),
+    )
+    bound = SimpleNamespace(target=lambda offset: (0, SimpleNamespace(media=media)))
+    monkeypatch.setattr(main, "_bind_navigation_context", lambda _context, _media: bound)
+    monkeypatch.setattr(main, "_LAST_SEARCH_CONTEXT", SimpleNamespace())
+    request = NavigationRequest(offset=2, immediate=False, scope=NavigationScope.RESULTS)
+    assert main._relative_media_reference(request) is media
+    monkeypatch.setattr(main, "_LAST_SEARCH_CONTEXT", None)
+    with pytest.raises(ValueError, match="No search results"):
+        main._relative_media_reference(request)
+
+
+def test_relative_reference_rejects_stale_and_missing_targets(monkeypatch):
+    media = _relative_media()
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=media),
+    )
+    monkeypatch.setattr(
+        main, "_bind_navigation_context", lambda _context, _media: SimpleNamespace(target=lambda _offset: None),
+    )
+    monkeypatch.setattr(main, "_LAST_SEARCH_CONTEXT", SimpleNamespace())
+    request = NavigationRequest(offset=1, immediate=False, scope=NavigationScope.RESULTS)
+    with pytest.raises(ValueError, match="outside the collection"):
+        main._relative_media_reference(request)
+    monkeypatch.setattr(
+        main, "_bind_navigation_context",
+        lambda _context, _media: SimpleNamespace(target=lambda _offset: (0, SimpleNamespace(media=None))),
+    )
+    with pytest.raises(ValueError, match="missing or unavailable"):
+        main._relative_media_reference(request)
+
+
+def test_relative_queue_scope_respects_repeat_modes(monkeypatch):
+    media = _relative_media()
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=media),
+    )
+    current = SimpleNamespace(media=media, queue_id="current")
+    other = SimpleNamespace(media=_relative_media("other-media"), queue_id="other")
+    monkeypatch.setattr(main.QUEUE, "current", lambda: current)
+    monkeypatch.setattr(main.QUEUE, "items", lambda: [current, other])
+    monkeypatch.setattr(main.QUEUE, "state", lambda: {"repeat_mode": "one"})
+    request = NavigationRequest(offset=5, immediate=False, scope=NavigationScope.QUEUE)
+    assert main._relative_media_reference(request) is media
+    monkeypatch.setattr(main.QUEUE, "state", lambda: {"repeat_mode": "all"})
+    assert main._relative_media_reference(request) is other.media
+    monkeypatch.setattr(main.QUEUE, "state", lambda: {"repeat_mode": "off"})
+    with pytest.raises(ValueError, match="outside the queue"):
+        main._relative_media_reference(request)
+    monkeypatch.setattr(
+        main.QUEUE, "current", lambda: SimpleNamespace(media=_relative_media("elsewhere"), queue_id="missing"),
+    )
+    with pytest.raises(ValueError, match="not the active queue item"):
+        main._relative_media_reference(request)
+
+
+def test_relative_library_fallback_validates_bounds(monkeypatch):
+    media = _relative_media()
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=media),
+    )
+    monkeypatch.setattr(main, "_library_song_index", lambda _uri: 3)
+    monkeypatch.setattr(main, "_sound_files", ["a", "b", "c", "d"])
+    resolved = _relative_media("resolved")
+    monkeypatch.setattr(main, "_library_media", lambda _index: resolved)
+    request = NavigationRequest(offset=1, immediate=False, scope=NavigationScope.LIBRARY)
+    assert main._relative_media_reference(request) is resolved
+    monkeypatch.setattr(main, "_library_song_index", lambda _uri: None)
+    with pytest.raises(ValueError, match="outside the indexed library"):
+        main._relative_media_reference(request)
+    online = _relative_media("online", MediaSource.YOUTUBE)
+    monkeypatch.setattr(
+        main.vas.controller,
+        "snapshot",
+        lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=online),
+    )
+    with pytest.raises(ValueError, match="No ordered collection"):
+        main._relative_media_reference(request)
+
+
+def test_expand_relative_target_passes_through_plain_tokens():
+    assert main._expand_relative_library_target([]) == []
+    assert main._expand_relative_library_target(["seek", "5"]) == ["seek", "5"]
+    assert main._expand_relative_library_target(["play", "3"]) == ["play", "3"]
+
+
+def test_expand_relative_target_rejects_nonlocal_and_unknown_index(monkeypatch):
+    online = _relative_media("online", MediaSource.YOUTUBE)
+    monkeypatch.setattr(main, "_relative_media_reference", lambda _request: online)
+    with pytest.raises(ValueError, match="local library item"):
+        main._expand_relative_library_target(["play", "+1"])
+    local = _relative_media()
+    monkeypatch.setattr(main, "_relative_media_reference", lambda _request: local)
+    monkeypatch.setattr(main, "_library_song_index", lambda _uri: None)
+    with pytest.raises(ValueError, match="outside the indexed library"):
+        main._expand_relative_library_target(["play", "+1"])
+
+
+def test_expand_relative_target_resolves_library_index(monkeypatch):
+    monkeypatch.setattr(main, "_relative_media_reference", lambda _request: _relative_media())
+    monkeypatch.setattr(main, "_library_song_index", lambda _uri: 7)
+    assert main._expand_relative_library_target(["play", "+1"]) == ["play", "7"]
+
+
+def test_scoped_entries_reject_unknown_scopes_and_playlists(monkeypatch):
+    request = SimpleNamespace(scope=main.SearchScope.CATALOGUE, scope_name=None, action="list", query=("x",))
+    with pytest.raises(ValueError, match="Unsupported search scope"):
+        main._scoped_search_entries(request)
+    monkeypatch.setattr(
+        main.QUEUE, "playlists", SimpleNamespace(get=Mock(side_effect=main.PlaylistError("Unknown playlist: Missing"))),
+    )
+    scoped = SimpleNamespace(scope="playlist", scope_name="Missing", action="list", query=("x",))
+    with pytest.raises(ValueError, match="Unknown playlist: Missing"):
+        main._scoped_search_entries(scoped)
+
+
+def test_scoped_play_rejects_unavailable_queue_results(monkeypatch):
+    missing = {"position": 1, "media": None}
+    request = SimpleNamespace(scope="queue")
+    with pytest.raises(ValueError, match="unavailable"):
+        main._play_scoped_search_entry(missing, request)
+    gone = {"position": 2, "media": _relative_media(), "queue_id": "gone"}
+    monkeypatch.setattr(main.QUEUE, "items", lambda: [])
+    with pytest.raises(ValueError, match="no longer available"):
+        main._play_scoped_search_entry(gone, request)
+
+
+def test_advanced_scoped_search_reports_empty_and_short_results(monkeypatch):
+    monkeypatch.setattr(main.QUEUE, "items", lambda: [])
+    empty = SimpleNamespace(
+        scope=main.SearchScope.QUEUE, scope_name=None, action="list",
+        query=("zzz-no-match",), mode="all", limit=None, result_index=None,
+    )
+    assert main._advanced_scoped_search(empty) == []
+    monkeypatch.setattr(main, "_scoped_search_entries", lambda _request: [
+        {"position": 1, "media": _relative_media(), "stable_id": "relative-media",
+         "label": "Relative", "search": "Relative"},
+    ])
+    short = SimpleNamespace(
+        scope=main.SearchScope.QUEUE, scope_name=None, action="first",
+        query=("Relative",), mode="all", limit=None, result_index=5,
+    )
+    with pytest.raises(ValueError, match="only 1 match"):
+        main._advanced_scoped_search(short)

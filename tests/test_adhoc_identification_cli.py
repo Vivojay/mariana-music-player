@@ -241,3 +241,12 @@ def test_provider_failure_display_does_not_offer_tool_setup(capture_scene):
     ))
     assert "HTTP 403" in output[-1]
     assert calls == []
+
+
+def test_identify_usage_errors_report_without_touching_playback(capture_scene):
+    _media, _state, calls, _output = capture_scene
+    with pytest.raises(AdHocIdentificationError, match="Usage"):
+        main.media_command(["identify", "listen", "15", "extra"])
+    with pytest.raises(AdHocIdentificationError, match="Usage"):
+        main._adhoc_identification_command(["bogus"])
+    assert calls == []
