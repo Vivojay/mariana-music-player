@@ -361,6 +361,8 @@ export type MarianaMiniPlayerApi = {
   videoStatus?(): Promise<DesktopControlResult>
   videoCaptionConfigure?(mediaId: string, action: 'on' | 'off' | 'clear' | 'shift' | 'set-offset', value?: number): Promise<DesktopControlResult>
   videoAudioOffset?(mediaId: string, value: number, relative: boolean): Promise<DesktopControlResult>
+  downloadCurrent(mediaId: string, format: 'mp3' | 'mp4'): Promise<DesktopControlResult>
+  downloadStatus(): Promise<DesktopControlResult>
   snapshot(): Promise<MiniPlayerSnapshot>
   onSnapshot(callback: (snapshot: MiniPlayerSnapshot) => void): () => void
   play(mediaId: string): Promise<DesktopControlResult>

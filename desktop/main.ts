@@ -849,6 +849,17 @@ function registerIpc() {
   ipcMain.handle('mini:video-audio-offset', (event, mediaId, value, relative) => (
     audioOffset(validateMiniPlayerSender(event), mediaId, value, relative)
   ))
+  ipcMain.handle('mini:download-current', (event, mediaId: unknown, format: unknown) => {
+    if (!validateMiniPlayerSender(event) || !validControlMediaId(mediaId)
+      || mediaId !== playbackStatus?.media_id || !['mp3', 'mp4'].includes(String(format))) {
+      return { ok: false, error: 'Download target is unavailable' }
+    }
+    return requestBackendControl('download.current', { media_id: mediaId, format }, playbackControlMessages)
+  })
+  ipcMain.handle('mini:download-status', (event) => {
+    if (!validateMiniPlayerSender(event)) return { ok: false, error: 'Download request is invalid' }
+    return requestBackendControl('download.status', {}, playbackControlMessages)
+  })
   const miniPlaybackControl = (
     event: Electron.IpcMainInvokeEvent,
     mediaId: unknown,
