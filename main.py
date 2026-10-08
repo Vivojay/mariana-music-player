@@ -177,6 +177,13 @@ from mariana.session_service import SessionRecipeService
 from mariana.sleep_timer import SleepAction, SleepTimer, parse_duration
 from mariana.sources import FailureCode, MediaFailure, ResolvedMedia
 from mariana.station import StationError, StationManager
+from mariana.strudel_projects import (
+    MAX_CODE_BYTES as STRUDEL_MAX_CODE_BYTES,
+    MAX_PREVIEW_SECONDS as STRUDEL_MAX_PREVIEW_SECONDS,
+    MAX_PROJECTS as STRUDEL_MAX_PROJECTS,
+    StrudelProjectError,
+    StrudelProjectStore,
+)
 from mariana.tag_commands import TagCommandService
 from mariana.tags import TagError, TagStore
 from mariana.station_discovery import StationDiscovery, StationSeedError
@@ -651,6 +658,7 @@ _LOCAL_COPY_HINTED_MEDIA_IDS: set[str] = set()
 _LOCAL_COPY_HINT_LOCK = threading.Lock()
 PREFERENCES = MediaPreferences(DATABASE)
 PLAY_REGIONS = PlayRegionStore(DATABASE)
+STRUDEL_PROJECTS = StrudelProjectStore(RUNTIME_PATHS.state('strudel', 'projects.json'))
 REPLAYGAIN_SETTINGS = {
     **SETTINGS.get('replaygain', {}),
     **DATABASE.get_state('replaygain', {}),
@@ -5391,6 +5399,7 @@ HELP_GROUPS = (
     ),
     ('Playlists', 'playlist list/create/show/add/remove/move/order/play/queue/import/export; transfer copy/move'),
     ('Tags', 'tag help/list/create/attach/detach/show/rename/delete/find/play/queue/group'),
+    ('Composition', 'strudel open/list/new/show/play/delete'),
     ('Session recipes', 'session record/list/status/stop/inspect/play/seek; verified sources and two-source crossfades'),
     ('Paired desktops', 'room status/host/stop/invite/requests/approve/reject/devices/revoke/connect/poll/now/cancel/disconnect'),
     ('Lyrics', 'lyrics|lyr, lyrics edit|lyr edit, open lyrics'),
@@ -5429,6 +5438,7 @@ HELP_EXAMPLES = {
         'tag help', 'tag attach current "Late night"', 'tag find --all ambient --not live',
         'tag play 1', 'tag queue 2', 'tag group create Mood',
     ),
+    'Composition': ('strudel open', 'strudel new "Night pattern"', 'strudel list', 'strudel play "Night pattern"'),
     'Lyrics': ('lyrics', 'lyrics edit', 'open lyrics'),
     'Radio': ('radio search jazz', 'radio list', 'radio play 1', 'radio metadata'),
     'Discord Presence': ('discord presence status', 'discord presence track', 'discord presence off'),
@@ -5679,6 +5689,161 @@ def help_command(arguments):
     IPrint("Use 'help <topic>' to narrow this list; help.md and README.md document every command family.", visible=visible)
     return rows
 
+
+def _emit_strudel_projects(*, open_requested=False, selected_id=None):
+    projection = STRUDEL_PROJECTS.projection(
+        open_requested=open_requested,
+        selected_id=selected_id,
+    )
+    DESKTOP_CONTROL.emit('strudel', projection)
+    return projection
+
+
+def _emit_startup_strudel_projects():
+    try:
+        return _emit_strudel_projects()
+    except StrudelProjectError as error:
+        IPrint(f"[WARNING: Pattern projects were not loaded: {error}]", visible=False)
+        projection = {
+            "schema_version": 1,
+            "open_requested": False,
+            "selected_id": None,
+            "projects": [],
+            "limits": {
+                "max_projects": STRUDEL_MAX_PROJECTS,
+                "max_code_bytes": STRUDEL_MAX_CODE_BYTES,
+                "max_preview_seconds": STRUDEL_MAX_PREVIEW_SECONDS,
+            },
+        }
+        DESKTOP_CONTROL.emit("strudel", projection)
+        return projection
+
+
+def strudel_command(arguments):
+    """Manage local composition projects; editing and rendering stay in the desktop surface."""
+    operation = arguments[0].casefold() if arguments else 'open'
+    if (operation in {'open', 'editor'} and len(arguments) == 1) or not arguments:
+        if not getattr(DESKTOP_CONTROL, 'enabled', False):
+            raise StrudelProjectError('The Strudel editor is available in the Mariana desktop application')
+        _emit_strudel_projects(open_requested=True)
+        IPrint('Opening the Strudel project editor.', visible=visible)
+        return None
+    if operation in {'list', 'ls'} and len(arguments) == 1:
+        projects = STRUDEL_PROJECTS.list()
+        rows = [
+            (project.name, project.project_id[:8], project.revision, project.preview_seconds, time.ctime(project.updated_at))
+            for project in projects
+        ]
+        IPrint(
+            tbl(rows, headers=('Project', 'ID', 'Revision', 'Preview seconds', 'Updated'), tablefmt='plain')
+            if rows else '(no Strudel projects)',
+            visible=visible,
+        )
+        return projects
+    if operation == 'new' and len(arguments) >= 2:
+        project = STRUDEL_PROJECTS.create(' '.join(arguments[1:]))
+        _emit_strudel_projects(open_requested=bool(getattr(DESKTOP_CONTROL, 'enabled', False)), selected_id=project.project_id)
+        IPrint(f'Created Strudel project: {project.name} ({project.project_id[:8]})', visible=visible)
+        return project
+    if operation in {'show', 'play'} and len(arguments) >= 2:
+        project = STRUDEL_PROJECTS.get(' '.join(arguments[1:]))
+        if operation == 'show':
+            IPrint(
+                f'Project: {project.name}\nID: {project.project_id}\nRevision: {project.revision}\n'
+                f'Preview: {project.preview_seconds} seconds\n\n{project.code}',
+                visible=visible,
+            )
+        elif not getattr(DESKTOP_CONTROL, 'enabled', False):
+            raise StrudelProjectError('Strudel previews are rendered by the Mariana desktop application')
+        else:
+            _emit_strudel_projects(open_requested=True, selected_id=project.project_id)
+            DESKTOP_CONTROL.emit('strudel-render-requested', {'project_id': project.project_id})
+            IPrint(f'Rendering Strudel preview: {project.name}', visible=visible)
+        return project
+    if operation == 'delete' and len(arguments) >= 2:
+        yes, values = _confirmation_bypass(arguments[1:], preserve_single_bare=True)
+        if not values:
+            raise StrudelProjectError('Usage: strudel delete <project-id-or-name> [y|yes|--yes]')
+        project = STRUDEL_PROJECTS.get(' '.join(values))
+        if not _confirm_action(f'Delete Strudel project "{project.name}"?', assume_yes=yes):
+            IPrint('Strudel project deletion cancelled', visible=visible)
+            return None
+        deleted = STRUDEL_PROJECTS.delete(project.project_id, project.revision)
+        _emit_strudel_projects()
+        IPrint(f'Deleted Strudel project: {deleted.name}', visible=visible)
+        return deleted
+    raise StrudelProjectError(
+        'Usage: strudel [open|list|new <name>|show <id-or-name>|play <id-or-name>|delete <id-or-name> [--yes]]'
+    )
+
+
+def _strudel_preview_path(artifact_name):
+    if not isinstance(artifact_name, str) or not re.fullmatch(r'[0-9a-f]{32}-[0-9a-f]{64}\.wav', artifact_name):
+        raise StrudelProjectError('Rendered preview identity is invalid')
+    root = (RUNTIME_PATHS.temporary / 'strudel').resolve()
+    path = (root / artifact_name).resolve()
+    if path.parent != root or not path.is_file() or path.stat().st_size > 16 * 1024 * 1024:
+        raise StrudelProjectError('Rendered preview is unavailable or oversized')
+    return path
+
+
+def _play_strudel_preview(payload):
+    if set(payload) != {'project_id', 'revision', 'artifact_name'}:
+        raise StrudelProjectError('Rendered preview request is invalid')
+    project_id = payload.get('project_id')
+    revision = payload.get('revision')
+    if not isinstance(project_id, str) or type(revision) is not int:
+        raise StrudelProjectError('Rendered preview request is invalid')
+    project = STRUDEL_PROJECTS.get(project_id)
+    if project.revision != revision:
+        raise StrudelProjectError('Project changed; render the saved revision again')
+    path = _strudel_preview_path(payload.get('artifact_name'))
+    try:
+        import wave
+
+        with wave.open(str(path), 'rb') as stream:
+            channels = stream.getnchannels()
+            sample_width = stream.getsampwidth()
+            sample_rate = stream.getframerate()
+            frames = stream.getnframes()
+            compression = stream.getcomptype()
+    except (OSError, EOFError, wave.Error) as error:
+        raise StrudelProjectError('Rendered preview is not a valid WAV file') from error
+    expected_frames = project.preview_seconds * 48_000
+    if (
+        channels != 2
+        or sample_width != 2
+        or sample_rate != 48_000
+        or compression != 'NONE'
+        or abs(frames - expected_frames) > 48_000
+    ):
+        raise StrudelProjectError('Rendered preview audio does not match the requested project settings')
+    import hashlib
+
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    if not path.name.endswith(f'-{digest}.wav'):
+        raise StrudelProjectError('Rendered preview failed its integrity check')
+    stable_id = hashlib.sha256(
+        f'strudel\0{project.project_id}\0{project.revision}\0{digest}'.encode()
+    ).hexdigest()[:24]
+    media = MediaRef(
+        MediaSource.LOCAL,
+        str(path),
+        title=project.name,
+        duration=float(project.preview_seconds),
+        stable_id=stable_id,
+        provenance='strudel-render',
+        capabilities=MediaCapabilities(
+            finite=True,
+            live=False,
+            seekable=True,
+            fingerprintable=False,
+            downloadable=False,
+            metadata_available=True,
+        ),
+    )
+    play_local_default_player(str(path), _songindex=None, media=media, ephemeral=True)
+    return project
 
 def autoplay_command(arguments):
     global AUTOPLAY_ENABLED
@@ -6555,6 +6720,43 @@ def _apply_desktop_control_request(action: str, payload: dict[str, object]) -> d
         except Exception:
             return {'ok': False, 'error': 'Selection unavailable or changed; find versions again'}
         return {'ok': True}
+
+    if action in {'strudel.open', 'strudel.save', 'strudel.delete', 'strudel.preview'}:
+        try:
+            if action == 'strudel.open':
+                if payload:
+                    raise StrudelProjectError('Strudel editor request is invalid')
+                _emit_strudel_projects(open_requested=True)
+            elif action == 'strudel.save':
+                if set(payload) != {'project_id', 'name', 'code', 'preview_seconds', 'revision'}:
+                    raise StrudelProjectError('Project save request is invalid')
+                project_id = payload.get('project_id')
+                revision = payload.get('revision')
+                if project_id is not None and not isinstance(project_id, str):
+                    raise StrudelProjectError('Project identity is invalid')
+                project = STRUDEL_PROJECTS.save(
+                    project_id=cast(str | None, project_id),
+                    name=payload.get('name'),
+                    code=payload.get('code'),
+                    preview_seconds=payload.get('preview_seconds'),
+                    expected_revision=revision,
+                )
+                _emit_strudel_projects(selected_id=project.project_id)
+            elif action == 'strudel.delete':
+                if set(payload) != {'project_id', 'revision'}:
+                    raise StrudelProjectError('Project deletion request is invalid')
+                STRUDEL_PROJECTS.delete(payload.get('project_id'), payload.get('revision'))
+                _emit_strudel_projects()
+            else:
+                if COMMAND_BUSY.is_set():
+                    raise StrudelProjectError('Another command is active; try the preview again')
+                project = _play_strudel_preview(payload)
+                _emit_strudel_projects(selected_id=project.project_id)
+            return {'ok': True}
+        except (OSError, StrudelProjectError) as error:
+            return {'ok': False, 'error': str(error)}
+        except Exception:
+            return {'ok': False, 'error': 'Strudel project operation failed'}
 
     if action == 'homepage.open':
         if payload:
@@ -7770,7 +7972,7 @@ def _navigate_active_queue(command, offset):
     return True
 
 
-def play_local_default_player(songpath, _songindex, is_queue=False, media=None, presentation=None):
+def play_local_default_player(songpath, _songindex, is_queue=False, media=None, presentation=None, ephemeral=False):
     global isplaying, currentsong, currentsong_length, songindex
     global USER_DATA, current_media_type, SONG_CHANGED
 
@@ -7813,7 +8015,8 @@ def play_local_default_player(songpath, _songindex, is_queue=False, media=None, 
                 IPrint(colored.fg('dark_olive_green_2') + \
                     f':: {os.path.splitext(os.path.split(songpath)[1])[0]}' + \
                     colored.attr('reset'), visible=visible)
-                recents_queue_save(currentsong)
+                if not ephemeral:
+                    recents_queue_save(currentsong)
 
 
         current_media_type = None
@@ -7846,12 +8049,13 @@ def play_local_default_player(songpath, _songindex, is_queue=False, media=None, 
             get_currentsong_length()
 
         # Save current audio to log/history.log in human readable form
-        SAY(visible=visible,
-            display_message = '',
-            out_file=RUNTIME_PATHS.logs / 'history.log',
-            log_message = currentsong,
-            log_priority = 3,
-            format_style = 0)
+        if not ephemeral:
+            SAY(visible=visible,
+                display_message = '',
+                out_file=RUNTIME_PATHS.logs / 'history.log',
+                log_message = currentsong,
+                log_priority = 3,
+                format_style = 0)
 
         if not is_queue and queue_item is not None:
             _prefetch_after(queue_item)
@@ -10112,6 +10316,17 @@ def process(command):
                     visible=visible,
                     display_message=f'Setup command failed: {error}',
                     log_message=f'Setup command failed: {error}',
+                    log_priority=2,
+                )
+
+        elif commandslist[0].lower() == 'strudel':
+            try:
+                strudel_command(commandslist[1:])
+            except StrudelProjectError as error:
+                SAY(
+                    visible=visible,
+                    display_message=str(error),
+                    log_message=f'Strudel project command failed: {error}',
                     log_priority=2,
                 )
 

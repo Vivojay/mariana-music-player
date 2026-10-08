@@ -418,6 +418,35 @@ rename rejects the stale operation without overwriting newer contents. History
 survives restarts; restore recovers tracks, nesting, and ordering, not an old
 playlist name or description. Deleting a playlist still deletes its history.
 
+## Composition
+
+The desktop **Patterns** button opens a compact Strudel project studio. Project
+source is saved locally in Mariana's writable application data and is revision
+checked, so an older editor cannot overwrite a newer save. The editor renders a
+bounded stereo WAV preview in an isolated background surface and then gives that
+preview to Mariana's existing playback pipeline. It does not create a second
+audible Web Audio player, alter downloads, or publish project source.
+
+| Command | Purpose |
+| --- | --- |
+| `strudel`, `strudel open` | Open the desktop pattern studio |
+| `strudel list` | List saved project names, short IDs, revisions, and preview durations |
+| `strudel new <name>` | Create a saved project from the starter pattern and open it in the desktop |
+| `strudel show <name-or-id>` | Print a saved project's bounded source and revision |
+| `strudel play <name-or-id>` | Ask the desktop renderer to render the saved revision, then play it through Mariana |
+| `strudel delete <name-or-id> [y\|yes\|--yes]` | Confirm deletion of a saved project; generated previews remain disposable runtime data |
+
+In the editor, `Ctrl+S`/`Cmd+S` saves and `Ctrl+Enter`/`Cmd+Enter` renders the
+currently saved revision. Unsaved changes cannot be rendered. Preview duration is
+1–60 seconds, source is limited to 64 KiB, and at most 100 projects are stored.
+Rendered previews are disposable runtime data capped at 24 files and 192 MiB;
+the preview currently being handed to playback is retained during cleanup.
+Sample-based patterns may fetch the official Strudel sample maps and samples on
+first render; failures remain nonfatal. Synth-only patterns do not send local
+media paths or Mariana credentials to a remote service. This first integration is
+render-and-play rather than zero-latency live coding: edit, save, then render again
+to hear a change.
+
 ## Tags and tag-result playback
 
 `tag` lists definitions; `tag help` explains the complete family. For example:
