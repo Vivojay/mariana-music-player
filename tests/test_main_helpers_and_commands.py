@@ -960,6 +960,7 @@ def test_help_covers_user_topics_examples_and_legacy_topic_names(monkeypatch):
         "Library",
         "Playlists",
         "Tags",
+        "Composition",
         "Session recipes",
         "Paired desktops",
         "Lyrics",

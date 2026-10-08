@@ -19,6 +19,7 @@ class CommandCategory(StrEnum):
     LIBRARY = "Library"
     FAVORITES = "Favourites and blocked media"
     PLAYLISTS = "Playlists and albums"
+    COMPOSITION = "Composition"
     PAIRED_DESKTOPS = "Paired desktops"
     LYRICS = "Lyrics"
     RADIO = "Radio and stations"
@@ -249,6 +250,18 @@ COMMAND_CATALOG = (
     _spec("playlist.delete", "playlist delete", CommandCategory.PLAYLISTS, "Confirm deletion of a bound playlist revision", risk=CommandRisk.DESTRUCTIVE, forms=_forms(arguments=("playlist-name",), flags=("--yes",))),
     _spec("playlist.clear", "playlist clear", CommandCategory.PLAYLISTS, "Confirm clearing of a bound playlist revision", risk=CommandRisk.DESTRUCTIVE, forms=_forms(arguments=("playlist-name",), flags=("--yes",))),
     _spec("album", "album", CommandCategory.PLAYLISTS, "Search or inspect albums", forms=_forms("search", "show", "tracks", "play", "queue", "save")),
+    _spec(
+        "strudel",
+        "strudel",
+        CommandCategory.COMPOSITION,
+        "Open the local Strudel pattern studio",
+    ),
+    _spec("strudel.open", "strudel open", CommandCategory.COMPOSITION, "Open the local Strudel pattern studio"),
+    _spec("strudel.list", "strudel list", CommandCategory.COMPOSITION, "List saved local pattern projects"),
+    _spec("strudel.new", "strudel new", CommandCategory.COMPOSITION, "Create a starter pattern project", risk=CommandRisk.STATE_CHANGING, forms=_forms(arguments=("project-name",))),
+    _spec("strudel.show", "strudel show", CommandCategory.COMPOSITION, "Show one saved project's source and revision", forms=_forms(arguments=("project-name-or-id",))),
+    _spec("strudel.play", "strudel play", CommandCategory.COMPOSITION, "Render and play one saved project preview", risk=CommandRisk.EXTERNAL_ACTION, forms=_forms(arguments=("project-name-or-id",))),
+    _spec("strudel.delete", "strudel delete", CommandCategory.COMPOSITION, "Confirm deletion of one saved project", risk=CommandRisk.DESTRUCTIVE, forms=_forms(arguments=("project-name-or-id",), flags=("--yes",))),
     _spec("tag", "tag", CommandCategory.LIBRARY, "List durable media tags; tag help explains targets and search", forms=_forms("help", "list", "show", "find")),
     _spec("tag.create", "tag create", CommandCategory.LIBRARY, "Create a tag without changing media files", risk=CommandRisk.STATE_CHANGING, forms=_forms(arguments=("tag-name",), flags=("--description",))),
     _spec("tag.attach", "tag attach", CommandCategory.LIBRARY, "Attach tags to current media or a stable library selection", risk=CommandRisk.STATE_CHANGING, forms=_forms(arguments=("current-or-library-index", "tag-name"))),
