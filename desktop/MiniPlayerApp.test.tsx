@@ -17,6 +17,8 @@ const showMain = vi.fn(async () => undefined)
 const hide = vi.fn(async () => undefined)
 const play = vi.fn(async () => ({ ok: true }))
 const pause = vi.fn(async () => ({ ok: true }))
+const downloadCurrent = vi.fn(async () => ({ ok: true }))
+const downloadStatus = vi.fn(async () => ({ ok: true }))
 const previous = vi.fn(async () => ({ ok: true }))
 const next = vi.fn(async () => ({ ok: true }))
 let snapshot: MiniPlayerSnapshot
@@ -27,6 +29,8 @@ beforeEach(() => {
   hide.mockClear()
   play.mockClear()
   pause.mockClear()
+  downloadCurrent.mockClear()
+  downloadStatus.mockClear()
   previous.mockClear()
   next.mockClear()
   receiveSnapshot = undefined
@@ -41,6 +45,8 @@ beforeEach(() => {
     pause,
     previous,
     next,
+    downloadCurrent,
+    downloadStatus,
     showMain,
     hide,
     platform: 'win32',
