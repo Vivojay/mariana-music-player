@@ -54,6 +54,8 @@ pillow==12.3.0
     # via -r requirements.in
 platformdirs==4.10.0
     # via -r requirements.in
+prompt-toolkit==3.0.53
+    # via -r requirements.in
 psutil==7.2.2
     # via
     #   -r requirements.in
@@ -100,6 +102,8 @@ urllib3==2.8.0
     #   yt-dlp
 watchdog==6.0.0
     # via -r requirements.in
+wcwidth==0.9.2
+    # via prompt-toolkit
 websockets==16.1
     # via yt-dlp
 yt-dlp[default]==2026.7.4
