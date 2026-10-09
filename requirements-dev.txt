@@ -241,7 +241,7 @@ typing-extensions==4.16.0
     #   textual
 uc-micro-py==2.0.0
     # via linkify-it-py
-urllib3==2.7.0
+urllib3==2.8.0
     # via
     #   requests
     #   yt-dlp

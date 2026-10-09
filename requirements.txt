@@ -94,7 +94,7 @@ tqdm==4.68.4
     # via -r requirements.in
 truststore==0.10.4
     # via -r requirements.in
-urllib3==2.7.0
+urllib3==2.8.0
     # via
     #   requests
     #   yt-dlp
