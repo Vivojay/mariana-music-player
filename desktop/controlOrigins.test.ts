@@ -25,11 +25,12 @@ function host() {
   const handlers = new Map<string, Handler>()
   const desktop = { webContents: {} }
   const mini = { webContents: {} }
+  const video = { webContents: {}, hide: vi.fn() }
   const request = vi.fn<(action: string, payload: object, messages: object) => Promise<{ ok: boolean }>>()
     .mockResolvedValue({ ok: true })
   const validateSeek = vi.fn(() => ({ ok: true, targetSeconds: 60 }))
   runInNewContext(hostCode, {
-    mainWindow: desktop, miniPlayerWindow: mini,
+    mainWindow: desktop, miniPlayerWindow: mini, videoWindow: video,
     ipcMain: { handle: (channel: string, handler: Handler) => handlers.set(channel, handler), on: vi.fn() },
     protocol: { handle: vi.fn() },
     requestBackendControl: request, validateSeekIntent: validateSeek,
@@ -40,7 +41,7 @@ function host() {
     if (!handler) throw new Error(`Unregistered IPC channel: ${channel}`)
     return handler({ sender }, ...args)
   }
-  return { desktop: desktop.webContents, mini: mini.webContents, request, validateSeek, invoke }
+  return { desktop: desktop.webContents, mini: mini.webContents, video: video.webContents, request, validateSeek, invoke }
 }
 
 describe('host-authored playback origins', () => {
@@ -56,6 +57,14 @@ describe('host-authored playback origins', () => {
   it.each(['play', 'pause', 'previous', 'next'])('authors mini-player %s origin without trusting renderer extras', async (action) => {
     const scene = host()
     expect(await scene.invoke(`mini:${action}`, scene.mini, 'media-1', { origin: 'cli' })).toEqual({ ok: true })
+    expect(scene.request).toHaveBeenCalledExactlyOnceWith(
+      `playback.${action}`, { media_id: 'media-1', origin: 'mini-player' }, {},
+    )
+  })
+
+  it.each(['play', 'pause', 'previous', 'next'])('authors separate video window %s origin like the mini player', async (action) => {
+    const scene = host()
+    expect(await scene.invoke(`mini:${action}`, scene.video, 'media-1', { origin: 'cli' })).toEqual({ ok: true })
     expect(scene.request).toHaveBeenCalledExactlyOnceWith(
       `playback.${action}`, { media_id: 'media-1', origin: 'mini-player' }, {},
     )
