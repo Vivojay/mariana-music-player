@@ -115,6 +115,7 @@ from mariana.entertainment_catalog import BY_ID as ENTERTAINMENT_ENTRIES
 from mariana.entertainment_catalog import CatalogueReader
 from mariana.download import DownloadError, download_media, prepare_download_target
 from mariana.download_jobs import DownloadJobError, DownloadManager
+from mariana.desktop_downloads import DesktopDownloads
 from mariana.adhoc_identification import (
     DEFAULT_CAPTURE_SECONDS,
     MAX_CAPTURE_SECONDS,
@@ -736,6 +737,11 @@ DOWNLOADS = DownloadManager(
     ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'),
     browser_profile=SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile'),
     on_update=lambda payload: DESKTOP_CONTROL.emit('download', payload),
+)
+DESKTOP_DOWNLOADS = DesktopDownloads(
+    DOWNLOADS,
+    lambda: Path(SETTINGS['download']['downloads folder']),
+    ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'),
 )
 vas.configure(
     ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'),
@@ -7399,6 +7405,30 @@ def _apply_desktop_control_request(action: str, payload: dict[str, object]) -> d
             return {'ok': False, 'error': str(error)}
         except Exception:
             return {'ok': False, 'error': 'Could not update crossfade settings'}
+    if action in {'download.status', 'download.current'}:
+        try:
+            if action == 'download.status':
+                if payload:
+                    raise DownloadError('Invalid download status request')
+            else:
+                if set(payload) != {'media_id', 'format'} or payload.get('format') not in {'mp3', 'mp4'}:
+                    raise DownloadError('Invalid download request')
+                snapshot = vas.controller.snapshot()
+                projection = project_playback_status(snapshot)
+                if not snapshot.media or payload.get('media_id') != projection.media_id:
+                    raise DownloadError('Current media changed; try again')
+                if not projection.finite or projection.live:
+                    raise DownloadError('Live or unknown-duration media cannot be downloaded as a finite item')
+                if not snapshot.media.capabilities.downloadable:
+                    raise DownloadError('The active media is not downloadable')
+                _ensure_media_playable(snapshot.media)
+                DESKTOP_DOWNLOADS.start(snapshot.media, str(payload['format']))
+            DESKTOP_CONTROL.emit('desktop-download', {'jobs': DESKTOP_DOWNLOADS.status()})
+            return {'ok': True}
+        except (DownloadError, DownloadJobError, PlaybackBlockedError) as error:
+            return {'ok': False, 'error': str(error)}
+        except Exception:
+            return {'ok': False, 'error': 'Download is unavailable'}
     if action in {'video.status', 'video.configure', 'video.captions', 'video.audio-offset'}:
         try:
             if action == 'video.status':
@@ -8115,6 +8145,7 @@ def exitplayer(sys_exit=False):
         ('video', VIDEO.close),
         ('playback resume', close_resume),
         ('downloads', DOWNLOADS.close),
+        ('desktop downloads', DESKTOP_DOWNLOADS.close),
         ('broadcast', BROADCASTER.close),
         ('homepage', HOMEPAGE.close),
         ('catalogue', CATALOGUE_READER.close),
