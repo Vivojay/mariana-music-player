@@ -14,6 +14,7 @@ import { projectLocalVideo, type LocalVideoStatus } from './localVideo.js'
 import { projectHostVideoResource, serveLocalVideo, serveSourceVideo, type HostVideoResource } from './localVideoProtocol.js'
 import { hasCurrentVideo, miniWindowGeometry } from './miniVideoLayout.js'
 import { shouldDeliverMiniSnapshot } from './miniPlayerUpdates.js'
+import { validStrudelPreviewInput, validStrudelSaveInput } from './strudelProjects.js'
 import type {
   BackendEvent,
   CommandCatalogOptions,
@@ -690,6 +691,35 @@ function registerIpc() {
       { media_id: mediaId, target_seconds: validation.targetSeconds, origin: 'desktop' },
       seekControlMessages,
     )
+  })
+  ipcMain.handle('backend:strudel-open', async (event) => {
+    if (!validateSender(event)) return { ok: false, error: 'Pattern editor request is invalid' }
+    return requestBackendControl('strudel.open', {})
+  })
+  ipcMain.handle('backend:strudel-save', async (event, input: unknown) => {
+    if (!validateSender(event) || !validStrudelSaveInput(input)) {
+      return { ok: false, error: 'Pattern project is invalid' }
+    }
+    return requestBackendControl('strudel.save', {
+      project_id: input.project_id,
+      name: input.name,
+      code: input.code,
+      preview_seconds: input.preview_seconds,
+      revision: input.revision,
+    })
+  })
+  ipcMain.handle('backend:strudel-delete', async (event, projectId: unknown, revision: unknown) => {
+    if (!validateSender(event) || typeof projectId !== 'string' || !/^[0-9a-f]{32}$/.test(projectId)
+      || !Number.isSafeInteger(revision) || Number(revision) < 1) {
+      return { ok: false, error: 'Pattern project deletion request is invalid' }
+    }
+    return requestBackendControl('strudel.delete', { project_id: projectId, revision })
+  })
+  ipcMain.handle('backend:strudel-preview', async (event, input: unknown) => {
+    if (!validateSender(event) || !validStrudelPreviewInput(input)) {
+      return { ok: false, error: 'Pattern preview request is invalid' }
+    }
+    return { ok: false, error: 'Pattern rendering needs the desktop render worker' }
   })
   protocol.handle('mariana-video', (request) => localVideoStatus?.transport === 'source' ? serveSourceVideo(
     request, () => ({ status: backendReady ? localVideoStatus : null,
