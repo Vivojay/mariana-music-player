@@ -205,7 +205,7 @@ export function formatChapterLabel(chapter: PlaybackStatus['chapter']): string {
   return position && title ? `${position} · ${title}` : position || title
 }
 
-type BackendEventName = 'starting' | 'ready' | 'playback' | 'video' | 'discovery' | 'equalizer' | 'station' | 'sleep' | 'broadcast' | 'loudness' | 'queue' | 'playlist' | 'album' | 'download' | 'theme' | 'desktop-preferences' | 'desktop-notice' | 'strudel' | 'strudel-render-requested' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error' | 'control-result'
+type BackendEventName = 'starting' | 'ready' | 'playback' | 'hotspots' | 'resume-offer' | 'video' | 'desktop-download' | 'homepage' | 'discovery' | 'artwork' | 'lyrics' | 'equalizer' | 'crossfade' | 'strudel' | 'strudel-render-requested' | 'station' | 'sleep' | 'broadcast' | 'loudness' | 'queue' | 'playlist' | 'album' | 'download' | 'theme' | 'desktop-preferences' | 'desktop-notice' | 'focus-recovery' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error' | 'control-result'
 
 export type BackendEvent = {
   event: Exclude<BackendEventName, 'playback'>
@@ -225,6 +225,11 @@ export type BackendSnapshot = {
   playbackState: string
   sleepActive: boolean
   playback: PlaybackStatus | null
+  strudel?: import('./strudelProjects.js').StrudelProjection | null
+  focusRecovery?: import('./focusRecovery.js').FocusRecovery | null
+  hotspots?: PlaybackHotspots | null
+  homepage?: HomepageProjection | null
+  artwork?: ArtworkStatus | null
 }
 
 export type MiniPlayerSnapshot = {
@@ -233,6 +238,7 @@ export type MiniPlayerSnapshot = {
   playback: PlaybackStatus | null
   video?: import('./localVideo.js').LocalVideoStatus | null
   videoTimestamp?: number | null
+  artwork?: ArtworkStatus | null
 }
 
 export type DesktopControlResult = {
@@ -347,6 +353,21 @@ export type MarianaDesktopApi = {
     discoveryBegin(itemId: string, requestId: string, page?: number): Promise<DesktopControlResult>
     discoveryChoose(requestId: string, revision: number, choiceId: string, intent: 'versions' | 'play' | 'queue'): Promise<DesktopControlResult>
     discoveryCancel(requestId: string): Promise<DesktopControlResult>
+    downloadCurrent(mediaId: string, format: 'mp3' | 'mp4'): Promise<DesktopControlResult>
+    downloadStatus(): Promise<DesktopControlResult>
+    homepageRefresh(): Promise<DesktopControlResult>
+    homepageOpen(): Promise<DesktopControlResult>
+    homepageConfigure(setting: 'startup' | 'online', enabled: boolean): Promise<DesktopControlResult>
+    homepageImageData(cacheKey: string): Promise<ArtworkDataResult>
+    focusRecoveryRetry(): Promise<DesktopControlResult>
+    lyricsStatus(): Promise<DesktopControlResult>
+    lyricsRequest(mediaId: string, refresh: boolean): Promise<DesktopControlResult>
+    lyricsOffset(mediaId: string, offsetMs: number): Promise<DesktopControlResult>
+    lyricsHide(): Promise<DesktopControlResult>
+    artworkConfigure(enabled: boolean): Promise<DesktopControlResult>
+    artworkShow(mediaId: string, fetch: boolean): Promise<DesktopControlResult>
+    artworkData(cacheKey: string): Promise<ArtworkDataResult>
+    crossfadeConfigure(seconds: number): Promise<DesktopControlResult>
     strudelOpen(): Promise<DesktopControlResult>
     strudelSave(input: import('./strudelProjects.js').StrudelSaveInput): Promise<DesktopControlResult>
     strudelDelete(projectId: string, revision: number): Promise<DesktopControlResult>

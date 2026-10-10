@@ -13,6 +13,17 @@ import { validateSeekIntent } from './playbackSeek.js'
 import { projectLocalVideo, type LocalVideoStatus } from './localVideo.js'
 import { projectHostVideoResource, serveLocalVideo, serveSourceVideo, type HostVideoResource } from './localVideoProtocol.js'
 import { hasCurrentVideo, miniWindowGeometry } from './miniVideoLayout.js'
+import { projectFocusRecovery, type FocusRecovery } from './focusRecovery.js'
+import { projectPlaybackHotspots } from './playbackHotspots.js'
+import {
+  durableArtworkStatus,
+  durableHomepageProjection,
+  projectArtworkStatus,
+  projectDiscoverySelection,
+  projectHomepage,
+  validArtworkCacheKey,
+  validSelectionHandle,
+} from './discoveryProjection.js'
 import { shouldDeliverMiniSnapshot } from './miniPlayerUpdates.js'
 import {
   durableStrudelProjection,
@@ -28,8 +39,13 @@ import type {
   BackendEvent,
   CommandCatalogOptions,
   CommandCatalogResult,
+  ArtworkDataResult,
+  ArtworkStatus,
   DesktopControlResult,
   MiniPlayerSnapshot,
+  PlaybackHotspots,
+  HomepageProjection,
+  DiscoverySelection,
   PlaybackStatus,
   UpdateState,
 } from './shared.js'
@@ -69,6 +85,12 @@ let miniPlayerWindow: BrowserWindow | null = null
 let strudelRenderWindow: BrowserWindow | null = null
 let strudelRenderLoad: Promise<void> | null = null
 let strudelProjection: StrudelProjection | null = null
+let focusRecovery: FocusRecovery | null = null
+let playbackHotspots: PlaybackHotspots | null = null
+let hotspotRefreshTimer: NodeJS.Timeout | null = null
+let homepageProjection: HomepageProjection | null = null
+let discoverySelection: DiscoverySelection | null = null
+let artworkStatus: ArtworkStatus | null = null
 let terminalProcess: pty.IPty | null = null
 let controlServer: net.Server | null = null
 let controlSocket: net.Socket | null = null
@@ -134,6 +156,20 @@ const seekControlMessages: ControlRequestMessages = {
   send: 'Could not send the seek',
   safeError: 'Seek failed',
   interrupted: 'Mariana backend interrupted the seek',
+}
+
+const homepageControlMessages: ControlRequestMessages = {
+  timeout: 'Mariana backend did not confirm the homepage update',
+  send: 'Could not send the homepage update',
+  safeError: 'Homepage update failed',
+  interrupted: 'Mariana backend interrupted the homepage update',
+}
+
+const artworkControlMessages: ControlRequestMessages = {
+  timeout: 'Mariana backend did not confirm the artwork update',
+  send: 'Could not send the artwork update',
+  safeError: 'Artwork update failed',
+  interrupted: 'Mariana backend interrupted the artwork update',
 }
 
 const safeToInstall = () => (
@@ -333,6 +369,21 @@ function requestBackendControl(
   })
 }
 
+function scheduleHotspotRefresh(mediaId: string | null | undefined) {
+  if (hotspotRefreshTimer) clearTimeout(hotspotRefreshTimer)
+  hotspotRefreshTimer = null
+  if (!mediaId) return
+  hotspotRefreshTimer = setTimeout(() => {
+    hotspotRefreshTimer = null
+    if (playbackStatus?.media_id !== mediaId) return
+    void requestBackendControl(
+      'playback.hotspots',
+      { media_id: mediaId },
+      playbackControlMessages,
+    )
+  }, 350)
+}
+
 function handleBackendEvent(event: BackendEvent) {
   let forwardedEvent = event
   if (event.event === 'playback') {
@@ -342,10 +393,42 @@ function handleBackendEvent(event: BackendEvent) {
       playbackEventTimestamp,
     )
     if (!accepted) return
+    const previousMediaId = playbackStatus?.media_id
+    const previousState = playbackStatus?.state
     playbackEventTimestamp = accepted.timestamp
     playbackState = accepted.status.state
     playbackStatus = accepted.status
+    if (accepted.status.media_id !== previousMediaId) {
+      playbackHotspots = null
+      scheduleHotspotRefresh(accepted.status.media_id)
+    } else if (accepted.status.media_id && accepted.status.state !== previousState) {
+      scheduleHotspotRefresh(accepted.status.media_id)
+    }
     forwardedEvent = { ...event, payload: accepted.status }
+  }
+  if (event.event === 'hotspots') {
+    const projected = projectPlaybackHotspots(event.payload)
+    if (!projected || projected.media_id !== playbackStatus?.media_id) return
+    playbackHotspots = projected
+    forwardedEvent = { ...event, payload: projected }
+  }
+  if (event.event === 'homepage') {
+    const projected = projectHomepage(event.payload)
+    if (!projected) return
+    homepageProjection = durableHomepageProjection(projected)
+    forwardedEvent = { ...event, payload: projected }
+  }
+  if (event.event === 'discovery') {
+    const projected = projectDiscoverySelection(event.payload)
+    if (!projected || projected.revision <= (discoverySelection?.revision ?? 0)) return
+    discoverySelection = projected
+    forwardedEvent = { ...event, payload: projected }
+  }
+  if (event.event === 'artwork') {
+    const projected = projectArtworkStatus(event.payload)
+    if (!projected) return
+    artworkStatus = durableArtworkStatus(projected)
+    forwardedEvent = { ...event, payload: projected }
   }
   if (event.event === 'video') {
     const projected = projectLocalVideo(event.payload)
@@ -356,6 +439,12 @@ function handleBackendEvent(event: BackendEvent) {
     localVideoStatus = projected
     hostVideoResource = projectHostVideoResource(event.payload, projected)
     localVideoTimestamp = timestamp
+    forwardedEvent = { ...event, payload: projected }
+  }
+  if (event.event === 'focus-recovery') {
+    const projected = projectFocusRecovery(event.payload)
+    if (!projected) return
+    focusRecovery = projected
     forwardedEvent = { ...event, payload: projected }
   }
   if (event.event === 'equalizer') {
@@ -839,6 +928,82 @@ async function showMiniPlayer(): Promise<void> {
   if (!window.isDestroyed()) showWindow(window)
 }
 
+function readCachedImage(
+  cacheArea: 'artwork' | 'homepage',
+  cacheKey: string,
+  expectedMime: NonNullable<ArtworkStatus['mime_type']>,
+  maxBytes: number,
+  unavailableMessage: string,
+): ArtworkDataResult {
+  const mimeByExtension: Record<string, ArtworkStatus['mime_type']> = {
+    '.jpg': 'image/jpeg',
+    '.png': 'image/png',
+    '.webp': 'image/webp',
+  }
+  const extension = path.extname(cacheKey)
+  const mime = mimeByExtension[extension]
+  if (!mime || mime !== expectedMime) return { ok: false, error: unavailableMessage }
+  const cacheRoot = path.resolve(app.getPath('userData'), 'runtime', 'cache', cacheArea)
+  const candidate = path.resolve(cacheRoot, cacheKey)
+  if (path.dirname(candidate) !== cacheRoot) return { ok: false, error: unavailableMessage }
+  try {
+    const stat = fs.lstatSync(candidate)
+    const realCacheRoot = fs.realpathSync(cacheRoot)
+    const realPath = fs.realpathSync(candidate)
+    if (
+      stat.isSymbolicLink()
+      || !stat.isFile()
+      || path.dirname(realPath) !== realCacheRoot
+      || stat.size < 1
+      || stat.size > maxBytes
+    ) {
+      return { ok: false, error: unavailableMessage }
+    }
+    const content = fs.readFileSync(candidate)
+    if (content.length < 1 || content.length > maxBytes) {
+      return { ok: false, error: unavailableMessage }
+    }
+    const signatures: Record<NonNullable<ArtworkStatus['mime_type']>, (value: Buffer) => boolean> = {
+      'image/jpeg': (value) => value.length >= 3 && value[0] === 0xff && value[1] === 0xd8 && value[2] === 0xff,
+      'image/png': (value) => value.length >= 8 && value.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])),
+      'image/webp': (value) => value.length >= 12 && value.toString('ascii', 0, 4) === 'RIFF' && value.toString('ascii', 8, 12) === 'WEBP',
+    }
+    if (!signatures[mime](content)) return { ok: false, error: unavailableMessage }
+    const encoded = content.toString('base64')
+    return { ok: true, dataUrl: `data:${mime};base64,${encoded}` }
+  } catch {
+    return { ok: false, error: unavailableMessage }
+  }
+}
+
+function readCurrentArtwork(cacheKey: unknown): ArtworkDataResult {
+  if (
+    !validArtworkCacheKey(cacheKey)
+    || !artworkStatus?.available
+    || artworkStatus.cache_key !== cacheKey
+    || artworkStatus.media_id !== playbackStatus?.media_id
+    || !artworkStatus.mime_type
+  ) {
+    return { ok: false, error: 'Current artwork is unavailable' }
+  }
+  return readCachedImage(
+    'artwork', cacheKey, artworkStatus.mime_type, 8 * 1024 * 1024, 'Current artwork is unavailable',
+  )
+}
+
+function readHomepageImage(cacheKey: unknown): ArtworkDataResult {
+  if (!validArtworkCacheKey(cacheKey)) return { ok: false, error: 'Homepage image is unavailable' }
+  const sections = homepageProjection?.sections
+  if (!sections) return { ok: false, error: 'Homepage image is unavailable' }
+  const item = sections
+    .flatMap((section) => section.items)
+    .find((candidate) => candidate.image_key === cacheKey)
+  if (!item?.image_mime) return { ok: false, error: 'Homepage image is unavailable' }
+  return readCachedImage(
+    'homepage', cacheKey, item.image_mime, 2 * 1024 * 1024, 'Homepage image is unavailable',
+  )
+}
+
 function registerIpc() {
   ipcMain.handle('backend:snapshot', async (event) => {
     if (!validateSender(event)) throw new Error('Invalid IPC sender')
@@ -850,6 +1015,11 @@ function registerIpc() {
       playbackState,
       sleepActive,
       playback: playbackStatus,
+      strudel: strudelProjection,
+      focusRecovery,
+      hotspots: playbackHotspots,
+      homepage: homepageProjection,
+      artwork: artworkStatus,
     }
   })
   ipcMain.handle('backend:command-catalog', async (event, rawOptions: unknown) => {
@@ -893,9 +1063,13 @@ function registerIpc() {
       seekControlMessages,
     )
   })
+  ipcMain.handle('backend:homepage-refresh', async (event) => {
+    if (!validateSender(event)) return { ok: false, error: 'Homepage request is invalid' }
+    return requestBackendControl('homepage.refresh', {}, homepageControlMessages)
+  })
   ipcMain.handle('backend:strudel-open', async (event) => {
     if (!validateSender(event)) return { ok: false, error: 'Pattern editor request is invalid' }
-    return requestBackendControl('strudel.open', {})
+    return requestBackendControl('strudel.open', {}, homepageControlMessages)
   })
   ipcMain.handle('backend:strudel-save', async (event, input: unknown) => {
     if (!validateSender(event) || !validStrudelSaveInput(input)) {
@@ -907,14 +1081,14 @@ function registerIpc() {
       code: input.code,
       preview_seconds: input.preview_seconds,
       revision: input.revision,
-    })
+    }, homepageControlMessages)
   })
   ipcMain.handle('backend:strudel-delete', async (event, projectId: unknown, revision: unknown) => {
     if (!validateSender(event) || typeof projectId !== 'string' || !/^[0-9a-f]{32}$/.test(projectId)
       || !Number.isSafeInteger(revision) || Number(revision) < 1) {
       return { ok: false, error: 'Pattern project deletion request is invalid' }
     }
-    return requestBackendControl('strudel.delete', { project_id: projectId, revision })
+    return requestBackendControl('strudel.delete', { project_id: projectId, revision }, homepageControlMessages)
   })
   ipcMain.handle('backend:strudel-preview', async (event, input: unknown) => {
     if (!validateSender(event) || !validStrudelPreviewInput(input)) {
@@ -935,6 +1109,100 @@ function registerIpc() {
     if (!pending) return
     strudelRenders.finish(pending, { ok: false, error: safeControlError(message, 'Pattern rendering failed') })
   })
+  ipcMain.handle('backend:focus-recovery-retry', (event) => {
+    if (!validateSender(event)) return { ok: false, error: 'Invalid Focus recovery request' }
+    return requestBackendControl('focus.recovery.retry', {}, homepageControlMessages)
+  })
+  ipcMain.handle('backend:lyrics-status', (event) => {
+    if (!validateSender(event)) return { ok: false, error: 'Invalid lyrics request' }
+    return requestBackendControl('lyrics.status', {}, homepageControlMessages)
+  })
+  ipcMain.handle('backend:lyrics-hide', (event) => {
+    if (!validateSender(event)) return { ok: false, error: 'Invalid lyrics request' }
+    return requestBackendControl('lyrics.hide', {}, homepageControlMessages)
+  })
+  ipcMain.handle('backend:lyrics-request', (event, mediaId: unknown, refresh: unknown) => {
+    if (!validateSender(event) || !validControlMediaId(mediaId) || mediaId !== playbackStatus?.media_id
+      || typeof refresh !== 'boolean') return { ok: false, error: 'Current media changed; request lyrics again' }
+    return requestBackendControl('lyrics.request', { media_id: mediaId, refresh }, homepageControlMessages)
+  })
+  ipcMain.handle('backend:lyrics-offset', (event, mediaId: unknown, offsetMs: unknown) => {
+    if (!validateSender(event) || !validControlMediaId(mediaId) || mediaId !== playbackStatus?.media_id
+      || typeof offsetMs !== 'number' || !Number.isInteger(offsetMs) || Math.abs(offsetMs) > 60_000) {
+      return { ok: false, error: 'Invalid lyrics timing request' }
+    }
+    return requestBackendControl('lyrics.offset', { media_id: mediaId, offset_ms: offsetMs }, homepageControlMessages)
+  })
+  ipcMain.handle('backend:homepage-open', async (event) => {
+    if (!validateSender(event)) return { ok: false, error: 'Homepage request is invalid' }
+    return requestBackendControl('homepage.open', {}, homepageControlMessages)
+  })
+  ipcMain.handle('backend:homepage-configure', async (event, setting: unknown, enabled: unknown) => {
+    if (!validateSender(event) || !['startup', 'online'].includes(String(setting)) || typeof enabled !== 'boolean') {
+      return { ok: false, error: 'Homepage setting is invalid' }
+    }
+    return requestBackendControl('homepage.configure', { setting, enabled }, homepageControlMessages)
+  })
+  ipcMain.handle('backend:homepage-image-data', async (event, cacheKey: unknown): Promise<ArtworkDataResult> => {
+    if (!validateSender(event)) return { ok: false, error: 'Homepage image request is invalid' }
+    return readHomepageImage(cacheKey)
+  })
+  ipcMain.handle('backend:discovery-begin', async (event, itemId: unknown, requestId: unknown, page: unknown = 0) => {
+    const sections = homepageProjection?.sections
+    if (!sections) {
+      return { ok: false, error: 'Select a current release with online discovery enabled' }
+    }
+    const item = sections.filter((section) => section.key === 'releases' || section.key.startsWith('catalogue-')).flatMap((section) => section.items)
+      .find((entry) => entry.id === itemId)
+    if (!validateSender(event) || !validSelectionHandle(requestId) || !item || !homepageProjection?.online_enabled
+      || !Number.isSafeInteger(page) || Number(page) < 0 || Number(page) > 7) {
+      return { ok: false, error: 'Select a current release with online discovery enabled' }
+    }
+    return requestBackendControl('discovery.begin', {
+      item_id: item.id, request_id: requestId, ...(page ? { page } : {}),
+    }, homepageControlMessages)
+  })
+  ipcMain.handle('backend:discovery-choose', async (event, requestId: unknown, revision: unknown, choiceId: unknown, intent: unknown) => {
+    if (!validateSender(event) || !validSelectionHandle(requestId) || !validSelectionHandle(choiceId)
+      || !Number.isSafeInteger(revision) || !['versions', 'play', 'queue'].includes(String(intent))
+      || requestId !== discoverySelection?.request_id || revision !== discoverySelection?.revision
+      || !homepageProjection?.online_enabled) {
+      return { ok: false, error: 'Selection changed; find versions again' }
+    }
+    return requestBackendControl('discovery.choose', {
+      request_id: requestId, revision, choice_id: choiceId, intent,
+    }, homepageControlMessages)
+  })
+  ipcMain.handle('backend:discovery-cancel', async (event, requestId: unknown) => {
+    if (!validateSender(event) || !validSelectionHandle(requestId)) return { ok: false, error: 'Invalid selection' }
+    return requestBackendControl('discovery.cancel', { request_id: requestId }, homepageControlMessages)
+  })
+  ipcMain.handle('backend:artwork-configure', async (event, enabled: unknown) => {
+    if (!validateSender(event) || typeof enabled !== 'boolean') {
+      return { ok: false, error: 'Artwork setting is invalid' }
+    }
+    return requestBackendControl('artwork.configure', { enabled }, artworkControlMessages)
+  })
+  ipcMain.handle('backend:artwork-show', async (event, mediaId: unknown, fetch: unknown) => {
+    if (!validateSender(event) || typeof fetch !== 'boolean') {
+      return { ok: false, error: 'Artwork request is invalid' }
+    }
+    if (!validControlMediaId(mediaId) || mediaId !== playbackStatus?.media_id) {
+      return { ok: false, error: 'Current media changed; try again' }
+    }
+    return requestBackendControl('artwork.show', { media_id: mediaId, fetch }, artworkControlMessages)
+  })
+  ipcMain.handle('backend:artwork-data', async (event, cacheKey: unknown): Promise<ArtworkDataResult> => {
+    if (!validateSender(event)) return { ok: false, error: 'Artwork request is invalid' }
+    return readCurrentArtwork(cacheKey)
+  })
+  ipcMain.handle('backend:crossfade-configure', async (event, seconds: unknown) => {
+    if (!validateSender(event) || typeof seconds !== 'number' || !Number.isFinite(seconds)
+      || seconds < 0 || seconds > 30) {
+      return { ok: false, error: 'Crossfade duration must be from 0 to 30 seconds' }
+    }
+    return requestBackendControl('playback.crossfade', { seconds }, playbackControlMessages)
+  })
   protocol.handle('mariana-video', (request) => localVideoStatus?.transport === 'source' ? serveSourceVideo(
     request, () => ({ status: backendReady ? localVideoStatus : null,
       mediaId: playbackStatus?.media_id ?? null, resource: hostVideoResource }),
@@ -945,6 +1213,18 @@ function registerIpc() {
   ipcMain.handle('backend:video-status', async (event) => {
     if (!validateSender(event)) return { ok: false, error: 'Video request is invalid' }
     return requestBackendControl('video.status', {}, playbackControlMessages)
+  })
+  const downloadControl = (event: Electron.IpcMainInvokeEvent, mediaId: unknown, format: unknown) => {
+    if (!validateSender(event) || !validControlMediaId(mediaId) || !['mp3', 'mp4'].includes(String(format))
+      || mediaId !== playbackStatus?.media_id) {
+      return Promise.resolve({ ok: false, error: 'Download target is unavailable' })
+    }
+    return requestBackendControl('download.current', { media_id: mediaId, format }, playbackControlMessages)
+  }
+  ipcMain.handle('backend:download-current', downloadControl)
+  ipcMain.handle('backend:download-status', (event) => {
+    if (!validateSender(event)) return { ok: false, error: 'Download request is invalid' }
+    return requestBackendControl('download.status', {}, playbackControlMessages)
   })
   ipcMain.handle('backend:video-configure', async (event, mediaId: unknown, mode: unknown) => {
     if (!validateSender(event) || !validControlMediaId(mediaId)
