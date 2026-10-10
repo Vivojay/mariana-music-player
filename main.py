@@ -6147,6 +6147,8 @@ def autoplay_command(arguments):
     return AUTOPLAY_ENABLED
 
 
+_FOCUS_MONITOR_LOCK = threading.Lock()
+_FOCUS_MONITOR_THREAD = None
 _FOCUS_RECOVERY_LOCK = threading.Lock()
 _FOCUS_RECOVERY_THREAD = None
 
