@@ -185,6 +185,7 @@ from mariana.session_service import SessionRecipeService
 from mariana.sleep_timer import SleepAction, SleepTimer, parse_duration
 from mariana.sources import FailureCode, MediaFailure, ResolvedMedia
 from mariana.station import StationError, StationManager
+from mariana.stems import StemError, StemInput, StemService, parse_stem_selection
 from mariana.strudel_projects import (
     MAX_CODE_BYTES as STRUDEL_MAX_CODE_BYTES,
     MAX_PREVIEW_SECONDS as STRUDEL_MAX_PREVIEW_SECONDS,
@@ -782,6 +783,7 @@ FOCUS_MODE = FocusModeService(
     approved_youtube_ids=_configured_focus_youtube_ids(SETTINGS, _FOCUS_ENVIRONMENT),
     on_recovery=_notify_focus_recovery,
 )
+STEMS = StemService(RUNTIME_PATHS.state('cache', 'stems'), ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'))
 _STEM_SELECTION = {'media_id': None, 'names': ()}
 
 
@@ -5579,6 +5581,161 @@ def crossfade_command(arguments):
     )
     return projection
 
+def _current_stem_media():
+    snapshot = vas.controller.snapshot()
+    media = snapshot.media
+    if media is None or snapshot.state not in {
+        PlaybackState.BUFFERING,
+        PlaybackState.PLAYING,
+        PlaybackState.PAUSED,
+        PlaybackState.SEEKING,
+        PlaybackState.CROSSFADING,
+    }:
+        raise StemError('Stem controls require current media')
+    if media.capabilities.live or not media.capabilities.finite:
+        raise StemError('Stem separation is unavailable for live or unbounded media')
+    return media
+
+
+def _print_stem_status():
+    status = STEMS.status()
+    monitor = vas.controller.stem_monitor_status()
+    selection = _STEM_SELECTION['names'] if monitor['active'] else ()
+    monitor_label = ', '.join(selection) if selection else (
+        'original mix (transitioning)' if monitor['transitioning'] else 'original mix'
+    )
+    rows = (
+        ('Separator', 'available' if STEMS.separator_available() else 'not installed'),
+        ('Preparation', status.state),
+        ('Media', status.title or 'none'),
+        ('Model', status.model or 'none'),
+        ('Stage', status.stage or 'idle'),
+        ('Progress', f'{status.progress * 100:.0f}%'),
+        ('Available stems', ', '.join(status.available_stems) or 'none'),
+        ('Local monitor', monitor_label),
+    )
+    IPrint(tbl(rows, tablefmt='plain'), visible=visible)
+    if status.error:
+        IPrint(f'Stem preparation error: {status.error}', visible=visible)
+    if not STEMS.separator_available():
+        IPrint('Install the optional local separator with: python -m pip install demucs', visible=visible)
+    return {'job': status.public(), 'monitor': monitor, 'selection': selection}
+
+
+def stems_command(arguments):
+    """Prepare, monitor, combine, export, or clear identity-bound local stems."""
+    global _STEM_SELECTION
+    if not arguments or arguments == ['status']:
+        return _print_stem_status()
+    operation = arguments[0].casefold()
+    if operation == 'help':
+        IPrint(
+            'stems status | prepare [4|6] [--yes] | solo <stem|acapella|karaoke> | '
+            'mix <stem> [stem ...] | original | cancel | export <directory> [--yes] | clear [--yes]',
+            visible=visible,
+        )
+        IPrint('Stable 4-stem model: vocals, drums, bass, other. '
+               'The 6-stem guitar/piano model is experimental.', visible=visible)
+        return None
+    if operation == 'prepare':
+        yes, values = _confirmation_bypass(arguments[1:])
+        if len(values) > 1 or (values and values[0] not in {'4', '6'}):
+            raise StemError('Usage: stems prepare [4|6] [--yes]')
+        if not STEMS.separator_available():
+            raise StemError('The optional Demucs separator is not installed; run: python -m pip install demucs')
+        media = _current_stem_media()
+        stem_count = values[0] if values else '4'
+        if not _confirm_action(
+            f'Prepare {stem_count} local stems for "{media.title or "Current media"}"? '
+            'This can use substantial CPU, disk space, and may download model weights once.',
+            assume_yes=yes,
+        ):
+            IPrint('Stem preparation cancelled', visible=visible)
+            return None
+        uri, headers = vas.controller.stem_analysis_source(media.stable_id)
+        status = STEMS.prepare(media, StemInput(uri, headers), stem_count=stem_count)
+        IPrint(f'Stem preparation queued for "{status.title}"; use "stems status" for progress', visible=visible)
+        return status.public()
+    if operation == 'cancel':
+        if len(arguments) != 1:
+            raise StemError('Usage: stems cancel')
+        IPrint('Stem preparation cancellation requested' if STEMS.cancel() else 'No stem preparation is running',
+               visible=visible)
+        return None
+    if operation in {'solo', 'mix'}:
+        media = _current_stem_media()
+        requested = arguments[1:]
+        if not requested or (operation == 'solo' and len(requested) != 1):
+            raise StemError(f'Usage: stems {operation} <stem>' + (' [stem ...]' if operation == 'mix' else ''))
+        manifest = STEMS.manifest(media.stable_id)
+        if manifest is None:
+            raise StemError('Prepare stems for the current media first')
+        names = parse_stem_selection(requested, manifest.stems)
+        if not names:
+            raise StemError('Use "stems original" to restore the original mix')
+        karaoke_aliases = {'karaoke', 'instrument', 'instrumental', 'instruments'}
+        if operation == 'solo' and len(names) != 1 and requested[0].casefold() not in karaoke_aliases:
+            raise StemError('Solo accepts one stem; use "stems mix" for combinations')
+        lease = STEMS.acquire(media.stable_id, names)
+        try:
+            vas.controller.configure_stem_monitor(media.stable_id, lease.paths, lease=lease)
+        except PlaybackError as error:
+            lease.release()
+            raise StemError(str(error)) from error
+        except BaseException:
+            lease.release()
+            raise
+        _STEM_SELECTION = {'media_id': media.stable_id, 'names': names}
+        IPrint(f'Local stem monitor: {", ".join(names)}', visible=visible)
+        return names
+    if operation in {'original', 'off'}:
+        if len(arguments) != 1:
+            raise StemError('Usage: stems original')
+        media = _current_stem_media()
+        try:
+            vas.controller.configure_stem_monitor(media.stable_id, ())
+        except PlaybackError as error:
+            raise StemError(str(error)) from error
+        _STEM_SELECTION = {'media_id': None, 'names': ()}
+        IPrint('Local stem monitor: original mix', visible=visible)
+        return ()
+    if operation == 'export':
+        yes, values = _confirmation_bypass(arguments[1:])
+        if len(values) != 1:
+            raise StemError('Usage: stems export <directory> [--yes]')
+        status = STEMS.status()
+        manifest = STEMS.manifest(status.media_id)
+        if manifest is None:
+            raise StemError('No prepared stems are available to export')
+        destination = Path(values[0]).expanduser()
+        if not _confirm_action(
+            f'Export {len(manifest.stems)} WAV stems for "{manifest.title}" beneath "{destination}"?',
+            assume_yes=yes,
+        ):
+            IPrint('Stem export cancelled', visible=visible)
+            return None
+        exported = STEMS.export(manifest.media_id, destination, overwrite=yes)
+        IPrint(f'Exported {len(exported)} stems to {exported[0].parent}', visible=visible)
+        return exported
+    if operation == 'clear':
+        yes, values = _confirmation_bypass(arguments[1:])
+        if values:
+            raise StemError('Usage: stems clear [--yes]')
+        status = STEMS.status()
+        if status.media_id is None:
+            raise StemError('No prepared stems are available to clear')
+        if not _confirm_action(f'Clear cached stems for "{status.title or "Current media"}"?', assume_yes=yes):
+            IPrint('Stem cache clear cancelled', visible=visible)
+            return None
+        monitor = vas.controller.stem_monitor_status()
+        if monitor['active'] or monitor['transitioning']:
+            raise StemError('Restore the original mix and let its short transition finish before clearing stems')
+        cleared = STEMS.clear(status.media_id)
+        _STEM_SELECTION = {'media_id': None, 'names': ()}
+        IPrint('Cached stems cleared' if cleared else 'No cached stems were found', visible=visible)
+        return cleared
+    raise StemError('Unknown stems command; run "stems help"')
+
 def eq_command(arguments):
     """Inspect or change local-listening EQ through the same service as desktop."""
     intent = equalizer_command_intent(arguments)
@@ -7960,8 +8117,8 @@ def exitplayer(sys_exit=False):
         ('playback', vas.supervisor.close),
         ('session recipes', SESSIONS.close),
         ('paired desktops', _close_paired_companion),
-        ('paired desktops', _close_paired_companion),
         ('focus recovery', _close_focus_recovery),
+        ('stems', STEMS.shutdown),
         ('library profiler', LIBRARY_SERVICE.close),
     )
     threads = []
@@ -9539,6 +9696,7 @@ def process(command):
             'home': home_command,
             'thumb': thumb_command,
             'eq': eq_command,
+            'stems': stems_command,
             'crossfade': crossfade_command,
             'focus': focus_command,
             'chapters': chapters_command,
