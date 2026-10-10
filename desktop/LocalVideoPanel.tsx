@@ -199,6 +199,8 @@ export function LocalVideoPanel({ playback, ready, seekPending = false, seekErro
           </div>
         </details>
         <button type="button" onClick={() => void toggleFullscreen()}>{fullscreen ? 'Exit fullscreen' : 'Fullscreen'}</button>
+        <button type="button" title="Open the separate video window with the same playback controls"
+          disabled={!supported} onClick={() => void api.videoWindow(true).catch(() => setError('Separate video window is unavailable'))}>Separate window</button>
         <button type="button" onClick={() => void configure('audio')}>Audio only</button>
       </header>
       {status.state === 'preparing' && <p className="local-video-message" role="status">{playback?.source === 'local'

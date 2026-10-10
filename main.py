@@ -9530,6 +9530,34 @@ def timed_lyrics_command(arguments):
         IPrint(state['attribution'], visible=visible)
     return state
 
+def video_command(arguments):
+    """Open the separate video window, close it, or inspect video readiness."""
+    operation = arguments[0].casefold() if arguments else 'status'
+    usage = 'Usage: video [open|close|status]'
+    if operation not in {'open', 'close', 'status'} or len(arguments) > 1:
+        raise ValueError(usage)
+    if operation == 'status':
+        state = VIDEO.status()
+        IPrint(
+            f"Video: {state['state']}"
+            + (f" | {state['media_id'][:8]}" if state.get('media_id') else ''),
+            visible=visible,
+        )
+        return state
+    if not getattr(DESKTOP_CONTROL, 'enabled', False):
+        raise VideoUnavailable('Video currently requires the Mariana desktop')
+    if operation == 'open':
+        snapshot = vas.controller.snapshot()
+        _ensure_media_playable(snapshot.media)
+        state = VIDEO.request('video', expected_media=snapshot.media)
+        DESKTOP_CONTROL.emit('video-window', {'open': True})
+        IPrint('Opening the separate video window.', visible=visible)
+        return state
+    DESKTOP_CONTROL.emit('video-window', {'open': False})
+    IPrint('Closing the separate video window.', visible=visible)
+    return {'open': False}
+
+
 def lyrics_ops(show_window):
     global lyrics_saved_for_song, currentsong, ISDEV
     global visible
@@ -9738,6 +9766,7 @@ def process(command):
             'eq': eq_command,
             'stems': stems_command,
             'crossfade': crossfade_command,
+            'video': video_command,
             'focus': focus_command,
             'chapters': chapters_command,
             'captions': captions_command,

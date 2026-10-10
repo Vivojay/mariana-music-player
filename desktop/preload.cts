@@ -56,6 +56,7 @@ const api: MarianaDesktopApi = {
     videoCaptionAutomatic: (mediaId) => ipcRenderer.invoke('backend:video-caption-automatic', mediaId),
     videoCaptionConfigure: (mediaId, action, value) => ipcRenderer.invoke('backend:video-caption-configure', mediaId, action, value),
     videoAudioOffset: (mediaId, value, relative) => ipcRenderer.invoke('backend:video-audio-offset', mediaId, value, relative),
+    videoWindow: (open) => ipcRenderer.invoke('backend:video-window', open),
     equalizerStatus: () => ipcRenderer.invoke('backend:equalizer-status'),
     equalizerConfigure: (intent) => ipcRenderer.invoke('backend:equalizer-configure', intent),
     onEvent: (callback) => subscribe<BackendEvent>('backend:event', callback),
