@@ -83,6 +83,13 @@ from mariana.broadcast import BroadcastError, BroadcastState, IcecastBroadcaster
 from mariana.chapters import normalize_chapters
 from mariana.command_catalog import serialize_command_catalog
 from mariana.equalizer import EqualizerService, command_intent as equalizer_command_intent
+from mariana.focus_mode import (
+    FirebaseFocusTransport,
+    FocusModeError,
+    FocusModeService,
+    FocusStateStore,
+    focus_environment,
+)
 from mariana.commands import (
     DOWNLOAD_TYPOS,
     SEARCH_COMMANDS,
@@ -199,7 +206,7 @@ from mariana.integrations.discord_presence import (
     DiscordPresencePublisher,
 )
 from recommendation_engine import Candidate, RecommendationEngine
-from runtime_check import check_runtime, format_runtime_report
+from runtime_check import PLAYBACK_PREREQUISITE_ERRORS, check_runtime, format_runtime_report
 from beta.mediadl import media_DL
 from beta.youtube_media import YouTubeError, media_info, parse_browser_profile, resolve_stream, youtube_error_message
 _boot_progress(22, 'media services')
@@ -450,6 +457,15 @@ def _configured_crossfade_seconds(settings):
     except (TypeError, ValueError):
         return 0.0
     return seconds if math.isfinite(seconds) and 0 <= seconds <= CROSSFADE_MAX_SECONDS else 0.0
+
+
+def _configured_focus_youtube_ids(settings, environment):
+    """Return stable video identities, never transient resolver URLs."""
+    section = settings.get('focus mode')
+    configured = section.get('youtube ids', []) if isinstance(section, dict) else []
+    values = list(configured) if isinstance(configured, list) else []
+    values.extend(str(environment.get('MARIANA_FOCUS_YOUTUBE_IDS') or '').split(','))
+    return [str(value).strip() for value in values if str(value).strip()]
 
 
 
@@ -752,6 +768,19 @@ DESKTOP_CONTROL = DesktopControl()
 TIMED_LYRICS = LyricsPresentationService(
     IDENTITY, on_change=lambda payload: DESKTOP_CONTROL.emit('lyrics', payload),
     snapshot=lambda: vas.controller.snapshot(),
+)
+_FOCUS_ENVIRONMENT = focus_environment(RUNTIME_PATHS.resource('.env'))
+
+
+def _notify_focus_recovery() -> None:
+    _schedule_focus_recovery()
+
+
+FOCUS_MODE = FocusModeService(
+    FocusStateStore(RUNTIME_PATHS.state('focus-state.json')),
+    transport=FirebaseFocusTransport(environment=_FOCUS_ENVIRONMENT),
+    approved_youtube_ids=_configured_focus_youtube_ids(SETTINGS, _FOCUS_ENVIRONMENT),
+    on_recovery=_notify_focus_recovery,
 )
 _STEM_SELECTION = {'media_id': None, 'names': ()}
 
@@ -5961,6 +5990,212 @@ def autoplay_command(arguments):
     return AUTOPLAY_ENABLED
 
 
+_FOCUS_RECOVERY_LOCK = threading.Lock()
+_FOCUS_RECOVERY_THREAD = None
+
+
+def _schedule_focus_recovery():
+    """Stop output and notify the desktop outside the saved-state lock."""
+    global _FOCUS_RECOVERY_THREAD
+    with _FOCUS_RECOVERY_LOCK:
+        if _FOCUS_RECOVERY_THREAD is not None and _FOCUS_RECOVERY_THREAD.is_alive():
+            return _FOCUS_RECOVERY_THREAD
+
+        def worker():
+            try:
+                DESKTOP_CONTROL.emit('focus-recovery', FOCUS_MODE.recovery_status())
+            finally:
+                try:
+                    vas.supervisor.stop()
+                except Exception:
+                    # No retry here may initialize a new output stream.
+                    playback_diagnostics.record(2, 'focus.recovery_stop_failed')
+
+        try:
+            thread = threading.Thread(
+                target=worker, name='mariana-focus-recovery', daemon=True,
+            )
+            thread.start()
+        except RuntimeError:
+            # The service invokes this callback after releasing its state lock.
+            # Thread exhaustion must not leave playback running behind the gate.
+            # Never expose an unstarted thread to bounded shutdown joining.
+            _FOCUS_RECOVERY_THREAD = None
+        else:
+            _FOCUS_RECOVERY_THREAD = thread
+            return thread
+    worker()
+    return None
+
+
+def _close_focus_recovery():
+    thread = _FOCUS_RECOVERY_THREAD
+    if thread is not None and thread is not threading.current_thread():
+        thread.join(timeout=2)
+
+def _focus_status_text(status):
+    if status.get('recovery_required'):
+        return status['recovery_message']
+    state = 'active' if status['active'] else 'off'
+    prerequisites = (
+        f"passcode={'ready' if status['passcode_set'] else 'missing'}, "
+        f"phone devices={len(status['paired_devices'])}, "
+        f"Firebase={'ready' if status['firebase_configured'] else 'not configured'}, "
+        f"focus media={status['approved_media_count']}"
+    )
+    return f'Focus mode: {state}; {prerequisites}'
+
+
+def _start_focus_unlock_monitor():
+    """Poll phone approval off the command handler and publish the final transition."""
+    global _FOCUS_MONITOR_THREAD
+    with _FOCUS_MONITOR_LOCK:
+        if _FOCUS_MONITOR_THREAD is not None and _FOCUS_MONITOR_THREAD.is_alive():
+            return _FOCUS_MONITOR_THREAD
+
+        def worker():
+            previous_countdown = None
+            while FOCUS_MODE.state.active:
+                try:
+                    disabled = FOCUS_MODE.poll_unlock()
+                    status = FOCUS_MODE.status()
+                except FocusModeError:
+                    if FOCUS_MODE.state.unlock_stage is None:
+                        return
+                    time.sleep(2)
+                    continue
+                countdown = status.get('countdown_seconds')
+                if status.get('unlock_stage') == 'countdown' and countdown != previous_countdown:
+                    DESKTOP_CONTROL.emit('desktop-notice', {
+                        'message': f'Focus mode will turn off in {countdown}…',
+                    })
+                    previous_countdown = countdown
+                if disabled:
+                    DESKTOP_CONTROL.emit('desktop-notice', {'message': 'Focus mode OFF'})
+                    IPrint('Focus mode OFF', visible=visible)
+                    return
+                time.sleep(0.5 if status.get('unlock_stage') == 'countdown' else 2)
+
+        _FOCUS_MONITOR_THREAD = threading.Thread(
+            target=worker,
+            name='mariana-focus-unlock',
+            daemon=True,
+        )
+        _FOCUS_MONITOR_THREAD.start()
+        return _FOCUS_MONITOR_THREAD
+
+def focus_command(arguments):
+    """Configure and operate the fail-closed, paired-phone focus gate."""
+    operation = arguments[0].casefold() if arguments else 'status'
+    if operation == 'recover' and len(arguments) == 1:
+        try:
+            state = FOCUS_MODE.recover_saved_state()
+        finally:
+            DESKTOP_CONTROL.emit('focus-recovery', FOCUS_MODE.recovery_status())
+        IPrint('Saved active Focus Mode restored. Normal passcode and phone verification are still required to unlock.',
+               visible=visible)
+        return state
+    if FOCUS_MODE.recovery_required and operation not in {'status', 'devices', 'media'}:
+        raise FocusModeError(_focus_status_text(FOCUS_MODE.status()))
+    if (operation == 'status' and len(arguments) == 1) or not arguments:
+        status = FOCUS_MODE.status()
+        IPrint(_focus_status_text(status), visible=visible)
+        if status.get('unlock_stage'):
+            IPrint(f'Unlock stage: {status["unlock_stage"]}', visible=visible)
+        return status
+    if operation == 'setup' and len(arguments) == 1:
+        passcode = getpass('Create focus-mode passcode: ')
+        confirmation = getpass('Confirm focus-mode passcode: ')
+        FOCUS_MODE.setup_passcode(passcode, confirmation)
+        IPrint('Focus passcode stored in the operating-system keychain.', visible=visible)
+        return FOCUS_MODE.status()
+    if operation == 'pair':
+        subcommand = arguments[1].casefold() if len(arguments) > 1 else 'begin'
+        if subcommand == 'begin' and len(arguments) <= 2:
+            invitation = FOCUS_MODE.begin_pairing()
+            IPrint(
+                f'Open the configured Mariana phone companion and enter: {invitation["code"]}\n'
+                'The invitation expires in five minutes. Run "focus pair status" after approval.',
+                visible=visible,
+            )
+            return invitation
+        if subcommand == 'status' and len(arguments) == 2:
+            device = FOCUS_MODE.refresh_pairing()
+            IPrint(
+                f'Paired phone: {device.label}' if device else 'Phone approval is still pending.',
+                visible=visible,
+            )
+            return device
+        raise FocusModeError('Usage: focus pair [begin|status]')
+    if operation == 'devices':
+        status = FOCUS_MODE.status()
+        rows = [(item['label'], item['device_id']) for item in status['paired_devices']]
+        IPrint(tbl(rows, headers=('Phone', 'Device ID'), tablefmt='plain') if rows else 'No phones are paired.',
+               visible=visible)
+        return status['paired_devices']
+    if operation == 'revoke' and len(arguments) == 2:
+        removed = FOCUS_MODE.revoke_device(arguments[1])
+        IPrint('Paired phone revoked.' if removed else 'That phone was not paired.', visible=visible)
+        return removed
+    if operation == 'media' and len(arguments) == 1:
+        rows = [(index, media_id) for index, media_id in enumerate(FOCUS_MODE.approved_youtube_ids, 1)]
+        IPrint(tbl(rows, headers=('#', 'Approved YouTube ID'), tablefmt='plain')
+               if rows else 'No focus media is configured.', visible=visible)
+        return FOCUS_MODE.approved_youtube_ids
+    if operation == 'on':
+        yes, values = _confirmation_bypass(arguments[1:], preserve_single_bare=True)
+        if len(values) > 1:
+            raise FocusModeError('Usage: focus on [YOUTUBE_ID] [--yes]')
+        if not _confirm_action(
+            'Enable focus mode? Turning it off requires the passcode and paired phone handshake.',
+            assume_yes=yes,
+        ):
+            IPrint('Focus mode activation cancelled.', visible=visible)
+            return None
+        activation = FOCUS_MODE.activate(media_id=values[0] if values else None)
+        selected = activation.media_id
+        media_url = f'https://www.youtube.com/watch?v={selected}'
+        media = MediaRef(
+            MediaSource.YOUTUBE,
+            media_url,
+            resolver_data={'youtube_id': selected},
+            provenance='focus-mode',
+        )
+        try:
+            play_vas_media(media_url, media_type='video', media_ref=media)
+        except Exception:
+            FOCUS_MODE.rollback_activation(activation)
+            raise
+        else:
+            FOCUS_MODE.confirm_activation(activation)
+        IPrint('Focus mode ON. Media switching and discovery are locked.', visible=visible)
+        return FOCUS_MODE.status()
+    if operation == 'off' and len(arguments) == 1:
+        request_id = FOCUS_MODE.begin_unlock(getpass('Focus-mode passcode: '))
+        IPrint(
+            f'Unlock request {request_id} sent. Complete human verification on the paired phone, '
+            'then run "focus verify" with the code shown there.',
+            visible=visible,
+        )
+        return request_id
+    if operation == 'verify' and len(arguments) == 1:
+        desktop_code = FOCUS_MODE.submit_phone_code(getpass('Code shown on paired phone: '))
+        message = f'Enter this code on the paired phone: {desktop_code}'
+        if getattr(DESKTOP_CONTROL, 'enabled', False):
+            DESKTOP_CONTROL.emit('desktop-notice', {'message': message, 'focus_code': desktop_code})
+        else:
+            IPrint(message, visible=visible)
+        _start_focus_unlock_monitor()
+        return desktop_code
+    if operation == 'cancel' and len(arguments) == 1:
+        FOCUS_MODE.cancel_pending_unlock()
+        IPrint('Pending focus unlock cancelled; focus mode remains active.', visible=visible)
+        return FOCUS_MODE.status()
+    raise FocusModeError(
+        'Usage: focus [status|setup|pair [begin|status]|devices|revoke DEVICE_ID|media|'
+        'on [YOUTUBE_ID] [--yes]|off|verify|cancel|recover]'
+    )
+
 def discord_command(arguments):
     if not arguments or arguments[0].casefold() != 'presence':
         raise ValueError('Usage: discord presence off|app|track|session|status|refresh')
@@ -6767,6 +7002,23 @@ def _apply_discovery_selection(media: MediaRef, intent: str) -> None:
 
 def _desktop_control_request(action: str, payload: dict[str, object]) -> dict[str, object]:
     """Apply one allowlisted desktop intent against authoritative backend state."""
+    if action in {'focus.recovery.status', 'focus.recovery.retry'}:
+        if payload:
+            return {'ok': False, 'error': 'Invalid Focus recovery request'}
+        try:
+            if action == 'focus.recovery.retry':
+                FOCUS_MODE.recover_saved_state()
+            return {'ok': True}
+        except FocusModeError as error:
+            return {'ok': False, 'error': str(error)}
+        finally:
+            DESKTOP_CONTROL.emit('focus-recovery', FOCUS_MODE.recovery_status())
+    if FOCUS_MODE.recovery_required and action not in {
+        'autocomplete.catalog', 'equalizer.status', 'download.status', 'video.status',
+        'lyrics.status', 'playback.hotspots',
+    }:
+        DESKTOP_CONTROL.emit('focus-recovery', FOCUS_MODE.recovery_status())
+        return {'ok': False, 'error': _focus_status_text(FOCUS_MODE.status())}
     if _SESSION_REPLAY_ACTIVE.is_set() and action not in {
         'lyrics.status', 'lyrics.request', 'lyrics.offset', 'lyrics.hide',
         'playback.hotspots', 'equalizer.status', 'download.status', 'video.status',
@@ -7708,6 +7960,8 @@ def exitplayer(sys_exit=False):
         ('playback', vas.supervisor.close),
         ('session recipes', SESSIONS.close),
         ('paired desktops', _close_paired_companion),
+        ('paired desktops', _close_paired_companion),
+        ('focus recovery', _close_focus_recovery),
         ('library profiler', LIBRARY_SERVICE.close),
     )
     threads = []
@@ -9239,6 +9493,14 @@ def process(command):
         IPrint('Session replay owns playback and queue changes; use session stop first.', visible=visible)
         return None
 
+    if commandslist and not FOCUS_MODE.allows_command(commandslist):
+        IPrint(
+            _focus_status_text(FOCUS_MODE.status()) if FOCUS_MODE.recovery_required else
+            'Focus mode is active. Media switching, discovery, downloads, settings, and queue edits are locked.',
+            visible=visible,
+        )
+        return None
+
     presentation = None
     try:
         commandslist = _expand_relative_library_target(commandslist)
@@ -9278,6 +9540,7 @@ def process(command):
             'thumb': thumb_command,
             'eq': eq_command,
             'crossfade': crossfade_command,
+            'focus': focus_command,
             'chapters': chapters_command,
             'captions': captions_command,
             'avsync': avsync_command,
@@ -11108,7 +11371,8 @@ _process_command = process
 def run():
     global enforce_os_requirement, visible, USER_DATA
 
-    initialize_audio_output()
+    if not FOCUS_MODE.recovery_required:
+        initialize_audio_output()
     if PRESENCE.mode != PresencePrivacyMode.OFF:
         PRESENCE.start()
     DESKTOP_CONTROL.start_request_listener(_desktop_control_request)
@@ -11139,7 +11403,7 @@ def run():
     homepage_projection = HOMEPAGE.snapshot()
     DESKTOP_CONTROL.emit('homepage', dict(homepage_projection))
     DESKTOP_CONTROL.emit('artwork', ARTWORK.projection().to_dict())
-    if homepage_projection['online_enabled']:
+    if homepage_projection['online_enabled'] and not FOCUS_MODE.recovery_required:
         HOMEPAGE.refresh_async()
     _emit_queue_desktop_state()
     DESKTOP_CONTROL.emit('download', {'jobs': DOWNLOADS.status()})
@@ -11147,7 +11411,7 @@ def run():
     USER_DATA['default_user_data']['stats']['log_ins'] += 1
     save_user_data()
 
-    if FIRST_BOOT:
+    if FIRST_BOOT and not FOCUS_MODE.recovery_required:
         startup_sound_path = RUNTIME_PATHS.resource('res', 'first_boot_startup_sound.mp3')
         if startup_sound_path.is_file():
             vas.set_media(_type='local', localpath=startup_sound_path)
@@ -11156,6 +11420,8 @@ def run():
 
     if visible:
         showbanner()
+        if FOCUS_MODE.recovery_required:
+            IPrint(_focus_status_text(FOCUS_MODE.status()), visible=visible)
         if homepage_projection['show_on_startup'] and not getattr(DESKTOP_CONTROL, 'enabled', False):
             _print_homepage(homepage_projection)
     mainprompt()
@@ -11164,6 +11430,22 @@ def run():
 def startup():
     global enforce_os_requirement, SOFT_FATAL_ERROR_INFO
 
+    if enforce_os_requirement and sys.platform not in {'win32', 'darwin', 'linux'}:
+        sys.exit(f'ABORTING: Mariana Player does not support {sys.platform}')
+    if FOCUS_MODE.recovery_required:
+        # A locked recovery shell needs neither audio tools nor first-run
+        # downloads. Preserve all non-playback fatal checks and explicit aborts.
+        playback_only = (
+            FATAL_ERROR_INFO == '; '.join(RUNTIME_REPORT.errors)
+            and set(RUNTIME_REPORT.errors) <= PLAYBACK_PREREQUISITE_ERRORS
+        )
+        if not SOFT_FATAL_ERROR_INFO and (not FATAL_ERROR_INFO or playback_only):
+            run()
+        elif FATAL_ERROR_INFO and not SOFT_FATAL_ERROR_INFO:
+            IPrint(f'FATAL ERROR ENCOUNTERED: {FATAL_ERROR_INFO}', visible=visible)
+            sys.exit(1)
+        return
+
     was_first_boot = FIRST_BOOT
     try: first_startup_greet(FIRST_BOOT)
     except Exception: raise
@@ -11171,8 +11453,6 @@ def startup():
     if not was_first_boot and not SOFT_FATAL_ERROR_INFO:
         ensure_managed_tool_migration()
 
-    if enforce_os_requirement and sys.platform not in {'win32', 'darwin', 'linux'}:
-        sys.exit(f'ABORTING: Mariana Player does not support {sys.platform}')
     if not SOFT_FATAL_ERROR_INFO: # End program silently if SOFT_FATAL_ERROR_INFO is set
         if FATAL_ERROR_INFO:
             IPrint(f"FATAL ERROR ENCOUNTERED: {FATAL_ERROR_INFO}", visible=visible)
