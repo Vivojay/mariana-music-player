@@ -205,7 +205,7 @@ export function formatChapterLabel(chapter: PlaybackStatus['chapter']): string {
   return position && title ? `${position} · ${title}` : position || title
 }
 
-type BackendEventName = 'starting' | 'ready' | 'playback' | 'video' | 'discovery' | 'equalizer' | 'station' | 'sleep' | 'broadcast' | 'loudness' | 'queue' | 'playlist' | 'album' | 'download' | 'theme' | 'desktop-preferences' | 'desktop-notice' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error' | 'control-result'
+type BackendEventName = 'starting' | 'ready' | 'playback' | 'video' | 'discovery' | 'equalizer' | 'station' | 'sleep' | 'broadcast' | 'loudness' | 'queue' | 'playlist' | 'album' | 'download' | 'theme' | 'desktop-preferences' | 'desktop-notice' | 'strudel' | 'strudel-render-requested' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error' | 'control-result'
 
 export type BackendEvent = {
   event: Exclude<BackendEventName, 'playback'>
