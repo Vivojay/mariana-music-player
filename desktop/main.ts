@@ -1,6 +1,6 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, protocol, shell, Tray } from 'electron'
 import electronUpdater from 'electron-updater'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
@@ -14,7 +14,16 @@ import { projectLocalVideo, type LocalVideoStatus } from './localVideo.js'
 import { projectHostVideoResource, serveLocalVideo, serveSourceVideo, type HostVideoResource } from './localVideoProtocol.js'
 import { hasCurrentVideo, miniWindowGeometry } from './miniVideoLayout.js'
 import { shouldDeliverMiniSnapshot } from './miniPlayerUpdates.js'
-import { validStrudelPreviewInput, validStrudelSaveInput } from './strudelProjects.js'
+import {
+  durableStrudelProjection,
+  projectStrudelProjection,
+  strudelRenderedFilesToPrune,
+  validStrudelPreviewInput,
+  validStrudelSaveInput,
+  type StrudelPreviewInput,
+  type StrudelProjection,
+} from './strudelProjects.js'
+import { StrudelRenderLifecycle, type StrudelRenderTask } from './strudelRenderLifecycle.js'
 import type {
   BackendEvent,
   CommandCatalogOptions,
@@ -57,6 +66,9 @@ const controlEndpoint = process.platform === 'win32'
 
 let mainWindow: BrowserWindow | null = null
 let miniPlayerWindow: BrowserWindow | null = null
+let strudelRenderWindow: BrowserWindow | null = null
+let strudelRenderLoad: Promise<void> | null = null
+let strudelProjection: StrudelProjection | null = null
 let terminalProcess: pty.IPty | null = null
 let controlServer: net.Server | null = null
 let controlSocket: net.Socket | null = null
@@ -90,6 +102,7 @@ const pendingControlRequests = new Map<string, {
   safeError: string
   interrupted: string
 }>()
+const strudelRenders = new StrudelRenderLifecycle<BrowserWindow>(discardStrudelRenderWindow)
 const pendingCommandCatalogRequests = new Map<string, {
   resolve: (result: CommandCatalogResult) => void
   timer: NodeJS.Timeout
@@ -251,6 +264,7 @@ function finishPendingControlRequests() {
     resolve({ ok: false, error: 'Mariana backend interrupted the command catalog request' })
   }
   pendingCommandCatalogRequests.clear()
+  strudelRenders.interrupt()
 }
 
 function requestCommandCatalog(options: CommandCatalogOptions): Promise<CommandCatalogResult> {
@@ -349,6 +363,22 @@ function handleBackendEvent(event: BackendEvent) {
     if (!projected || (equalizerProjection && projected.revision < equalizerProjection.revision)) return
     equalizerProjection = projected
     forwardedEvent = { ...event, payload: projected }
+  }
+  if (event.event === 'strudel') {
+    const projected = projectStrudelProjection(event.payload)
+    if (!projected) return
+    strudelProjection = durableStrudelProjection(projected)
+    forwardedEvent = { ...event, payload: projected }
+  }
+  if (event.event === 'strudel-render-requested') {
+    const projectId = event.payload.project_id
+    const project = typeof projectId === 'string'
+      ? strudelProjection?.projects.find((candidate) => candidate.project_id === projectId)
+      : undefined
+    if (!project) return
+    void startStrudelRender(project).then((result) => {
+      if (!result.ok) setDesktopNotice(result.error || 'Pattern preview could not be rendered')
+    })
   }
   if (event.event === 'sleep') sleepActive = Boolean(event.payload.active)
   if (event.event === 'update-safe') backendSafeOverride = Boolean(event.payload.safe)
@@ -596,6 +626,177 @@ function configureRestrictedNavigation(window: BrowserWindow) {
   })
 }
 
+function validRenderedWave(value: unknown): Buffer | null {
+  let bytes: Buffer
+  if (value instanceof ArrayBuffer) bytes = Buffer.from(value)
+  else if (ArrayBuffer.isView(value)) bytes = Buffer.from(value.buffer, value.byteOffset, value.byteLength)
+  else return null
+  if (bytes.length < 44 || bytes.length > 16 * 1024 * 1024) return null
+  if (bytes.toString('ascii', 0, 4) !== 'RIFF'
+    || bytes.toString('ascii', 8, 12) !== 'WAVE'
+    || bytes.toString('ascii', 12, 16) !== 'fmt ') return null
+  return bytes
+}
+
+function discardStrudelRenderWindow(window: BrowserWindow): void {
+  if (strudelRenderWindow === window) {
+    strudelRenderWindow = null
+    strudelRenderLoad = null
+  }
+  try { if (!window.isDestroyed()) window.destroy() } catch { /* Closing is nonfatal. */ }
+}
+
+function ensureStrudelRenderWindow(): { window: BrowserWindow; ready: Promise<void> } {
+  if (strudelRenderWindow && !strudelRenderWindow.isDestroyed()) {
+    return { window: strudelRenderWindow, ready: strudelRenderLoad ?? Promise.resolve() }
+  }
+  const window = new BrowserWindow({
+    show: false,
+    width: 320,
+    height: 240,
+    webPreferences: {
+      preload: path.join(__dirname, 'strudelPreload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      backgroundThrottling: false,
+    },
+  })
+  strudelRenderWindow = window
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  window.webContents.once('render-process-gone', () => discardStrudelRenderWindow(window))
+  window.webContents.on('will-navigate', (event, url) => {
+    const allowed = usesViteRenderer
+      ? url === 'http://127.0.0.1:5173/strudel.html'
+      : url.startsWith('file:') && fileURLToPath(url) === path.join(__dirname, '..', 'dist', 'strudel.html')
+    if (!allowed) event.preventDefault()
+  })
+  window.on('closed', () => {
+    if (strudelRenderWindow === window) {
+      strudelRenderWindow = null
+      strudelRenderLoad = null
+    }
+    strudelRenders.ownerClosed(window)
+  })
+  const load = usesViteRenderer
+    ? window.loadURL('http://127.0.0.1:5173/strudel.html')
+    : window.loadFile(path.join(__dirname, '..', 'dist', 'strudel.html'))
+  strudelRenderLoad = load
+  const ready = load.catch((error: unknown) => {
+    discardStrudelRenderWindow(window)
+    throw error
+  }).finally(() => {
+    if (strudelRenderLoad === load) strudelRenderLoad = null
+  })
+  return { window, ready }
+}
+
+function currentStrudelProject(input: StrudelPreviewInput): StrudelPreviewInput | null {
+  const current = strudelProjection?.projects.find((project) => project.project_id === input.project_id)
+  if (!current
+    || current.revision !== input.revision
+    || current.name !== input.name
+    || current.code !== input.code
+    || current.preview_seconds !== input.preview_seconds) return null
+  return current
+}
+
+async function startStrudelRender(input: StrudelPreviewInput): Promise<DesktopControlResult> {
+  if (quitting || !validStrudelPreviewInput(input) || !currentStrudelProject(input)) {
+    return { ok: false, error: 'Save the current project revision before rendering' }
+  }
+  const lease = strudelRenders.begin(randomBytes(16).toString('hex'), input)
+  if (!lease) return { ok: false, error: 'Another pattern preview is already rendering' }
+  const { task } = lease
+  try {
+    const { window, ready } = ensureStrudelRenderWindow()
+    strudelRenders.bind(task, window)
+    // Do not await a potentially hung load before returning the bounded result.
+    void ready.then(() => {
+      if (!strudelRenders.loaded(task)) return
+      if (!currentStrudelProject(task.input)) {
+        strudelRenders.finish(task, { ok: false, error: 'Save the current project revision before rendering' })
+        return
+      }
+      window.webContents.send('strudel:render', {
+        requestId: task.requestId, code: task.input.code, previewSeconds: task.input.preview_seconds,
+      })
+    }).catch(() => {
+      strudelRenders.finish(task, { ok: false, error: 'Pattern renderer is unavailable' })
+      discardStrudelRenderWindow(window)
+    })
+  } catch {
+    strudelRenders.finish(task, { ok: false, error: 'Pattern renderer is unavailable' })
+  }
+  return lease.result
+}
+
+async function finishStrudelRender(pending: StrudelRenderTask<BrowserWindow>, value: unknown): Promise<void> {
+  if (!strudelRenders.isCurrent(pending)) return
+  const bytes = validRenderedWave(value)
+  if (!bytes) {
+    strudelRenders.finish(pending, { ok: false, error: 'Pattern renderer returned invalid audio' })
+    return
+  }
+  try {
+    const digest = createHash('sha256').update(bytes).digest('hex')
+    const directory = path.join(app.getPath('userData'), 'runtime', 'temp', 'strudel')
+    const artifactName = `${pending.input.project_id}-${digest}.wav`
+    const destination = path.join(directory, artifactName)
+    await fs.promises.mkdir(directory, { recursive: true })
+    if (!strudelRenders.isCurrent(pending)) return
+    if (!fs.existsSync(destination)) {
+      const temporary = path.join(directory, `.${artifactName}.${randomBytes(8).toString('hex')}.tmp`)
+      try {
+        await fs.promises.writeFile(temporary, bytes, { flag: 'wx' })
+        if (!strudelRenders.isCurrent(pending)) return
+        await fs.promises.rename(temporary, destination)
+      } finally {
+        await fs.promises.rm(temporary, { force: true })
+      }
+    }
+    if (!strudelRenders.isCurrent(pending)) return
+    const renderedEntries = await Promise.all((await fs.promises.readdir(directory, { withFileTypes: true }))
+      .filter((entry) => entry.isFile())
+      .map(async (entry) => {
+        try {
+          const stat = await fs.promises.stat(path.join(directory, entry.name))
+          return { name: entry.name, size: stat.size, mtimeMs: stat.mtimeMs }
+        } catch {
+          return null
+        }
+      }))
+    if (!strudelRenders.isCurrent(pending)) return
+    const filesToPrune = strudelRenderedFilesToPrune(
+      renderedEntries.filter((entry): entry is NonNullable<typeof entry> => entry !== null),
+      artifactName,
+    )
+    await Promise.all(filesToPrune.map(async (name) => {
+      if (!strudelRenders.isCurrent(pending)) return
+      try {
+        await fs.promises.rm(path.join(directory, name), { force: true })
+      } catch {
+        // A preview already opened by the backend may still be locked on Windows.
+      }
+    }))
+    if (!strudelRenders.isCurrent(pending)) return
+    if (!currentStrudelProject(pending.input)) {
+      strudelRenders.finish(pending, { ok: false, error: 'Save the current project revision before rendering' })
+      return
+    }
+    if (!strudelRenders.beginCommit(pending)) return
+    const result = await requestBackendControl('strudel.preview', {
+      project_id: pending.input.project_id,
+      revision: pending.input.revision,
+      artifact_name: artifactName,
+    }, playbackControlMessages)
+    strudelRenders.finish(pending, result)
+  } catch {
+    strudelRenders.finish(pending, { ok: false, error: 'Rendered pattern could not be prepared for playback' })
+  }
+}
+
 async function ensureMiniPlayerWindow(): Promise<BrowserWindow> {
   let created = false
   const window = ensureSingleWindow(miniPlayerWindow, () => {
@@ -719,7 +920,20 @@ function registerIpc() {
     if (!validateSender(event) || !validStrudelPreviewInput(input)) {
       return { ok: false, error: 'Pattern preview request is invalid' }
     }
-    return { ok: false, error: 'Pattern rendering needs the desktop render worker' }
+    return startStrudelRender(input)
+  })
+  ipcMain.on('strudel:complete', (event, requestId: unknown, bytes: unknown) => {
+    if (!strudelRenderWindow || event.sender !== strudelRenderWindow.webContents
+      || typeof requestId !== 'string' || !/^[0-9a-f]{32}$/.test(requestId)) return
+    const pending = strudelRenders.claimReply(requestId, strudelRenderWindow)
+    if (pending) void finishStrudelRender(pending, bytes)
+  })
+  ipcMain.on('strudel:failed', (event, requestId: unknown, message: unknown) => {
+    if (!strudelRenderWindow || event.sender !== strudelRenderWindow.webContents
+      || typeof requestId !== 'string' || !/^[0-9a-f]{32}$/.test(requestId)) return
+    const pending = strudelRenders.claimReply(requestId, strudelRenderWindow)
+    if (!pending) return
+    strudelRenders.finish(pending, { ok: false, error: safeControlError(message, 'Pattern rendering failed') })
   })
   protocol.handle('mariana-video', (request) => localVideoStatus?.transport === 'source' ? serveSourceVideo(
     request, () => ({ status: backendReady ? localVideoStatus : null,
