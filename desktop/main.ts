@@ -82,6 +82,7 @@ const controlEndpoint = process.platform === 'win32'
 
 let mainWindow: BrowserWindow | null = null
 let miniPlayerWindow: BrowserWindow | null = null
+let videoWindow: BrowserWindow | null = null
 let strudelRenderWindow: BrowserWindow | null = null
 let strudelRenderLoad: Promise<void> | null = null
 let strudelProjection: StrudelProjection | null = null
@@ -263,7 +264,10 @@ function validateSender(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEve
 }
 
 function validateMiniPlayerSender(event: Electron.IpcMainInvokeEvent): boolean {
-  return Boolean(miniPlayerWindow && event.sender === miniPlayerWindow.webContents)
+  return Boolean(
+    (miniPlayerWindow && event.sender === miniPlayerWindow.webContents)
+    || (videoWindow && event.sender === videoWindow.webContents),
+  )
 }
 
 function validControlMediaId(value: unknown): value is string {
@@ -440,6 +444,15 @@ function handleBackendEvent(event: BackendEvent) {
     hostVideoResource = projectHostVideoResource(event.payload, projected)
     localVideoTimestamp = timestamp
     forwardedEvent = { ...event, payload: projected }
+  }
+  if (event.event === 'video-window') {
+    const open = (event.payload as { open?: unknown } | null)?.open === true
+    void ensureVideoWindow().then((window) => {
+      if (window.isDestroyed()) return
+      if (open) showWindow(window)
+      else window.hide()
+    })
+    return
   }
   if (event.event === 'focus-recovery') {
     const projected = projectFocusRecovery(event.payload)
@@ -920,6 +933,41 @@ async function ensureMiniPlayerWindow(): Promise<BrowserWindow> {
   })
   if (usesViteRenderer) await window.loadURL('http://127.0.0.1:5173/?surface=mini')
   else await window.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { query: { surface: 'mini' } })
+  return window
+}
+
+async function ensureVideoWindow(): Promise<BrowserWindow> {
+  let created = false
+  const window = ensureSingleWindow(videoWindow, () => {
+    created = true
+    return new BrowserWindow({
+      width: 960,
+      height: 600,
+      minWidth: 480,
+      minHeight: 320,
+      show: false,
+      title: 'Mariana Video',
+      backgroundColor: '#15151d',
+      webPreferences: {
+        preload: path.join(__dirname, 'miniPreload.cjs'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        webSecurity: true,
+      },
+    })
+  })
+  videoWindow = window
+  if (!created) return window
+  configureRestrictedNavigation(window)
+  window.on('close', (event) => {
+    handleAuxiliaryWindowClose(event, window, quitting)
+  })
+  window.on('closed', () => {
+    if (videoWindow === window) videoWindow = null
+  })
+  if (usesViteRenderer) await window.loadURL('http://127.0.0.1:5173/?surface=video')
+  else await window.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), { query: { surface: 'video' } })
   return window
 }
 
@@ -1404,7 +1452,18 @@ function registerIpc() {
   })
   ipcMain.handle('mini:hide', async (event) => {
     if (!validateMiniPlayerSender(event)) throw new Error('Invalid IPC sender')
-    miniPlayerWindow?.hide()
+    if (videoWindow && event.sender === videoWindow.webContents) videoWindow.hide()
+    else miniPlayerWindow?.hide()
+  })
+  ipcMain.handle('backend:video-window', async (event, open: unknown) => {
+    if (!validateSender(event)) return { ok: false, error: 'Video window request is invalid' }
+    const window = await ensureVideoWindow()
+    if (open) {
+      if (!window.isDestroyed()) showWindow(window)
+    } else if (!window.isDestroyed()) {
+      window.hide()
+    }
+    return { ok: true }
   })
   ipcMain.handle('shell:open-external', async (event, value: unknown) => {
     if (!validateSender(event) || typeof value !== 'string') throw new Error('Invalid external URL')

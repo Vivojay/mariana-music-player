@@ -30,7 +30,7 @@ test('hosts the real Mariana PTY in the riced terminal shell', async () => {
       'artworkConfigure', 'artworkData', 'artworkShow', 'commandCatalog', 'crossfadeConfigure', 'discoveryBegin', 'discoveryCancel', 'discoveryChoose', 'downloadCurrent', 'downloadStatus', 'equalizerConfigure', 'equalizerStatus', 'focusRecoveryRetry', 'homepageConfigure', 'homepageImageData', 'homepageOpen', 'homepageRefresh', 'lyricsHide', 'lyricsOffset', 'lyricsRequest', 'lyricsStatus', 'next', 'onEvent', 'pause', 'play', 'previous', 'seek', 'setRating', 'snapshot',
       'strudelDelete', 'strudelOpen', 'strudelPreview', 'strudelSave',
       'toggleFavorite', 'videoAudioOffset', 'videoCaptionAutomatic', 'videoCaptionConfigure',
-      'videoCaptionFile', 'videoCaptionLanguages', 'videoCaptionSelect', 'videoConfigure', 'videoStatus',
+      'videoCaptionFile', 'videoCaptionLanguages', 'videoCaptionSelect', 'videoConfigure', 'videoStatus', 'videoWindow',
     ])
     const commandSuggestions = page.getByRole('combobox', { name: 'Command suggestions' })
     await commandSuggestions.focus()

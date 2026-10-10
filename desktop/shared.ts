@@ -205,7 +205,7 @@ export function formatChapterLabel(chapter: PlaybackStatus['chapter']): string {
   return position && title ? `${position} · ${title}` : position || title
 }
 
-type BackendEventName = 'starting' | 'ready' | 'playback' | 'hotspots' | 'resume-offer' | 'video' | 'desktop-download' | 'homepage' | 'discovery' | 'artwork' | 'lyrics' | 'equalizer' | 'crossfade' | 'strudel' | 'strudel-render-requested' | 'station' | 'sleep' | 'broadcast' | 'loudness' | 'queue' | 'playlist' | 'album' | 'download' | 'theme' | 'desktop-preferences' | 'desktop-notice' | 'focus-recovery' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error' | 'control-result'
+type BackendEventName = 'starting' | 'ready' | 'playback' | 'hotspots' | 'resume-offer' | 'video' | 'video-window' | 'desktop-download' | 'homepage' | 'discovery' | 'artwork' | 'lyrics' | 'equalizer' | 'crossfade' | 'strudel' | 'strudel-render-requested' | 'station' | 'sleep' | 'broadcast' | 'loudness' | 'queue' | 'playlist' | 'album' | 'download' | 'theme' | 'desktop-preferences' | 'desktop-notice' | 'focus-recovery' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error' | 'control-result'
 
 export type BackendEvent = {
   event: Exclude<BackendEventName, 'playback'>
@@ -348,6 +348,7 @@ export type MarianaDesktopApi = {
     videoCaptionAutomatic?(mediaId: string): Promise<DesktopControlResult>
     videoCaptionConfigure?(mediaId: string, action: 'on' | 'off' | 'clear' | 'shift' | 'set-offset', value?: number): Promise<DesktopControlResult>
     videoAudioOffset?(mediaId: string, value: number, relative: boolean): Promise<DesktopControlResult>
+    videoWindow(open: boolean): Promise<DesktopControlResult>
     equalizerStatus(): Promise<import('./equalizer.js').EqualizerResult>
     equalizerConfigure(intent: import('./equalizer.js').EqualizerIntent): Promise<import('./equalizer.js').EqualizerResult>
     discoveryBegin(itemId: string, requestId: string, page?: number): Promise<DesktopControlResult>
