@@ -433,6 +433,25 @@ def _configured_automatic_artwork(settings):
     return value if type(value) is bool else False
 
 
+CROSSFADE_DEFAULT_SECONDS = 5.0
+CROSSFADE_MAX_SECONDS = 30.0
+
+
+def _configured_crossfade_seconds(settings):
+    """Return a bounded overlap duration while preserving an explicit zero."""
+    playback_settings = settings.get('playback')
+    if not isinstance(playback_settings, dict):
+        return CROSSFADE_DEFAULT_SECONDS
+    value = playback_settings.get('crossfade seconds', CROSSFADE_DEFAULT_SECONDS)
+    if isinstance(value, bool):
+        return 0.0
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return seconds if math.isfinite(seconds) and 0 <= seconds <= CROSSFADE_MAX_SECONDS else 0.0
+
+
 
 def _emit_discovery_event(event, payload) -> None:
     """Adapt typed service callbacks to the existing best-effort desktop emitter."""
@@ -703,7 +722,7 @@ DOWNLOADS = DownloadManager(
 )
 vas.configure(
     ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'),
-    crossfade_seconds=SETTINGS.get('playback', {}).get('crossfade seconds', 0),
+    crossfade_seconds=_configured_crossfade_seconds(SETTINGS),
     catalog=RADIO,
     browser_profile=SETTINGS.get('sources', {}).get('youtube', {}).get('browser profile'),
     replaygain=REPLAYGAIN_SETTINGS,
@@ -1015,7 +1034,7 @@ def refresh_runtime_configuration(*, show_report=False):
     YT_query.configure(browser_profile=browser_profile)
     vas.configure(
         ffmpeg_bin=MEDIA_TOOLS.get('ffmpeg bin'),
-        crossfade_seconds=SETTINGS.get('playback', {}).get('crossfade seconds', 0),
+        crossfade_seconds=_configured_crossfade_seconds(SETTINGS),
         catalog=RADIO,
         browser_profile=browser_profile,
         replaygain=REPLAYGAIN_SETTINGS,
@@ -1754,20 +1773,24 @@ def _play_queue_item(item):
         if media.source == MediaSource.LOCAL:
             play_local_default_player(media.original_uri, _songindex=None, is_queue=True, media=media)
         else:
-            vas.supervisor.play(media)
+            vas.supervisor.play(media, origin='automatic')
             _set_current_media_state(media)
+            _record_queue_history(media)
             _show_local_copy_hint(media)
     except Exception:
+        playback_diagnostics.record(2, 'queue.play_failed')
         RECOMMENDER.record_event(media, 'failure')
         action = QUEUE.mark_failure(item.queue_id)
         if action == 'retry':
+            playback_diagnostics.record(2, 'queue.retry')
             return _play_queue_item(item)
         if action == 'skip':
+            playback_diagnostics.record(2, 'queue.skip_failed')
             next_item = _advance_queue_to_playable()
             if next_item:
                 return _play_queue_item(next_item)
         raise
-    RECOMMENDER.record_event(media, 'start')
+    _record_successful_start(media)
     _prefetch_after(item)
 
 
@@ -5463,6 +5486,70 @@ HELP_TOPIC_ALIASES = {
 }
 
 
+def _crossfade_projection():
+    seconds = float(vas.controller.crossfade_seconds)
+    return {
+        'schema_version': 1,
+        'enabled': seconds > 0,
+        'seconds': seconds,
+        'curve': 'equal-power',
+        'automatic_only': True,
+    }
+
+
+def _set_crossfade_seconds(value):
+    if isinstance(value, bool):
+        raise ValueError('Crossfade duration must be a number from 0 to 30 seconds')
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError('Crossfade duration must be a number from 0 to 30 seconds') from error
+    if not math.isfinite(seconds) or not 0 <= seconds <= CROSSFADE_MAX_SECONDS:
+        raise ValueError('Crossfade duration must be a number from 0 to 30 seconds')
+    with _SETTINGS_WRITE_LOCK:
+        playback_settings = SETTINGS.setdefault('playback', {})
+        missing = object()
+        previous_setting = playback_settings.get('crossfade seconds', missing)
+        previous_runtime = float(vas.controller.crossfade_seconds)
+        playback_settings['crossfade seconds'] = seconds
+        vas.controller.set_crossfade_seconds(seconds)
+        try:
+            save_user_settings(SETTINGS, RUNTIME_PATHS.settings)
+        except Exception:
+            vas.controller.set_crossfade_seconds(previous_runtime)
+            if previous_setting is missing:
+                playback_settings.pop('crossfade seconds', None)
+            else:
+                playback_settings['crossfade seconds'] = previous_setting
+            raise
+    projection = _crossfade_projection()
+    DESKTOP_CONTROL.emit('crossfade', projection)
+    return projection
+
+
+def crossfade_command(arguments):
+    operation = arguments[0].casefold() if arguments else 'status'
+    if operation == 'status' and len(arguments) <= 1:
+        projection = _crossfade_projection()
+    elif len(arguments) == 1 and operation == 'on':
+        current = float(vas.controller.crossfade_seconds)
+        projection = _set_crossfade_seconds(current if current > 0 else CROSSFADE_DEFAULT_SECONDS)
+    elif len(arguments) == 1 and operation == 'off':
+        projection = _set_crossfade_seconds(0)
+    elif len(arguments) == 1:
+        projection = _set_crossfade_seconds(arguments[0])
+    else:
+        raise ValueError('Usage: crossfade [status|on|off|SECONDS]')
+    state = 'on' if projection['enabled'] else 'off'
+    duration = f"{projection['seconds']:g} seconds" if projection['enabled'] else '0 seconds'
+    auto_next = 'on' if AUTOPLAY_ENABLED else 'off'
+    IPrint(
+        f'Crossfade: {state} ({duration}; equal-power; finite auto-next transitions only; '
+        f'auto-next is {auto_next})',
+        visible=visible,
+    )
+    return projection
+
 def eq_command(arguments):
     """Inspect or change local-listening EQ through the same service as desktop."""
     intent = equalizer_command_intent(arguments)
@@ -6884,6 +6971,16 @@ def _apply_desktop_control_request(action: str, payload: dict[str, object]) -> d
             },
         }
 
+    if action == 'playback.crossfade':
+        try:
+            if set(payload) != {'seconds'}:
+                raise ValueError('Invalid crossfade request')
+            _set_crossfade_seconds(payload.get('seconds'))
+            return {'ok': True}
+        except ValueError as error:
+            return {'ok': False, 'error': str(error)}
+        except Exception:
+            return {'ok': False, 'error': 'Could not update crossfade settings'}
     if action in {'video.status', 'video.configure', 'video.captions', 'video.audio-offset'}:
         try:
             if action == 'video.status':
@@ -9180,6 +9277,7 @@ def process(command):
             'home': home_command,
             'thumb': thumb_command,
             'eq': eq_command,
+            'crossfade': crossfade_command,
             'chapters': chapters_command,
             'captions': captions_command,
             'avsync': avsync_command,
@@ -11002,6 +11100,9 @@ def initialize_audio_output():
             "Mariana Player could not initialize an audio output device. "
             "Connect or enable speakers and verify the operating-system audio settings."
         ) from error
+
+
+_process_command = process
 
 
 def run():
