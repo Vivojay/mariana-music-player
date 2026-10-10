@@ -103,6 +103,13 @@ export type PlaybackHotspots = {
   bins: PlaybackHotspotBin[]
 }
 
+export type PlaybackResumeOffer = {
+  schema_version: 1
+  media_id: string
+  position_seconds: number
+  duration_seconds: number
+}
+
 export type HomepageItem = {
   catalogue?: {
     language: string, region: string, category: string,
@@ -340,6 +347,10 @@ export type MarianaDesktopApi = {
     discoveryBegin(itemId: string, requestId: string, page?: number): Promise<DesktopControlResult>
     discoveryChoose(requestId: string, revision: number, choiceId: string, intent: 'versions' | 'play' | 'queue'): Promise<DesktopControlResult>
     discoveryCancel(requestId: string): Promise<DesktopControlResult>
+    strudelOpen(): Promise<DesktopControlResult>
+    strudelSave(input: import('./strudelProjects.js').StrudelSaveInput): Promise<DesktopControlResult>
+    strudelDelete(projectId: string, revision: number): Promise<DesktopControlResult>
+    strudelPreview(input: import('./strudelProjects.js').StrudelPreviewInput): Promise<DesktopControlResult>
   }
   updates: {
     check(): Promise<void>
