@@ -22,9 +22,14 @@ from mariana.command_completion import command_completions
 def _windows_word_erase_key(input: Input) -> str:
     # Both encodings become the same Backspace key in the editor, but retain
     # their original data. Legacy console records reverse the VT byte mapping.
-    from prompt_toolkit.input.win32 import ConsoleInputReader, Win32Input
+    # The win32 reader module is resolved at runtime so prompts keep working
+    # wherever prompt_toolkit ships a different console backend.
+    from prompt_toolkit.input import win32 as win32_backend
 
-    if isinstance(input, Win32Input) and isinstance(input.console_input_reader, ConsoleInputReader):
+    win32_input = getattr(win32_backend, 'Win32Input', ())
+    console_reader = getattr(win32_backend, 'ConsoleInputReader', ())
+    reader = getattr(input, 'console_input_reader', None)
+    if isinstance(input, win32_input) and isinstance(reader, console_reader):
         return "\x7f"
     return "\x08"
 
