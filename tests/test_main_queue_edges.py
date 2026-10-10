@@ -56,9 +56,10 @@ def test_indexed_local_playback_media_uses_catalog_metadata_and_safe_display_lab
     assert enriched.chapters == [MediaChapter("Intro", 0, 30), MediaChapter("Song", 30, 120)]
     assert enriched.resolver_data["library_display_title"] == "maybe you miss me [932698612]"
     assert str(song) not in str(enriched.resolver_data)
-    assert project_playback_status(
-        PlaybackSnapshot(PlaybackState.PLAYING, media=enriched)
-    ).title == "maybe you miss me [932698612]"
+    assert (
+        project_playback_status(PlaybackSnapshot(PlaybackState.PLAYING, media=enriched)).title
+        == "maybe you miss me [932698612]"
+    )
 
 
 def test_unindexed_local_playback_media_keeps_generic_fallback(monkeypatch, tmp_path):
@@ -75,7 +76,7 @@ def test_online_queue_play_retries_then_records_start(monkeypatch):
     item = SimpleNamespace(media=media, queue_id=1)
     calls = []
 
-    def play(_media):
+    def play(_media, *, origin=None):
         calls.append("play")
         if len(calls) == 1:
             raise RuntimeError("temporary")
@@ -102,7 +103,7 @@ def test_queue_play_skip_and_prefetch_modes(monkeypatch):
     calls = []
     attempts = iter([RuntimeError("bad"), None])
 
-    def play(_media):
+    def play(_media, *, origin=None):
         outcome = next(attempts)
         if outcome:
             raise outcome
@@ -326,10 +327,13 @@ def test_youtube_queue_selector_alias_and_idle_guidance(queue_cli, monkeypatch):
     monkeypatch.setattr(
         main.YT_query,
         "search_youtube",
-        lambda **kwargs: searches.append(kwargs) or [
-            (1, "First", "https://www.youtube.com/watch?v=abc12345678"),
-            (2, "Second", "https://www.youtube.com/watch?v=def12345678"),
-        ],
+        lambda **kwargs: (
+            searches.append(kwargs)
+            or [
+                (1, "First", "https://www.youtube.com/watch?v=abc12345678"),
+                (2, "Second", "https://www.youtube.com/watch?v=def12345678"),
+            ]
+        ),
     )
     monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
     monkeypatch.setattr("builtins.input", lambda _prompt="": "2")
@@ -426,9 +430,7 @@ def test_direct_local_media_aligns_with_its_queue_identity(monkeypatch, tmp_path
         monkeypatch.setattr(main, "SAY", lambda **_kwargs: None)
         monkeypatch.setattr(main, "IPrint", lambda *_args, **_kwargs: None)
         monkeypatch.setattr(main, "_prefetch_after", lambda _item: None)
-        monkeypatch.setattr(main, "USER_DATA", {
-            "default_user_data": {"stats": {"play_count": {"local": 0}}}
-        })
+        monkeypatch.setattr(main, "USER_DATA", {"default_user_data": {"stats": {"play_count": {"local": 0}}}})
 
         main.play_local_default_player(str(second), _songindex=2)
 
