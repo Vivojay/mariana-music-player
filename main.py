@@ -118,6 +118,7 @@ from mariana.adhoc_identification import (
 )
 from mariana.identity import AcoustIDClient, IdentificationService, LRCLIBClient, MusicBrainzClient, MIN_FINGERPRINT_SECONDS, IdentificationError, find_fpcalc
 from mariana.homepage import HOMEPAGE_CACHE_STATE_KEY, HomepageConfiguration, HomepageService, ListenBrainzFreshReleasesProvider, create_homepage_image_cache
+from mariana.lyrics_presentation import LyricsPresentationService
 from mariana.library import LibraryCatalog, LibraryError
 from mariana.library_service import LibraryProfilerService
 from mariana.librivox import (
@@ -729,6 +730,10 @@ vas.controller.add_active_media_sink(ADHOC_IDENTIFICATION.active_media_changed)
 get_lyrics.configure(IDENTITY, vas.controller)
 EQUALIZER = EqualizerService(lambda: vas.controller.equalizer, SETTINGS.get('equalizer'), _persist_equalizer_configuration)
 DESKTOP_CONTROL = DesktopControl()
+TIMED_LYRICS = LyricsPresentationService(
+    IDENTITY, on_change=lambda payload: DESKTOP_CONTROL.emit('lyrics', payload),
+    snapshot=lambda: vas.controller.snapshot(),
+)
 _STEM_SELECTION = {'media_id': None, 'names': ()}
 
 
@@ -6592,6 +6597,7 @@ def _favorite_status_projection(media: MediaRef | None) -> FavoriteStatusProject
 def _playback_status_projection() -> PlaybackStatusProjection:
     """Return the safe, authoritative playback projection used by CLI surfaces."""
     snapshot = vas.controller.snapshot()
+    TIMED_LYRICS.update_playback(snapshot, session_id=snapshot.session_id)
     stable_id = snapshot.media.stable_id if snapshot.media else None
     queue_position, queue_count = QUEUE.playback_position(stable_id)
     library_index = None
@@ -6688,6 +6694,34 @@ def _desktop_control_request(action: str, payload: dict[str, object]) -> dict[st
 
 def _apply_desktop_control_request(action: str, payload: dict[str, object]) -> dict[str, object]:
     """Apply one allowlisted desktop intent against authoritative backend state."""
+    if action in {'lyrics.status', 'lyrics.request', 'lyrics.offset', 'lyrics.hide'}:
+        try:
+            snapshot = vas.controller.snapshot()
+            TIMED_LYRICS.update_playback(snapshot, session_id=snapshot.session_id)
+            if action in {'lyrics.status', 'lyrics.hide'}:
+                if payload:
+                    raise ValueError('Invalid lyrics request')
+                state = TIMED_LYRICS.hide() if action == 'lyrics.hide' else TIMED_LYRICS.projection()
+            else:
+                expected = {'media_id', 'refresh' if action == 'lyrics.request' else 'offset_ms'}
+                if set(payload) != expected or not snapshot.media \
+                        or payload.get('media_id') != snapshot.media.stable_id:
+                    raise ValueError('Current media changed; request lyrics again')
+                if action == 'lyrics.request':
+                    if type(payload.get('refresh')) is not bool:
+                        raise ValueError('Invalid lyrics refresh request')
+                    _ensure_media_playable(snapshot.media)
+                    state = TIMED_LYRICS.request(
+                        media_id=snapshot.media.stable_id, refresh=cast(bool, payload['refresh']),
+                    )
+                else:
+                    state = TIMED_LYRICS.set_offset(snapshot.media.stable_id, payload.get('offset_ms'))
+            DESKTOP_CONTROL.emit('lyrics', state)
+            return {'ok': True}
+        except (ValueError, PlaybackBlockedError) as error:
+            return {'ok': False, 'error': str(error)}
+        except Exception:
+            return {'ok': False, 'error': 'Lyrics are unavailable'}
     if action in {'discovery.begin', 'discovery.choose', 'discovery.cancel'}:
         request_id = payload.get('request_id')
         if not isinstance(request_id, str) or not re.fullmatch(r'[0-9a-f]{32}', request_id):
@@ -7572,6 +7606,7 @@ def exitplayer(sys_exit=False):
         ('release selection', DISCOVERY.close),
         ('artwork', _close_artwork_controller),
         ('playback events', PLAYBACK_EVENTS.close),
+        ('timed lyrics', TIMED_LYRICS.close),
         ('desktop control', DESKTOP_CONTROL.close),
         ('playback', vas.supervisor.close),
         ('session recipes', SESSIONS.close),
@@ -8912,6 +8947,40 @@ def get_prettified_recents(indices):
         results.append(result)
 
     return results
+
+def timed_lyrics_command(arguments):
+    """Inspect synchronized lyrics without creating another playback clock."""
+    operation = arguments[0].casefold() if arguments else 'status'
+    usage = 'Usage: lyrics current [--refresh] | status | offset <signed-ms> | hide'
+    snapshot = vas.controller.snapshot()
+    TIMED_LYRICS.update_playback(snapshot, session_id=snapshot.session_id)
+    if operation == 'status' and len(arguments) <= 1:
+        state = TIMED_LYRICS.projection()
+    elif operation == 'hide' and len(arguments) == 1:
+        state = TIMED_LYRICS.hide()
+    elif operation == 'current' and arguments[1:] in ([], ['--refresh']):
+        if snapshot.media is None:
+            raise ValueError('No media is active')
+        _ensure_media_playable(snapshot.media)
+        state = TIMED_LYRICS.request(
+            media_id=snapshot.media.stable_id, refresh=arguments[1:] == ['--refresh'],
+        )
+    elif operation == 'offset' and len(arguments) == 2 and re.fullmatch(r'[+-]?\d{1,6}', arguments[1]):
+        if snapshot.media is None:
+            raise ValueError('No media is active')
+        state = TIMED_LYRICS.set_offset(snapshot.media.stable_id, int(arguments[1]))
+    else:
+        raise ValueError(usage)
+    IPrint(f"Lyrics: {state['state']} | offset {state['offset_ms']:+d} ms", visible=visible)
+    if state.get('active'):
+        IPrint(state['active']['text'], visible=visible)
+    elif state.get('plain') and operation == 'status':
+        IPrint(state['plain'], visible=visible)
+    elif state.get('unavailable_reason'):
+        IPrint(state['unavailable_reason'], visible=visible)
+    if state.get('attribution'):
+        IPrint(state['attribution'], visible=visible)
+    return state
 
 def lyrics_ops(show_window):
     global lyrics_saved_for_song, currentsong, ISDEV
@@ -10342,6 +10411,11 @@ def process(command):
         elif commandslist[0] in {'lyr', 'lyrics'}:
             if len(commandslist) == 1:
                 lyrics_ops(show_window = True)
+            elif commandslist[1] in {'current', 'status', 'offset', 'hide'}:
+                try:
+                    timed_lyrics_command(commandslist[1:])
+                except (ValueError, PlaybackBlockedError) as error:
+                    IPrint(str(error), visible=visible)
             elif commandslist[1] == 'edit':
                 try:
                     yes, values = _confirmation_bypass(commandslist[2:])
