@@ -535,7 +535,9 @@ def test_download_command_validation_cancellation_and_album_edges(monkeypatch, t
     )
     monkeypatch.setattr(main, "DOWNLOADS", jobs)
     monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: output.append(str(value)))
-    monkeypatch.setattr(main, "ALBUMS", SimpleNamespace(fetch=lambda _value: album, select_tracks=lambda value, _selector: value.tracks))
+    monkeypatch.setattr(
+        main, "ALBUMS", SimpleNamespace(fetch=lambda _value: album, select_tracks=lambda value, _selector: value.tracks)
+    )
     monkeypatch.setattr(main, "_current_youtube_media", lambda: youtube)
     monkeypatch.setattr("builtins.input", lambda *_args: "n")
 
@@ -565,9 +567,7 @@ def test_download_command_validation_cancellation_and_album_edges(monkeypatch, t
     with pytest.raises(DownloadJobError, match="unresolved"):
         main._download_album_job("album", [], quality="best", destination=tmp_path, yes=True)
     with pytest.raises(DownloadJobError, match="No selected"):
-        main._download_album_job(
-            "album", ["--allow-partial"], quality="best", destination=tmp_path, yes=True
-        )
+        main._download_album_job("album", ["--allow-partial"], quality="best", destination=tmp_path, yes=True)
 
     downloadable = AlbumRef("download", "Album", tracks=[AlbumTrack("Online", media=youtube)])
     monkeypatch.setattr(
@@ -659,7 +659,7 @@ def test_queue_item_failure_retry_skip_and_online_play(monkeypatch):
     monkeypatch.setattr(main, "_prefetch_after", lambda item: events.append(("prefetch", item)))
     monkeypatch.setattr(main.RECOMMENDER, "record_event", lambda *args, **_kwargs: events.append(args))
     monkeypatch.setattr(main, "QUEUE", SimpleNamespace(items=lambda: [online]))
-    monkeypatch.setattr(main.vas.supervisor, "play", lambda media: events.append(("online", media)))
+    monkeypatch.setattr(main.vas.supervisor, "play", lambda media, **_kwargs: events.append(("online", media)))
     main._play_queue_item(online)
     assert ("online", online_media) in events
 
@@ -929,7 +929,13 @@ def test_podcast_choice_media_playback_and_url_choice_edges(monkeypatch):
     monkeypatch.setattr(main, "SAY", lambda **kwargs: output.append(kwargs.get("display_message", "")))
     monkeypatch.setattr(main, "play_vas_media", lambda **kwargs: played.append(kwargs))
     entries = [
-        {"title": "Episode", "caption": "Long caption", "pub_date": "today", "is_explicit": False, "url": "https://example.test/episode"},
+        {
+            "title": "Episode",
+            "caption": "Long caption",
+            "pub_date": "today",
+            "is_explicit": False,
+            "url": "https://example.test/episode",
+        },
         {"title": "No URL", "caption": None, "pub_date": None, "is_explicit": None},
     ]
     monkeypatch.setattr(main, "visible", True)
@@ -946,11 +952,17 @@ def test_podcast_choice_media_playback_and_url_choice_edges(monkeypatch):
     monkeypatch.setattr(main, "stopsong", lambda: actions.append("stop"))
     monkeypatch.setattr(main, "recents_queue_save", lambda value: actions.append(value))
     monkeypatch.setattr(main, "save_user_data", lambda: None)
-    monkeypatch.setattr(main, "USER_DATA", {"default_user_data": {"stats": {"play_count": {"youtube": 0, "general": 0, "radio": 0, "redditsession": 0}}}})
+    monkeypatch.setattr(
+        main,
+        "USER_DATA",
+        {"default_user_data": {"stats": {"play_count": {"youtube": 0, "general": 0, "radio": 0, "redditsession": 0}}}},
+    )
     monkeypatch.setattr(main.vas, "set_media", lambda **kwargs: kwargs.get("vidurl", "stream"))
     monkeypatch.setattr(main.vas, "media_player", lambda **_kwargs: None)
     monkeypatch.setattr(main.vas, "wait_until_playing", lambda *_args: None)
-    monkeypatch.setattr(main.vas, "player", SimpleNamespace(audio_set_volume=lambda _value: None, get_length=lambda: 1_000))
+    monkeypatch.setattr(
+        main.vas, "player", SimpleNamespace(audio_set_volume=lambda _value: None, get_length=lambda: 1_000)
+    )
     monkeypatch.setattr(main.YT_query, "vid_info", lambda _url: {"title": "Video"})
     main.play_vas_media("https://youtube.test/watch?v=one", single_video=True)
     main.play_vas_media("https://youtube.test/watch?v=two", single_video=False, media_name="Named")
@@ -974,8 +986,12 @@ def test_podcast_choice_media_playback_and_url_choice_edges(monkeypatch):
 def test_run_safety_callback_reports_every_busy_reason(monkeypatch):
     captured = {}
     monkeypatch.setattr(main, "initialize_audio_output", lambda: None)
-    monkeypatch.setattr(main.DESKTOP_CONTROL, "start_request_listener", lambda callback: captured.update(control=callback))
-    monkeypatch.setattr(main.DESKTOP_CONTROL, "start_playback_monitor", lambda callback: captured.update(playback=callback))
+    monkeypatch.setattr(
+        main.DESKTOP_CONTROL, "start_request_listener", lambda callback: captured.update(control=callback)
+    )
+    monkeypatch.setattr(
+        main.DESKTOP_CONTROL, "start_playback_monitor", lambda callback: captured.update(playback=callback)
+    )
     monkeypatch.setattr(main.DESKTOP_CONTROL, "start_safety_monitor", lambda callback: captured.update(safety=callback))
     monkeypatch.setattr(main.DESKTOP_CONTROL, "emit", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(main, "_emit_queue_desktop_state", lambda: None)

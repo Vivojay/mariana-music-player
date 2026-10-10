@@ -124,9 +124,7 @@ def test_local_copy_hint_prints_safe_terminal_message(monkeypatch, local_match_c
     result = main._show_local_copy_hint(media)
 
     assert result is not None and result.status == LocalMatchStatus.MATCHED
-    assert output == [
-        'Local copy available: library item 7. Run "media local-match current".'
-    ]
+    assert output == ['Local copy available: library item 7. Run "media local-match current".']
     joined = " ".join(output).casefold()
     assert "youtube.com" not in joined
     assert "fingerprint" not in joined
@@ -147,9 +145,7 @@ def test_local_copy_hint_is_emitted_once_per_media_id(monkeypatch, local_match_c
     main._show_local_copy_hint(media)
 
     assert len(calls) == 1
-    assert output == [
-        'Local copy available: library item 7. Run "media local-match current".'
-    ]
+    assert output == ['Local copy available: library item 7. Run "media local-match current".']
 
 
 @pytest.mark.parametrize(
@@ -214,7 +210,7 @@ def test_queue_online_playback_requests_hint_after_start(monkeypatch, local_matc
     order = []
     monkeypatch.setattr(main.QUEUE, "items", lambda: [item])
     monkeypatch.setattr(main.LIBRARY.loudness, "get", lambda _media_id: None)
-    monkeypatch.setattr(main.vas.supervisor, "play", lambda candidate: order.append(("play", candidate)))
+    monkeypatch.setattr(main.vas.supervisor, "play", lambda candidate, **_kwargs: order.append(("play", candidate)))
     monkeypatch.setattr(main, "_set_current_media_state", lambda candidate: order.append(("state", candidate)))
     monkeypatch.setattr(main, "_show_local_copy_hint", lambda candidate: order.append(("hint", candidate)))
     monkeypatch.setattr(main.RECOMMENDER, "record_event", lambda candidate, event: order.append((event, candidate)))
