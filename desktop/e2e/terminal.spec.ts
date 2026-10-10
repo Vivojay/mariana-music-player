@@ -28,6 +28,7 @@ test('hosts the real Mariana PTY in the riced terminal shell', async () => {
     })
     expect(await page.evaluate(() => Object.keys(window.mariana.backend).sort())).toEqual([
       'commandCatalog', 'discoveryBegin', 'discoveryCancel', 'discoveryChoose', 'equalizerConfigure', 'equalizerStatus', 'next', 'onEvent', 'pause', 'play', 'previous', 'seek', 'setRating', 'snapshot',
+      'strudelDelete', 'strudelOpen', 'strudelPreview', 'strudelSave',
       'toggleFavorite', 'videoAudioOffset', 'videoCaptionAutomatic', 'videoCaptionConfigure',
       'videoCaptionFile', 'videoCaptionLanguages', 'videoCaptionSelect', 'videoConfigure', 'videoStatus',
     ])
@@ -236,7 +237,7 @@ test('creates one Mini-player window and hides it instead of closing it', async 
     await expect(miniPlayer.getByRole('button', { name: 'Previous' })).toBeDisabled()
     await expect(miniPlayer.getByRole('button', { name: 'Next' })).toBeDisabled()
     expect(await miniPlayer.evaluate(() => Object.keys(window.marianaMini).sort())).toEqual([
-      'hide', 'next', 'onSnapshot', 'pause', 'platform', 'play', 'previous', 'showMain', 'snapshot',
+      'downloadCurrent', 'downloadStatus', 'hide', 'next', 'onSnapshot', 'pause', 'platform', 'play', 'previous', 'showMain', 'snapshot',
       'videoAudioOffset', 'videoCaptionConfigure', 'videoStatus',
     ])
     expect(await miniPlayer.evaluate(() => typeof window.mariana)).toBe('undefined')
