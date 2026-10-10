@@ -2025,8 +2025,13 @@ def _on_queue_item_complete(media):
 
 
 def _complete_queue_item(media):
+    playback_diagnostics.record(3, 'queue.item_completed')
     RECOMMENDER.record_event(media, 'completion')
     STATION.mark_played(media)
+    if FOCUS_MODE.state.active:
+        # Focus sessions never escape into the ordinary queue or recommendations.
+        RECOMMENDER.retrain_if_due()
+        return
     if _loop_replay_requested(media):
         _replay_completed_media(media)
         return
@@ -2053,7 +2058,9 @@ def _complete_queue_item(media):
     snapshot = vas.controller.snapshot()
     if snapshot.media and snapshot.media.stable_id == next_item.media.stable_id:
         _set_current_media_state(snapshot.media)
-        RECOMMENDER.record_event(snapshot.media, 'start')
+        _record_queue_history(snapshot.media)
+        playback_diagnostics.record(3, 'queue.prefetched_started')
+        _record_successful_start(snapshot.media)
         _prefetch_after(next_item)
     else:
         _play_queue_item(next_item)
