@@ -946,6 +946,9 @@ async function ensureVideoWindow(): Promise<BrowserWindow> {
       minWidth: 480,
       minHeight: 320,
       show: false,
+      resizable: true,
+      movable: true,
+      fullscreenable: true,
       title: 'Mariana Video',
       backgroundColor: '#15151d',
       webPreferences: {
