@@ -158,7 +158,7 @@ Group paths are one-based, such as `2.3.1`; durable node IDs are also accepted.
 | `find --in blocked <terms> [count]` | Search playback-blocked media without making it playable |
 | `find --in queue <terms> [count]` | Search the current queue without changing its order |
 | `find --in playlist "<name>" <terms> [count]` | Search one named playlist in playlist order |
-| `/ys <query> [count]` | Search YouTube and play the selected result |
+| `/ys <query> [count] [--new]` | Search YouTube and play the selected result (replays the remembered canonical match unless `--new`) |
 | `queue ys "<query>" [count]`, `/ysq "<query>" [count]` | Search YouTube and queue the selected result without playing it |
 | `/yl <YouTube URL>` | Play a YouTube URL |
 | `/ml <URL>` | Resolve and play a public yt-dlp-supported media page or direct media URL |
