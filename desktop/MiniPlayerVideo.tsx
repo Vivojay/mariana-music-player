@@ -9,8 +9,7 @@ const MIN_ZOOM = 1
 const MAX_ZOOM = 4
 const ZOOM_STEP = 1.25
 
-type ViewTransform = { x: number; y: number; zoom: number }
-const RESET_VIEW: ViewTransform = { x: 0, y: 0, zoom: 1 }
+type ViewTransform = { media: string | null; x: number; y: number; zoom: number }
 
 function clampPan(value: number, stageSize: number, zoom: number): number {
   const limit = Math.max(0, (stageSize * zoom - stageSize) / 2)
@@ -28,12 +27,10 @@ export function MiniPlayerVideo({ status, timestamp, children, duration = null, 
   const stage = useRef<HTMLElement>(null)
   const clock = useRef<VideoClockSample | null>(null)
   const [error, setError] = useState<{ handle: string | null; message: string } | null>(null)
-  const [view, setView] = useState<ViewTransform>(RESET_VIEW)
-  const viewRef = useRef(view)
-  viewRef.current = view
+  const [view, setView] = useState<ViewTransform>({ media: status.handle, x: 0, y: 0, zoom: 1 })
+  if (view.media !== status.handle) setView({ media: status.handle, x: 0, y: 0, zoom: 1 })
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(null)
   useEffect(() => { clock.current = { status, timestamp } }, [status, timestamp])
-  useEffect(() => { setView(RESET_VIEW); dragRef.current = null }, [status.handle])
   const failed = useCallback((message: string) => setError({ handle: status.handle, message }), [status.handle])
   useVideoFollower(video, clock, status.media_id, status.handle, true, failed)
   const buffered = useVideoBuffering(video, status, status.media_id, duration, true)
@@ -52,20 +49,24 @@ export function MiniPlayerVideo({ status, timestamp, children, duration = null, 
     try { node.setPointerCapture?.(event.pointerId) } catch { /* pointer capture is best effort */ }
     dragRef.current = {
       pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
-      originX: viewRef.current.x, originY: viewRef.current.y,
+      originX: view.x, originY: view.y,
     }
-  }, [])
+  }, [view.x, view.y])
 
   const onStagePointerMove = useCallback((event: ReactPointerEvent<HTMLElement>) => {
     const drag = dragRef.current
     if (!drag || drag.pointerId !== event.pointerId) return
     const { width, height } = stageSize()
-    const zoom = viewRef.current.zoom
-    setView({
-      x: clampPan(drag.originX + event.clientX - drag.startX, width, zoom),
-      y: clampPan(drag.originY + event.clientY - drag.startY, height, zoom),
-      zoom,
-    })
+    const dx = event.clientX - drag.startX
+    const dy = event.clientY - drag.startY
+    const originX = drag.originX
+    const originY = drag.originY
+    setView((previous) => ({
+      media: previous.media,
+      x: clampPan(originX + dx, width, previous.zoom),
+      y: clampPan(originY + dy, height, previous.zoom),
+      zoom: previous.zoom,
+    }))
   }, [stageSize])
 
   const endDrag = useCallback((event: ReactPointerEvent<HTMLElement>) => {
@@ -74,20 +75,22 @@ export function MiniPlayerVideo({ status, timestamp, children, duration = null, 
 
   const onStageWheel = useCallback((event: ReactWheelEvent<HTMLElement>) => {
     const { width, height } = stageSize()
-    const next = event.deltaY > 0
-      ? Math.max(MIN_ZOOM, viewRef.current.zoom / ZOOM_STEP)
-      : Math.min(MAX_ZOOM, viewRef.current.zoom * ZOOM_STEP)
-    if (next === viewRef.current.zoom) return
-    setView({
-      x: clampPan(viewRef.current.x, width, next),
-      y: clampPan(viewRef.current.y, height, next),
-      zoom: next,
+    const direction = event.deltaY > 0 ? 1 / ZOOM_STEP : ZOOM_STEP
+    setView((previous) => {
+      const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, previous.zoom * direction))
+      if (next === previous.zoom) return previous
+      return {
+        media: previous.media,
+        x: clampPan(previous.x, width, next),
+        y: clampPan(previous.y, height, next),
+        zoom: next,
+      }
     })
   }, [stageSize])
 
   const resetView = useCallback(() => {
     dragRef.current = null
-    setView(RESET_VIEW)
+    setView((previous) => ({ media: previous.media, x: 0, y: 0, zoom: 1 }))
   }, [])
 
   const transform = view.zoom === 1 && view.x === 0 && view.y === 0
