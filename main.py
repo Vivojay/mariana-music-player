@@ -81,6 +81,7 @@ from mariana.albums import AlbumCatalog, AlbumError
 from mariana.artwork import ArtworkState, create_artwork_manager
 from mariana.broadcast import BroadcastError, BroadcastState, IcecastBroadcaster
 from mariana.chapters import normalize_chapters
+from mariana.canonical_media import find_canonical_media, find_duplicate_favorites
 from mariana.command_catalog import serialize_command_catalog
 from mariana.equalizer import EqualizerService, command_intent as equalizer_command_intent
 from mariana.focus_mode import (
@@ -4640,6 +4641,13 @@ def preference_command(arguments, state):
         PREFERENCES.set(media, current)
     else:
         raise ValueError('Usage: fav|bl [!|+|-]')
+    if state == PreferenceState.FAVORITE and current == PreferenceState.FAVORITE and operation in {'!', '+'}:
+        for position, title, source in find_duplicate_favorites(PREFERENCES, media):
+            IPrint(
+                f'Note: also favorited as #{position}: {title} ({source}). '
+                'Replayed media reuses the same favorite entry.',
+                visible=visible,
+            )
     IPrint(f'Preference: {current.value}', visible=visible)
     return current
 
@@ -9558,6 +9566,38 @@ def video_command(arguments):
     return {'open': False}
 
 
+def _play_canonical_match(row, query, presentation):
+    """Replay a remembered canonical item instead of a fresh provider result.
+
+    Returns True when the match was played (callers skip the provider
+    search); False when playback should fall through to a fresh search
+    (unsupported remembered types or missing local files).
+    """
+    source = row["source"] if isinstance(row, dict) else row[1]
+    uri = row["original_uri"] if isinstance(row, dict) else row[2]
+    title = (row["title"] if isinstance(row, dict) else row[3]) or query
+    artist = row["artist"] if isinstance(row, dict) else row[4]
+    if source == MediaSource.YOUTUBE.value:
+        IPrint(f'Playing previously streamed match: {title}', visible=visible)
+        play_vas_media(media_name=title, media_url=uri, single_video=True,
+                       **_presentation_options(presentation))
+        return True
+    if source == MediaSource.LOCAL.value:
+        if not Path(uri).is_file():
+            IPrint('Saved copy is unavailable; searching fresh results instead.', visible=visible)
+            return False
+        capabilities = row["capabilities_json"] if isinstance(row, dict) else row[5]
+        media = MediaRef(
+            MediaSource.LOCAL, uri, title=title, artist=artist,
+            capabilities=MediaCapabilities.from_json(capabilities),
+            provenance='history',
+        )
+        IPrint(f'Playing saved copy: {title}', visible=visible)
+        play_local_default_player(uri, None, media=media)
+        return True
+    return False
+
+
 def lyrics_ops(show_window):
     global lyrics_saved_for_song, currentsong, ISDEV
     global visible
@@ -11162,6 +11202,10 @@ def process(command):
             try:
                 query_parts = commandslist[1:]
                 # Presentation flags have already been removed by the typed parser.
+                # --new skips canonical-history reconciliation for deliberate duplicates.
+                allow_fresh_results = '--new' in query_parts
+                if allow_fresh_results:
+                    query_parts = [part for part in query_parts if part != '--new']
                 # Keep the established quoted-query/count distinction.
                 quoted_query = re.search(r'["\']', command)
                 if quoted_query and query_parts:
@@ -11170,6 +11214,11 @@ def process(command):
                 else:
                     rescount = query_parts[-1] if len(query_parts) > 1 and query_parts[-1].isnumeric() else ''
                     qr_val = ' '.join(query_parts[:-1] if rescount else query_parts)
+
+                if not allow_fresh_results and rescount in {'', '1'} and query_parts:
+                    canonical = find_canonical_media(DATABASE, qr_val)
+                    if canonical is not None and _play_canonical_match(canonical, qr_val, presentation):
+                        return None
 
                 ytv_choices = None
 
