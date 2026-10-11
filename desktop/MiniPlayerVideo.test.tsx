@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { projectLocalVideo, type LocalVideoStatus } from './localVideo'
 import { MiniPlayerVideo } from './MiniPlayerVideo'
@@ -44,5 +44,60 @@ describe('Mini-player video surface', () => {
       timestamp={Date.now()}
     />)
     expect(screen.getByText('Hello captions')).toBeInTheDocument()
+  })
+
+  function measuredStage() {
+    render(<MiniPlayerVideo status={status()} timestamp={Date.now()} />)
+    const stage = screen.getByLabelText('Mini-player video')
+    vi.spyOn(stage, 'getBoundingClientRect').mockReturnValue({
+      width: 800, height: 450, x: 0, y: 0, top: 0, left: 0, right: 800, bottom: 450, toJSON: () => ({}),
+    })
+    return { stage, video: screen.getByLabelText('Current video') as HTMLVideoElement }
+  }
+
+  it('zooms the picture with the wheel and clamps at four times', () => {
+    const { stage, video } = measuredStage()
+    expect(video.style.transform).toBe('')
+    fireEvent.wheel(stage, { deltaY: -100 })
+    expect(video.style.transform).toContain('scale(1.25)')
+    for (let index = 0; index < 10; index += 1) fireEvent.wheel(stage, { deltaY: -100 })
+    expect(video.style.transform).toContain('scale(4)')
+    for (let index = 0; index < 10; index += 1) fireEvent.wheel(stage, { deltaY: 100 })
+    expect(video.style.transform).toBe('')
+  })
+
+  it('pans the zoomed picture by dragging and resets on double click', () => {
+    const { stage, video } = measuredStage()
+    fireEvent.wheel(stage, { deltaY: -100 })
+    fireEvent.pointerDown(stage, { pointerId: 1, button: 0, clientX: 400, clientY: 225, isPrimary: true })
+    fireEvent.pointerMove(stage, { pointerId: 1, clientX: 460, clientY: 225, isPrimary: true })
+    fireEvent.pointerUp(stage, { pointerId: 1, clientX: 460, clientY: 225, isPrimary: true })
+    expect(video.style.transform).toContain('translate(60px, 0px)')
+    fireEvent.doubleClick(stage)
+    expect(video.style.transform).toBe('')
+  })
+
+  it('does not pan from interactive controls or at unit zoom', () => {
+    render(<MiniPlayerVideo status={status()} timestamp={Date.now()}>
+      <button type="button">Overlay</button>
+    </MiniPlayerVideo>)
+    const stage = screen.getByLabelText('Mini-player video')
+    const video = screen.getByLabelText('Current video') as HTMLVideoElement
+    vi.spyOn(stage, 'getBoundingClientRect').mockReturnValue({
+      width: 800, height: 450, x: 0, y: 0, top: 0, left: 0, right: 800, bottom: 450, toJSON: () => ({}),
+    })
+    fireEvent.wheel(stage, { deltaY: -100 })
+    const zoomed = video.style.transform
+    expect(zoomed).toContain('scale(1.25)')
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Overlay' }),
+      { pointerId: 3, button: 0, clientX: 400, clientY: 225, isPrimary: true })
+    fireEvent.pointerMove(stage, { pointerId: 3, clientX: 600, clientY: 225, isPrimary: true })
+    fireEvent.pointerUp(stage, { pointerId: 3, clientX: 600, clientY: 225, isPrimary: true })
+    expect(video.style.transform).toBe(zoomed)
+    fireEvent.doubleClick(stage)
+    fireEvent.pointerDown(stage, { pointerId: 4, button: 0, clientX: 400, clientY: 225, isPrimary: true })
+    fireEvent.pointerMove(stage, { pointerId: 4, clientX: 500, clientY: 225, isPrimary: true })
+    fireEvent.pointerUp(stage, { pointerId: 4, clientX: 500, clientY: 225, isPrimary: true })
+    expect(video.style.transform).toBe('')
   })
 })
