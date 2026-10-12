@@ -57,43 +57,186 @@ class CatalogueEntry:
 
 
 ENTRIES = (
-    CatalogueEntry("groove-salad", "SomaFM Groove Salad", "SomaFM", "station",
-                   "https://somafm.com/groovesalad/", "en", "US", "Music Radio",
-                   "Ambient and downtempo. Existing Mariana station; live radio, not a finite download.",
-                   station_id="somafm-groove-salad", status="supported", health="existing-station",
-                   evidence="https://somafm.com/listen/", validated_at=VALIDATED_AT),
-    CatalogueEntry("secret-agent", "SomaFM Secret Agent", "SomaFM", "station",
-                   "https://somafm.com/secretagent/", "en", "US", "Music Radio",
-                   "Lounge and cinematic selections. Existing Mariana station; live only.",
-                   station_id="somafm-secret-agent", status="supported", health="existing-station",
-                   evidence="https://somafm.com/listen/", validated_at=VALIDATED_AT),
-    CatalogueEntry("wfmu", "WFMU", "WFMU", "station", "https://www.wfmu.org/audiostream.shtml",
-                   "en", "US", "Music Radio", "Freeform independent radio. Live stream; no download or recording action.",
-                   endpoint="https://stream0.wfmu.org/freeform-128k", station_id="wfmu",
-                   status="supported", health="stream-prefix-verified",
-                   evidence="https://www.wfmu.org/audiostream.shtml", validated_at=VALIDATED_AT),
-    CatalogueEntry("live-on-kexp", "Live on KEXP", "KEXP", "programme",
-                   "https://www.kexp.org/podcasts/live-on-kexp/", "en", "US", "Live Sessions",
-                   "Official performance audio podcast, not extracted video. Select an episode explicitly.",
-                   endpoint="https://www.omnycontent.com/d/playlist/bad5d079-8dcb-4630-8770-aa090049131d/18f3a48e-1c64-43e8-96e9-aa40002038ee/856f4314-821f-46ca-bc8e-aa40002038f2/podcast.rss",
-                   hosting_platform="Omny Studio", status="supported", health="feed-enclosures-verified",
-                   evidence="https://www.kexp.org/podcasts/live-on-kexp/", validated_at=VALIDATED_AT),
-    CatalogueEntry("circle-round", "Circle Round", "WBUR", "programme",
-                   "https://www.wbur.org/podcasts/circleround", "en", "US", "Family",
-                   "Folktales from many cultures. Public feed; member-only editions are not included.",
-                   endpoint="https://rss.wbur.org/circleround/podcast", status="supported",
-                   health="feed-enclosures-verified", evidence="https://www.wbur.org/podcasts/circleround",
-                   validated_at=VALIDATED_AT),
-    CatalogueEntry("kulturfragen", "Kulturfragen", "Deutschlandfunk", "programme",
-                   "https://www.deutschlandfunk.de/kulturfragen-100.html", "de", "DE", "World & Languages",
-                   "German-language cultural conversations. Public podcast feed in publisher order.",
-                   endpoint="https://www.deutschlandfunk.de/kulturfragen-102.xml", status="supported",
-                   health="feed-enclosures-verified", evidence="https://www.deutschlandfunk.de/kulturfragen-100.html",
-                   validated_at=VALIDATED_AT),
+    CatalogueEntry(
+        "groove-salad",
+        "SomaFM Groove Salad",
+        "SomaFM",
+        "station",
+        "https://somafm.com/groovesalad/",
+        "en",
+        "US",
+        "Music Radio",
+        "Ambient and downtempo. Existing Mariana station; live radio, not a finite download.",
+        station_id="somafm-groove-salad",
+        status="supported",
+        health="existing-station",
+        evidence="https://somafm.com/listen/",
+        validated_at=VALIDATED_AT,
+    ),
+    CatalogueEntry(
+        "secret-agent",
+        "SomaFM Secret Agent",
+        "SomaFM",
+        "station",
+        "https://somafm.com/secretagent/",
+        "en",
+        "US",
+        "Music Radio",
+        "Lounge and cinematic selections. Existing Mariana station; live only.",
+        station_id="somafm-secret-agent",
+        status="supported",
+        health="existing-station",
+        evidence="https://somafm.com/listen/",
+        validated_at=VALIDATED_AT,
+    ),
+    CatalogueEntry(
+        "wfmu",
+        "WFMU",
+        "WFMU",
+        "station",
+        "https://www.wfmu.org/audiostream.shtml",
+        "en",
+        "US",
+        "Music Radio",
+        "Freeform independent radio. Live stream; no download or recording action.",
+        endpoint="https://stream0.wfmu.org/freeform-128k",
+        station_id="wfmu",
+        status="supported",
+        health="stream-prefix-verified",
+        evidence="https://www.wfmu.org/audiostream.shtml",
+        validated_at=VALIDATED_AT,
+    ),
+    CatalogueEntry(
+        "live-on-kexp",
+        "Live on KEXP",
+        "KEXP",
+        "programme",
+        "https://www.kexp.org/podcasts/live-on-kexp/",
+        "en",
+        "US",
+        "Live Sessions",
+        "Official performance audio podcast, not extracted video. Select an episode explicitly.",
+        endpoint="https://www.omnycontent.com/d/playlist/bad5d079-8dcb-4630-8770-aa090049131d/18f3a48e-1c64-43e8-96e9-aa40002038ee/856f4314-821f-46ca-bc8e-aa40002038f2/podcast.rss",
+        hosting_platform="Omny Studio",
+        status="supported",
+        health="feed-enclosures-verified",
+        evidence="https://www.kexp.org/podcasts/live-on-kexp/",
+        validated_at=VALIDATED_AT,
+    ),
+    CatalogueEntry(
+        "circle-round",
+        "Circle Round",
+        "WBUR",
+        "programme",
+        "https://www.wbur.org/podcasts/circleround",
+        "en",
+        "US",
+        "Family",
+        "Folktales from many cultures. Public feed; member-only editions are not included.",
+        endpoint="https://rss.wbur.org/circleround/podcast",
+        status="supported",
+        health="feed-enclosures-verified",
+        evidence="https://www.wbur.org/podcasts/circleround",
+        validated_at=VALIDATED_AT,
+    ),
+    CatalogueEntry(
+        "kulturfragen",
+        "Kulturfragen",
+        "Deutschlandfunk",
+        "programme",
+        "https://www.deutschlandfunk.de/kulturfragen-100.html",
+        "de",
+        "DE",
+        "World & Languages",
+        "German-language cultural conversations. Public podcast feed in publisher order.",
+        endpoint="https://www.deutschlandfunk.de/kulturfragen-102.xml",
+        status="supported",
+        health="feed-enclosures-verified",
+        evidence="https://www.deutschlandfunk.de/kulturfragen-100.html",
+        validated_at=VALIDATED_AT,
+    ),
+    CatalogueEntry(
+        "diary-of-a-ceo",
+        "Diary of a CEO",
+        "DOAC",
+        "programme",
+        "https://thediaryofaceo.com",
+        "en",
+        "GB",
+        "Business & Interviews",
+        "Official show page. No bundled episode feed; play via your own public RSS with pod/rss, or open the official page.",
+        status="link-only",
+        health="official-link",
+        evidence="https://thediaryofaceo.com",
+        validated_at=VALIDATED_AT,
+    ),
+    CatalogueEntry(
+        "nbc-dateline",
+        "Dateline NBC (current)",
+        "NBCUniversal",
+        "programme",
+        "https://www.nbcuniversal.com/article/dateline-launches-dateline-en-espanol-peacock",
+        "en",
+        "US",
+        "True Crime & News",
+        "Current Dateline distribution is platform-gated. Legacy research feeds are not evidence of current availability; use the official page.",
+        status="link-only",
+        health="official-link",
+        evidence="https://www.nbcuniversal.com/article/dateline-launches-dateline-en-espanol-peacock",
+        validated_at=VALIDATED_AT,
+    ),
+    CatalogueEntry(
+        "kexp-live-radio",
+        "KEXP Live Radio",
+        "KEXP",
+        "station",
+        "https://www.kexp.org/listen/",
+        "en",
+        "US",
+        "Music Radio",
+        "Live broadcast stream page. The bundled Live on KEXP podcast remains the only verified in-app KEXP audio; live radio needs access/terms checks first.",
+        status="link-only",
+        health="official-link",
+        evidence="https://www.kexp.org/listen/",
+        validated_at=VALIDATED_AT,
+    ),
+    CatalogueEntry(
+        "triple-j-like-a-version",
+        "Triple J Like A Version",
+        "triple j / ABC",
+        "programme",
+        "https://www.abc.net.au/triplej/programs/like-a-version",
+        "en",
+        "AU",
+        "Music Sessions",
+        "Studio performances catalogue. No verified public enclosure feed bundled; open the official episode catalogue.",
+        status="link-only",
+        health="official-link",
+        evidence="https://www.abc.net.au/triplej/programs/like-a-version",
+        validated_at=VALIDATED_AT,
+    ),
+    CatalogueEntry(
+        "comic-con-clips",
+        "Comic-Con Clips & Panels",
+        "Comic-Con International",
+        "programme",
+        "https://www.comic-con.org/",
+        "en",
+        "US",
+        "Panels & Culture",
+        "Official convention site. No bundled clip feed; only public playlists/RSS with enclosures can become playable entries — no scraping.",
+        status="link-only",
+        health="official-link",
+        evidence="https://www.comic-con.org/",
+        validated_at=VALIDATED_AT,
+    ),
 )
 BY_ID = {entry.id: entry for entry in ENTRIES}
-PODCAST_ALIASES = {entry.id.replace("-", "_"): entry.endpoint for entry in ENTRIES
-                   if entry.native and entry.kind == "programme" and entry.endpoint}
+PODCAST_ALIASES = {
+    entry.id.replace("-", "_"): entry.endpoint
+    for entry in ENTRIES
+    if entry.native and entry.kind == "programme" and entry.endpoint
+}
 
 
 def search_catalogue(query: str | list[str] = "") -> list[CatalogueEntry]:
@@ -111,14 +254,25 @@ def search_catalogue(query: str | list[str] = "") -> list[CatalogueEntry]:
             raise ValueError("Unknown catalogue search field")
     result = []
     for entry in ENTRIES:
-        values = {"title": entry.title, "creator": entry.publisher,
-                  "programme": entry.title if entry.kind == "programme" else "",
-                  "provider": entry.publisher, "language": entry.language,
-                  "region": entry.region, "category": entry.category, "after": "", "before": ""}
+        values = {
+            "title": entry.title,
+            "creator": entry.publisher,
+            "programme": entry.title if entry.kind == "programme" else "",
+            "provider": entry.publisher,
+            "language": entry.language,
+            "region": entry.region,
+            "category": entry.category,
+            "after": "",
+            "before": "",
+        }
         combined = " ".join((*values.values(), entry.summary, entry.id)).casefold()
-        if all((value.casefold() in values[field.casefold()].casefold() and bool(values[field.casefold()]))
-               if ":" in term else term.casefold() in combined
-               for term in terms for field, _, value in [term.partition(":")]):
+        if all(
+            (value.casefold() in values[field.casefold()].casefold() and bool(values[field.casefold()]))
+            if ":" in term
+            else term.casefold() in combined
+            for term in terms
+            for field, _, value in [term.partition(":")]
+        ):
             result.append(entry)
     return result
 
@@ -128,10 +282,13 @@ def catalogue_details(identifier: str) -> dict:
     if entry is None:
         raise ValueError("Unknown catalogue entry")
     return {
-        **asdict(entry), "actions": entry.actions,
+        **asdict(entry),
+        "actions": entry.actions,
         "command": f"pod {entry.id.replace('-', '_')}" if entry.kind == "programme" else f"radio play {entry.id}",
         "coverage": "Bundled programme/station index, not provider-wide search",
-        "download": "Existing download-ml current for supported finite public episodes" if entry.kind == "programme" else "Not supported for live radio",
+        "download": "Existing download-ml current for supported finite public episodes"
+        if entry.kind == "programme"
+        else "Not supported for live radio",
     }
 
 

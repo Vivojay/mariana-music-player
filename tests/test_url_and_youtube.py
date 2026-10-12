@@ -10,7 +10,11 @@ import beta.youtube_media as youtube_media
 import beta.YT_query as yt_query
 import url_validate
 
-YOUTUBE_ID = st.text(alphabet=st.sampled_from(list("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")), min_size=11, max_size=11)
+YOUTUBE_ID = st.text(
+    alphabet=st.sampled_from(list("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")),
+    min_size=11,
+    max_size=11,
+)
 
 
 @given(video_id=YOUTUBE_ID)
@@ -188,7 +192,9 @@ def test_stream_url_uses_requested_format_fallback(monkeypatch):
 def test_youtube_resolvable_and_compatibility_facade(monkeypatch, capsys):
     monkeypatch.setattr(youtube_media, "_extract", lambda *_a, **_k: {"id": "ok"})
     assert youtube_media.is_resolvable("url") is True
-    monkeypatch.setattr(youtube_media, "_extract", lambda *_a, **_k: (_ for _ in ()).throw(youtube_media.YouTubeError("bad")))
+    monkeypatch.setattr(
+        youtube_media, "_extract", lambda *_a, **_k: (_ for _ in ()).throw(youtube_media.YouTubeError("bad"))
+    )
     assert youtube_media.is_resolvable("url") is False
 
     monkeypatch.setattr(
@@ -206,8 +212,7 @@ def test_youtube_compatibility_facade_forwards_browser_profile(monkeypatch):
     monkeypatch.setattr(
         yt_query,
         "search_media",
-        lambda *args, **kwargs: calls.append(("search", args, kwargs))
-        or [{"title": "One", "url": "u1"}],
+        lambda *args, **kwargs: calls.append(("search", args, kwargs)) or [{"title": "One", "url": "u1"}],
     )
     monkeypatch.setattr(
         yt_query,
@@ -226,7 +231,9 @@ def test_youtube_compatibility_facade_forwards_browser_profile(monkeypatch):
 
 
 def test_youtube_compatibility_facade_translates_errors(monkeypatch):
-    monkeypatch.setattr(yt_query, "media_info", lambda *_a, **_k: (_ for _ in ()).throw(youtube_media.YouTubeError("bad")))
+    monkeypatch.setattr(
+        yt_query, "media_info", lambda *_a, **_k: (_ for _ in ()).throw(youtube_media.YouTubeError("bad"))
+    )
     with pytest.raises(OSError, match="bad"):
         yt_query.vid_info("url")
     monkeypatch.setattr(yt_query, "search_media", lambda *_a, **_k: [])
@@ -310,6 +317,24 @@ def test_youtube_url_fallbacks_and_compact_media_info(monkeypatch):
         "duration": None,
         "streams": {"bestaudurl": "a", "bestvidurl": "v"},
     }
+
+
+def test_resolve_stream_video_fallback_tries_video_only(monkeypatch):
+    calls = []
+
+    def fake_extract(url, *, format, browser_profile=None):
+        calls.append(format)
+        if "vcodec" in format and "acodec" in format:
+            raise youtube_media.YouTubeError("Requested format is not available")
+        return {"url": "https://media.test/video-only", "http_headers": {}}
+
+    monkeypatch.setattr(youtube_media, "_extract", fake_extract)
+    result = youtube_media.resolve_stream("url", audio_only=False, video_fallback=True)
+    assert result["url"] == "https://media.test/video-only"
+    assert calls == [
+        "best[acodec!=none][vcodec!=none]/best",
+        "best[vcodec!=none][protocol=https]/best[vcodec!=none]",
+    ]
 
 
 def test_resolve_stream_normalizes_headers_expiry_and_live_metadata(monkeypatch):

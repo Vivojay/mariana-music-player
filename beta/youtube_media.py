@@ -18,6 +18,22 @@ class YouTubeError(RuntimeError):
     """Raised when yt-dlp cannot resolve a requested YouTube resource."""
 
 
+class _NullLogger:
+    """Swallow yt-dlp's raw stderr lines; Mariana reports actionable errors itself."""
+
+    def debug(self, _message: str) -> None:
+        return None
+
+    def warning(self, _message: str) -> None:
+        return None
+
+    def error(self, _message: str) -> None:
+        return None
+
+    def critical(self, _message: str) -> None:
+        return None
+
+
 @lru_cache(maxsize=1)
 def _extractor_runtime() -> tuple[type, type[BaseException]]:
     """Load the sizeable extractor runtime only when an online operation needs it."""
@@ -106,6 +122,7 @@ def _options(**overrides: Any) -> dict[str, Any]:
         "no_warnings": True,
         "skip_download": True,
         "noplaylist": True,
+        "logger": _NullLogger(),
     }
     browser_profile = overrides.pop("browser_profile", None)
     options.update(integration_options(browser_profile) if browser_profile else integration_options())
@@ -264,12 +281,19 @@ def media_info(
 ) -> dict[str, Any]:
     info = _extract(url, browser_profile=browser_profile)
     stream_options = {"browser_profile": browser_profile} if browser_profile else {}
+
+    def _best_effort(*, audio_only: bool) -> str | None:
+        try:
+            return stream_url(url, audio_only=audio_only, **stream_options)
+        except YouTubeError:
+            return None
+
     normalized: dict[str, Any] = {
         "title": info.get("title") or "[Untitled YouTube media]",
         "duration": info.get("duration"),
         "streams": {
-            "bestaudurl": stream_url(url, audio_only=True, **stream_options),
-            "bestvidurl": stream_url(url, audio_only=False, **stream_options),
+            "bestaudurl": _best_effort(audio_only=True),
+            "bestvidurl": _best_effort(audio_only=False),
         },
     }
     if detailed:
@@ -315,10 +339,45 @@ def resolve_stream(
     *,
     audio_only: bool = True,
     browser_profile: str | None = None,
+    video_fallback: bool = False,
 ) -> dict[str, Any]:
     """Return transient stream information without persisting credentials."""
-    format_selector = "bestaudio/best" if audio_only else "best[acodec!=none][vcodec!=none]/best"
-    info = _extract(url, format=format_selector, browser_profile=browser_profile)
+    if audio_only:
+        selectors = ["bestaudio/best", "bestaudio*", "best"]
+    elif video_fallback:
+        selectors = [
+            "best[acodec!=none][vcodec!=none]/best",
+            "best[vcodec!=none][protocol=https]/best[vcodec!=none]",
+            "best[vcodec!=none]",
+        ]
+    else:
+        selectors = ["best[acodec!=none][vcodec!=none]/best"]
+    last_error: Exception | None = None
+    for format_selector in selectors:
+        try:
+            info = _extract(url, format=format_selector, browser_profile=browser_profile)
+        except YouTubeError as error:
+            last_error = error
+            continue
+        break
+    else:
+        detail = str(last_error) if last_error else "yt-dlp could not resolve a playable stream URL"
+        if not audio_only:
+            try:
+                runtime = find_javascript_runtime()
+            except (AttributeError, RuntimeError, ValueError, OSError):
+                runtime = None
+            if runtime is None:
+                detail += (
+                    " No JavaScript runtime (deno/node) was found, so YouTube formats needing signature"
+                    " deciphering are unavailable; install deno or node and retry."
+                )
+            else:
+                detail += (
+                    " If audio plays but video does not, YouTube may be withholding video formats from this"
+                    " network (bot check/PO-token); try `youtube auth set firefox` and retry."
+                )
+        raise YouTubeError(detail)
     direct_url = info.get("url")
     if not direct_url:
         requested = info.get("requested_formats") or []
@@ -337,9 +396,7 @@ def resolve_stream(
     return {
         "url": str(direct_url),
         "http_headers": {
-            str(key): str(value)
-            for key, value in (info.get("http_headers") or {}).items()
-            if value is not None
+            str(key): str(value) for key, value in (info.get("http_headers") or {}).items() if value is not None
         },
         "expires_at": expires_at,
         "is_live": bool(info.get("is_live") or info.get("live_status") == "is_live"),
@@ -356,7 +413,10 @@ def resolve_stream(
 
 
 def resolve_video_tracks(
-    url: str, *, browser_profile: str | None = None, native: bool = False,
+    url: str,
+    *,
+    browser_profile: str | None = None,
+    native: bool = False,
 ) -> VideoTracks:
     """Select finite HTTP file tracks without collapsing separate audio/video."""
     from mariana.provider_captions import provider_caption_tracks
@@ -366,8 +426,8 @@ def resolve_video_tracks(
         url,
         format=(
             'bestvideo[protocol=https][vcodec~="^(avc1|av01|vp0?9)"]'
-            if native else
-            "bestvideo[height<=720][protocol=https]+bestaudio[protocol=https]/best[height<=720][protocol=https]"
+            if native
+            else "bestvideo[height<=720][protocol=https]+bestaudio[protocol=https]/best[height<=720][protocol=https]"
         ),
         browser_profile=browser_profile,
         **({"socket_timeout": 10, "retries": 1} if native else {}),
@@ -389,7 +449,10 @@ def resolve_video_tracks(
         headers.update({str(key): str(value) for key, value in (row.get("http_headers") or {}).items()})
         codec = row.get("vcodec") if row.get("vcodec") not in {None, "none"} else row.get("acodec")
         return VideoTrack(
-            uri, headers, str(codec or ""), str(row.get("format_id") or ""),
+            uri,
+            headers,
+            str(codec or ""),
+            str(row.get("format_id") or ""),
             str(row.get("ext") or ""),
             int(row["width"]) if isinstance(row.get("width"), (int, float)) else None,
             int(row["height"]) if isinstance(row.get("height"), (int, float)) else None,
@@ -399,7 +462,8 @@ def resolve_video_tracks(
     duration = info.get("duration")
     expiry = info.get("url_expiry") or info.get("expires")
     return VideoTracks(
-        track(picture), track(audio) if audio is not None else None,
+        track(picture),
+        track(audio) if audio is not None else None,
         float(duration) if isinstance(duration, (int, float)) else None,
         float(expiry) if isinstance(expiry, (int, float)) else None,
         provider_caption_tracks(info),

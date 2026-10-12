@@ -60,10 +60,20 @@ preferred play-region bounds, and does not wrap. Use `chapters help` for details
 Quote paths containing spaces. Selecting `current` changes presentation without
 restarting audio. The same flags work with `/ys`, `/yl`, and `/ml`; for
 example, `/ys "concert" 5 --video` preserves the existing result-choice flow.
-Explicit video requires the desktop host. YouTube, radio, and live sources stay
+Explicit `--video` presentation uses the desktop video surface when
+connected. YouTube, radio, and live sources stay
 audio-first under automatic presentation; local video can be presented when the
 desktop video surface is connected. Unsupported picture preparation leaves the
 authoritative audio pipeline unchanged.
+
+`video open` always works: with the desktop it opens the in-app window;
+in a standalone console it spawns a separate video window (ffplay,
+video-only) linked to the session — it follows track changes, hides on
+pause, and re-anchors on resume/seek (drift beyond ~4s re-anchors too).
+`video toggle` is the picture switch: hidden eats zero video bandwidth
+(process terminated, follow off, no video URLs resolved). `video close`
+dismisses it; `video status` reports backend plus the last error when
+ffplay exits early (head of its log, not just the tail).
 
 | Command | Purpose |
 | --- | --- |
@@ -621,6 +631,84 @@ a separate delivery.
 | `station status`, `broadcast status` | Inspect background station or broadcast state |
 | `hist`, `history [count]`, `open history` | Open persistent history or show its entry count |
 | `check_dev` | Show whether development mode is active |
+| `net [status|check|watch on|off]` | Show continuous connectivity, probe once, or toggle online/offline notifications |
+| `cache [status|clear [--yes]]` | Inspect the chunk cache (blocks/bytes/hits/pinned) or clear it |
+| `prefetch [status]` | Show probability-ranked lookahead (queue-next 1.0, autoplay 0.8, chapter-loop 0.6, hotspot 0.4) |
+| `prefetch --warm` | Resolve the top lookahead into the resolver cache without starting playback (skipped offline) |
+
+Online playback is refused gracefully while the monitor reports offline;
+local and cached media keep playing. Transient resolve failures print an
+error and, when a later attempt succeeds, a `Recovered` line clears it so no
+stale error remains on screen.
+
+## Queries and bulk actions
+
+| Command | Purpose |
+| --- | --- |
+| `find <terms> [--rate 5\|3-5] [--tag <name>,...]` | Filter by stars and tags in any scope (`--in library\|favs\|blocked\|queue\|playlist "<name>"`) |
+| `query <scope> where <field><op><value> [and\|or ...] [order by <field> [asc\|desc]] [limit N]` | Select media by title/artist/album/author/handle/creator/publisher/provider/tag/rate/fav/blocked/duration |
+| `favs [--chapters]` | List whole-media hearts, or chapter hearts with `--chapters` |
+| `fav --chapter <N>`, `fav (+\|-\|!) --chapter <N>` | Favorite one chapter without changing the whole-media heart |
+
+Example:
+
+```text
+find beatles --rate 3-5 --tag rock 10
+query library where rate>=3 and tag="late night" order by published desc limit 20
+query favs where author="X" limit 50
+```
+
+`query` is read-only; it remembers the result set. Act on it explicitly:
+
+```text
+fav + --from-query 1-5 --dry-run
+playlist add "Road trip" --from-query all
+tag attach "Late night" --from-query 1,2 --dry-run
+transfer copy to playlist "Best" from query items all --dry-run
+transfer copy to favs from query items 1-3
+rm --from-query 1-3 --dry-run   # trash-only, still confirms without --yes
+```
+
+Destructive verbs keep their confirmations. `transfer … from query` supports
+copy only (move needs a source collection).
+
+## Regions, chapters, and sources
+
+Regions now live-apply: `region current start 0:30` re-clamps current
+playback immediately (seeking only when outside the new bounds) instead of
+waiting for the next start. `restart` still seeks to the region start.
+
+Chapter hearts are opt-in; `fav` without `--chapter` keeps whole-media
+behavior. `open source [current|<index>]` opens the saved online source from
+download metadata and reports `No saved online source` when absent (no
+redundant `online|net open` verb).
+
+Standalone video: `video open` spawns a session-linked window (ffplay,
+video-only); it follows track changes, hides on pause, and re-anchors on
+resume/seek — drift beyond ~4s re-anchors too, so dragging the window
+self-heals on release instead of staying behind. `video toggle` is the
+picture switch (hidden eats zero video bandwidth). `video zoom
+<1-4|in|out|reset>`, `video pan <dx> <dy>`, `video resize <WxH|reset>`,
+and `video fullscreen [on|off|toggle]` share the app surface's canonical
+view model (`mariana/video_view.py`: zoom 1–4, ×1.25 steps, clamped pan,
+reset per media — renderers differ by runtime, so behavior, not files, is
+the shared source). `video cc [list|<path>|auto|off]` burns local sidecar
+captions in; provider tracks still need the desktop flow. `video sync`
+shows audio vs. picture clocks and drift.
+
+Console pixels: `thumb show --auto`
+(Kitty/iTerm/Sixel where advertised, else ASCII), `thumb show --save <png>`, and
+`video preview --at <seconds> --save-frame <png>` for local media; the
+desktop still shows full video. Track changes use a
+parallel handoff: the next decoder is fully pre-buffered while the current
+track keeps playing, then the two overlap with an equal-power fade
+(`crossfade [status|on|off|SECONDS]`, 0-60s — use `crossfade 60` for maximum
+overlap). The old track stops only when the fade completes; a failed switch
+or live/radio cut keeps current audio safe and reports `Recovered` on retry.
+`prefetch --warm` warms the resolver cache and
+`prefetch --bytes` stores the first two byte blocks, both skipped offline.
+`suggest [status|opt-in|opt-out|<prefix>]` ranks commands from on-device
+history only — no network, AI-ready foundation.
 
 There is no consolidated `doctor` command yet. Use `tools status`,
 `library verify`, `setup status`, and the feature-specific status commands.

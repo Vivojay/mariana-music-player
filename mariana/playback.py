@@ -37,7 +37,8 @@ CHANNELS = 2
 SAMPLE_WIDTH = 4
 BYTES_PER_FRAME = CHANNELS * SAMPLE_WIDTH
 DEFAULT_BUFFER_SECONDS = 8.0
-FINGERPRINT_SECONDS = 120
+FINGERPRINT_SECONDS = 30
+MAX_CALLBACK_FRAMES = 8192
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
@@ -69,9 +70,7 @@ def find_executable(name: str, configured_bin: str | None = None) -> str:
 
     if executable := find_tool_executable(name, configured_bin):
         return executable
-    raise PlaybackError(
-        f"{name} was not found; run 'tools setup' or configure its executable/directory in settings"
-    )
+    raise PlaybackError(f"{name} was not found; run 'tools setup' or configure its executable/directory in settings")
 
 
 @lru_cache(maxsize=8)
@@ -188,9 +187,7 @@ class WindowsJob:
             handle = win32job.CreateJobObject(None, "")
             if handle is None:
                 raise OSError("Windows could not create a playback job object")
-            information = win32job.QueryInformationJobObject(
-                handle, win32job.JobObjectExtendedLimitInformation
-            )
+            information = win32job.QueryInformationJobObject(handle, win32job.JobObjectExtendedLimitInformation)
             information["BasicLimitInformation"]["LimitFlags"] |= win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
             win32job.SetInformationJobObject(handle, win32job.JobObjectExtendedLimitInformation, information)
             process_handle = cast(Any, process)._handle
@@ -279,7 +276,11 @@ class DecoderSession:
     @property
     def fingerprint_pcm(self) -> bytes:
         with self._condition:
-            return bytes(self._fingerprint)
+            try:
+                return bytes(self._fingerprint)
+            except MemoryError:
+                record(2, "decoder.fingerprint.oom")
+                return b""
 
     @property
     def error(self) -> str | None:
@@ -297,8 +298,8 @@ class DecoderSession:
     def start(self) -> None:
         if self.process is not None:
             return
-        source = "" if self.input_sources else (
-            self.resolved.playback_uri if self.resolved else resolve_input(self.media)
+        source = (
+            "" if self.input_sources else (self.resolved.playback_uri if self.resolved else resolve_input(self.media))
         )
         if not self.input_sources and self.resolved and self.resolved.metadata.get("credential_ref"):
             from .credentials import ListenerAuthTunnel
@@ -437,14 +438,46 @@ class DecoderSession:
         return self.buffered_seconds > 0
 
     def read(self, frames: int) -> bytes:
+        try:
+            frames = int(frames)
+        except (TypeError, ValueError, OverflowError):
+            return b""
+        if frames <= 0:
+            return b""
+        if frames > MAX_CALLBACK_FRAMES:
+            frames = MAX_CALLBACK_FRAMES
         requested = frames * BYTES_PER_FRAME
         with self._condition:
-            size = min(requested, len(self._buffer))
-            size -= size % BYTES_PER_FRAME
-            data = bytes(self._buffer[:size])
-            del self._buffer[:size]
-            self.frames_emitted += size // BYTES_PER_FRAME
-            self._condition.notify_all()
+            try:
+                size = min(requested, len(self._buffer))
+                size -= size % BYTES_PER_FRAME
+                if size <= 0:
+                    return b""
+                try:
+                    data = bytes(self._buffer[:size])
+                except MemoryError:
+                    # Under memory pressure prefer dropping buffered audio over
+                    # crashing the realtime PortAudio thread. Signal underrun.
+                    try:
+                        del self._buffer[:size]
+                    except (MemoryError, ValueError):
+                        with suppress(MemoryError):
+                            self._buffer.clear()
+                    self._condition.notify_all()
+                    record(2, "decoder.read.oom_drop")
+                    return b""
+                try:
+                    del self._buffer[:size]
+                except MemoryError:
+                    with suppress(MemoryError):
+                        self._buffer.clear()
+                    record(2, "decoder.read.oom_drop")
+                    return data
+                self.frames_emitted += size // BYTES_PER_FRAME
+                self._condition.notify_all()
+            except MemoryError:
+                record(2, "decoder.read.oom")
+                return b""
         return data
 
     def stop(self) -> None:
@@ -506,15 +539,15 @@ def _mix_pcm(first: bytes, second: bytes, first_gain: float, second_gain: float,
     return mixed.tobytes()
 
 
-MAX_CROSSFADE_SECONDS = 30.0
+MAX_CROSSFADE_SECONDS = 60.0
 
 
 def _validated_crossfade_seconds(value: float) -> float:
     if isinstance(value, bool):
-        raise ValueError("Crossfade duration must be a number from 0 to 30 seconds")
+        raise ValueError("Crossfade duration must be a number from 0 to 60 seconds")
     seconds = float(value)
     if not math.isfinite(seconds) or not 0 <= seconds <= MAX_CROSSFADE_SECONDS:
-        raise ValueError("Crossfade duration must be a number from 0 to 30 seconds")
+        raise ValueError("Crossfade duration must be a number from 0 to 60 seconds")
     return seconds
 
 
@@ -535,8 +568,8 @@ class PlaybackController:
         output_factory: Callable[..., OutputStream] | None = None,
         resolvers: ResolverRegistry | None = None,
         loudness_repository=None,
-        replaygain_enabled: bool = False,
-        replaygain_mode: str = "track",
+        replaygain_enabled: bool = True,
+        replaygain_mode: str = "auto",
         replaygain_preamp_db: float = 0.0,
         replaygain_prevent_clipping: bool = True,
         replaygain_headroom_dbtp: float = -1.0,
@@ -547,6 +580,7 @@ class PlaybackController:
         output_device_provider: Callable[[], OutputDeviceInfo] | None = None,
         play_region_provider: Callable[[MediaRef], PlayRegion | None] | None = None,
         playback_event_sink: Callable[..., bool] | None = None,
+        offline_provider: Callable[[MediaRef], str | None] | None = None,
     ):
         self.ffmpeg_bin = ffmpeg_bin
         self.ffprobe_bin = ffprobe_bin
@@ -571,6 +605,7 @@ class PlaybackController:
         )
         self.play_region_provider = play_region_provider
         self._playback_event_sink = playback_event_sink
+        self.offline_provider = offline_provider
         self._lock = threading.RLock()
         self._output_switch_lock = threading.Lock()
         self._active_media_publish_lock = threading.RLock()
@@ -578,6 +613,10 @@ class PlaybackController:
         self._next: DecoderSession | None = None
         self._active_region: PlayRegion | None = None
         self._next_region: PlayRegion | None = None
+        # Manual-switch overlap: when a new track is requested while another
+        # plays, the new decoder is pre-buffered first and mixed over the old
+        # one for a bounded equal-power fade instead of stop-then-start.
+        self._manual_fade: dict[str, int] | None = None
         self._stream: OutputStream | None = None
         self._output_device: OutputDeviceInfo | None = None
         self._output_interrupted = False
@@ -599,13 +638,9 @@ class PlaybackController:
         self._watch_stop = threading.Event()
         self._identity_generation = 0
         self._program_sinks: list[Callable[[object, int], None]] = []
-        self._identification_sinks: list[
-            Callable[[object, int, str, str, str, float, bool], None]
-        ] = []
+        self._identification_sinks: list[Callable[[object, int, str, str, str, float, bool], None]] = []
         self._metadata_sinks: list[Callable[[str | None], None]] = []
-        self._active_media_sinks: list[
-            Callable[[MediaRef | None, ResolvedMedia | None], None]
-        ] = []
+        self._active_media_sinks: list[Callable[[MediaRef | None, ResolvedMedia | None], None]] = []
         self._stream_metadata: dict[str, object] = {}
         self._playback_session_id: str | None = None
         self._stem_session: DecoderSession | None = None
@@ -623,26 +658,38 @@ class PlaybackController:
         self._recipe_capture_sink: Callable[[CommittedProgramEvent], bool] | None = None
         self._captured_transition: tuple[DecoderSession, DecoderSession] | None = None
 
-    def _program_snapshot_locked(self, *, action: str = "snapshot", origin: str = "system",
-                                 play_kind: str | None = None) -> CommittedProgramEvent:
+    def _program_snapshot_locked(
+        self, *, action: str = "snapshot", origin: str = "system", play_kind: str | None = None
+    ) -> CommittedProgramEvent:
         active, incoming = self._active, self._next
         overlap = None
         if active is not None and incoming is not None and active.media.duration is not None:
             remaining = active.media.duration - active.position
-            window = min(self.crossfade_seconds, active.media.duration - active.start_at,
-                         max(0, (incoming.media.duration or 0) - incoming.start_at))
+            window = min(
+                self.crossfade_seconds,
+                active.media.duration - active.start_at,
+                max(0, (incoming.media.duration or 0) - incoming.start_at),
+            )
             if window > 0 and 0 < remaining <= window:
                 total = max(1, round(window * SAMPLE_RATE))
                 overlap = CommittedOverlap(
-                    incoming.media.stable_id, incoming.position, total,
+                    incoming.media.stable_id,
+                    incoming.position,
+                    total,
                     min(total - 1, max(0, round((window - remaining) * SAMPLE_RATE))),
-                    active.program_gain_db, incoming.program_gain_db,
+                    active.program_gain_db,
+                    incoming.program_gain_db,
                 )
         return CommittedProgramEvent(
-            action, active.media.stable_id if active is not None else None, self._playback_session_id,
+            action,
+            active.media.stable_id if active is not None else None,
+            self._playback_session_id,
             active.position if active is not None else 0,
             active.program_gain_db if active is not None else None,
-            self._state in {PlaybackState.PLAYING, PlaybackState.CROSSFADING}, origin, play_kind, overlap,
+            self._state in {PlaybackState.PLAYING, PlaybackState.CROSSFADING},
+            origin,
+            play_kind,
+            overlap,
         )
 
     def recipe_capture_snapshot(self) -> CommittedProgramEvent:
@@ -650,25 +697,34 @@ class PlaybackController:
             return self._program_snapshot_locked()
 
     def _safe_program_snapshot_locked(
-        self, *, action: str, origin: str, play_kind: str | None = None,
+        self,
+        *,
+        action: str,
+        origin: str,
+        play_kind: str | None = None,
     ) -> CommittedProgramEvent:
         try:
             return self._program_snapshot_locked(action=action, origin=origin, play_kind=play_kind)
         except Exception:
             # Bad optional capture metadata must neither interrupt output nor
             # leave a recording falsely claiming to represent the operation.
-            return CommittedProgramEvent('unsupported', None, None, 0, None, False)
+            return CommittedProgramEvent("unsupported", None, None, 0, None, False)
 
     def begin_recipe_capture(
-        self, sink: Callable[[CommittedProgramEvent], bool], initialize: Callable[[CommittedProgramEvent], None],
+        self,
+        sink: Callable[[CommittedProgramEvent], bool],
+        initialize: Callable[[CommittedProgramEvent], None],
     ) -> None:
         """Queue the initial state before any later committed action can follow it."""
         with self._lock:
             snapshot = self._program_snapshot_locked()
             initialize(snapshot)
             self._recipe_capture_sink = sink
-            self._captured_transition = (self._active, self._next) if snapshot.overlap is not None \
-                and self._active is not None and self._next is not None else None
+            self._captured_transition = (
+                (self._active, self._next)
+                if snapshot.overlap is not None and self._active is not None and self._next is not None
+                else None
+            )
 
     def _capture_program_event(self, event: CommittedProgramEvent) -> None:
         sink = self._recipe_capture_sink
@@ -677,7 +733,11 @@ class PlaybackController:
                 sink(event)
 
     def prepare_recipe_mix(
-        self, spec: RecipeMixSpec, *, cancelled: Callable[[], bool] = lambda: False, timeout: float = 10,
+        self,
+        spec: RecipeMixSpec,
+        *,
+        cancelled: Callable[[], bool] = lambda: False,
+        timeout: float = 10,
     ) -> PreparedRecipeMix:
         """Prepare a verified pair off the callback without replacing audible media."""
         spec.validate(SAMPLE_RATE)
@@ -704,21 +764,29 @@ class PlaybackController:
                     continue
                 self._check_recipe_preparation(generation, cancelled, deadline)
                 session = DecoderSession(
-                    source.media, resolved=source.resolved, ffmpeg_bin=self.ffmpeg_bin,
-                    start_at=source.position_seconds, program_gain_db=source.program_gain_db,
+                    source.media,
+                    resolved=source.resolved,
+                    ffmpeg_bin=self.ffmpeg_bin,
+                    start_at=source.position_seconds,
+                    program_gain_db=source.program_gain_db,
                 )
                 sessions.append(session)
                 session.start()
-                minimum = min(.15, max(1 / SAMPLE_RATE, (source.media.duration or 0) - source.position_seconds))
+                minimum = min(0.15, max(1 / SAMPLE_RATE, (source.media.duration or 0) - source.position_seconds))
                 while session.buffered_seconds + 1 / SAMPLE_RATE < minimum and not session.eof:
                     self._check_recipe_preparation(generation, cancelled, deadline)
-                    session.wait_for_buffer(minimum_seconds=minimum, timeout=.05)
+                    session.wait_for_buffer(minimum_seconds=minimum, timeout=0.05)
                 if session.failed or session.buffered_seconds <= 0:
                     raise PlaybackError("Recipe source produced no verified playable audio")
             self._check_recipe_preparation(generation, cancelled, deadline)
             prepared = PreparedRecipeMix(
-                self, generation, sessions[0], sessions[1] if len(sessions) == 2 else None,
-                spec, uuid.uuid4().hex, uuid.uuid4().hex if len(sessions) == 2 else None,
+                self,
+                generation,
+                sessions[0],
+                sessions[1] if len(sessions) == 2 else None,
+                spec,
+                uuid.uuid4().hex,
+                uuid.uuid4().hex if len(sessions) == 2 else None,
             )
             with self._lock:
                 if generation != self._request_generation:
@@ -731,7 +799,10 @@ class PlaybackController:
             raise
 
     def _check_recipe_preparation(
-        self, generation: int, cancelled: Callable[[], bool], deadline: float,
+        self,
+        generation: int,
+        cancelled: Callable[[], bool],
+        deadline: float,
     ) -> None:
         if cancelled() or time.monotonic() >= deadline:
             raise PlaybackError("Recipe preparation was cancelled or timed out")
@@ -757,7 +828,11 @@ class PlaybackController:
                 session.stop()
 
     def commit_recipe_mix(
-        self, prepared: PreparedRecipeMix, *, cancelled: Callable[[], bool] = lambda: False, timeout: float = 2,
+        self,
+        prepared: PreparedRecipeMix,
+        *,
+        cancelled: Callable[[], bool] = lambda: False,
+        timeout: float = 2,
     ) -> None:
         """Wait outside the callback for a single complete audio-block handoff."""
         if prepared.owner is not self or not math.isfinite(timeout) or not 0 < timeout <= 10:
@@ -768,8 +843,11 @@ class PlaybackController:
             prepared.spec.validate(SAMPLE_RATE)
             self._ensure_output(expected_generation=prepared.generation)
             with self._lock:
-                if (self._prepared_recipe_mix is not prepared or prepared.status != "prepared"
-                        or prepared.generation != self._request_generation):
+                if (
+                    self._prepared_recipe_mix is not prepared
+                    or prepared.status != "prepared"
+                    or prepared.generation != self._request_generation
+                ):
                     raise PlaybackError("Recipe preparation is stale or already consumed")
                 if self._recipe_mix_worker is None:
                     worker = threading.Thread(target=self._watch_recipe_mix, name="mariana-recipe-mix", daemon=True)
@@ -777,13 +855,15 @@ class PlaybackController:
                     self._recipe_mix_worker = worker
                 prepared.status = "submitted"
                 self._pending_recipe_mix = prepared
-            while not prepared.acknowledged.wait(.01):
+            while not prepared.acknowledged.wait(0.01):
                 self._check_recipe_preparation(prepared.generation, cancelled, deadline)
             self._check_recipe_preparation(prepared.generation, cancelled, deadline)
             with self._lock:
                 if prepared.status != "committed" or prepared.generation != self._request_generation:
                     raise PlaybackError("Recipe mix did not commit")
-            self._publish_active_media_for_session(prepared.outgoing, prepared.outgoing.media, prepared.outgoing.resolved)
+            self._publish_active_media_for_session(
+                prepared.outgoing, prepared.outgoing.media, prepared.outgoing.resolved
+            )
             self._publish_metadata(prepared.outgoing.media.title, session=prepared.outgoing)
         except Exception:
             self.discard_recipe_mix(prepared)
@@ -819,11 +899,17 @@ class PlaybackController:
             self._completed_region = None
             self._playback_session_id = prepared.playback_session_id
             self._recipe_mix = RecipeMixRuntime(
-                prepared.outgoing, prepared.incoming, prepared.spec.duration_frames,
-                prepared.spec.elapsed_frames, prepared.playback_session_id, prepared.incoming_session_id,
+                prepared.outgoing,
+                prepared.incoming,
+                prepared.spec.duration_frames,
+                prepared.spec.elapsed_frames,
+                prepared.playback_session_id,
+                prepared.incoming_session_id,
             )
-            self._state = PlaybackState.PAUSED if prepared.spec.paused else (
-                PlaybackState.CROSSFADING if prepared.incoming is not None else PlaybackState.PLAYING
+            self._state = (
+                PlaybackState.PAUSED
+                if prepared.spec.paused
+                else (PlaybackState.CROSSFADING if prepared.incoming is not None else PlaybackState.PLAYING)
             )
             self._error = None
             self._prepared_recipe_mix = None
@@ -832,7 +918,7 @@ class PlaybackController:
 
     def _watch_recipe_mix(self) -> None:
         """Retire promotion resources and publish identity away from audio callbacks."""
-        while not self._recipe_mix_worker_stop.wait(.01):
+        while not self._recipe_mix_worker_stop.wait(0.01):
             with self._lock:
                 mix = self._recipe_mix
                 retired = mix.promoted if mix is not None else None
@@ -874,15 +960,21 @@ class PlaybackController:
         with self._lock:
             current_media = media or (self._active.media if self._active else None)
             current_session_id = session_id or self._playback_session_id
-            program_event = self._safe_program_snapshot_locked(action=action, origin=origin, play_kind=play_kind) \
-                if self._recipe_capture_sink is not None else None
+            program_event = (
+                self._safe_program_snapshot_locked(action=action, origin=origin, play_kind=play_kind)
+                if self._recipe_capture_sink is not None
+                else None
+            )
         if current_media is None or current_session_id is None:
             return
-        if (program_event is not None and program_event.stable_id == current_media.stable_id
-                and program_event.session_id == current_session_id):
+        if (
+            program_event is not None
+            and program_event.stable_id == current_media.stable_id
+            and program_event.session_id == current_session_id
+        ):
             self._capture_program_event(program_event)
         elif self._recipe_capture_sink is not None:
-            self._capture_program_event(CommittedProgramEvent('unsupported', None, None, 0, None, False))
+            self._capture_program_event(CommittedProgramEvent("unsupported", None, None, 0, None, False))
         if sink is None:
             return
         try:
@@ -918,10 +1010,7 @@ class PlaybackController:
     def _live_filter(self, media: MediaRef) -> str | None:
         if not self.live_leveling or not media.capabilities.live:
             return None
-        return (
-            f"loudnorm=I={self.live_target_lufs:g}:TP={self.live_true_peak_dbtp:g}:"
-            f"LRA={self.live_lra:g}"
-        )
+        return f"loudnorm=I={self.live_target_lufs:g}:TP={self.live_true_peak_dbtp:g}:LRA={self.live_lra:g}"
 
     def _new_session(self, media: MediaRef, *, start_at: float = 0) -> DecoderSession:
         return DecoderSession(
@@ -959,7 +1048,11 @@ class PlaybackController:
 
     @operation("stems.monitor")
     def configure_stem_monitor(
-        self, media_id: str, sources: Sequence[Path | str], *, lease: StemResourceLease | None = None,
+        self,
+        media_id: str,
+        sources: Sequence[Path | str],
+        *,
+        lease: StemResourceLease | None = None,
     ) -> None:
         """Consume a lease, retaining it until its prepared decoder has stopped."""
         transferred: list[DecoderSession] = []
@@ -976,8 +1069,12 @@ class PlaybackController:
                     candidate.stop()
 
     def _configure_stem_monitor(
-        self, media_id: str, sources: Sequence[Path | str], *,
-        lease: StemResourceLease | None, transferred: list[DecoderSession],
+        self,
+        media_id: str,
+        sources: Sequence[Path | str],
+        *,
+        lease: StemResourceLease | None,
+        transferred: list[DecoderSession],
     ) -> None:
         """Monitor prepared local stems while the original remains playback authority."""
         normalized = tuple(str(Path(value).expanduser().resolve(strict=True)) for value in sources)
@@ -1133,8 +1230,49 @@ class PlaybackController:
             raise ValueError("Playback request generation must be an integer")
         return self._stop_playback(expected_generation=request)
 
+    def _resolve_with_offline(self, media: MediaRef) -> ResolvedMedia:
+        """Prefer a fully prefetched disk copy; fall back to remote resolve."""
+        provider = getattr(self, "offline_provider", None)
+        if callable(provider) and not media.capabilities.live:
+            try:
+                cached = provider(media)
+            except Exception:
+                cached = None
+            if cached:
+                try:
+                    from pathlib import Path as _Path
+
+                    path = _Path(str(cached))
+                    if path.is_file() and path.stat().st_size > 0:
+                        from .models import MediaCapabilities as _Capabilities
+
+                        return ResolvedMedia(
+                            media,
+                            str(path),
+                            media.original_uri,
+                            _Capabilities(
+                                finite=True,
+                                live=False,
+                                seekable=True,
+                                fingerprintable=True,
+                                downloadable=False,
+                                metadata_available=bool(media.title),
+                            ),
+                            headers={},
+                            expires_at=None,
+                            metadata={},
+                        )
+                except OSError:
+                    pass
+        return self.resolvers.resolve(media)
+
     def _prepare_media(
-        self, media: MediaRef, *, probe: bool, resolved: ResolvedMedia | None, generation: int,
+        self,
+        media: MediaRef,
+        *,
+        probe: bool,
+        resolved: ResolvedMedia | None,
+        generation: int,
     ) -> MediaRef:
         if resolved is not None:
             self._validate_resolved_input(media, resolved)
@@ -1148,7 +1286,7 @@ class PlaybackController:
             self._completed_duration = None
             self._completed_region = None
         try:
-            resolved = resolved if resolved is not None else self.resolvers.resolve(media)
+            resolved = resolved if resolved is not None else self._resolve_with_offline(media)
             with self._lock:
                 if generation != self._request_generation:
                     raise PlaybackError("Playback attempt was replaced")
@@ -1228,22 +1366,49 @@ class PlaybackController:
             generation = request_generation
         else:
             generation = self._begin_media_request()
+        outgoing = None
+        outgoing_state = None
         if media is not None:
-            self._prepare_media(media, probe=probe, resolved=resolved, generation=generation)
+            with self._lock:
+                if self._active is not None:
+                    outgoing = self._active
+                    outgoing_state = self._state
+            try:
+                self._prepare_media(media, probe=probe, resolved=resolved, generation=generation)
+            except Exception:
+                # A failed switch must not strand the still-playing outgoing
+                # track in RESOLVING/FAILED presentation state.
+                with self._lock:
+                    if (
+                        outgoing is not None
+                        and self._active is outgoing
+                        and generation == self._request_generation
+                        and self._state in (PlaybackState.RESOLVING, PlaybackState.FAILED)
+                        and outgoing_state is not None
+                    ):
+                        self._state = outgoing_state
+                raise
         with self._lock:
             if generation != self._request_generation:
                 raise PlaybackError("Playback attempt was replaced")
             if self._prepared is None:
                 raise PlaybackError("No media has been prepared")
             prepared, resolved = self._prepared, self._resolved
+            stale_next = self._next
+            if stale_next is not None:
+                self._next = None
+                self._next_region = None
+                self._manual_fade = None
+        if stale_next is not None:
+            threading.Thread(target=stale_next.stop, name="mariana-decoder-cleanup", daemon=True).start()
         region = self._play_region(prepared)
         if region is not None:
             start_at = max(float(start_at), region.start_seconds or 0.0)
             if region.end_seconds is not None:
                 start_at = min(start_at, region.end_seconds)
-        if not self._stop_playback(expected_generation=generation):
-            raise PlaybackError("Playback attempt was replaced")
-        media = prepared
+        # Build and pre-buffer the incoming decoder BEFORE stopping the
+        # outgoing one, so a manual switch never pays ffmpeg spin-up as
+        # silence. The outgoing track keeps rendering throughout.
         session = None
         try:
             with self._lock:
@@ -1255,11 +1420,150 @@ class PlaybackController:
                 self._state = PlaybackState.PAUSED if start_paused else PlaybackState.BUFFERING
                 playback_session_id = uuid.uuid4().hex
                 self._playback_session_id = playback_session_id
-                session = self._new_session(media, start_at=start_at)
+                session = self._new_session(prepared, start_at=start_at)
                 session.on_metadata = lambda title, source=session: self._handle_stream_metadata(source, title)
+            session.start()
+        except Exception as error:
+            if session is not None:
+                threading.Thread(target=session.stop, name="mariana-decoder-cleanup", daemon=True).start()
+            with self._lock:
+                if (
+                    outgoing is not None
+                    and self._active is outgoing
+                    and generation == self._request_generation
+                    and outgoing_state is not None
+                ):
+                    self._state = outgoing_state
+                elif generation == self._request_generation and self._active is None:
+                    self._active = None
+                    self._active_region = None
+                    self._playback_session_id = None
+                    self._state = PlaybackState.FAILED
+                    self._error = str(error)
+            raise
+        media = prepared
+        if not session.wait_for_buffer():
+            error = session.error or "FFmpeg produced no playable audio"
+            threading.Thread(target=session.stop, name="mariana-decoder-cleanup", daemon=True).start()
+            with self._lock:
+                if (
+                    outgoing is not None
+                    and self._active is outgoing
+                    and generation == self._request_generation
+                    and outgoing_state is not None
+                ):
+                    self._state = outgoing_state
+                elif generation == self._request_generation:
+                    self._state = PlaybackState.FAILED
+                    self._error = error
+                    self._playback_session_id = None
+            if outgoing is None and generation == self._request_generation and self._active is None:
+                # No session was ever installed, so the authoritative-session
+                # gate would swallow this; dispatch directly (generation is
+                # still current, so no staleness is possible).
+                with suppress(AttributeError, RuntimeError, ValueError, TypeError, OSError):
+                    self._dispatch_active_media(media, resolved, generation=generation, session=None)
+            raise PlaybackError(error)
+        with self._lock:
+            current_attempt = (
+                self._active is outgoing if outgoing is not None else self._active is None
+            ) and generation == self._request_generation
+        if not current_attempt:
+            threading.Thread(target=session.stop, name="mariana-decoder-cleanup", daemon=True).start()
+            raise PlaybackError("Playback attempt was replaced")
+        overlap = (
+            outgoing is not None
+            and outgoing_state in (PlaybackState.PLAYING, PlaybackState.CROSSFADING)
+            and not start_paused
+            and self._recipe_mix is None
+            and self.crossfade_seconds > 0
+            and outgoing.media.capabilities.finite
+            and not outgoing.media.capabilities.live
+            and prepared.capabilities.finite
+            and not prepared.capabilities.live
+        )
+        if overlap:
+            # Install the pre-buffered decoder as _next and fade it in over
+            # the old one. The old track is stopped only when the fade
+            # completes (render thread), never before the new audio plays.
+            fade_frames = max(1, round(float(self.crossfade_seconds) * SAMPLE_RATE))
+            with self._lock:
+                if generation != self._request_generation or self._active is not outgoing:
+                    overlap = False
+                else:
+                    self._next = session
+                    self._next_region = region
+                    self._manual_fade = {"frames_total": fade_frames, "frames_left": fade_frames}
+                    self._state = PlaybackState.CROSSFADING
+            if not overlap:
+                threading.Thread(target=session.stop, name="mariana-decoder-cleanup", daemon=True).start()
+                raise PlaybackError("Playback attempt was replaced")
+            try:
+                self._ensure_output(expected_generation=generation)
+            except Exception as error:
+                with self._lock:
+                    if self._next is session:
+                        self._next = None
+                        self._next_region = None
+                    self._manual_fade = None
+                    if self._active is outgoing and outgoing_state is not None:
+                        self._state = outgoing_state
+                threading.Thread(target=session.stop, name="mariana-decoder-cleanup", daemon=True).start()
+                if generation != self._request_generation:
+                    raise PlaybackError("Playback attempt was replaced") from None
+                raise MediaFailure(
+                    FailureCode.OUTPUT_DEVICE,
+                    media.source,
+                    "Audio output is unavailable; select an output device and retry",
+                    cause=error,
+                ) from None
+            # Presentation consumers may resolve artwork independently of whether
+            # the decoder ultimately produces audio. The session is now the
+            # authoritative current-media attempt, and stale observers were already
+            # cleared by stop().
+            self._publish_active_media_for_session(session, media, resolved)
+            with self._lock:
+                current_attempt = generation == self._request_generation and (
+                    self._next is session or self._active is session
+                )
+                if current_attempt:
+                    self._capture_playback_event(
+                        "play",
+                        origin=origin,
+                        position_seconds=float(start_at),
+                        media=media,
+                        session_id=playback_session_id,
+                        play_kind="start",
+                    )
+                    self._watch_stop.set()
+                    self._watch_stop.clear()
+                    threading.Thread(target=self._watch_completion, name="mariana-playback-watch", daemon=True).start()
+            if not current_attempt:
+                self._settle_manual_fade()
+                raise PlaybackError("Playback attempt was replaced")
+            self._publish_metadata(
+                " - ".join(value for value in (media.artist, media.title) if value) or media.title,
+                session=session,
+            )
+            return media
+        if not self._stop_playback(expected_generation=generation):
+            threading.Thread(target=session.stop, name="mariana-decoder-cleanup", daemon=True).start()
+            raise PlaybackError("Playback attempt was replaced")
+        try:
+            with self._lock:
+                if generation != self._request_generation:
+                    raise PlaybackError("Playback attempt was replaced")
+                # _stop_playback clears preparation state; re-admit this
+                # pre-buffered attempt before installing it.
+                self._prepared, self._resolved = prepared, resolved
+                # Preserve paused intent before an output callback can consume
+                # the replacement decoder.
+                self._state = PlaybackState.PAUSED if start_paused else PlaybackState.BUFFERING
+                playback_session_id = uuid.uuid4().hex
+                self._playback_session_id = playback_session_id
                 self._active = session
                 self._active_region = region
-                session.start()
+                session.on_metadata = lambda title, source=session: self._handle_stream_metadata(source, title)
         except Exception as error:
             if session is not None:
                 session.stop()
@@ -1276,15 +1580,6 @@ class PlaybackController:
         # authoritative current-media attempt, and stale observers were already
         # cleared by stop().
         self._publish_active_media_for_session(session, media, resolved)
-        if not session.wait_for_buffer():
-            error = session.error or "FFmpeg produced no playable audio"
-            session.stop()
-            with self._lock:
-                if self._active is session and generation == self._request_generation:
-                    self._state = PlaybackState.FAILED
-                    self._error = error
-                    self._playback_session_id = None
-            raise PlaybackError(error)
         with self._lock:
             current_attempt = self._active is session and generation == self._request_generation
         if not current_attempt:
@@ -1307,21 +1602,30 @@ class PlaybackController:
             if not current_attempt:
                 raise PlaybackError("Playback attempt was replaced") from None
             raise MediaFailure(
-                FailureCode.OUTPUT_DEVICE, media.source,
-                "Audio output is unavailable; select an output device and retry", cause=error,
+                FailureCode.OUTPUT_DEVICE,
+                media.source,
+                "Audio output is unavailable; select an output device and retry",
+                cause=error,
             ) from None
         with self._lock:
             current_attempt = self._active is session and generation == self._request_generation
             if current_attempt:
                 self._state = PlaybackState.PAUSED if start_paused else PlaybackState.PLAYING
                 self._capture_playback_event(
-                    "play", origin=origin, position_seconds=float(start_at), media=media,
-                    session_id=playback_session_id, play_kind="start",
+                    "play",
+                    origin=origin,
+                    position_seconds=float(start_at),
+                    media=media,
+                    session_id=playback_session_id,
+                    play_kind="start",
                 )
                 if start_paused:
                     self._capture_playback_event(
-                        "pause", origin=origin, position_seconds=float(start_at),
-                        media=media, session_id=playback_session_id,
+                        "pause",
+                        origin=origin,
+                        position_seconds=float(start_at),
+                        media=media,
+                        session_id=playback_session_id,
                     )
                 self._watch_stop.clear()
                 threading.Thread(target=self._watch_completion, name="mariana-playback-watch", daemon=True).start()
@@ -1373,6 +1677,9 @@ class PlaybackController:
     def clear_prefetch(self) -> None:
         """Discard a queued decoder without disturbing the active item."""
         with self._lock:
+            if self._manual_fade is not None:
+                return
+        with self._lock:
             session = self._next
             self._next = None
             self._next_region = None
@@ -1407,7 +1714,11 @@ class PlaybackController:
             return False
 
     def _replace_output(
-        self, device: OutputDeviceInfo, *, force: bool = False, expected_generation: int | None = None,
+        self,
+        device: OutputDeviceInfo,
+        *,
+        force: bool = False,
+        expected_generation: int | None = None,
     ) -> None:
         with self._output_switch_lock:
             with self._lock:
@@ -1450,11 +1761,16 @@ class PlaybackController:
                     except Exception:
                         record(2, "output_replacement.close_failed")
                 raise
+
     def _ensure_output(self, *, expected_generation: int | None = None) -> None:
         self._open_output(self.default_output_device(), force=False, expected_generation=expected_generation)
 
     def _open_output(
-        self, device: OutputDeviceInfo, *, force: bool, expected_generation: int | None = None,
+        self,
+        device: OutputDeviceInfo,
+        *,
+        force: bool,
+        expected_generation: int | None = None,
     ) -> None:
         try:
             self._replace_output(device, force=force, expected_generation=expected_generation)
@@ -1538,27 +1854,74 @@ class PlaybackController:
         return mixed
 
     def _audio_callback(self, outdata, frames, _time_info, _status) -> None:
-        if not self._audio_block_lock.acquire(blocking=False):
-            if isinstance(outdata, np.ndarray):
-                outdata.fill(0)
-            else:
-                outdata[:] = b"\0" * (frames * BYTES_PER_FRAME)
-            return
         try:
-            if not self._lock.acquire(blocking=False):
+            frames = int(frames)
+        except (TypeError, ValueError, OverflowError):
+            frames = 0
+        if frames <= 0 or frames > MAX_CALLBACK_FRAMES:
+            # PortAudio occasionally probes with 0 frames; absurd sizes mean a
+            # broken host request. Never allocate on its behalf.
+            try:
+                if isinstance(outdata, np.ndarray):
+                    outdata.fill(0)
+                else:
+                    outdata[:] = b"\0" * (max(0, min(frames, MAX_CALLBACK_FRAMES)) * BYTES_PER_FRAME)
+            except (MemoryError, ValueError, TypeError):
+                pass
+            return
+        if not self._audio_block_lock.acquire(blocking=False):
+            try:
                 if isinstance(outdata, np.ndarray):
                     outdata.fill(0)
                 else:
                     outdata[:] = b"\0" * (frames * BYTES_PER_FRAME)
-                return
+            except (MemoryError, ValueError, TypeError):
+                pass
+            return
+        try:
             try:
-                self._install_recipe_mix()
-                handled = self._render_recipe_mix(outdata, frames)
-            finally:
-                self._lock.release()
-            if handled:
-                return
-            self._render_ordinary_audio(outdata, frames, _time_info, _status)
+                if not self._lock.acquire(blocking=False):
+                    if isinstance(outdata, np.ndarray):
+                        outdata.fill(0)
+                    else:
+                        outdata[:] = b"\0" * (frames * BYTES_PER_FRAME)
+                    return
+                try:
+                    self._install_recipe_mix()
+                    handled = self._render_recipe_mix(outdata, frames)
+                finally:
+                    self._lock.release()
+                if handled:
+                    return
+                self._render_ordinary_audio(outdata, frames, _time_info, _status)
+            except MemoryError:
+                # Never propagate out of the cffi callback: that prints
+                # "Exception ignored from cffi callback" and leaves the
+                # PortAudio buffer undefined. Emit silence and keep playing.
+                record(2, "audio.callback.oom_silence")
+                try:
+                    with self._lock:
+                        self._error = "Audio output paused briefly: system ran low on memory"
+                except (MemoryError, RuntimeError):
+                    pass
+                try:
+                    if isinstance(outdata, np.ndarray):
+                        outdata.fill(0)
+                    else:
+                        outdata[:] = b"\0" * (frames * BYTES_PER_FRAME)
+                except (MemoryError, ValueError, TypeError):
+                    pass
+                with suppress(MemoryError, ValueError, TypeError, RuntimeError):
+                    self._publish_program(outdata, frames)
+            except Exception:
+                record(2, "audio.callback.error_silence")
+                try:
+                    if isinstance(outdata, np.ndarray):
+                        outdata.fill(0)
+                    else:
+                        outdata[:] = b"\0" * (frames * BYTES_PER_FRAME)
+                except (MemoryError, ValueError, TypeError):
+                    pass
         finally:
             self._audio_block_lock.release()
 
@@ -1609,6 +1972,8 @@ class PlaybackController:
         if _status:
             with self._lock:
                 self._error = f"Audio output reported: {_status}"
+        with self._lock:
+            manual_fade = self._manual_fade
         numpy_output = isinstance(outdata, np.ndarray)
         if not active or state == PlaybackState.PAUSED or output_interrupted:
             if numpy_output:
@@ -1631,7 +1996,10 @@ class PlaybackController:
                 else:
                     outdata[:] = b"\0" * size
                 self._publish_program(outdata, frames)
-                self._finish_active(active)
+                if manual_fade is not None and next_session is not None:
+                    self._promote_manual_next(active, next_session, manual_fade)
+                else:
+                    self._finish_active(active)
                 return
         crossfade_window = crossfade_seconds
         if crossfade_window > 0 and effective_end is not None:
@@ -1640,8 +2008,11 @@ class PlaybackController:
                 max(0.0, effective_end - float(getattr(active, "start_at", 0.0))),
             )
         if crossfade_window > 0 and next_session and next_session.media.duration is not None:
-            next_end = next_region.end_seconds if next_region and next_region.end_seconds is not None \
+            next_end = (
+                next_region.end_seconds
+                if next_region and next_region.end_seconds is not None
                 else next_session.media.duration
+            )
             crossfade_window = min(
                 crossfade_window,
                 max(0.0, next_end - float(getattr(next_session, "start_at", 0.0))),
@@ -1658,15 +2029,40 @@ class PlaybackController:
         ):
             crossfade = True
             fraction = min(1.0, max(0.0, 1 - (effective_end - active.position) / crossfade_window))
+        manual_mix = (
+            manual_fade is not None
+            and next_session is not None
+            and active.media.capabilities.finite
+            and not active.media.capabilities.live
+            and next_session.media.capabilities.finite
+            and not next_session.media.capabilities.live
+        )
+        if manual_mix:
+            assert manual_fade is not None
+            total = max(1, int(manual_fade.get("frames_total", 0)))
+            left = max(0, int(manual_fade.get("frames_left", 0)))
+            if left > 0:
+                fraction = min(1.0, max(0.0, 1.0 - left / total))
+                crossfade = True
         outgoing_gain, incoming_gain = _equal_power_crossfade_gains(fraction) if crossfade else (1.0, 0.0)
+        manual_done = False
+        if manual_mix and crossfade and manual_fade is not None and next_session is not None:
+            with self._lock:
+                if self._manual_fade is manual_fade and self._active is active and self._next is next_session:
+                    manual_fade["frames_left"] = max(0, left - frames)
+                    manual_done = manual_fade["frames_left"] <= 0
         capture_start_position = active.position
         incoming_start_position = next_session.position if crossfade and next_session is not None else 0.0
         transition_event = None
-        if crossfade and next_session is not None and self._recipe_capture_sink is not None \
-                and self._captured_transition != (active, next_session):
+        if (
+            crossfade
+            and next_session is not None
+            and self._recipe_capture_sink is not None
+            and self._captured_transition != (active, next_session)
+        ):
             with self._lock:
                 if self._active is active and self._next is next_session:
-                    transition_event = self._safe_program_snapshot_locked(action='transition', origin='automatic')
+                    transition_event = self._safe_program_snapshot_locked(action="transition", origin="automatic")
         first = active.read(read_frames)
         decoded_frames = len(first) // BYTES_PER_FRAME
         if numpy_output:
@@ -1685,9 +2081,7 @@ class PlaybackController:
                 second_count = min(frames, second_samples.shape[0])
                 if second_count:
                     outdata[:second_count] += (
-                        second_samples[:second_count]
-                        * getattr(next_session, "program_gain", 1.0)
-                        * incoming_gain
+                        second_samples[:second_count] * getattr(next_session, "program_gain", 1.0) * incoming_gain
                     )
                 np.clip(outdata, -1.0, 1.0, out=outdata)
         elif crossfade and next_session:
@@ -1706,25 +2100,49 @@ class PlaybackController:
         if crossfade:
             with self._lock:
                 self._state = PlaybackState.CROSSFADING
-            expected_outgoing = min(read_frames, max(0, round(
-                ((effective_end or capture_start_position) - capture_start_position) * SAMPLE_RATE,
-            )))
-            expected_incoming = min(frames, max(0, round(
-                (((next_session.media.duration or incoming_start_position) if next_session else incoming_start_position)
-                 - incoming_start_position) * SAMPLE_RATE,
-            )))
-            if (self._recipe_capture_sink is not None
-                    and (decoded_frames < expected_outgoing or len(second) // BYTES_PER_FRAME < expected_incoming)):
+            expected_outgoing = min(
+                read_frames,
+                max(
+                    0,
+                    round(
+                        ((effective_end or capture_start_position) - capture_start_position) * SAMPLE_RATE,
+                    ),
+                ),
+            )
+            expected_incoming = min(
+                frames,
+                max(
+                    0,
+                    round(
+                        (
+                            (
+                                (next_session.media.duration or incoming_start_position)
+                                if next_session
+                                else incoming_start_position
+                            )
+                            - incoming_start_position
+                        )
+                        * SAMPLE_RATE,
+                    ),
+                ),
+            )
+            if self._recipe_capture_sink is not None and (
+                decoded_frames < expected_outgoing or len(second) // BYTES_PER_FRAME < expected_incoming
+            ):
                 # Ordinary mixing may consume unequal buffers. That policy is
                 # unchanged, but such a passage cannot claim faithful replay.
-                self._capture_program_event(CommittedProgramEvent('unsupported', None, None, 0, None, False))
+                self._capture_program_event(CommittedProgramEvent("unsupported", None, None, 0, None, False))
             elif transition_event is not None:
-                if (next_session is not None and transition_event.overlap is not None
-                        and decoded_frames > 0 and len(second) > 0):
+                if (
+                    next_session is not None
+                    and transition_event.overlap is not None
+                    and decoded_frames > 0
+                    and len(second) > 0
+                ):
                     self._captured_transition = (active, next_session)
                     self._capture_program_event(transition_event)
                 else:
-                    self._capture_program_event(CommittedProgramEvent('unsupported', None, None, 0, None, False))
+                    self._capture_program_event(CommittedProgramEvent("unsupported", None, None, 0, None, False))
         elif state == PlaybackState.CROSSFADING:
             with self._lock:
                 if self._active is active and self._state == PlaybackState.CROSSFADING:
@@ -1764,10 +2182,15 @@ class PlaybackController:
             payload = processed.astype(np.float32).tobytes()
             payload = _scale_pcm(payload, local_gain)
             outdata[:] = payload[:size]
-        if (region_end is not None and active.position >= region_end) or (
+        if manual_done and next_session is not None and manual_fade is not None:
+            self._promote_manual_next(active, next_session, manual_fade)
+        elif (region_end is not None and active.position >= region_end) or (
             active.eof and active.buffered_seconds == 0
         ):
-            self._finish_active(active)
+            if manual_fade is not None and next_session is not None:
+                self._promote_manual_next(active, next_session, manual_fade)
+            else:
+                self._finish_active(active)
 
     def _finish_active(self, active: DecoderSession) -> None:
         if getattr(active, "failed", False):
@@ -1864,16 +2287,79 @@ class PlaybackController:
                 daemon=True,
             ).start()
 
+    def _promote_manual_next(
+        self,
+        active: DecoderSession,
+        incoming: DecoderSession,
+        manual: dict[str, int],
+    ) -> bool:
+        """Complete a manual-switch overlap without firing completion follow-ups.
+
+        Unlike automatic end-of-track promotion, a manual switch must not look
+        like the outgoing track "completed" (that would double-advance queues
+        and autoplay). Returns True when the swap happened.
+        """
+        with self._lock:
+            if self._active is not active or self._next is not incoming or self._manual_fade is not manual:
+                return False
+            stem_active, stem_previous = self._stem_session, self._stem_previous
+            self._stem_session = None
+            self._stem_previous = None
+            self._stem_media_id = None
+            self._stem_sources = ()
+            self._stem_transition_frames = 0
+            self._active = incoming
+            self._next = None
+            self._active_region = self._next_region
+            self._next_region = None
+            self._manual_fade = None
+            self._state = PlaybackState.PLAYING
+            self._completed_media = None
+            self._completed_position = 0.0
+            self._completed_duration = None
+            self._completed_region = None
+        threading.Thread(target=active.stop, name="mariana-decoder-cleanup", daemon=True).start()
+        self._stop_stem_sessions_async(stem_active, stem_previous)
+        with suppress(AttributeError, RuntimeError, ValueError, TypeError, OSError):
+            self._publish_active_media_for_session(
+                incoming,
+                incoming.media,
+                getattr(incoming, "resolved", None),
+            )
+        return True
+
+    def _settle_manual_fade(self) -> None:
+        """Promote a pending manual overlap immediately (seek paths)."""
+        with self._lock:
+            manual = self._manual_fade
+            active = self._active
+            incoming = self._next
+        if manual is not None and active is not None and incoming is not None:
+            self._promote_manual_next(active, incoming, manual)
+
     def _publish_completion(self, completed: MediaRef, promoted: DecoderSession | None) -> None:
         """Notify presentation and queue consumers on the completion worker."""
-        if promoted is not None:
-            self._publish_active_media_for_session(
-                promoted,
-                promoted.media,
-                getattr(promoted, "resolved", None),
-            )
-        if self.on_complete:
-            self.on_complete(completed)
+        try:
+            if promoted is not None:
+                self._publish_active_media_for_session(
+                    promoted,
+                    promoted.media,
+                    getattr(promoted, "resolved", None),
+                )
+            if self.on_complete:
+                self.on_complete(completed)
+        except Exception as error:
+            # A manual play (or stop) that lands while a stale completion is
+            # being published supersedes the automatic follow-up. That race is
+            # expected and must not dump a traceback from this worker thread.
+            if isinstance(error, MediaFailure) and error.code == FailureCode.CANCELLED:
+                record(4, "completion.superseded")
+                return
+            if isinstance(error, PlaybackError) and "replac" in str(error).casefold():
+                record(4, "completion.superseded")
+                return
+            record(2, "completion.callback_failed")
+            return
 
     def _watch_completion(self) -> None:
         while not self._watch_stop.wait(0.1):
@@ -1937,9 +2423,14 @@ class PlaybackController:
                 lease.release()
 
     def _seek(
-        self, seconds: float, *, origin: str, resolved: ResolvedMedia | None,
+        self,
+        seconds: float,
+        *,
+        origin: str,
+        resolved: ResolvedMedia | None,
         retained_stem_leases: list[StemResourceLease],
     ) -> None:
+        self._settle_manual_fade()
         record(4, "seek.target", seconds=seconds)
         stem_sources: tuple[str, ...] = ()
         stem_active: DecoderSession | None = None
@@ -1956,9 +2447,12 @@ class PlaybackController:
             assert media is not None
             if resolved is not None:
                 self._validate_resolved_input(resolved.media, resolved)
-                if (resolved.media.source != media.source or resolved.media.stable_id != media.stable_id
-                        or canonical_uri(resolved.media.source, resolved.media.original_uri)
-                        != canonical_uri(media.source, media.original_uri)):
+                if (
+                    resolved.media.source != media.source
+                    or resolved.media.stable_id != media.stable_id
+                    or canonical_uri(resolved.media.source, resolved.media.original_uri)
+                    != canonical_uri(media.source, media.original_uri)
+                ):
                     raise UnsupportedAction("Resolved input does not match current media")
                 media = resolved.media
             if not media.capabilities.seekable:
@@ -2361,6 +2855,7 @@ class PlaybackController:
             stem_active, stem_previous = self._stem_session, self._stem_previous
             self._active = None
             self._next = None
+            self._manual_fade = None
             self._stem_session = None
             self._stem_previous = None
             self._stem_media_id = None
@@ -2381,8 +2876,13 @@ class PlaybackController:
         for prepared in (preparation, pending):
             if prepared is not None:
                 self.discard_recipe_mix(prepared)
-        for session in (active, next_session, stem_active, stem_previous,
-                        recipe_mix.promoted if recipe_mix is not None else None):
+        for session in (
+            active,
+            next_session,
+            stem_active,
+            stem_previous,
+            recipe_mix.promoted if recipe_mix is not None else None,
+        ):
             if session:
                 session.stop()
         with self._lock:
@@ -2435,10 +2935,13 @@ class PlaybackController:
             return PlaybackSnapshot(
                 # Preserve play/pause intent internally while output is absent.
                 # Recovery resumes the same decoder and PCM position.
-                state=PlaybackState.BUFFERING if (
-                    active and self._output_interrupted
+                state=PlaybackState.BUFFERING
+                if (
+                    active
+                    and self._output_interrupted
                     and self._state in {PlaybackState.PLAYING, PlaybackState.CROSSFADING}
-                ) else self._state,
+                )
+                else self._state,
                 position=position,
                 duration=active.media.duration if active else self._completed_duration,
                 buffered_seconds=active.buffered_seconds if active else 0.0,

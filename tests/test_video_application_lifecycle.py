@@ -17,6 +17,7 @@ def test_controller_reconnect_detaches_old_observers_and_rejects_late_delivery(m
         def subscribe(callback):
             callbacks.append(callback)
             return lambda: removed.append((name, callback))
+
         return SimpleNamespace(add_active_media_sink=subscribe)
 
     old_controller = controller("old", previous)
@@ -91,16 +92,35 @@ def test_resume_final_flush_runs_with_parallel_shutdown_and_uses_captured_positi
 
     monkeypatch.setattr(main, "_disconnect_video_controller", lambda: closes.append("detach"))
     monkeypatch.setattr(main, "_close_artwork_controller", lambda: closes.append("artwork"))
-    monkeypatch.setattr(main, "PLAYBACK_RESUME", SimpleNamespace(
-        capture_now=flush, close=lambda: closes.append("resume"),
-    ))
+    monkeypatch.setattr(
+        main,
+        "PLAYBACK_RESUME",
+        SimpleNamespace(
+            capture_now=flush,
+            close=lambda: closes.append("resume"),
+        ),
+    )
     monkeypatch.setattr(main.vas, "controller", SimpleNamespace(snapshot=lambda: current[0]))
     monkeypatch.setattr(main.vas, "supervisor", SimpleNamespace(close=close_playback))
-    for name in ("VIDEO", "HOMEPAGE", "SLEEP_TIMER", "PRESENCE", "STATION", "DOWNLOADS", "BROADCASTER", "LIBRARY_SERVICE"):
+    for name in (
+        "VIDEO",
+        "HOMEPAGE",
+        "SLEEP_TIMER",
+        "PRESENCE",
+        "STATION",
+        "DOWNLOADS",
+        "BROADCASTER",
+        "LIBRARY_SERVICE",
+    ):
         monkeypatch.setattr(main, name, SimpleNamespace(close=lambda name=name: closes.append(name)))
-    monkeypatch.setattr(main, "DESKTOP_CONTROL", SimpleNamespace(
-        emit=lambda *_args: None, close=lambda: closes.append("desktop"),
-    ))
+    monkeypatch.setattr(
+        main,
+        "DESKTOP_CONTROL",
+        SimpleNamespace(
+            emit=lambda *_args: None,
+            close=lambda: closes.append("desktop"),
+        ),
+    )
     monkeypatch.setattr(main, "RECOMMENDER", SimpleNamespace(record_event=lambda *_args, **_kwargs: None))
     monkeypatch.setattr(main, "APP_BOOT_END_TIME", main.time.time())
     monkeypatch.setattr(main, "currentsong", main.currentsong)
@@ -119,37 +139,66 @@ def test_resume_final_flush_runs_with_parallel_shutdown_and_uses_captured_positi
     assert "HOMEPAGE" in closes and "artwork" in closes
 
 
-@pytest.mark.parametrize("command", [
-    "play current --video", "/ys concert --video", "/yl https://youtu.be/abcdefghijk --video",
-    "/ml https://example.org/movie.mp4 --video",
-])
-def test_terminal_only_video_request_is_rejected_before_playback_or_resolution(monkeypatch, command):
-    calls, printed = [], []
+@pytest.mark.parametrize(
+    "command",
+    [
+        "play current --video",
+        "/ys concert --video",
+        "/yl https://youtu.be/abcdefghijk --video",
+        "/ml https://example.org/movie.mp4 --video",
+    ],
+)
+def test_terminal_only_video_request_uses_standalone_window(monkeypatch, command):
+    calls, printed, windows = [], [], []
+    media = MediaRef(MediaSource.LOCAL, "C:/fixture/movie.mp4")
+    snapshot = PlaybackSnapshot(PlaybackState.PAUSED, media=media, position=25)
     monkeypatch.setattr(main, "DESKTOP_CONTROL", SimpleNamespace(enabled=False))
+    monkeypatch.setattr(main, "_AUTO_CLI_VIDEO", False)
+    monkeypatch.setattr(main.vas.controller, "snapshot", lambda: snapshot)
     monkeypatch.setattr(main, "play_vas_media", lambda *_args, **_kwargs: calls.append("play"))
     monkeypatch.setattr(main, "choose_media_url", lambda *_args, **_kwargs: calls.append("choose"))
     monkeypatch.setattr(main.YT_query, "search_youtube", lambda **_kwargs: calls.append("search"))
     monkeypatch.setattr(main, "IPrint", lambda message, **_kwargs: printed.append(str(message)))
+    monkeypatch.setattr(
+        main.CLI_VIDEO,
+        "open",
+        lambda **_kwargs: windows.append("open") or SimpleNamespace(open=True, follow=True, backend="ffplay"),
+    )
     main.process(command)
-    assert calls == []
-    assert any("requires the Mariana desktop" in line for line in printed)
+    assert not any("requires the Mariana desktop" in line for line in printed)
+    if command == "play current --video":
+        # Current media opens the linked window immediately, no playback call.
+        assert calls == []
+        assert windows == ["open"]
+        assert any("standalone window" in line for line in printed)
+    else:
+        # Search flows proceed audio-first and arm auto-open for the commit.
+        assert main._AUTO_CLI_VIDEO is True
 
 
-@pytest.mark.parametrize(("command", "value", "relative"), [
-    ("avsync set 250", 250, False), ("avsync shift -100", -100, True),
-    ("avsync reset", 0, False),
-])
+@pytest.mark.parametrize(
+    ("command", "value", "relative"),
+    [
+        ("avsync set 250", 250, False),
+        ("avsync shift -100", -100, True),
+        ("avsync reset", 0, False),
+    ],
+)
 def test_avsync_commands_only_change_picture_timing(monkeypatch, command, value, relative):
     media = MediaRef(MediaSource.LOCAL, "C:/fixture/movie.mp4")
     snapshot = PlaybackSnapshot(PlaybackState.PAUSED, media=media, position=25)
     calls, emitted = [], []
     monkeypatch.setattr(main.vas.controller, "snapshot", lambda: snapshot)
-    monkeypatch.setattr(main, "VIDEO", SimpleNamespace(
-        configure_audio_offset=lambda offset, **kwargs: (
-            calls.append((offset, kwargs)) or {"audio_offset_ms": offset}
+    monkeypatch.setattr(
+        main,
+        "VIDEO",
+        SimpleNamespace(
+            configure_audio_offset=lambda offset, **kwargs: (
+                calls.append((offset, kwargs)) or {"audio_offset_ms": offset}
+            ),
+            host_status=lambda: {"audio_offset_ms": value},
         ),
-        host_status=lambda: {"audio_offset_ms": value},
-    ))
+    )
     monkeypatch.setattr(main.DESKTOP_CONTROL, "emit", lambda *args: emitted.append(args))
     main.process(command)
     expected = {"expected_media": media}
@@ -160,13 +209,25 @@ def test_avsync_commands_only_change_picture_timing(monkeypatch, command, value,
     assert snapshot.state == PlaybackState.PAUSED and snapshot.position == 25
 
 
-@pytest.mark.parametrize("arguments", [
-    ["set", "NaN"], ["set", "inf"], ["shift", "0.5"], ["set"], ["reset", "1"], ["set", "100000"],
-])
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["set", "NaN"],
+        ["set", "inf"],
+        ["shift", "0.5"],
+        ["set"],
+        ["reset", "1"],
+        ["set", "100000"],
+    ],
+)
 def test_avsync_rejects_invalid_syntax_without_reaching_service(monkeypatch, arguments):
-    monkeypatch.setattr(main, "VIDEO", SimpleNamespace(
-        configure_audio_offset=lambda *_args, **_kwargs: pytest.fail("Invalid input reached the video service"),
-    ))
+    monkeypatch.setattr(
+        main,
+        "VIDEO",
+        SimpleNamespace(
+            configure_audio_offset=lambda *_args, **_kwargs: pytest.fail("Invalid input reached the video service"),
+        ),
+    )
     printed = []
     monkeypatch.setattr(main, "IPrint", lambda message, **_kwargs: printed.append(str(message)))
     main.avsync_command(arguments)

@@ -132,7 +132,11 @@ def region_cli(monkeypatch, tmp_path):
 
 def test_region_commands_bind_library_index_without_current_or_list_poisoning(region_cli, monkeypatch):
     state = region_cli
-    monkeypatch.setattr(main, "QUEUE", SimpleNamespace(current=lambda: SimpleNamespace(media=MediaRef(MediaSource.LOCAL, str(state.paths[1])))))
+    monkeypatch.setattr(
+        main,
+        "QUEUE",
+        SimpleNamespace(current=lambda: SimpleNamespace(media=MediaRef(MediaSource.LOCAL, str(state.paths[1])))),
+    )
     main._sound_files_names_enumerated = [(99, "stale search")]
 
     region = main.region_command(["1", "5.180", "1:05.180"])
@@ -160,18 +164,26 @@ def test_region_current_partial_bounds_listing_and_blocked_independence(region_c
 @pytest.mark.parametrize("bound,timestamp,seconds", [("start", "0:30.125", 30.125), ("end", "1m 20s", 80)])
 @pytest.mark.parametrize("existing", [False, True])
 def test_single_bound_commands_preserve_other_bound_and_reload(
-    region_cli, monkeypatch, target, stable_id, bound, timestamp, seconds, existing,
+    region_cli,
+    monkeypatch,
+    target,
+    stable_id,
+    bound,
+    timestamp,
+    seconds,
+    existing,
 ):
     state = region_cli
     if existing:
         state.regions.set(stable_id, start_seconds=10, end_seconds=90, duration=100)
-    snapshot = main.vas.controller.snapshot()
 
-    def unexpected_playback_change(*_args, **_kwargs):
-        pytest.fail("Saving a region must not alter active playback")
+    def unexpected_playback_stop(*_args, **_kwargs):
+        pytest.fail("Saving a region must not stop or restart active playback")
 
-    for operation in ("play", "pause", "seek", "stop"):
-        monkeypatch.setattr(main.vas.controller, operation, unexpected_playback_change)
+    for operation in ("play", "pause", "stop"):
+        monkeypatch.setattr(main.vas.controller, operation, unexpected_playback_stop)
+    seeks = []
+    monkeypatch.setattr(main.vas.controller, "seek", lambda value, **_kwargs: seeks.append(value))
 
     main.process(f"region {target} {bound} {timestamp}")
 
@@ -182,19 +194,35 @@ def test_single_bound_commands_preserve_other_bound_and_reload(
     assert (saved.start_seconds, saved.end_seconds) == (expected_start, expected_end)
     other_id = "library-1" if stable_id == "library-2" else "library-2"
     assert state.regions.get(other_id) is None
-    assert main.vas.controller.snapshot() == snapshot
+    # Live-apply re-clamps current playback without restart: the stub position
+    # is 0, so saving a start bound (or keeping start=10) seeks to the clamp;
+    # other tracks and open-ended regions never seek.
+    playing = stable_id == "library-2"
+    if playing and expected_start is not None and expected_start > 0:
+        assert seeks == [expected_start]
+    else:
+        assert seeks == []
     with MarianaDatabase(state.database.path) as reloaded:
         assert PlayRegionStore(reloaded).get(stable_id) == saved
 
 
-@pytest.mark.parametrize("arguments", [
-    ["1", "30"], ["1", "start"], ["1", "end"],
-    ["1", "start", "90"], ["1", "end", "10"],
-    ["1", "start", "100"], ["1", "end", "101"],
-    ["1", "end", "0"], ["1", "start", "-1"],
-    ["1", "start", "nan"], ["1", "end", "inf"],
-    ["1", "start", "20", "end", "80"],
-])
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["1", "30"],
+        ["1", "start"],
+        ["1", "end"],
+        ["1", "start", "90"],
+        ["1", "end", "10"],
+        ["1", "start", "100"],
+        ["1", "end", "101"],
+        ["1", "end", "0"],
+        ["1", "start", "-1"],
+        ["1", "start", "nan"],
+        ["1", "end", "inf"],
+        ["1", "start", "20", "end", "80"],
+    ],
+)
 def test_invalid_single_bound_update_preserves_saved_region(region_cli, arguments):
     state = region_cli
     previous = state.regions.set("library-1", start_seconds=10, end_seconds=90, duration=100)
@@ -218,7 +246,7 @@ def test_region_help_distinguishes_single_bounds_without_accessing_media(region_
     assert "region <current|library-index> start <time>" in output
     assert "region <current|library-index> end <time>" in output
     assert "other saved bound is preserved" in output
-    assert "next playback start" in output
+    assert "live-applied to current playback" in output
     assert "region current start 0:30" in output
     assert "region current end 3:45" in output
     assert not region_cli.regions.list()

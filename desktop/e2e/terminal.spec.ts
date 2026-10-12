@@ -27,8 +27,8 @@ test('hosts the real Mariana PTY in the riced terminal shell', async () => {
       queue_count: expect.any(Number),
     })
     expect(await page.evaluate(() => Object.keys(window.mariana.backend).sort())).toEqual([
-      'artworkConfigure', 'artworkData', 'artworkShow', 'commandCatalog', 'crossfadeConfigure', 'discoveryBegin', 'discoveryCancel', 'discoveryChoose', 'downloadCurrent', 'downloadStatus', 'equalizerConfigure', 'equalizerStatus', 'focusRecoveryRetry', 'homepageConfigure', 'homepageImageData', 'homepageOpen', 'homepageRefresh', 'lyricsHide', 'lyricsOffset', 'lyricsRequest', 'lyricsStatus', 'next', 'onEvent', 'pause', 'play', 'previous', 'seek', 'setRating', 'snapshot',
-      'strudelDelete', 'strudelOpen', 'strudelPreview', 'strudelSave',
+      'artworkConfigure', 'artworkData', 'artworkShow', 'cacheStatus', 'commandCatalog', 'crossfadeConfigure', 'discoveryBegin', 'discoveryCancel', 'discoveryChoose', 'downloadCurrent', 'downloadStatus', 'equalizerConfigure', 'equalizerStatus', 'focusRecoveryRetry', 'homepageConfigure', 'homepageImageData', 'homepageOpen', 'homepageRefresh', 'lyricsHide', 'lyricsOffset', 'lyricsRequest', 'lyricsStatus', 'netStatus', 'next', 'onEvent', 'pause', 'play', 'prefetchStatus', 'previous', 'seek', 'setRating', 'snapshot',
+      'strudelDelete', 'strudelOpen', 'strudelPreview', 'strudelSave', 'suggestStatus',
       'toggleFavorite', 'videoAudioOffset', 'videoCaptionAutomatic', 'videoCaptionConfigure',
       'videoCaptionFile', 'videoCaptionLanguages', 'videoCaptionSelect', 'videoConfigure', 'videoStatus', 'videoWindow',
     ])

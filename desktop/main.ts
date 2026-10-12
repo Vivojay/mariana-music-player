@@ -1249,10 +1249,26 @@ function registerIpc() {
   })
   ipcMain.handle('backend:crossfade-configure', async (event, seconds: unknown) => {
     if (!validateSender(event) || typeof seconds !== 'number' || !Number.isFinite(seconds)
-      || seconds < 0 || seconds > 30) {
-      return { ok: false, error: 'Crossfade duration must be from 0 to 30 seconds' }
+      || seconds < 0 || seconds > 60) {
+      return { ok: false, error: 'Crossfade duration must be from 0 to 60 seconds' }
     }
     return requestBackendControl('playback.crossfade', { seconds }, playbackControlMessages)
+  })
+  ipcMain.handle('backend:net-status', async (event) => {
+    if (!validateSender(event)) return { ok: false, error: 'Network request is invalid' }
+    return requestBackendControl('net.status', {}, homepageControlMessages)
+  })
+  ipcMain.handle('backend:cache-status', async (event) => {
+    if (!validateSender(event)) return { ok: false, error: 'Cache request is invalid' }
+    return requestBackendControl('cache.status', {}, homepageControlMessages)
+  })
+  ipcMain.handle('backend:prefetch-status', async (event) => {
+    if (!validateSender(event)) return { ok: false, error: 'Prefetch request is invalid' }
+    return requestBackendControl('prefetch.status', {}, homepageControlMessages)
+  })
+  ipcMain.handle('backend:suggest-status', async (event) => {
+    if (!validateSender(event)) return { ok: false, error: 'Suggest request is invalid' }
+    return requestBackendControl('suggest.status', {}, homepageControlMessages)
   })
   protocol.handle('mariana-video', (request) => localVideoStatus?.transport === 'source' ? serveSourceVideo(
     request, () => ({ status: backendReady ? localVideoStatus : null,

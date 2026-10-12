@@ -15,8 +15,10 @@ const MAXIMUM_SUGGESTION_LIMIT = 20
 export type CommandSuggestionMatch =
   | 'canonical-exact'
   | 'canonical-prefix'
+  | 'canonical-substring'
   | 'alias-exact'
   | 'alias-prefix'
+  | 'alias-substring'
 
 export type CommandSuggestion = Readonly<{
   key: string
@@ -28,6 +30,8 @@ export type CommandSuggestion = Readonly<{
   aliases: readonly string[]
   matched_alias: string | null
   match_kind: CommandSuggestionMatch
+  flags_hint: string
+  usage_hint: string
 }>
 
 export type CommandSuggestionRequest = Readonly<{
@@ -159,22 +163,24 @@ function matchEntry(entry: CommandCatalogEntry, prefix: string): {
 } | null {
   const canonical = normalizedMatchText(entry.canonical)
   if (prefix && canonical === prefix) return { rank: 0, matchedAlias: null, kind: 'canonical-exact' }
-  if (canonical.startsWith(prefix)) return { rank: 1, matchedAlias: null, kind: 'canonical-prefix' }
+  if (!prefix || canonical.startsWith(prefix)) return { rank: 1, matchedAlias: null, kind: 'canonical-prefix' }
+  if (prefix && canonical.includes(prefix)) return { rank: 2, matchedAlias: null, kind: 'canonical-substring' }
 
-  const aliases = entry.aliases
+  const substringAliases = entry.aliases
     .map((alias) => ({ alias, normalized: normalizedMatchText(alias) }))
-    .filter(({ normalized }) => normalized.startsWith(prefix))
+    .filter(({ normalized }) => normalized.includes(prefix))
     .sort((left, right) => {
       const exactDifference = Number(left.normalized !== prefix) - Number(right.normalized !== prefix)
       return exactDifference || compareText(left.normalized, right.normalized) || compareText(left.alias, right.alias)
     })
-  const matched = aliases[0]
+  const matched = substringAliases[0]
   if (!matched) return null
   const exact = matched.normalized === prefix
+  const isPrefix = matched.normalized.startsWith(prefix)
   return {
-    rank: exact ? 2 : 3,
+    rank: exact ? 3 : isPrefix ? 4 : 5,
     matchedAlias: matched.alias,
-    kind: exact ? 'alias-exact' : 'alias-prefix',
+    kind: exact ? 'alias-exact' : isPrefix ? 'alias-prefix' : 'alias-substring',
   }
 }
 
@@ -216,17 +222,27 @@ export function projectCommandSuggestions(
       || compareText(left.entry.key, right.entry.key)
     ))
     .slice(0, limit)
-    .map(({ entry, match }) => ({
-      key: entry.key,
-      canonical: entry.canonical,
-      display_label: entry.canonical,
-      detail: entry.summary,
-      category: entry.category,
-      risk: entry.risk,
-      aliases: [...entry.aliases],
-      matched_alias: match.matchedAlias,
-      match_kind: match.kind,
-    }))
+    .map(({ entry, match }) => {
+      const flags = Array.from(new Set(entry.forms.flatMap((form) => form.flags))).slice(0, 6)
+      const usage = entry.forms
+        .filter((form) => form.tokens.length > 0)
+        .slice(0, 3)
+        .map((form) => form.tokens.join(' '))
+        .join(' | ')
+      return {
+        key: entry.key,
+        canonical: entry.canonical,
+        display_label: entry.canonical,
+        detail: entry.summary,
+        category: entry.category,
+        risk: entry.risk,
+        aliases: [...entry.aliases],
+        matched_alias: match.matchedAlias,
+        match_kind: match.kind,
+        flags_hint: flags.join(' '),
+        usage_hint: usage,
+      }
+    })
 
   return {
     valid: true,

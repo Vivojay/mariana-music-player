@@ -369,6 +369,10 @@ export type MarianaDesktopApi = {
     artworkShow(mediaId: string, fetch: boolean): Promise<DesktopControlResult>
     artworkData(cacheKey: string): Promise<ArtworkDataResult>
     crossfadeConfigure(seconds: number): Promise<DesktopControlResult>
+    netStatus(): Promise<DesktopControlResult>
+    cacheStatus(): Promise<DesktopControlResult>
+    prefetchStatus(): Promise<DesktopControlResult>
+    suggestStatus(): Promise<DesktopControlResult>
     strudelOpen(): Promise<DesktopControlResult>
     strudelSave(input: import('./strudelProjects.js').StrudelSaveInput): Promise<DesktopControlResult>
     strudelDelete(projectId: string, revision: number): Promise<DesktopControlResult>

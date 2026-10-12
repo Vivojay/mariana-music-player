@@ -95,6 +95,8 @@ class SearchRequest:
     result_index: int | None = None
     scope: SearchScope = SearchScope.LIBRARY
     scope_name: str | None = None
+    rate_range: tuple[int, int] | None = None
+    tags: tuple[str, ...] = ()
 
 
 SEARCH_NAMES = {"find", "f", "rfind", "rf", "lfind", "lf"}
@@ -140,9 +142,12 @@ def parse_search(tokens: list[str]) -> SearchRequest:
     name = command[1:] if prefix else command
     mode = SearchMode.RAW if name.startswith("r") else SearchMode.LOOSE if name.startswith("l") else SearchMode.ALL
     action = (
-        SearchAction.INDEXED if result_index is not None
-        else SearchAction.FIRST if prefix == "."
-        else SearchAction.RANDOM if prefix == "/"
+        SearchAction.INDEXED
+        if result_index is not None
+        else SearchAction.FIRST
+        if prefix == "."
+        else SearchAction.RANDOM
+        if prefix == "/"
         else SearchAction.LIST
     )
     query = list(tokens[1:])
@@ -152,6 +157,44 @@ def parse_search(tokens: list[str]) -> SearchRequest:
     if regex_flags:
         del query[regex_flags[0]]
         mode = SearchMode.REGEX
+    # Optional structured filters: --rate 5 | --rate 3-5, --tag <name> (repeatable, comma-separated).
+    rate_range: tuple[int, int] | None = None
+    tags: list[str] = []
+    filtered: list[str] = []
+    index = 0
+    while index < len(query):
+        token = query[index]
+        lowered = token.casefold()
+        if lowered == "--rate":
+            if index + 1 >= len(query):
+                raise ValueError("Search --rate requires a star 1-5 or range like 3-5")
+            text = query[index + 1].strip()
+            single = re.fullmatch(r"[1-5]", text)
+            span = re.fullmatch(r"([1-5])\s*-\s*([1-5])", text)
+            if single:
+                number = int(text)
+                rate_range = (number, number)
+            elif span:
+                low, high = int(span.group(1)), int(span.group(2))
+                rate_range = (min(low, high), max(low, high))
+            else:
+                raise ValueError("Search --rate must be a star 1-5 or range like 3-5")
+            index += 2
+            continue
+        if lowered == "--tag":
+            if index + 1 >= len(query):
+                raise ValueError("Search --tag requires a tag name")
+            for chunk in query[index + 1].split(","):
+                name = chunk.strip()
+                if name and name.casefold() not in {item.casefold() for item in tags}:
+                    tags.append(name)
+            if len(tags) > 20:
+                raise ValueError("Search accepts at most 20 --tag values")
+            index += 2
+            continue
+        filtered.append(token)
+        index += 1
+    query = filtered
     scope = SearchScope.LIBRARY
     scope_name = None
     scope_flags = [index for index, value in enumerate(query) if value.casefold() == "--in"]
@@ -191,13 +234,16 @@ def parse_search(tokens: list[str]) -> SearchRequest:
     if action == SearchAction.LIST and mode != SearchMode.RAW and query and query[-1].isdigit():
         limit = int(query[-1])
         query = query[:-1]
-    if not query:
+    if not query and rate_range is None and not tags:
         raise ValueError("Search requires one or more query terms")
     if mode == SearchMode.REGEX:
-        pattern = " ".join(query)
+        pattern = " ".join(query) if query else ""
+        if not pattern.strip() and (rate_range is not None or tags):
+            # Structured-only search: match everything textually, filter later.
+            return SearchRequest(mode, action, ("",), limit, result_index, scope, scope_name, rate_range, tuple(tags))
         _compile_search_regex(pattern)
         query = [pattern]
-    return SearchRequest(mode, action, tuple(query), limit, result_index, scope, scope_name)
+    return SearchRequest(mode, action, tuple(query), limit, result_index, scope, scope_name, rate_range, tuple(tags))
 
 
 def _normalized(value: str) -> str:
@@ -217,16 +263,21 @@ def _compile_search_regex(pattern: str) -> re.Pattern[str]:
 
 
 def search_rows(rows: Iterable[tuple[int, str]], request: SearchRequest) -> list[tuple[int, str]]:
-    expression = _compile_search_regex(request.query[0]) if request.mode == SearchMode.REGEX else None
-    terms = [_normalized(term) for term in request.query]
+    use_regex = request.mode == SearchMode.REGEX and bool(request.query and request.query[0].strip())
+    expression = _compile_search_regex(request.query[0]) if use_regex else None
+    terms = [_normalized(term) for term in request.query if term.strip()]
     matches = []
     for index, label in rows:
         if expression is not None:
             accepted = expression.search(label) is not None
+        elif not terms:
+            accepted = True
         else:
             candidate = _normalized(label)
-            accepted = any(term in candidate for term in terms) if request.mode == SearchMode.LOOSE else all(
-                term in candidate for term in terms
+            accepted = (
+                any(term in candidate for term in terms)
+                if request.mode == SearchMode.LOOSE
+                else all(term in candidate for term in terms)
             )
         if accepted:
             matches.append((index, label))

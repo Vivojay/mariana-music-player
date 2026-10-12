@@ -366,19 +366,22 @@ def test_newer_selection_after_stop_retirement_prevents_obsolete_decoder_constru
     events, labels = [], []
     controller._playback_event_sink = lambda **payload: events.append(payload) or True
     controller.add_metadata_sink(labels.append)
-    stop = controller._stop_playback
+    resolve = controller.resolvers.resolve
     replace = True
 
-    def replace_after_retirement(**kwargs):
+    def replace_before_construction(media, **kwargs):
         nonlocal replace
-        stopped = stop(**kwargs)
-        if replace:
+        resolved = resolve(media, **kwargs)
+        if replace and media is pending:
             replace = False
-            assert previous.stopped and controller._active is None
+            # The outgoing decoder is still rendering while the obsolete
+            # request resolves; the newer selection must win before any
+            # obsolete decoder is constructed.
+            assert not previous.stopped and controller._active is previous
             controller.play(current, probe=False, start_at=5, start_paused=True, origin="desktop")
-        return stopped
+        return resolved
 
-    monkeypatch.setattr(controller, "_stop_playback", replace_after_retirement)
+    monkeypatch.setattr(controller.resolvers, "resolve", replace_before_construction)
     try:
         with pytest.raises(playback.PlaybackError, match="replaced"):
             controller.play(pending, probe=False, origin="cli")
@@ -440,14 +443,21 @@ def test_replacement_while_old_resources_retire_preserves_new_state_and_publicat
     retiring = controller._active
     published = []
     controller.add_active_media_sink(lambda media, _resolved: published.append(media))
-    stop = Session.stop
+    resolve = controller.resolvers.resolve
+    replace = True
 
-    def replace_while_retiring(session):
-        stop(session)
-        if session is retiring:
+    def replace_before_construction(media, **kwargs):
+        nonlocal replace
+        resolved = resolve(media, **kwargs)
+        if replace and media is obsolete:
+            replace = False
+            # The retiring decoder is still rendering; the newest selection
+            # must win before any obsolete decoder is constructed.
+            assert not retiring.stopped and controller._active is retiring
             controller.play(current, probe=False, start_at=4, start_paused=True)
+        return resolved
 
-    monkeypatch.setattr(Session, "stop", replace_while_retiring)
+    monkeypatch.setattr(controller.resolvers, "resolve", replace_before_construction)
     with pytest.raises(playback.PlaybackError, match="replaced"):
         controller.play(obsolete, probe=False)
 
@@ -555,7 +565,9 @@ def test_metadata_observer_replacement_preserves_commit_order_and_current_label(
         assert labels == [current.title]
         assert [event["action"] for event in events] == ["play", "play", "pause"]
         assert [event["stable_id"] for event in events] == [
-            original.stable_id, current.stable_id, current.stable_id,
+            original.stable_id,
+            current.stable_id,
+            current.stable_id,
         ]
         assert [event["position_seconds"] for event in events] == [1, 4, 4]
         assert [event["origin"] for event in events] == ["cli", "desktop", "desktop"]
@@ -587,7 +599,7 @@ def test_active_media_observer_replacement_does_not_publish_obsolete_media_to_la
         assert snapshot.media is current and snapshot.state == PlaybackState.PAUSED
         assert snapshot.position == 3 and snapshot.error is None
         assert pending not in later_observations
-        assert later_observations[later_observations.index(current):] == [current]
+        assert later_observations[later_observations.index(current) :] == [current]
         assert labels == [current.title]
         assert [event["action"] for event in events] == ["play", "pause"]
         assert all(event["stable_id"] == current.stable_id for event in events)
@@ -624,7 +636,7 @@ def test_stop_observer_replacement_does_not_publish_obsolete_empty_state_to_late
         snapshot = controller.snapshot()
         assert snapshot.media is current and snapshot.state == PlaybackState.PAUSED
         assert snapshot.position == 5 and snapshot.error is None
-        assert later_observations[later_observations.index(current):] == [current]
+        assert later_observations[later_observations.index(current) :] == [current]
         assert labels == [current.title]
         assert [event["action"] for event in events] == ["play", "pause"]
         assert all(event["stable_id"] == current.stable_id for event in events)
@@ -661,14 +673,16 @@ def test_promoted_media_observer_replacement_keeps_play_events_in_commit_order(c
         assert snapshot.position == 4 and snapshot.error is None
         assert [event["action"] for event in events] == ["play", "play", "pause"]
         assert [event["stable_id"] for event in events] == [
-            promoted.stable_id, current.stable_id, current.stable_id,
+            promoted.stable_id,
+            current.stable_id,
+            current.stable_id,
         ]
         assert [event["origin"] for event in events] == ["automatic", "desktop", "desktop"]
         assert [event["position_seconds"] for event in events] == [0, 4, 4]
         assert events[0]["play_kind"] == "start" and events[0]["session_id"] != snapshot.session_id
         assert events[1]["session_id"] == events[2]["session_id"] == snapshot.session_id
         assert promoted not in later_observations
-        assert later_observations[later_observations.index(current):] == [current]
+        assert later_observations[later_observations.index(current) :] == [current]
         assert completed.stopped and prepared.stopped
         assert not controller._active.stopped
     finally:
@@ -707,7 +721,7 @@ def test_deferred_old_session_metadata_cannot_relabel_current_media(controller, 
 
 
 def test_replaced_decoder_buffer_failure_cannot_mark_new_playback_failed(controller, monkeypatch):
-    old, current = finite('old'), finite('current')
+    old, current = finite("old"), finite("current")
 
     def wait_for_buffer(session, *_args, **_kwargs):
         if session.media is old:
@@ -715,8 +729,8 @@ def test_replaced_decoder_buffer_failure_cannot_mark_new_playback_failed(control
             return False
         return True
 
-    monkeypatch.setattr(Session, 'wait_for_buffer', wait_for_buffer)
-    with pytest.raises(playback.PlaybackError, match='no playable audio'):
+    monkeypatch.setattr(Session, "wait_for_buffer", wait_for_buffer)
+    with pytest.raises(playback.PlaybackError, match="no playable audio"):
         controller.play(old, probe=False)
     snapshot = controller.snapshot()
     assert snapshot.media is current
@@ -726,17 +740,19 @@ def test_replaced_decoder_buffer_failure_cannot_mark_new_playback_failed(control
     assert Session.created[0].stopped and not Session.created[1].stopped
 
 
-@pytest.mark.parametrize('handoff', ['buffer', 'output'])
+@pytest.mark.parametrize("handoff", ["buffer", "output"])
 def test_replaced_successful_preparation_cannot_resume_or_relabel_new_media(controller, monkeypatch, handoff):
-    old, current = finite('old'), finite('current')
+    old, current = finite("old"), finite("current")
     labels = []
     controller.add_metadata_sink(labels.append)
-    if handoff == 'buffer':
+    if handoff == "buffer":
+
         def wait_for_buffer(session, *_args, **_kwargs):
             if session.media is old:
                 controller.play(current, probe=False, start_at=3, start_paused=True)
             return True
-        monkeypatch.setattr(Session, 'wait_for_buffer', wait_for_buffer)
+
+        monkeypatch.setattr(Session, "wait_for_buffer", wait_for_buffer)
     else:
         original = controller._ensure_output
 
@@ -744,21 +760,29 @@ def test_replaced_successful_preparation_cannot_resume_or_relabel_new_media(cont
             if controller._active.media is old:
                 controller.play(current, probe=False, start_at=3, start_paused=True)
             original(**kwargs)
-        monkeypatch.setattr(controller, '_ensure_output', ensure_output)
-    with pytest.raises(playback.PlaybackError, match='replaced'):
+
+        monkeypatch.setattr(controller, "_ensure_output", ensure_output)
+    with pytest.raises(playback.PlaybackError, match="replaced"):
         controller.play(old, probe=False)
     snapshot = controller.snapshot()
     assert snapshot.media is current and snapshot.state == PlaybackState.PAUSED
     assert snapshot.position == 3 and snapshot.error is None
-    assert 'old' not in labels and labels[-1] == 'current'
+    assert "old" not in labels and labels[-1] == "current"
     assert Session.created[0].stopped and not Session.created[1].stopped
 
 
 def test_verified_backend_resolution_reaches_decoder_without_second_lookup(controller, monkeypatch):
     media = MediaRef(MediaSource.YOUTUBE, "https://www.youtube.com/watch?v=abcdefghijk", duration=30)
-    resolved = playback.ResolvedMedia(media, "https://cdn.example/media?token=SECRET", media.original_uri,
-                                      media.capabilities, metadata={"title": "Verified recording"})
-    monkeypatch.setattr(controller.resolvers, "resolve", lambda *_args, **_kwargs: pytest.fail("must use verified input"))
+    resolved = playback.ResolvedMedia(
+        media,
+        "https://cdn.example/media?token=SECRET",
+        media.original_uri,
+        media.capabilities,
+        metadata={"title": "Verified recording"},
+    )
+    monkeypatch.setattr(
+        controller.resolvers, "resolve", lambda *_args, **_kwargs: pytest.fail("must use verified input")
+    )
     controller.play(media, resolved=resolved, probe=False, start_paused=True)
     assert Session.created[-1].resolved is resolved
     assert controller.snapshot().state == PlaybackState.PAUSED
@@ -770,8 +794,9 @@ def test_verified_seek_refreshes_exact_transport_and_preserves_pause(controller)
     controller.play(media, probe=False, start_paused=True)
     original = Session.created[-1]
     fresh_media = MediaRef(MediaSource.YOUTUBE, media.original_uri, duration=30)
-    fresh = playback.ResolvedMedia(fresh_media, "https://cdn.example/renewed", fresh_media.original_uri,
-                                  fresh_media.capabilities)
+    fresh = playback.ResolvedMedia(
+        fresh_media, "https://cdn.example/renewed", fresh_media.original_uri, fresh_media.capabilities
+    )
     controller.seek(12, resolved=fresh)
     assert original.stopped
     assert Session.created[-1].resolved is fresh
@@ -899,9 +924,7 @@ def test_prepare_preserves_catalog_chapters_and_projects_position(controller):
     class ResolverWithDifferentChapters(Resolvers):
         def resolve(self, source, **_kwargs):
             resolved = super().resolve(source)
-            resolved.metadata["chapters"] = [
-                {"title": "Resolver fallback", "start_time": 0, "end_time": 20}
-            ]
+            resolved.metadata["chapters"] = [{"title": "Resolver fallback", "start_time": 0, "end_time": 20}]
             return resolved
 
     controller.resolvers = ResolverWithDifferentChapters()
@@ -1223,7 +1246,7 @@ def test_audio_callback_uses_equal_power_gains_at_crossfade_midpoint(controller)
 
     controller._audio_callback(output, 4, None, None)
 
-    assert output == pytest.approx(playback.np.full_like(output, 0.25 * 2 ** 0.5), abs=1e-6)
+    assert output == pytest.approx(playback.np.full_like(output, 0.25 * 2**0.5), abs=1e-6)
 
 
 def test_pause_resume_toggle_seek_restart_and_boundaries(controller, monkeypatch):
@@ -1324,9 +1347,7 @@ def test_successful_play_pause_resume_and_seek_capture_once_with_one_session(con
     assert events[-1]["position_seconds"] == 12
 
 
-def test_capture_failure_never_interrupts_playback_and_failed_seek_is_not_captured(
-    controller, monkeypatch
-):
+def test_capture_failure_never_interrupts_playback_and_failed_seek_is_not_captured(controller, monkeypatch):
     def broken_capture(**_payload):
         raise OSError("capture unavailable")
 
@@ -1365,8 +1386,7 @@ def test_seek_clean_eof_at_safe_end_completes_without_false_failure(controller, 
     assert replacement.stopped
     assert len(events) == 1
     assert {
-        key: events[0][key]
-        for key in ("action", "origin", "session_id", "seek_from_seconds", "seek_to_seconds")
+        key: events[0][key] for key in ("action", "origin", "session_id", "seek_from_seconds", "seek_to_seconds")
     } == {
         "action": "seek",
         "origin": "cli",
@@ -1511,7 +1531,9 @@ def test_decoder_start_http_command_errors_and_forced_kill(monkeypatch):
     process = Process()
     monkeypatch.setattr(playback, "find_executable", lambda *_args: "ffmpeg")
     monkeypatch.setattr(playback, "WindowsJob", lambda _process: SimpleNamespace(close=lambda: None))
-    monkeypatch.setattr(playback.threading, "Thread", lambda **_kwargs: SimpleNamespace(start=lambda: None, is_alive=lambda: False))
+    monkeypatch.setattr(
+        playback.threading, "Thread", lambda **_kwargs: SimpleNamespace(start=lambda: None, is_alive=lambda: False)
+    )
     monkeypatch.setattr(
         playback.subprocess,
         "Popen",
@@ -2067,9 +2089,9 @@ def test_equalizer_is_after_broadcast_before_local_gains_without_decoder_changes
 
     controller.play(finite(duration=100), probe=False)
     active = controller._active
-    active.program_gain = .5
-    controller.set_volume(.5)
-    controller.set_automation_gain(.5)
+    active.program_gain = 0.5
+    controller.set_volume(0.5)
+    controller.set_automation_gain(0.5)
     before = controller.snapshot()
     created = len(Session.created)
     engine = controller.equalizer
@@ -2079,18 +2101,21 @@ def test_equalizer_is_after_broadcast_before_local_gains_without_decoder_changes
     assert len(Session.created) == created
     assert controller.snapshot() == before
     broadcasts = []
-    controller.add_program_sink(lambda pcm, frames: broadcasts.append(
-        pcm.copy() if isinstance(pcm, np.ndarray) else np.frombuffer(pcm, np.float32).reshape(-1, 2).copy()))
+    controller.add_program_sink(
+        lambda pcm, frames: broadcasts.append(
+            pcm.copy() if isinstance(pcm, np.ndarray) else np.frombuffer(pcm, np.float32).reshape(-1, 2).copy()
+        )
+    )
     output = np.zeros((512, 2), np.float32) if numpy_output else bytearray(512 * 8)
     controller._audio_callback(output, 512, None, None)
     actual = output if numpy_output else np.frombuffer(output, np.float32).reshape(-1, 2)
-    np.testing.assert_allclose(broadcasts[-1], .125)
-    np.testing.assert_allclose(actual, .125 * .25 * 10 ** (-6 / 20), atol=1e-7)
+    np.testing.assert_allclose(broadcasts[-1], 0.125)
+    np.testing.assert_allclose(actual, 0.125 * 0.25 * 10 ** (-6 / 20), atol=1e-7)
     assert controller._active is active and len(Session.created) == created
     controller.set_muted(True)
     controller._audio_callback(output, 512, None, None)
     np.testing.assert_array_equal(actual, 0)
-    np.testing.assert_allclose(broadcasts[-1], .125)
+    np.testing.assert_allclose(broadcasts[-1], 0.125)
     serial = engine.reset_serial
     controller.seek(5)
     assert engine.reset_serial > serial

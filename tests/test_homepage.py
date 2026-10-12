@@ -70,10 +70,7 @@ class Response:
         return None
 
     def iter_content(self, chunk_size: int):
-        yield from (
-            self.content[index : index + chunk_size]
-            for index in range(0, len(self.content), chunk_size)
-        )
+        yield from (self.content[index : index + chunk_size] for index in range(0, len(self.content), chunk_size))
 
     def close(self) -> None:
         self.closed = True
@@ -149,15 +146,23 @@ def test_official_destinations_work_offline_without_fetching_or_inventing_rankin
     assert [item["source"] for item in charts] == ["Billboard", "Official Charts Company", "IFPI"]
     assert "not imported" in str(charts[0]["summary"])
     destinations = [
-        item for group in projection["sections"] if group["key"].endswith("-links")
-        for item in group["items"]
+        item for group in projection["sections"] if group["key"].endswith("-links") for item in group["items"]
     ]
-    assert len(destinations) == 20
+    assert len(destinations) == 18
     # KEXP is now a single native podcast card, not a second external-link record.
-    all_items = [item for group in projection['sections'] for item in group['items']]
-    assert [item['id'] for item in all_items if item['link'] == 'https://www.kexp.org/podcasts/live-on-kexp/'] == ['catalogue:live-on-kexp']
-    assert any(item['link'] == 'https://www.abc.net.au/triplej/programs/like-a-version' for item in destinations)
-    assert any(item['link'] == 'https://linktr.ee/elevatormusiclive' for item in destinations)
+    all_items = [item for group in projection["sections"] for item in group["items"]]
+    assert [item["id"] for item in all_items if item["link"] == "https://www.kexp.org/podcasts/live-on-kexp/"] == [
+        "catalogue:live-on-kexp"
+    ]
+    # Triple-J and Comic-Con official links are superseded by richer catalogue
+    # cards (searchable, with feed-availability status), not duplicated.
+    assert [
+        item["id"] for item in all_items if item["link"] == "https://www.abc.net.au/triplej/programs/like-a-version"
+    ] == ["catalogue:triple-j-like-a-version"]
+    assert [item["id"] for item in all_items if item["link"] == "https://www.comic-con.org/"] == [
+        "catalogue:comic-con-clips"
+    ]
+    assert any(item["link"] == "https://linktr.ee/elevatormusiclive" for item in destinations)
     shows = projection_items(projection, "show-links")
     assert [item["title"] for item in shows] == ["Vanderpump Rules", "BravoTV", "Hayu"]
     assert "authorised provider" in str(shows[0]["summary"])
@@ -253,11 +258,7 @@ def test_local_projection_accepts_mapping_items_and_ignores_bad_shapes():
 
     assert [(item["title"], item["summary"]) for item in items] == [("Mapped title", None)]
     assert HomepageService(local_loader=lambda: None).snapshot()["sections"][0]["items"] == []
-    assert (
-        HomepageService(local_loader=lambda: {"items": object()})
-        .snapshot()["sections"][0]["items"]
-        == []
-    )
+    assert HomepageService(local_loader=lambda: {"items": object()}).snapshot()["sections"][0]["items"] == []
 
 
 def test_duplicate_safe_local_labels_keep_unique_projection_ids():
@@ -268,7 +269,7 @@ def test_duplicate_safe_local_labels_keep_unique_projection_ids():
 
     assert [item["title"] for item in items] == ["Same title", "Same title"]
     assert len({item["id"] for item in items}) == 2
-    assert items[1]["id"] == f'{items[0]["id"]}:2'
+    assert items[1]["id"] == f"{items[0]['id']}:2"
 
 
 def test_local_failure_is_nonfatal_and_does_not_hide_cached_online_content():
@@ -302,9 +303,7 @@ def test_local_failure_without_online_content_has_a_safe_error_state():
 
 
 def test_cached_content_renders_when_offline_and_reports_fresh_or_stale_state():
-    disabled = HomepageService(
-        cache_load=lambda: cache_payload(fetched_at=950), now=lambda: 1_000
-    ).snapshot()
+    disabled = HomepageService(cache_load=lambda: cache_payload(fetched_at=950), now=lambda: 1_000).snapshot()
     fresh = HomepageService(
         configuration=HomepageConfiguration(True, True),
         cache_load=lambda: cache_payload(fetched_at=950),
@@ -498,6 +497,7 @@ def test_bandcamp_response_stream_handles_unknown_sizes_empty_chunks_and_cancell
         )._response_bytes(threading.Event())
 
     cancelled = threading.Event()
+
     class CancellingResponse(Response):
         def iter_content(self, chunk_size: int):
             del chunk_size
@@ -506,9 +506,7 @@ def test_bandcamp_response_stream_handles_unknown_sizes_empty_chunks_and_cancell
 
     interrupted = CancellingResponse(b"payload")
     with pytest.raises(RuntimeError):
-        BandcampDailyProvider(
-            request_get=lambda *_args, **_kwargs: interrupted
-        )._response_bytes(cancelled)
+        BandcampDailyProvider(request_get=lambda *_args, **_kwargs: interrupted)._response_bytes(cancelled)
     assert interrupted.closed is True
 
 
@@ -545,30 +543,24 @@ def test_bandcamp_fetch_rechecks_cancellation_and_skips_bad_or_duplicate_entries
         lambda _payload: SimpleNamespace(bozo=False, entries=entries),
     )
 
-    results = BandcampDailyProvider(
-        request_get=lambda *_args, **_kwargs: Response(b"ignored")
-    ).fetch(threading.Event())
+    results = BandcampDailyProvider(request_get=lambda *_args, **_kwargs: Response(b"ignored")).fetch(threading.Event())
 
     assert [(item.title, item.category) for item in results] == [("Valid", "Fallback category")]
 
 
 def test_bandcamp_provider_rejects_redirect_and_oversized_or_invalid_feeds():
     with pytest.raises(HomepageProviderError, match="redirects are not followed"):
-        BandcampDailyProvider(
-            request_get=lambda *_args, **_kwargs: Response(status_code=302)
-        ).fetch(threading.Event())
+        BandcampDailyProvider(request_get=lambda *_args, **_kwargs: Response(status_code=302)).fetch(threading.Event())
     with pytest.raises(HomepageProviderError, match="redirected"):
-        BandcampDailyProvider(
-            request_get=lambda *_args, **_kwargs: Response(url="https://elsewhere.test/feed")
-        ).fetch(threading.Event())
-    with pytest.raises(HomepageProviderError, match="size limit"):
-        BandcampDailyProvider(
-            request_get=lambda *_args, **_kwargs: Response(b"x" * 9), max_bytes=8
-        ).fetch(threading.Event())
-    with pytest.raises(HomepageProviderError, match="invalid feed"):
-        BandcampDailyProvider(request_get=lambda *_args, **_kwargs: Response(b"not xml")).fetch(
+        BandcampDailyProvider(request_get=lambda *_args, **_kwargs: Response(url="https://elsewhere.test/feed")).fetch(
             threading.Event()
         )
+    with pytest.raises(HomepageProviderError, match="size limit"):
+        BandcampDailyProvider(request_get=lambda *_args, **_kwargs: Response(b"x" * 9), max_bytes=8).fetch(
+            threading.Event()
+        )
+    with pytest.raises(HomepageProviderError, match="invalid feed"):
+        BandcampDailyProvider(request_get=lambda *_args, **_kwargs: Response(b"not xml")).fetch(threading.Event())
 
 
 def test_bandcamp_provider_enforces_an_overall_refresh_deadline():
@@ -590,9 +582,7 @@ def test_cancelled_bandcamp_refresh_never_starts_a_network_request():
     requests_seen = []
     cancelled = threading.Event()
     cancelled.set()
-    provider = BandcampDailyProvider(
-        request_get=lambda *_args, **_kwargs: requests_seen.append(True) or Response()
-    )
+    provider = BandcampDailyProvider(request_get=lambda *_args, **_kwargs: requests_seen.append(True) or Response())
 
     with pytest.raises(RuntimeError):
         provider.fetch(cancelled)
@@ -631,9 +621,7 @@ def test_network_failure_has_offline_state_without_cache_and_partial_with_cache(
     def fail(_cancelled):
         raise requests.ConnectionError("https://private.test/?token=secret")
 
-    empty = HomepageService(
-        configuration=HomepageConfiguration(True, True), provider=Provider(fail)
-    )
+    empty = HomepageService(configuration=HomepageConfiguration(True, True), provider=Provider(fail))
     assert empty.refresh_async()
     assert empty.wait()
     empty_projection = empty.snapshot()
@@ -737,9 +725,7 @@ def test_disabling_online_before_provider_io_prevents_the_request():
     provider_started = threading.Event()
     release_provider = threading.Event()
     requests_seen = []
-    bandcamp = BandcampDailyProvider(
-        request_get=lambda *_args, **_kwargs: requests_seen.append(True) or Response()
-    )
+    bandcamp = BandcampDailyProvider(request_get=lambda *_args, **_kwargs: requests_seen.append(True) or Response())
 
     class GatedProvider:
         source_name = "Bandcamp Daily"
@@ -912,7 +898,8 @@ class ImageFetcher:
 
 @pytest.mark.parametrize("end_refresh", ["complete", "disable", "close"])
 def test_ready_cover_is_published_before_slow_images_and_late_updates_are_cancelled(
-    tmp_path, end_refresh,
+    tmp_path,
+    end_refresh,
 ):
     second_started = threading.Event()
     release_second = threading.Event()
@@ -932,7 +919,8 @@ def test_ready_cover_is_published_before_slow_images_and_late_updates_are_cancel
         replace(
             article(name, link=f"https://daily.bandcamp.com/features/{name}"),
             image_url=f"https://f4.bcbits.com/img/{name}.png",
-        ) for name in ("first", "second")
+        )
+        for name in ("first", "second")
     )
     service = HomepageService(
         configuration=HomepageConfiguration(True, True),
@@ -993,14 +981,16 @@ def test_provider_images_are_validated_cached_and_projected_without_remote_urls(
 
 
 def test_invalid_or_untrusted_feed_images_degrade_to_visual_placeholders(tmp_path, monkeypatch):
-    entries = [{
-        "title": "Safe story",
-        "link": "https://daily.bandcamp.com/features/safe",
-        "summary": (
-            '<img src="https://private.invalid/cover.jpg">'
-            '<img src="https://f4.bcbits.com/not-img/cover.jpg">A safe excerpt.'
-        ),
-    }]
+    entries = [
+        {
+            "title": "Safe story",
+            "link": "https://daily.bandcamp.com/features/safe",
+            "summary": (
+                '<img src="https://private.invalid/cover.jpg">'
+                '<img src="https://f4.bcbits.com/not-img/cover.jpg">A safe excerpt.'
+            ),
+        }
+    ]
     monkeypatch.setattr(
         homepage_module.feedparser,
         "parse",
@@ -1014,11 +1004,7 @@ def test_invalid_or_untrusted_feed_images_degrade_to_visual_placeholders(tmp_pat
     image_cache = HomepageImageCache(tmp_path / "homepage", fetcher=malformed)
     service = HomepageService(
         configuration=HomepageConfiguration(True, True),
-        provider=Provider(
-            lambda _cancelled: (
-                replace(article(), image_url="https://f4.bcbits.com/img/invalid.jpg"),
-            )
-        ),
+        provider=Provider(lambda _cancelled: (replace(article(), image_url="https://f4.bcbits.com/img/invalid.jpg"),)),
         image_cache=image_cache,
     )
     assert service.refresh_async()
@@ -1032,27 +1018,29 @@ def test_invalid_or_untrusted_feed_images_degrade_to_visual_placeholders(tmp_pat
 def test_listenbrainz_fresh_releases_use_stable_musicbrainz_identity_and_cover_art():
     first = "1f1db316-8361-4a40-9633-550b259642f5"
     cover = "9432fb06-bd84-4f2e-9386-b2f14e0de54d"
-    payload = json.dumps({
-        "payload": {
-            "releases": [
-                {
-                    "artist_credit_name": "Röyksopp",
-                    "release_date": "2026-09-05",
-                    "release_group_primary_type": "Album",
-                    "release_mbid": first,
-                    "caa_release_mbid": cover,
-                    "release_name": "Profound Mysteries",
-                },
-                {
-                    "artist_credit_name": "Duplicate",
-                    "release_date": "2026-09-05",
-                    "release_mbid": first,
-                    "release_name": "Must not duplicate",
-                },
-                {"release_mbid": "not-an-mbid", "release_name": "Unsafe"},
-            ]
+    payload = json.dumps(
+        {
+            "payload": {
+                "releases": [
+                    {
+                        "artist_credit_name": "Röyksopp",
+                        "release_date": "2026-09-05",
+                        "release_group_primary_type": "Album",
+                        "release_mbid": first,
+                        "caa_release_mbid": cover,
+                        "release_name": "Profound Mysteries",
+                    },
+                    {
+                        "artist_credit_name": "Duplicate",
+                        "release_date": "2026-09-05",
+                        "release_mbid": first,
+                        "release_name": "Must not duplicate",
+                    },
+                    {"release_mbid": "not-an-mbid", "release_name": "Unsafe"},
+                ]
+            }
         }
-    }).encode()
+    ).encode()
     response = Response(payload, url=LISTENBRAINZ_FRESH_RELEASES_URL)
     calls = []
     provider = ListenBrainzFreshReleasesProvider(
@@ -1061,13 +1049,18 @@ def test_listenbrainz_fresh_releases_use_stable_musicbrainz_identity_and_cover_a
 
     releases = provider.fetch(threading.Event())
 
-    assert calls == [(LISTENBRAINZ_FRESH_RELEASES_URL, {
-        "params": {"days": 14},
-        "headers": {"User-Agent": "Mariana/0.7 (+https://github.com/Vivojay/mariana-music-player)"},
-        "timeout": (4, 12),
-        "stream": True,
-        "allow_redirects": False,
-    })]
+    assert calls == [
+        (
+            LISTENBRAINZ_FRESH_RELEASES_URL,
+            {
+                "params": {"days": 14},
+                "headers": {"User-Agent": "Mariana/0.7 (+https://github.com/Vivojay/mariana-music-player)"},
+                "timeout": (4, 12),
+                "stream": True,
+                "allow_redirects": False,
+            },
+        )
+    ]
     assert len(releases) == 1
     assert releases[0].title == "Profound Mysteries"
     assert releases[0].attribution == "Röyksopp"
@@ -1094,10 +1087,12 @@ def test_multiple_discovery_sources_project_separate_sections_and_partial_failur
     service = HomepageService(
         configuration=HomepageConfiguration(True, True),
         provider=Provider(lambda _cancelled: (article(),)),
-        additional_providers=(NamedProvider(
-            ListenBrainzFreshReleasesProvider.source_name,
-            lambda _cancelled: (release,),
-        ),),
+        additional_providers=(
+            NamedProvider(
+                ListenBrainzFreshReleasesProvider.source_name,
+                lambda _cancelled: (release,),
+            ),
+        ),
         now=lambda: 1_000,
     )
     assert service.refresh_async()
@@ -1110,10 +1105,12 @@ def test_multiple_discovery_sources_project_separate_sections_and_partial_failur
     partial = HomepageService(
         configuration=HomepageConfiguration(True, True),
         provider=Provider(lambda _cancelled: (article(),)),
-        additional_providers=(NamedProvider(
-            ListenBrainzFreshReleasesProvider.source_name,
-            lambda _cancelled: (_ for _ in ()).throw(requests.ConnectionError("offline")),
-        ),),
+        additional_providers=(
+            NamedProvider(
+                ListenBrainzFreshReleasesProvider.source_name,
+                lambda _cancelled: (_ for _ in ()).throw(requests.ConnectionError("offline")),
+            ),
+        ),
     )
     assert partial.refresh_async()
     assert partial.wait()
@@ -1121,9 +1118,15 @@ def test_multiple_discovery_sources_project_separate_sections_and_partial_failur
     assert partial.snapshot()["safe_message"] == "Some discovery sources are temporarily unavailable"
 
 
-@pytest.mark.parametrize("setting", [
-    {"max_encoded_bytes": 0}, {"max_cache_bytes": 0}, {"max_cache_entries": 0}, {"cache_ttl_seconds": 0},
-])
+@pytest.mark.parametrize(
+    "setting",
+    [
+        {"max_encoded_bytes": 0},
+        {"max_cache_bytes": 0},
+        {"max_cache_entries": 0},
+        {"cache_ttl_seconds": 0},
+    ],
+)
 def test_homepage_image_cache_requires_finite_storage_limits(tmp_path, setting):
     with pytest.raises(ValueError):
         HomepageImageCache(tmp_path / "covers", fetcher=ImageFetcher(), **setting)
@@ -1210,13 +1213,17 @@ def test_homepage_cache_closes_its_owned_transport_once_even_if_cleanup_errors(t
         cache.resolve("story", "https://f4.bcbits.com/img/cover.png", threading.Event())
 
 
-@pytest.mark.parametrize("patch", [
-    {"section": "private"}, {"source": "Untrusted provider"},
-    {"image_key": "../private.png", "image_mime": "image/png"},
-    {"image_mime": "image/svg+xml"},
-    {"image_key": "a" * 64 + ".png", "image_mime": None},
-    {"image_key": "a" * 64 + ".png", "image_mime": "image/jpeg"},
-])
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"section": "private"},
+        {"source": "Untrusted provider"},
+        {"image_key": "../private.png", "image_mime": "image/png"},
+        {"image_mime": "image/svg+xml"},
+        {"image_key": "a" * 64 + ".png", "image_mime": None},
+        {"image_key": "a" * 64 + ".png", "image_mime": "image/jpeg"},
+    ],
+)
 def test_tampered_cached_article_is_rejected_as_a_whole(patch):
     cached = cache_payload(fetched_at=1000)
     cached["items"][0].update(patch)
@@ -1225,7 +1232,10 @@ def test_tampered_cached_article_is_rejected_as_a_whole(patch):
     service.close()
 
 
-@pytest.mark.parametrize("reference", [None, "x" * 2049, "https://musicbrainz.org:bad/release/none", "https://elsewhere.example/release/none"])
+@pytest.mark.parametrize(
+    "reference",
+    [None, "x" * 2049, "https://musicbrainz.org:bad/release/none", "https://elsewhere.example/release/none"],
+)
 def test_release_and_cover_links_reject_malformed_or_untrusted_references(reference):
     assert homepage_module._official_musicbrainz_link(reference) is None
     assert homepage_module._official_cover_art_image(reference) is None
@@ -1233,11 +1243,20 @@ def test_release_and_cover_links_reject_malformed_or_untrusted_references(refere
 
 def test_feed_thumbnail_fallback_uses_only_validated_provider_images():
     expected = "https://f4.bcbits.com/img/cover.png"
-    assert homepage_module._bandcamp_entry_image({"media_thumbnail": [None, {"url": expected + "?tracking=removed"}]}) == expected
-    assert homepage_module._bandcamp_entry_image({"media_content": [None, {"url": "https://private.invalid/cover"}]}) is None
+    assert (
+        homepage_module._bandcamp_entry_image({"media_thumbnail": [None, {"url": expected + "?tracking=removed"}]})
+        == expected
+    )
+    assert (
+        homepage_module._bandcamp_entry_image({"media_content": [None, {"url": "https://private.invalid/cover"}]})
+        is None
+    )
 
 
-@pytest.mark.parametrize("problem", ["redirect", "wrong-host", "declared-size", "stream-size", "invalid-json", "wrong-shape", "cancelled-stream"])
+@pytest.mark.parametrize(
+    "problem",
+    ["redirect", "wrong-host", "declared-size", "stream-size", "invalid-json", "wrong-shape", "cancelled-stream"],
+)
 def test_release_provider_closes_response_on_failure_or_cancellation(problem):
     cancelled = threading.Event()
     response = Response(b'{"payload":{"releases":[]}}', url=LISTENBRAINZ_FRESH_RELEASES_URL)
@@ -1256,9 +1275,11 @@ def test_release_provider_closes_response_on_failure_or_cancellation(problem):
     elif problem == "wrong-shape":
         response.content = b"[]"
     else:
+
         def stream(_chunk_size=None, **_kwargs):
             cancelled.set()
             yield b"{}"
+
         response.iter_content = stream
     provider = ListenBrainzFreshReleasesProvider(request_get=lambda *_args, **_kwargs: response, max_bytes=limit)
     with pytest.raises((HomepageProviderError, homepage_module._RefreshCancelled)):
@@ -1268,7 +1289,9 @@ def test_release_provider_closes_response_on_failure_or_cancellation(problem):
 
 def test_release_provider_cancellation_prevents_io_and_owns_session_cleanup(monkeypatch):
     calls = []
-    session = SimpleNamespace(trust_env=True, get=lambda *_args, **_kwargs: calls.append("request"), close=lambda: calls.append("close"))
+    session = SimpleNamespace(
+        trust_env=True, get=lambda *_args, **_kwargs: calls.append("request"), close=lambda: calls.append("close")
+    )
     monkeypatch.setattr(homepage_module.requests, "Session", lambda: session)
     provider = ListenBrainzFreshReleasesProvider()
     cancelled = threading.Event()
@@ -1284,12 +1307,24 @@ def test_release_provider_cancellation_prevents_io_and_owns_session_cleanup(monk
 def test_release_provider_ignores_incomplete_items_and_empty_stream_chunks():
     identity = "1f1db316-8361-4a40-9633-550b259642f5"
     valid = {
-        "release_mbid": identity, "release_name": "Recording", "artist_credit_name": "Artist",
-        "release_date": "2026-09-08", "caa_release_mbid": "unsupported-image-identity",
+        "release_mbid": identity,
+        "release_name": "Recording",
+        "artist_credit_name": "Artist",
+        "release_date": "2026-09-08",
+        "caa_release_mbid": "unsupported-image-identity",
     }
-    payload = json.dumps({"payload": {"releases": [
-        None, {**valid, "release_name": ""}, {**valid, "release_date": "unknown"}, valid,
-    ]}}).encode()
+    payload = json.dumps(
+        {
+            "payload": {
+                "releases": [
+                    None,
+                    {**valid, "release_name": ""},
+                    {**valid, "release_date": "unknown"},
+                    valid,
+                ]
+            }
+        }
+    ).encode()
     response = Response(payload, url=LISTENBRAINZ_FRESH_RELEASES_URL)
     response.headers["Content-Length"] = "unknown"
     response.iter_content = lambda **_kwargs: iter([b"", None, payload])
@@ -1353,8 +1388,12 @@ def test_canonical_cover_reference_drops_tracking_without_changing_release_ident
 
 def test_release_card_binding_requires_current_identity_and_permission():
     identity = "1f1db316-8361-4a40-9633-550b259642f5"
-    release = replace(article(), source=ListenBrainzFreshReleasesProvider.source_name,
-                      link=f"https://musicbrainz.org/release/{identity}", section="releases")
+    release = replace(
+        article(),
+        source=ListenBrainzFreshReleasesProvider.source_name,
+        link=f"https://musicbrainz.org/release/{identity}",
+        section="releases",
+    )
     provider = NamedProvider(ListenBrainzFreshReleasesProvider.source_name, lambda _cancelled: (release,))
     service = HomepageService(configuration=HomepageConfiguration(True, True), provider=provider)
     try:

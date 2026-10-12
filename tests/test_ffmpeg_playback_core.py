@@ -96,7 +96,7 @@ def test_pcm_scaling_and_crossfade_are_clipped():
 
 def test_equal_power_crossfade_curve_and_runtime_duration_validation():
     assert playback._equal_power_crossfade_gains(0) == pytest.approx((1, 0))
-    assert playback._equal_power_crossfade_gains(0.5) == pytest.approx((2 ** -0.5, 2 ** -0.5))
+    assert playback._equal_power_crossfade_gains(0.5) == pytest.approx((2**-0.5, 2**-0.5))
     assert playback._equal_power_crossfade_gains(1) == pytest.approx((0, 1), abs=1e-12)
 
     controller = playback.PlaybackController(output_factory=FakeStream)
@@ -107,9 +107,10 @@ def test_equal_power_crossfade_curve_and_runtime_duration_validation():
     assert controller.set_crossfade_seconds(6.5) == 6.5
     assert controller.crossfade_seconds == 6.5
     assert controller._active is active and controller._next is upcoming
-    for invalid in (True, -1, 30.1, float("nan"), float("inf")):
-        with pytest.raises(ValueError, match="0 to 30"):
+    for invalid in (True, -1, 60.1, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="0 to 60"):
             controller.set_crossfade_seconds(invalid)
+    assert controller.set_crossfade_seconds(45) == 45
 
 
 def test_controller_state_volume_pause_and_rejections(monkeypatch):
@@ -131,6 +132,7 @@ def test_controller_state_volume_pause_and_rejections(monkeypatch):
     assert controller.snapshot().volume == 1.5
     controller.resume()
     with pytest.raises(playback.UnsupportedAction, match="cannot be seeked"):
+
         class Active:
             def __init__(self):
                 self.media = media

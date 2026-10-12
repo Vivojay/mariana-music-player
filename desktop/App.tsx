@@ -614,6 +614,12 @@ export default function App() {
                         {suggestion.matched_alias && <code>{suggestion.matched_alias}</code>}
                       </span>
                       <span>{suggestion.detail}</span>
+                      {(suggestion.flags_hint || suggestion.usage_hint) && (
+                        <span className="command-suggestion-hints">
+                          {suggestion.flags_hint && <code>{suggestion.flags_hint}</code>}
+                          {suggestion.usage_hint && <span>try: {suggestion.usage_hint}</span>}
+                        </span>
+                      )}
                       <small>{suggestion.category} / {suggestion.risk}</small>
                     </li>
                   ))}
