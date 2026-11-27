@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useModalFocusTrap } from './modalFocus'
 import { ReleaseSelection, type ReleaseSelectionApi } from './ReleaseSelection'
 import { homepageSearch } from './homepageSearch'
+import { homepageVideoPreview, type HomepagePreviewTarget, type HomepageVideoPreview } from './homepageVideo'
+import './homepagePanel.css'
+import type { LocalVideoStatus } from './localVideo'
 import type { ArtworkDataResult, HomepageItem, HomepageProjection } from './shared'
 
 type HomepagePanelProps = {
@@ -13,9 +16,13 @@ type HomepagePanelProps = {
   onOpenSettings(): void
   onOpenLink(url: string): void
   loadImage(cacheKey: string): Promise<ArtworkDataResult>
+  settings?: ReactNode
   active?: boolean
   selectionApi?: ReleaseSelectionApi
   backendReady?: boolean
+  playback?: HomepagePreviewTarget | null
+  video?: LocalVideoStatus | null
+  reducedMotion?: boolean
 }
 
 function HomepageCardImage({ item, loadImage }: { item: HomepageItem, loadImage(cacheKey: string): Promise<ArtworkDataResult> }) {
@@ -41,6 +48,36 @@ function HomepageCardImage({ item, loadImage }: { item: HomepageItem, loadImage(
   )
 }
 
+function HomepageVideoCard({ preview }: { preview: HomepageVideoPreview }) {
+  const [playing, setPlaying] = useState(false)
+  const [failedHandle, setFailedHandle] = useState<string | null>(null)
+  const failed = failedHandle === preview.handle
+  const showPicture = playing && !failed
+  const loop = (video: HTMLVideoElement) => {
+    video.currentTime = preview.start
+    void video.play().catch(() => setFailedHandle(preview.handle))
+  }
+
+  return <article className="homepage-card homepage-video-card">
+    {showPicture && <video key={preview.handle} aria-hidden="true" muted playsInline preload="metadata"
+      src={`mariana-video://current/${preview.handle}.mp4`}
+      onLoadedMetadata={(event) => loop(event.currentTarget)}
+      onTimeUpdate={(event) => {
+        const video = event.currentTarget
+        if (!video.seeking && video.currentTime >= preview.end) video.currentTime = preview.start
+      }}
+      onEnded={(event) => loop(event.currentTarget)}
+      onError={() => setFailedHandle(preview.handle)} />}
+    <span className="homepage-card-meta">Current local video</span>
+    <h3>{preview.title}</h3>
+    {failed && <p className="homepage-empty" role="status">Preview unavailable.</p>}
+    <button type="button" onClick={() => {
+      setPlaying(!showPicture)
+      setFailedHandle(null)
+    }}>{showPicture ? 'Stop preview' : 'Loop video preview'}</button>
+  </article>
+}
+
 function statusLabel(homepage: HomepageProjection | null): string {
   if (!homepage) return 'Waiting for Mariana'
   if (!homepage.online_enabled) return 'Local and cached · online discovery off'
@@ -64,9 +101,13 @@ export function HomepagePanel({
   onOpenSettings,
   onOpenLink,
   loadImage,
+  settings,
   active = true,
   selectionApi,
   backendReady = false,
+  playback = null,
+  video = null,
+  reducedMotion = false,
 }: HomepagePanelProps) {
   const { dialogRef, containTabFocus } = useModalFocusTrap(active, { onOutsidePointer: onClose })
   const [selectedItem, setSelectedItem] = useState<HomepageItem | null>(null)
@@ -74,7 +115,9 @@ export function HomepagePanel({
   let searchError: string | null = null
   let matches: (item: HomepageItem) => boolean = () => true
   try { matches = homepageSearch(query) } catch (error) { searchError = (error as Error).message }
-  const sections = homepage?.sections.map((section) => ({ ...section, items: section.items.filter(matches) }))
+  const preview = active && backendReady && !reducedMotion && !query.trim() ? homepageVideoPreview(playback, video) : null
+  const sections = homepage?.sections.map((section) => ({ ...section, items: section.items.filter((item) =>
+    matches(item) && !(preview && section.key === 'local' && item.source === 'Mariana current')) }))
     .filter((section) => !query || section.items.length)
   const selectionOrigin = useRef<HTMLButtonElement | null>(null)
   const boundItem = homepage?.sections.filter((section) => section.key === 'releases' || section.key.startsWith('catalogue-')).flatMap((section) => section.items)
@@ -99,16 +142,20 @@ export function HomepagePanel({
       aria-hidden={!active || undefined}
       inert={!active}
       tabIndex={-1}
-      onKeyDown={containTabFocus}
+      onKeyDown={(event) => {
+        if (active && event.key === 'Escape' && !event.defaultPrevented && !event.nativeEvent.isComposing) {
+          event.preventDefault()
+          onClose()
+        } else containTabFocus(event)
+      }}
     >
       <header className="homepage-heading">
         <div>
-          <small>MARIANA HOME</small>
-          <h1>Listen locally. Discover deliberately.</h1>
+          <h1>Mariana Home</h1>
           <p>{statusLabel(homepage)}</p>
         </div>
         <div className="homepage-actions">
-          <button type="button" onClick={onOpenSettings}>Settings</button>
+          <button type="button" aria-expanded={Boolean(settings)} onClick={onOpenSettings}>Settings</button>
           <button
             type="button"
             onClick={onRefresh}
@@ -121,6 +168,7 @@ export function HomepagePanel({
         </div>
       </header>
 
+      {settings}
       {homepage?.safe_message && <p className="homepage-message" role="status">{homepage.safe_message}</p>}
       {error && <p className="settings-error" role="alert">{error}</p>}
       <label>Search Home
@@ -135,12 +183,13 @@ export function HomepagePanel({
       )}
       {!homepage && <p className="homepage-empty">Local homepage information will appear when the backend is ready.</p>}
       {query && !sections?.length && <p>No indexed cards match.</p>}
+      {preview && <HomepageVideoCard key={preview.mediaId} preview={preview} />}
       {sections?.map((section) => (
         <section className="homepage-section" key={section.key} aria-labelledby={`home-${section.key}`}>
           <h2 id={`home-${section.key}`}>{section.title}</h2>
           {section.key.endsWith('-links') && (
             <p className="homepage-empty">
-              Curated destinations, not a live feed. Opening a site uses your browser and requires a connection.
+              Curated destinations open in your browser.
             </p>
           )}
           {section.key === 'releases' && section.items.length > 0 && (

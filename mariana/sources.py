@@ -441,7 +441,7 @@ class YouTubeResolver(BaseResolver):
         text = str(error).casefold()
         if "drm" in text:
             return MediaFailure(FailureCode.DRM, media.source, "DRM-protected media is not supported", cause=error)
-        if "geo" in text or "country" in text:
+        if any(token in text for token in ("geo-block", "geo restrict", "geo-restrict", "country", "in your region")):
             return MediaFailure(FailureCode.GEO_BLOCKED, media.source, "This media is unavailable in the current region", cause=error)
         if any(
             marker in text
@@ -449,7 +449,8 @@ class YouTubeResolver(BaseResolver):
                 "sign in",
                 "login",
                 "private",
-                "age",
+                "age-restrict",
+                "confirm your age",
                 "not a bot",
                 "cookies-from-browser",
                 "requires authorization",
@@ -460,8 +461,10 @@ class YouTubeResolver(BaseResolver):
 
             message = youtube_error_message(error, self.browser_profile) or "This YouTube media requires authorization"
             return MediaFailure(FailureCode.AUTH_REQUIRED, media.source, message, cause=error)
-        if "429" in text or "rate" in text:
-            return MediaFailure(FailureCode.RATE_LIMITED, media.source, "YouTube rate-limited Mariana", retryable=True, cause=error)
+        if any(token in text for token in ("429", "rate limit", "too many requests", "quota")):
+            return MediaFailure(FailureCode.RATE_LIMITED, media.source, "YouTube rate-limited Mariana; retry later", retryable=False, cause=error)
+        if any(token in text for token in ("timed out", "timeout", "connection reset", "connection refused", "proxy error")):
+            return MediaFailure(FailureCode.TIMEOUT, media.source, "YouTube connection failed after the configured attempts. Check the network or proxy, then retry.", cause=error)
         return super().classify_failure(error, media)
 
 
@@ -584,7 +587,17 @@ class ResolverRegistry:
         if media.source == MediaSource.YOUTUBE:
             resolver = self.for_source(MediaSource.YOUTUBE)
             profile = resolver.browser_profile if isinstance(resolver, YouTubeResolver) else None
-            return resolve_video_tracks(media.original_uri, browser_profile=profile, native=True)
+            try:
+                return resolve_video_tracks(media.original_uri, browser_profile=profile, native=True)
+            except VideoSourceError:
+                raise
+            except (RuntimeError, OSError, ValueError, ImportError) as error:
+                failure = resolver.classify_failure(error, media)
+                if failure.code in {FailureCode.AUTH_REQUIRED, FailureCode.GEO_BLOCKED, FailureCode.RATE_LIMITED,
+                                    FailureCode.TIMEOUT, FailureCode.DRM}:
+                    raise VideoSourceError(str(failure)) from None
+                raise VideoSourceError("YouTube could not resolve a supported picture. Check the connection, "
+                                       "run youtube auth status, then try video open again.") from None
         if media.source == MediaSource.URL and is_extractor_page_url(media.original_uri):
             return resolve_video_tracks(media.original_uri)
         if media.source not in {MediaSource.URL, MediaSource.PODCAST}:

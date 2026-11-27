@@ -196,6 +196,24 @@ def _manual_settings(settings: dict[str, Any]) -> dict[str, Any]:
     return updated
 
 
+def install_setup_tools(manager, status, javascript, settings, *, progress):
+    """Keep validated tools and point discovery at any newly installed components."""
+    names = set(status.missing_optional)
+    if status.missing_required:
+        names.update(FFMPEG_TOOLS)
+    if not javascript:
+        names.add("deno")
+    paths = manager.install_missing(names, progress=progress)
+    configured = dict(settings.get("media tools", {}))
+    if status.missing_required:
+        configured["ffmpeg bin"] = str(Path(paths["ffmpeg"]).parent)
+    for name in status.missing_optional:
+        configured[name + " bin"] = str(Path(paths[name]).parent)
+    if not javascript:
+        configured["javascript bin"] = str(Path(paths["deno"]).parent)
+    return {**settings, "media tools": configured}
+
+
 def setup_media_tools(
     settings: dict[str, Any] | None = None,
     *,
@@ -215,8 +233,11 @@ def setup_media_tools(
         return status
 
     _print_status(status)
-    print("\nMariana needs the missing tools for playback, lyrics identification, loudness analysis, and YouTube.")
-    print("  [1] Automatically download verified recommended tools (default)")
+    missing = [*status.missing_required, *status.missing_optional]
+    if not javascript:
+        missing.append("JavaScript runtime")
+    print("\nMissing tools: " + ", ".join(missing))
+    print("  [1] Automatically download missing verified tools (default)")
     print("  [2] Enter installed tool paths manually")
     if not status.missing_required:
         print("  [3] Continue without optional identification/loudness tools")
@@ -242,13 +263,13 @@ def setup_media_tools(
 
     manager = manager or ToolchainManager(paths)
     try:
-        manager.install_recommended(progress=print)
-    except ToolchainError as error:
+        settings = install_setup_tools(manager, status, javascript, settings, progress=print)
+    except (ToolchainError, OSError) as error:
         raise ToolSetupError(
             f"Automatic tool setup failed: {error}. Resume setup to retry or choose manual paths."
         ) from error
     status = discover_media_tools(settings)
-    if not status.complete or not find_javascript_runtime():
+    if not status.complete or not find_javascript_runtime(settings.get("media tools", {}).get("javascript bin")):
         raise ToolSetupError("The verified tool installation completed but one or more executables failed validation")
     persist_media_tools(status, settings, paths=paths)
     return status

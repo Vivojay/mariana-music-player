@@ -5,8 +5,18 @@ import App from './App'
 import MiniPlayerApp from './MiniPlayerApp'
 import VideoWindowApp from './VideoWindowApp'
 import './styles.css'
+import { readSelection, resolveTheme, themeStyle } from './themes'
 
 const surface = new URLSearchParams(window.location.search).get('surface')
+if (surface === 'mini' || surface === 'video') {
+  const applyPalette = () => {
+    for (const [key, value] of Object.entries(themeStyle(resolveTheme(readSelection())))) {
+      document.documentElement.style.setProperty(key, String(value))
+    }
+  }
+  applyPalette()
+  window.addEventListener('storage', applyPalette)
+}
 document.title = surface === 'mini' ? 'Mariana Mini-player' : surface === 'video' ? 'Mariana Video' : 'Mariana'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

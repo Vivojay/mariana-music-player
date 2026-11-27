@@ -1,0 +1,35 @@
+.karaoke {grid-column:1/-1}
+.karaoke .section-head {gap:.8rem; flex-wrap:wrap}
+.karaoke [hidden] {display:none}
+.karaoke-actions {display:flex; flex-wrap:wrap; align-items:center; gap:.6rem; margin-block:.65rem}
+.karaoke-actions label:not(.button) {display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; font-size:.9rem}
+.karaoke label:has(+input:focus-visible) {outline:2px solid var(--accent); outline-offset:3px}
+.karaoke label:has(+input:disabled) {opacity:.55; cursor:default}
+#karaoke-status,#karaoke-feedback,#karaoke-upcoming {color:var(--muted); overflow-wrap:anywhere}
+#karaoke-feedback:empty,#karaoke-upcoming:empty {display:none}
+#karaoke-stage {background:var(--background); border:1px solid var(--border); border-radius:9px; margin-top:1rem; padding:clamp(.8rem,3vw,2.25rem); overflow:hidden}
+#karaoke-lines {min-height:5rem; display:grid; align-items:center; gap:1rem}
+.karaoke-lane {border-inline-start:3px solid var(--accent); padding-inline-start:1rem; min-width:0; --voice:var(--accent)}
+.karaoke-lane[data-voice=second] {border-inline-start-style:double; border-inline-start-width:5px; --voice:var(--text)}
+.karaoke-singer {display:inline-block; font:.76rem/1.5 "IBM Plex Mono",Consolas,monospace; color:var(--muted); overflow-wrap:anywhere}
+.karaoke-lane p {margin:.2rem 0; font-size:clamp(1.4rem,3.7vw,2.9rem); font-weight:720; line-height:1.24; overflow-wrap:anywhere}
+.karaoke-word {color:var(--muted)}
+.karaoke-word[data-state=sung] {color:var(--voice)}
+.karaoke-word[data-state=singing] {color:var(--voice); text-decoration:underline; text-underline-offset:.15em; text-decoration-thickness:.08em}
+@supports (background-clip:text) {
+  .karaoke-word[data-state=singing] {background:linear-gradient(90deg,var(--voice) var(--sung),var(--muted) var(--sung)); background-clip:text; color:transparent; text-decoration-color:var(--voice)}
+  .karaoke-lane p:dir(rtl) .karaoke-word[data-state=singing] {background-image:linear-gradient(270deg,var(--voice) var(--sung),var(--muted) var(--sung))}
+}
+.karaoke-rest {font:italic 1.3rem Georgia,serif; color:var(--muted)}
+#karaoke-upcoming {border-top:1px solid var(--border); padding-top:1rem; margin:1rem 0 0}
+body[data-mode=flow] #karaoke-stage {background:linear-gradient(125deg,color-mix(in srgb,var(--glow) 17%,var(--background)),var(--background) 72%)}
+body[data-mode=flow] .karaoke-lane[data-voice=second] {text-align:end; border-inline-start:0; border-inline-end:5px double var(--voice); padding-inline:0 1rem}
+@media (forced-colors:active) {.karaoke-word[data-state=singing] {color:Highlight; background:none; text-decoration-color:Highlight}}
+@media (max-width:740px) {.karaoke {grid-column:auto} #karaoke-stage {padding:.8rem}}
+
+#karaoke-export {display:inline-block; color:var(--text)}
+#karaoke-export[hidden] {display:none}
+#karaoke-book {margin-block-start:.8rem}
+#karaoke-book-lines {padding-inline-start:1.4rem; max-height:24rem; overflow:auto}
+#karaoke-book-lines li {padding:.25rem 0; border-block-end:1px solid var(--border); overflow-wrap:anywhere}
+#karaoke-book-lines p {margin:.25rem 0}

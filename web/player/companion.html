@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Native session · Mariana</title><link rel="stylesheet" href="/player.css"><link rel="stylesheet" href="/companion.css"><link rel="stylesheet" href="/command-input.css">
+<link rel="stylesheet" href="/companion-console.css"><link rel="stylesheet" href="/companion-home.css"><link rel="stylesheet" href="/companion-similar.css"><link rel="stylesheet" href="/companion-collections.css">
+<script src="/companion-flow.js" defer></script><script src="/companion-console.js" defer></script>
+<script src="/companion-home.js" defer></script><script src="/companion-similar.js" defer></script><script src="/companion-collections.js" defer></script>
+<script src="/platform.js" defer></script><script src="/command-input.js" defer></script><script src="/companion.js" defer></script></head>
+<body data-mode="console"><header class="top"><span class="brand"><i aria-hidden="true">≋</i> Mariana</span>
+<nav aria-label="Session view"><button data-mode="console" aria-pressed="true">Console</button><button data-mode="flow" aria-pressed="false">Flow</button></nav></header>
+<main id="native-workspace"><section id="pairing"><h1>Connect to Mariana</h1>
+<p>Playback uses this computer’s library, queue, and audio output. The terminal sets command approval for this connection and can switch views or focus a control here.</p>
+<label class="native-library-optin"><input id="share-native-library" type="checkbox" checked> Show my library and collections in this tab</label>
+<button id="pair" class="primary">Connect native session</button></section>
+<div id="native-controls" hidden>
+<nav id="native-flow-nav" aria-label="Flow sections">
+<button type="button" data-panel="home" aria-controls="native-home">Home</button>
+<button type="button" data-panel="library" aria-controls="native-library">Local library</button>
+<button type="button" data-panel="similar" aria-controls="native-similar">Similar</button>
+<button type="button" data-panel="queue" aria-controls="native-collections">Queue</button>
+<button type="button" data-panel="playlists" aria-controls="native-collections">Playlists</button>
+<button type="button" data-panel="albums" aria-controls="native-collections">Albums</button>
+<button type="button" data-panel="favorites" aria-controls="native-collections">Likes</button>
+<button type="button" data-panel="live" aria-controls="native-collections">Live</button>
+<button type="button" data-panel="commands" aria-controls="native-command-card">Commands</button>
+</nav>
+<section id="native-player" aria-labelledby="native-title"><div class="section-head"><div class="native-connection">
+<p class="eyebrow">Native player</p><p id="native-approval" role="status"></p><p id="native-session-time"></p>
+</div><div class="native-session-actions"><button id="native-revoke" type="button" hidden>Review commands again</button>
+<button id="disconnect">Disconnect</button></div></div><h1 id="native-title" tabindex="-1">Nothing playing</h1><p id="native-artist"></p>
+<p id="native-position"></p>
+<div id="native-scrubber"><time id="native-clock"></time><input id="native-progress" type="range" min="0" max="0" step=".01" value="0" aria-label="Seek playback" disabled></div>
+<div class="transport" id="native-transport"><button data-command=".prev">Previous</button><button data-command="seek -10s">−10 s</button>
+<button id="native-play-pause" data-command="p" class="primary">Play / pause</button><button data-command="seek +10s">+10 s</button><button data-command=".next">Next</button></div>
+<div id="native-preferences" class="controls">
+<button type="button" id="native-like" aria-pressed="false">♡ Like</button>
+<button type="button" id="native-find-similar" hidden>Find similar</button>
+<label>Rating <select id="native-rating"><option value="0">Unrated</option><option value="1">1 star</option><option value="2">2 stars</option><option value="3">3 stars</option><option value="4">4 stars</option><option value="5">5 stars</option></select></label>
+<button type="button" id="native-shuffle" aria-pressed="false">Shuffle</button>
+<label>Repeat <select id="native-repeat"><option value="off">Off</option><option value="one">One</option><option value="all">All</option></select></label>
+<label>Volume <input id="native-volume" type="range" min="0" max="100" step="1" value="100" aria-label="Player volume"></label>
+<button type="button" id="native-mute" aria-pressed="false">Mute</button>
+<label>Speed <select id="native-speed"><option>0.5</option><option>0.75</option><option>1</option><option>1.25</option><option>1.5</option><option>2</option></select></label>
+</div><p id="native-control-note" role="status"></p><p id="native-intent-status" role="status"></p>
+<p id="native-browser-notice" role="status"></p></section>
+<section id="native-home" hidden aria-label="Home"><div id="native-home-content"></div></section>
+<section id="native-collections" aria-label="Collections" hidden></section>
+<section id="native-similar" aria-label="Find similar recordings" hidden></section>
+<section id="native-library" aria-labelledby="native-library-title" hidden>
+<div class="section-head"><div><h2 id="native-library-title">Native library</h2><p id="native-library-count" role="status"></p></div></div>
+<form id="native-library-form"><label for="native-library-query">Search title, artist, or album</label>
+<input type="search" id="native-library-query" maxlength="160"><button type="submit">Search</button></form>
+<ul id="native-library-results"></ul>
+<div id="native-library-pages" class="controls" hidden><button id="native-library-prev" type="button">Previous page</button>
+<button id="native-library-next" type="button">Next page</button></div>
+</section>
+<section id="native-command-card" aria-labelledby="commands-title"><h2 id="commands-title" tabindex="-1">Mariana commands</h2>
+<div id="native-catalog-toolbar"><label>Category <select id="native-category"><option value="">All categories</option></select></label>
+<label>Browse catalog <input type="search" id="native-find" placeholder="Command, alias or topic"></label></div>
+<p id="native-catalog-count" role="status"></p><div id="native-matches" aria-label="Matching commands"></div>
+<div id="native-catalog-pages" class="controls" hidden><button type="button" id="native-catalog-prev">Previous page</button>
+<button type="button" id="native-catalog-next">Next page</button></div><form id="native-command"><label for="native-text">Command</label>
+<input type="text" id="native-text" required maxlength="2048" placeholder="e.g. artist search Suggahunny" spellcheck="false" autocomplete="off"><button class="primary">Run</button><button type="button" id="native-history" aria-controls="native-suggestions">History</button></form>
+<ul id="native-suggestions" role="listbox" aria-label="Command suggestions" hidden></ul>
+<span id="native-assist-status" class="sr" role="status"></span>
+<p id="native-pending" role="status"></p><pre id="native-log" tabindex="0" aria-label="Native command output" role="log"></pre>
+</section><section id="native-console" aria-label="Mariana terminal console" hidden></section></div><p id="native-message" role="status" aria-live="polite"></p></main></body></html>

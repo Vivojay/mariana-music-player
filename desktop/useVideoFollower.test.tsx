@@ -27,9 +27,12 @@ function deferred() {
 function fixture() {
   const element = document.createElement('video')
   let paused = true
+  let seeking = false
+  let readyState = 1
   Object.defineProperties(element, {
     paused: { configurable: true, get: () => paused },
-    readyState: { configurable: true, value: 1 },
+    readyState: { configurable: true, get: () => readyState },
+    seeking: { configurable: true, get: () => seeking },
     duration: { configurable: true, value: 300 },
   })
   const pending = deferred()
@@ -46,7 +49,9 @@ function fixture() {
     clock.current = { status: status(overrides), timestamp: Date.now() }
   }
   return { element, video, clock, onError, play, pause, pending, hook, options, publish,
-    setPaused: (value: boolean) => { paused = value } }
+    setPaused: (value: boolean) => { paused = value },
+    setSeeking: (value: boolean) => { seeking = value },
+    setReadyState: (value: number) => { readyState = value } }
 }
 
 function tick(milliseconds = 50) {
@@ -180,10 +185,63 @@ describe('silent authoritative-clock follower', () => {
     expect(f.pause).toHaveBeenCalled()
   })
 
+  it('lets Chromium finish a seek before applying an updated clock target', () => {
+    const f = fixture()
+    f.setPaused(false)
+    tick()
+    const position = f.element.currentTime
+    f.setSeeking(true)
+    f.publish({ position_seconds: 80 })
+    tick(200)
+    expect(f.element.currentTime).toBe(position)
+    f.setSeeking(false)
+    tick()
+    expect(f.element.currentTime).toBeCloseTo(80.25)
+  })
+
+  it('nudges moderate drift without seeking and repairs large drift on a cooldown', () => {
+    const f = fixture()
+    f.setPaused(false)
+    f.setReadyState(3)
+    tick()
+    f.element.currentTime = 11.6
+    f.publish({ position_seconds: 12.05 })
+    tick()
+    expect(f.element.currentTime).toBe(11.6)
+    expect(f.element.playbackRate).toBeGreaterThan(1)
+    expect(f.element.playbackRate).toBeLessThanOrEqual(1.05)
+
+    // Continue receiving a steady clock while the picture is far behind.
+    for (let i = 0; i < 5; i++) {
+      tick(200)
+      f.publish({ position_seconds: 12.1 + (i + 1) * 0.2 })
+    }
+    expect(f.element.currentTime).toBe(11.6)
+    tick(200)
+    expect(f.element.currentTime).toBeGreaterThan(13)
+    const recovered = f.element.currentTime
+    f.publish({ position_seconds: 13.3 })
+    tick(200)
+    expect(f.element.currentTime).toBe(recovered)
+  })
+
+  it('reports a genuine current play failure across ordinary telemetry refreshes only once', async () => {
+    const f = fixture()
+    tick()
+    f.publish({ position_seconds: 12.05 })
+    await act(async () => { f.pending.reject(new Error('No decoder')) })
+    tick(300)
+    expect(f.onError).toHaveBeenCalledExactlyOnceWith(unavailable)
+    expect(f.play).toHaveBeenCalledOnce()
+  })
+
   it('pauses the silent follower when its authoritative clock expires', () => {
     const f = fixture()
     f.setPaused(false)
-    tick(1050)
+    tick(900)
+    f.element.currentTime = 12.9
+    tick(150)
+    expect(f.element.currentTime).toBe(12.9)
     expect(f.pause).toHaveBeenCalled()
     expect(f.play).not.toHaveBeenCalled()
   })

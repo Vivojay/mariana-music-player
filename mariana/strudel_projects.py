@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import threading
 import time
 import unicodedata
@@ -19,12 +21,8 @@ MAX_CODE_BYTES = 64 * 1024
 MIN_PREVIEW_SECONDS = 1
 MAX_PREVIEW_SECONDS = 60
 
-STARTER_CODE = '''setcps(0.5)
-stack(
-  s("bd*4, ~ sd ~ sd, hh*8").gain(0.8),
-  note("<c3 eb3 g3 bb3>").s("sawtooth").lpf(900).gain(0.35)
-).room(0.15)
-'''
+_ROOT = Path(__file__).resolve().parents[1]
+STARTER_CODE = (_ROOT / "res/strudel/starter.js").read_text(encoding="utf-8")
 
 
 class StrudelProjectError(ValueError):
@@ -43,6 +41,41 @@ class StrudelProject:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def render_portable(project: StrudelProject, path: Path) -> None:
+    """Render with the same data-only oscillator engine used by the phone player."""
+    if path.suffix.casefold() != ".wav":
+        raise StrudelProjectError("Choose a new .wav output file")
+    node = shutil.which("node")
+    if not node:
+        raise StrudelProjectError("Install Node.js 20 or later for terminal renders, or use the web player’s Strudel editor")
+    try:
+        rendered = subprocess.run(
+            [node, str(_ROOT / "tools/render_strudel.mjs")],
+            input=json.dumps({"source": project.code, "seconds": project.preview_seconds}).encode(),
+            capture_output=True, timeout=30, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise StrudelProjectError(f"Pattern renderer could not finish: {error}") from error
+    if rendered.returncode:
+        message = rendered.stderr.decode("utf-8", errors="replace").strip()[:450]
+        raise StrudelProjectError(message or "Pattern rendering failed")
+    if not rendered.stdout.startswith(b"RIFF") or len(rendered.stdout) != 44 + project.preview_seconds * 22050 * 2:
+        raise StrudelProjectError("Pattern renderer returned an incomplete WAV")
+    try:
+        with path.open("xb") as stream:
+            try:
+                stream.write(rendered.stdout)
+                stream.flush()
+            except OSError:
+                stream.close()
+                path.unlink(missing_ok=True)
+                raise
+    except FileExistsError as error:
+        raise StrudelProjectError(f"Output file already exists: {path}") from error
+    except OSError as error:
+        raise StrudelProjectError(f"Could not export pattern audio: {error}") from error
 
 
 def normalize_project_name(value: object) -> str:
@@ -229,6 +262,40 @@ class StrudelProjectStore:
             code=STARTER_CODE,
             preview_seconds=16,
             expected_revision=None,
+        )
+
+    def export_source(self, target: str, path: Path) -> StrudelProject:
+        project = self.get(target)
+        try:
+            with path.open("x", encoding="utf-8", newline="\n") as stream:
+                stream.write(project.code)
+        except FileExistsError as error:
+            raise StrudelProjectError(f"Source file already exists: {path}") from error
+        except (OSError, ValueError) as error:
+            raise StrudelProjectError(f"Could not export project source: {error}") from error
+        return project
+
+    def import_source(
+        self, target: str, revision: int, path: Path, preview_seconds: int | None = None,
+    ) -> StrudelProject:
+        project = self.get(target)
+        try:
+            if not path.is_file():
+                raise StrudelProjectError(f"Choose an existing project source file: {path}")
+            with path.open("rb") as stream:
+                # Allow an optional UTF-8 BOM from a Windows text editor.
+                content = stream.read(MAX_CODE_BYTES + 4)
+            if len(content.removeprefix(b"\xef\xbb\xbf")) > MAX_CODE_BYTES:
+                raise StrudelProjectError(f"Project code cannot exceed {MAX_CODE_BYTES // 1024} KiB")
+            code = content.decode("utf-8-sig")
+        except UnicodeDecodeError as error:
+            raise StrudelProjectError("Project source must be UTF-8 text") from error
+        except OSError as error:
+            raise StrudelProjectError(f"Could not read project source: {error}") from error
+        return self.save(
+            project_id=project.project_id, name=project.name, code=code,
+            preview_seconds=project.preview_seconds if preview_seconds is None else preview_seconds,
+            expected_revision=revision,
         )
 
     def delete(self, project_id: object, expected_revision: object) -> StrudelProject:

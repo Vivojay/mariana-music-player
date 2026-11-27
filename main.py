@@ -17,6 +17,7 @@
 # IMPORTS BEGIN #
 
 import math
+import sys
 import threading
 import time
 from typing import TYPE_CHECKING, TypedDict, cast
@@ -24,11 +25,55 @@ from typing import TYPE_CHECKING, TypedDict, cast
 if TYPE_CHECKING:
     from mariana.paired_companion import PairedCompanion
 
+# Choose the first view before initializing audio, storage or the desktop.
+_START_IN_TUI = False
+if __name__ == '__main__':
+    if sys.argv[1:2] == ['--mariana-tone-keys']:
+        from mariana.tone_keys import main as run_tone_keys
+        sys.exit(run_tone_keys(sys.argv[2:]))
+    if sys.argv[1:2] == ['--mariana-fx-plugin']:
+        from mariana.effect_plugin import main as render_fx_plugin
+        sys.exit(render_fx_plugin(sys.argv[2:]))
+    if sys.argv[1:2] == ['--mariana-video-window']:
+        from mariana.video_window import main as run_video_window
+        sys.exit(run_video_window(sys.argv[2:]))
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Start the Mariana music player.')
+    parser.add_argument('view', nargs='?', choices=['tui'], help='open the terminal player immediately')
+    parser.add_argument('--tui', action='store_true', help='open the terminal player immediately')
+    parser.add_argument('--profile', metavar='NAME', help='open an existing listener profile for this run')
+    options = parser.parse_args()
+    if options.profile:
+        import os
+        from mariana.paths import discover_runtime_paths
+        os.environ['MARIANA_PROFILE'] = options.profile
+        try:
+            discover_runtime_paths()
+        except ValueError as error:
+            parser.error(str(error))
+    _START_IN_TUI = options.tui or options.view == 'tui'
+    if _START_IN_TUI and not (sys.stdin and sys.stdin.isatty() and sys.stdout and sys.stdout.isatty()):
+        parser.error('the TUI needs an interactive terminal for input and output')
+
 _BOOT_TOTAL = 31
+_STARTUP_NOTICES: list[str] = []
+
+
+def _boot_notice(message, *cli_lines):
+    """Keep recoverable direct-launch notices for the first unlocked workspace."""
+    if _START_IN_TUI:
+        _STARTUP_NOTICES.append(message)
+    else:
+        for line in cli_lines or (message,):
+            if line is not None:
+                print(line)
 
 
 def _boot_progress(step, label=''):
     """Render one in-place, text-and-bar startup progress update."""
+    if _START_IN_TUI:
+        return
     width = 24
     completed = max(0, min(width, round(width * step / _BOOT_TOTAL)))
     bar = '#' * completed + '-' * (width - completed)
@@ -45,7 +90,7 @@ import os;                                          _boot_progress(2, 'paths')
 # import itertools;                                   print("Loaded 3/31",  end='\r')
 
 import re;                                          _boot_progress(3, 'matching')
-import sys;                                         _boot_progress(4, 'runtime')
+_boot_progress(4, 'runtime')
 _boot_progress(5, 'runtime')
 import random as rand;                              _boot_progress(6, 'selection')
 import importlib;                                   _boot_progress(7, 'extensions')
@@ -68,7 +113,7 @@ SYSTEM_TRUST_STORE_ENABLED = enable_system_trust_store()
 
 import sounddevice;                                 _boot_progress(14, 'audio devices')
 # from scipy.io.wavfile import read;                  print("Loaded 15/31", end='\r')
-from getpass import getpass;                        _boot_progress(15, 'prompts')
+from mariana.terminal_io import secret_input as getpass;                        _boot_progress(15, 'prompts')
 from url_validate import id_if_url_is_of_yt_format, url_is_valid; _boot_progress(16, 'URL validation')
 from tabulate import tabulate as tbl;               _boot_progress(17, 'tables')
 from ruamel.yaml import YAML;                       _boot_progress(18, 'settings')
@@ -83,6 +128,7 @@ from mariana.broadcast import BroadcastError, BroadcastState, IcecastBroadcaster
 from mariana.chapters import normalize_chapters
 from mariana.canonical_media import find_canonical_media, find_duplicate_favorites
 from mariana.command_catalog import serialize_command_catalog
+from mariana.effect_studio import EffectStudio
 from mariana.equalizer import EqualizerService, command_intent as equalizer_command_intent
 from mariana.focus_mode import (
     FirebaseFocusTransport,
@@ -93,7 +139,7 @@ from mariana.focus_mode import (
 )
 from mariana.commands import (
     DOWNLOAD_TYPOS,
-    SEARCH_COMMANDS,
+    is_search_command,
     SearchAction,
     SearchScope,
     normalize_command,
@@ -126,7 +172,7 @@ from mariana.adhoc_identification import (
     CapturePhase,
 )
 from mariana.identity import AcoustIDClient, IdentificationService, LRCLIBClient, MusicBrainzClient, MIN_FINGERPRINT_SECONDS, IdentificationError, find_fpcalc
-from mariana.homepage import HOMEPAGE_CACHE_STATE_KEY, HomepageConfiguration, HomepageService, ListenBrainzFreshReleasesProvider, create_homepage_image_cache
+from mariana.homepage import HOMEPAGE_CACHE_STATE_KEY, HomepageConfiguration, HomepageService, ListenBrainzFreshReleasesProvider, create_homepage_image_cache, official_destination_sections
 from mariana.lyrics_presentation import LyricsPresentationService
 from mariana.library import LibraryCatalog, LibraryError
 from mariana.library_service import LibraryProfilerService
@@ -157,10 +203,14 @@ from mariana.navigation import NavigationContext, NavigationEntry, NavigationSco
 from mariana.occasions import configured_country, detect_country, occasion_greeting, occasion_palette, prewarm_occasion_calendars, validate_region
 from mariana.output_devices import OutputDeviceError, default_output_device
 from mariana.output_targets import OutputTargetError, bind_output_target
+from mariana.artist_watch import run_artist_command
+from mariana.speech_capture import SpeechCapture, show_live
+from mariana.karaoke import KaraokeSession, USAGE as KARAOKE_USAGE, read_score
 from mariana.paths import initialize_runtime_paths
 from mariana.platform import PlatformCapabilityError, open_path, reveal_path
 from mariana.playlists import PlaylistError, PlaylistStore
 from mariana.playback_resume import PlaybackResumeTracker
+from mariana.theme_palette import PRESETS as THEME_PALETTES, active_theme, ansi_foreground, change_theme, resolved_theme, saved_colors
 from mariana.playback_status import (
     FavoriteStatusProjection,
     PlaybackChapterProjection,
@@ -168,7 +218,7 @@ from mariana.playback_status import (
     PlaybackStatusProjection,
     project_playback_status,
 )
-from mariana.playback import BYTES_PER_FRAME, SAMPLE_RATE, PlaybackError
+from mariana.playback import BYTES_PER_FRAME, SAMPLE_RATE, PlaybackError, find_executable
 from mariana.playback_events import LocalPlaybackEvents, Scaling
 from mariana.play_regions import (
     PlayRegionError,
@@ -188,22 +238,29 @@ from mariana.sleep_timer import SleepAction, SleepTimer, parse_duration
 from mariana.sources import FailureCode, MediaFailure, ResolvedMedia
 from mariana.station import StationError, StationManager
 from mariana.stems import StemError, StemInput, StemService, parse_stem_selection
+from mariana.tones import TONE_HELP, parse_tone, render_tone
+from mariana import tone_procedures, tone_keys
+from mariana.clips import ClipSession
 from mariana.strudel_projects import (
     MAX_CODE_BYTES as STRUDEL_MAX_CODE_BYTES,
     MAX_PREVIEW_SECONDS as STRUDEL_MAX_PREVIEW_SECONDS,
     MAX_PROJECTS as STRUDEL_MAX_PROJECTS,
     StrudelProjectError,
     StrudelProjectStore,
+    render_portable,
 )
 from mariana.tag_commands import TagCommandService
 from mariana.tags import TagError, TagStore
 from mariana.station_discovery import StationDiscovery, StationSeedError
 from mariana.setup import SetupStateError, SetupStateStore
-from mariana.tool_setup import discover_media_tools, persist_media_tools, setup_media_tools, executable_version
+from mariana.tool_setup import install_setup_tools, discover_media_tools, persist_media_tools, setup_media_tools, executable_version
 from mariana.toolchain import ToolchainError, ToolchainManager, find_javascript_runtime
 from mariana.user_state import load_user_data, write_user_data_atomic
 from mariana.version import __version__
+from mariana.cli_video import CliVideoError, CliVideoWindow
 from mariana.video import LocalVideo, VideoUnavailable, presentation_arguments
+from mariana.video_detection import model_path as detection_model_path, runtime_available as detection_runtime_available
+from mariana.video_filters import PRESETS as VIDEO_FILTERS
 from mariana.integrations.discord_presence import (
     DiscordPresenceFailureCode,
     DiscordPresencePublisher,
@@ -244,29 +301,28 @@ try:
     YT_query = importlib.import_module("beta.YT_query")
     _boot_progress(24, 'YouTube')
 except ImportError:
-    # raise
-    if not online_streaming_ext_load_error:
-        print("[INFO] Could not load online streaming extension...")
-    print("[INFO] ...Skipped 25/31")
+    _boot_notice("The online streaming extension could not be loaded.",
+                 "[INFO] Could not load online streaming extension..." if not online_streaming_ext_load_error else None,
+                 "[INFO] ...Skipped 25/31")
 
 try:
     from beta.IPrint import IPrint, blue_gradient_print, cols, loading
     _boot_progress(25, 'display')
 except ImportError:
     lyrics_ext_load_error = 1
-    print("[INFO] Could not load coloured print extension...")
-    print("[INFO] ...Skipped 26/31")
+    _boot_notice("The coloured print extension could not be loaded.",
+                 "[INFO] Could not load coloured print extension...", "[INFO] ...Skipped 26/31")
 
 try:
     from lyrics_provider import get_lyrics
     _boot_progress(26, 'lyrics')
 except ImportError:
-    print("[INFO] Could not load lyrics extension...")
-    if not lyrics_ext_load_error:
-        print("[INFO] ...Could not load online streaming extension...")
-    print("[INFO] ...Skipped 27/31")
+    _boot_notice("The lyrics extension could not be loaded.", "[INFO] Could not load lyrics extension...",
+                 "[INFO] ...Could not load online streaming extension..." if not lyrics_ext_load_error else None,
+                 "[INFO] ...Skipped 27/31")
 
-print("[INFO] Reddit/RPAN commands are retained as retired aliases")
+if not _START_IN_TUI:
+    print("[INFO] Reddit/RPAN commands are retained as retired aliases")
 
 from lyrics_provider.detect_song import get_song_info
 
@@ -290,11 +346,12 @@ try:
     from beta.podcasts import vendors as pod_vendors
     _boot_progress(30, 'podcasts')
 except Exception:
-    print("[INFO] Could not load podcast extension...")
-    print("[INFO] ...Skipped 31/31")
+    _boot_notice("The podcast extension could not be loaded.",
+                 "[INFO] Could not load podcast extension...", "[INFO] ...Skipped 31/31")
 
 _boot_progress(31, 'ready')
-print()
+if not _START_IN_TUI:
+    print()
 
 # IMPORTS END #
 
@@ -377,19 +434,25 @@ except OSError:
                 'Aborting program\n")
 
 
+def _startup_questions(title, action):
+    if not _START_IN_TUI:
+        return action()
+    from mariana.setup_terminal import run_setup
+    return run_setup(title, action, SETTINGS.get('appearance', {}))
+
+
 def first_startup_greet(is_first_boot):
     global FIRST_BOOT, SOFT_FATAL_ERROR_INFO
 
     if is_first_boot:
         try:
             import first_boot_setup
-            if SOFT_FATAL_ERROR_INFO := first_boot_setup.fbs(
-                about=SYSTEM_SETTINGS,
-                store=SETUP_STORE,
+            if SOFT_FATAL_ERROR_INFO := _startup_questions(
+                'Set up Mariana', lambda: first_boot_setup.fbs(about=SYSTEM_SETTINGS, store=SETUP_STORE)
             ):
                 SOFT_FATAL_ERROR_INFO = "User skipped startup"
             FIRST_BOOT = SETUP_STORE.load().status != 'complete'
-            refresh_runtime_configuration(show_report=True)
+            refresh_runtime_configuration(show_report=not _START_IN_TUI)
             reload_sounds(quick_load = False)
         except ImportError:
             sys.exit('[ERROR] Critical guide setup-file missing, please consider reinstalling this file or the entire program\nAborting Mariana Player. . .')
@@ -397,10 +460,10 @@ def first_startup_greet(is_first_boot):
 try:
     USER_DATA, invalid_user_data_backup = load_user_data(
         RUNTIME_PATHS.user_data,
-        RUNTIME_PATHS.resource('user', 'user_data.yml'),
+        RUNTIME_PATHS.resource('user', 'user_data.yml') if RUNTIME_PATHS.profile_id == 'default' else None,
     )
     if invalid_user_data_backup is not None:
-        print(
+        _boot_notice(
             '[WARNING] Recovered empty or invalid user statistics; '
             f'the previous file was retained at {invalid_user_data_backup}'
         )
@@ -567,6 +630,7 @@ AUTOPLAY_ENABLED = bool(SETTINGS.get('playback', {}).get('autoplay', True))
 TOOLCHAIN = ToolchainManager(RUNTIME_PATHS)
 DATABASE = MarianaDatabase(RUNTIME_PATHS.database)
 DATABASE.migrate_legacy_play_counts(RUNTIME_PATHS.user_data)
+KARAOKE = KaraokeSession(DATABASE)
 PLAYBACK_EVENT_SETTINGS = _configured_playback_events(SETTINGS)
 PLAYBACK_EVENTS = LocalPlaybackEvents(
     DATABASE,
@@ -771,6 +835,7 @@ vas.controller.add_identification_sink(
 )
 vas.controller.add_active_media_sink(ADHOC_IDENTIFICATION.active_media_changed)
 get_lyrics.configure(IDENTITY, vas.controller)
+FX = EffectStudio(lambda: vas.controller, lambda: _video_executable('ffmpeg'), RUNTIME_PATHS.state('fx', 'presets'))
 EQUALIZER = EqualizerService(lambda: vas.controller.equalizer, SETTINGS.get('equalizer'), _persist_equalizer_configuration)
 DESKTOP_CONTROL = DesktopControl()
 TIMED_LYRICS = LyricsPresentationService(
@@ -811,11 +876,37 @@ PLAYBACK_RESUME = PlaybackResumeTracker(
     lambda: vas.controller.snapshot(),
     lambda payload: DESKTOP_CONTROL.emit('resume-offer', payload),
 )
+_VIDEO_WINDOW_LOCK = threading.RLock()
+
+
+def _cli_video_allowed():
+    return visible and not _SESSION_REPLAY_ACTIVE.is_set() and FOCUS_MODE.allows_command(['video', 'open'])
+
+
+def _cli_picture_closed():
+    # A previous window's exit notification can arrive after a reopen.
+    with _VIDEO_WINDOW_LOCK:
+        if not CLI_VIDEO.is_open and not DESKTOP_CONTROL.enabled:
+            try:
+                VIDEO.request('audio')
+            except VideoUnavailable:
+                pass  # The presentation service can finish shutting down first.
+
+
+def _video_executable(name):
+    return find_executable(name, MEDIA_TOOLS.get('ffmpeg bin'))
+
+
+CLI_VIDEO = CliVideoWindow(
+    video_status=lambda: VIDEO.host_status(), cache=RUNTIME_PATHS.state('cache', 'video'),
+    ffmpeg=lambda: _video_executable('ffmpeg'), on_close=_cli_picture_closed, allowed=_cli_video_allowed,
+)
 VIDEO = LocalVideo(
     RUNTIME_PATHS.state('cache', 'video'), lambda: vas.controller.snapshot(),
     _publish_video_state,
     resolve_video=lambda media, resolved: vas.controller.resolvers.resolve_video(media, resolved),
-    enabled=lambda: DESKTOP_CONTROL.enabled,
+    enabled=lambda: DESKTOP_CONTROL.enabled or CLI_VIDEO.is_open,
+    executable=_video_executable,
     youtube_cache_settings=SETTINGS.get('youtube video cache') if isinstance(SETTINGS.get('youtube video cache'), dict) else None,
     caption_preferences=CaptionPreferences(SETTINGS.get('captions'), _persist_caption_configuration),
 )
@@ -834,7 +925,20 @@ def _connect_video_controller() -> None:
 
     def video_changed(media, resolved):
         if vas.controller is controller and _PRESENTATION_OBSERVER_GENERATION is generation:
-            VIDEO.activate(media, resolved)
+            mode = VIDEO.activate(media, resolved)
+            if media is None or not _cli_video_allowed():
+                return
+            if DESKTOP_CONTROL.enabled:
+                if mode == 'video' or (mode == 'auto' and VIDEO.auto_open_local(media)):
+                    DESKTOP_CONTROL.emit('video-window', {'open': True})
+                elif mode == 'audio':
+                    DESKTOP_CONTROL.emit('video-window', {'open': False})
+            elif (not CLI_VIDEO.is_open and (sys.platform != 'linux' or os.environ.get('DISPLAY'))
+                    and VIDEO.auto_open_local(media)):
+                threading.Thread(
+                    target=_open_default_local_picture, args=(controller, media, generation),
+                    name='mariana-auto-picture', daemon=True,
+                ).start()
 
     def resume_changed(media, resolved):
         if vas.controller is controller and _PRESENTATION_OBSERVER_GENERATION is generation:
@@ -844,6 +948,27 @@ def _connect_video_controller() -> None:
         controller.add_active_media_sink(video_changed),
         controller.add_active_media_sink(resume_changed),
     ))
+
+
+def _open_default_local_picture(controller, media, generation):
+    """Open the picture off the playback thread after confirming the selected video."""
+    def current():
+        return (vas.controller is controller and _PRESENTATION_OBSERVER_GENERATION is generation
+                and controller.snapshot().media is media and VIDEO.auto_open_local(media))
+
+    with _VIDEO_WINDOW_LOCK:
+        if not current() or not _cli_video_allowed() or DESKTOP_CONTROL.enabled:
+            return
+        was_open = CLI_VIDEO.is_open
+        try:
+            CLI_VIDEO.open()
+            if current():
+                VIDEO.request('auto', expected_media=media)
+            elif not was_open:
+                CLI_VIDEO.close()
+        except (CliVideoError, VideoUnavailable, PlaybackError, OSError):
+            # The audio session is still valid. video status reports window startup errors.
+            return
 
 
 def _disconnect_video_controller() -> None:
@@ -980,7 +1105,7 @@ RUNTIME_REPORT = check_runtime(
     MEDIA_TOOLS.get('fpcalc bin'),
     MEDIA_TOOLS.get('rsgain bin'),
 )
-if not FIRST_BOOT:
+if not FIRST_BOOT and not _START_IN_TUI:
     for runtime_message in format_runtime_report(RUNTIME_REPORT):
         print(f"[{runtime_message}]")
 if RUNTIME_REPORT.errors and not FIRST_BOOT:
@@ -1082,7 +1207,9 @@ def refresh_runtime_configuration(*, show_report=False):
     )
     PLAYBACK_EVENTS.configure(**_configured_playback_events(SETTINGS))
     if equalizer_service := globals().get('EQUALIZER'):
-        vas.controller.equalizer.submit(vas.controller.equalizer.prepare(equalizer_service.settings))
+        equalizer_service.restore_processor()
+    if fx_service := globals().get('FX'):
+        fx_service.restore_processor()
     _connect_video_controller()
     if artwork_service := globals().get('ARTWORK'):
         artwork_service.clear()
@@ -1121,31 +1248,49 @@ def ensure_managed_tool_migration():
         return status
     if marker == bundle or os.environ.get('MARIANA_E2E') == '1':
         return status
-    print('\nMariana can install the missing verified media tools now (FFmpeg, fpcalc, rsgain, and Deno).')
-    answer = input('Automatically download and configure them? [Y/n]: ').strip().casefold()
-    while answer not in {'', 'y', 'yes', 'n', 'no'}:
-        answer = input('Please enter Y or N [Y]: ').strip().casefold()
-    if answer in {'n', 'no'}:
-        DATABASE.set_state('managed_tool_prompt_version', bundle)
-        IPrint("Skipped for this version; run 'tools setup' whenever you are ready.", visible=visible)
-        return status
-    try:
-        TOOLCHAIN.install_recommended(progress=lambda message: IPrint(message, visible=visible))
-        status = discover_media_tools(SETTINGS)
-        if not status.complete or not find_javascript_runtime():
-            raise ToolchainError('one or more installed executables failed validation')
-        persist_media_tools(status, SETTINGS, paths=RUNTIME_PATHS)
-        DATABASE.set_state('managed_tool_prompt_version', bundle)
-        refresh_runtime_configuration(show_report=True)
-        IPrint('Managed media tools are ready.', visible=visible)
-        return status
-    except (ToolchainError, OSError) as error:
+
+    def installation_error(error):
         IPrint(
             f'Managed tool installation failed: {error}. It will be offered again; '
             "use 'tools setup' for manual paths.",
-            visible=visible,
+            visible=visible or _START_IN_TUI,
         )
-        return status
+        if _START_IN_TUI:
+            input('Press Enter to continue. ')
+
+    def offer():
+        print('\nMariana can install the missing verified media tools now (FFmpeg, fpcalc, rsgain, and Deno).')
+        answer = input('Automatically download and configure them? [Y/n]: ').strip().casefold()
+        while answer not in {'', 'y', 'yes', 'n', 'no'}:
+            answer = input('Please enter Y or N [Y]: ').strip().casefold()
+        if answer in {'n', 'no'}:
+            DATABASE.set_state('managed_tool_prompt_version', bundle)
+            IPrint("Skipped for this version; run 'tools setup' whenever you are ready.", visible=visible)
+            return status, False
+        try:
+            configured = install_setup_tools(TOOLCHAIN, status, javascript, SETTINGS,
+                                             progress=lambda message: IPrint(message, visible=visible))
+            updated = discover_media_tools(configured)
+            if not updated.complete or not find_javascript_runtime(configured.get('media tools', {}).get('javascript bin')):
+                raise ToolchainError('one or more installed executables failed validation')
+            persist_media_tools(updated, configured, paths=RUNTIME_PATHS)
+            return updated, True
+        except (ToolchainError, OSError) as error:
+            installation_error(error)
+            return status, False
+
+    status, installed = _startup_questions('Set up media tools', offer)
+    if installed:
+        try:
+            refresh_runtime_configuration(show_report=not _START_IN_TUI)
+            DATABASE.set_state('managed_tool_prompt_version', bundle)
+        except (ToolchainError, OSError) as error:
+            _startup_questions('Set up media tools', lambda: installation_error(error))
+        else:
+            if not _START_IN_TUI:
+                IPrint('Managed media tools are ready.', visible=visible)
+    return status
+
 vas.controller.loudness_repository = LIBRARY.loudness
 LIBRARY_SERVICE = LibraryProfilerService(
     LIBRARY,
@@ -3383,6 +3528,37 @@ def _librivox_help():
     )
 
 
+_podbean_shelf = None
+
+
+def _use_podbean_episode(media, play_now):
+    items = QUEUE.items()
+    position = next((i for i, item in enumerate(items) if item.media.stable_id == media.stable_id
+                     and item.media.original_uri == media.original_uri), None)
+    if position is None:
+        item = QUEUE.add(media)
+        RECOMMENDER.record_event(media, 'manual_queue', candidate=Candidate(media))
+        position = next(i for i, queued in enumerate(QUEUE.items()) if queued.queue_id == item.queue_id)
+    if play_now:
+        selected = QUEUE.jump(position)
+        snapshot = vas.controller.snapshot()
+        active = snapshot.media and snapshot.media.stable_id == media.stable_id
+        if active and snapshot.state == PlaybackState.PAUSED:
+            vas.controller.resume(origin='cli')
+            _set_current_media_state(media)
+        elif not active or snapshot.state not in {PlaybackState.PLAYING, PlaybackState.CROSSFADING}:
+            _play_queue_item(selected)
+    _emit_queue_desktop_state()
+
+
+def podbean_command(arguments):
+    global _podbean_shelf
+    from mariana.podbean import PodbeanShelf
+    if _podbean_shelf is None:
+        _podbean_shelf = PodbeanShelf(DATABASE)
+    IPrint(_podbean_shelf.command(arguments, _use_podbean_episode), visible=visible)
+
+
 def librivox_command(arguments):
     """Browse and play the official LibriVox public-domain audiobook catalog."""
     operation = arguments[0].casefold() if arguments else 'help'
@@ -4439,6 +4615,71 @@ def recommendation_command(arguments):
         raise QueueError(f'Unknown recommendation operation: {operation}')
 
 
+def similarity_command(arguments):
+    from mariana.media_similarity import find_similar, scan_library
+    from mariana.terminal_io import current_session
+
+    usage = (
+        'similar [current|<library index>] [--mode hybrid|audio|tags|fingerprint] [--limit 1–50]\n'
+        'similar scan [current|<library index>] [--limit 1–50] [--retry]'
+    )
+    if arguments in (['help'], ['--help']):
+        IPrint(usage, visible=visible)
+        return
+
+    def local_id(target):
+        if target.casefold() == 'current':
+            media = _preference_media(vas.controller.snapshot().media)
+        elif target.isascii() and target.isdecimal():
+            media = _library_media(int(target))
+        else:
+            raise ValueError(usage)
+        if media is None or media.source != MediaSource.LOCAL:
+            raise ValueError('Start an indexed local item or enter its library number.')
+        return media.stable_id
+
+    limit_value, args = _command_option(arguments, '--limit')
+    if args and args[0].casefold() == 'scan':
+        retry, args = _command_flag(args[1:], '--retry')
+        if len(args) > 1:
+            raise ValueError(usage)
+        host = current_session()
+        result = scan_library(
+            DATABASE,
+            find_executable('ffmpeg', MEDIA_TOOLS.get('ffmpeg bin')),
+            int(limit_value) if limit_value is not None else 12,
+            library_id=local_id(args[0]) if args else None,
+            retry=retry,
+            cancelled=host.cancelled.is_set if host else lambda: False,
+        )
+        continuation = ' Use similar scan again to continue.' if result.stopped else ''
+        IPrint(
+            f'Acoustic profiles: {result.analyzed} ready, {result.unavailable} unavailable.'
+            f'{continuation}',
+            visible=visible,
+        )
+        return
+
+    mode, args = _command_option(args, '--mode')
+    if len(args) > 1:
+        raise ValueError(usage)
+    reference, results = find_similar(
+        DATABASE, local_id(args[0] if args else 'current'), mode.casefold() if mode else 'hybrid',
+        int(limit_value) if limit_value is not None else 10,
+    )
+    if not results:
+        IPrint(f'No similar local items found for {reference.title}.', visible=visible)
+        return
+    IPrint(
+        tbl(
+            [(_library_song_index(item.track.path), item.track.title, item.track.metadata.get('artist') or '',
+              f'{item.score:.2f}', ', '.join(item.reasons)) for item in results],
+            headers=('Library #', 'Track', 'Artist', 'Score', 'Why'), tablefmt='plain',
+        ),
+        visible=visible,
+    )
+
+
 def _station_seed(value):
     if value in {None, '', 'current'}:
         media = _preference_media(vas.controller.snapshot().media)
@@ -4484,6 +4725,10 @@ def _station_rows(count=10):
 
 
 def _wait_for_station_initial(timeout=5.0):
+    from mariana.terminal_io import current_session
+
+    host = current_session()
+    last_message = None
     frames = ('|', '/', '-', '\\')
     deadline = time.monotonic() + timeout
     index = 0
@@ -4491,11 +4736,19 @@ def _wait_for_station_initial(timeout=5.0):
         session = STATION.session()
         if not session or session.state.value != 'loading':
             break
-        if visible:
-            print(f'\r{frames[index % len(frames)]} Station: {session.progress_message or "loading"}', end='', flush=True)
-        index += 1
-        time.sleep(0.1)
-    if visible:
+        message = session.progress_message or "loading"
+        if host is not None:
+            if visible and message != last_message:
+                IPrint(f'Station: {message}', visible=True)
+                last_message = message
+            if host.cancelled.wait(0.1):
+                raise KeyboardInterrupt
+        else:
+            if visible:
+                print(f'\r{frames[index % len(frames)]} Station: {message}', end='', flush=True)
+            index += 1
+            time.sleep(0.1)
+    if visible and host is None:
         print('\r' + (' ' * 80) + '\r', end='', flush=True)
     return STATION.wait_initial(0)
 
@@ -4614,6 +4867,8 @@ def preference_command(arguments, state):
             PREFERENCES.set_blocked(media, blocked)
         else:
             raise ValueError('Usage: bl [!|+|-]')
+        if blocked and operation in {'!', '+'}:
+            _remove_blocked_dj_source(media)
         current = PreferenceState.BLOCKED if blocked else PreferenceState.NEUTRAL
         IPrint(f'Preference: {current.value}', visible=visible)
         return current
@@ -4670,6 +4925,8 @@ def block_command(arguments, *, unblock=False):
         raise ValueError(f'Usage: {usage}')
     blocked = not unblock
     changed = PREFERENCES.set_blocked(media, blocked)
+    if blocked:
+        _remove_blocked_dj_source(media)
     label = sanitize_presence_text(media.title)
     if not label and media.source == MediaSource.LOCAL:
         label = sanitize_presence_text(media.resolver_data.get('library_display_title'))
@@ -5391,8 +5648,33 @@ def advanced_search_command(tokens):
     return results
 
 
-def edit_current_lyrics(*, assume_yes=False):
+def _restore_cli_editor():
     global DEFAULT_EDITOR
+    from mariana.terminal_io import current_session
+
+    if not DEFAULT_EDITOR and current_session() is None:
+        restore_default.restore('editor path', SETTINGS)
+        DEFAULT_EDITOR = SETTINGS.get('editor path')
+
+
+def _open_text_document(path, title, *, read_only=False):
+    from mariana.terminal_io import current_session
+
+    if current_session() is not None:
+        from mariana.terminal_text import open_text_file
+
+        try:
+            open_text_file(path, title=title, read_only=read_only)
+        except (OSError, ValueError, OutputTargetError) as error:
+            IPrint(f'Could not open {title}: {error}', visible=visible)
+        return
+    if DEFAULT_EDITOR:
+        sp.Popen([DEFAULT_EDITOR, str(path)], shell=False)
+    else:
+        open_path(path)
+
+
+def edit_current_lyrics(*, assume_yes=False):
     media = _preference_media(vas.controller.snapshot().media)
     if not media or media.source != MediaSource.LOCAL:
         raise ValueError('Lyrics can be edited only for a currently loaded local file')
@@ -5428,10 +5710,7 @@ def edit_current_lyrics(*, assume_yes=False):
                 raise ValueError(str(error)) from error
         finally:
             temporary.unlink(missing_ok=True)
-    if DEFAULT_EDITOR:
-        sp.Popen([DEFAULT_EDITOR, str(sidecar)], shell=False)
-    else:
-        open_path(sidecar)
+    _open_text_document(sidecar, 'Lyrics sidecar')
     return sidecar
 
 
@@ -5466,12 +5745,13 @@ def recycle_library_media(arguments):
 
 
 HELP_GROUPS = (
-    ('Getting started', 'help <topic>, all, ls, <number>, now, progress'),
+    ('Getting started', 'help <topic>, tui, web session, all, ls, <number>, now, progress'),
     ('Playback', 'play <number>, pause, stop, next, prev, mute, volume, autonext, loop status/once/infinite/off, reset, .reset, restart'),
     ('Seek and fade', 'seek <time>, fade in/out, fade to <volume>, fade from <v1> to <v2>'),
     ('Video and captions', 'play <number|path|current> --audio|--video|--auto, captions status/tracks/select/auto/language/load/replace/on/off/clear/offset/shift, avsync status/set/shift/reset, chapters list/current/show/find/goto/next/prev/first/last/restart/help'),
     ('Queue', 'queue list/tree/add/insert/remove/move/jump/order/repeat/reset, queue ys|youtube'),
     ('Search and online sources', 'find/rfind/lfind, /ys, /yl, /ml, album, station, pod/pods, /rss'),
+    ('Music wall', 'wall profile/add/review/take/feed/matches/quiz; fanroom help for live artist rooms'),
     ('Downloads', 'dl [y|yes|--yes], download-yv|dl-yv, download-ya|dl-ya, download-ml|dl-ml'),
     (
         'Library',
@@ -5479,13 +5759,16 @@ HELP_GROUPS = (
     ),
     ('Playlists', 'playlist list/create/show/add/remove/move/order/play/queue/import/export; transfer copy/move'),
     ('Tags', 'tag help/list/create/attach/detach/show/rename/delete/find/play/queue/group'),
-    ('Composition', 'strudel open/list/new/show/play/delete'),
+    ('Sound design', 'fx presets/preset/set/save/load/mic/tempo/plugin/off, soundbank list/play/export/export-all, speed <rate>'),
+    ('Listener profiles', 'profile list/current/create/use/rename, accounts setup'),
+    ('Composition', 'dj help/load/play/crossfade/record/share, strudel open/list/new/show/export/import/play/delete, tone help/sine/triangle/square/sawtooth/harmony/sweep/procedure/voices/synth/sfx/keys'),
     ('Session recipes', 'session record/list/status/stop/inspect/play/seek; verified sources and two-source crossfades'),
     ('Paired desktops', 'room status/host/stop/invite/requests/approve/reject/devices/revoke/connect/poll/now/cancel/disconnect'),
     ('Lyrics', 'lyrics|lyr, lyrics edit|lyr edit, open lyrics'),
+    ('Artists', 'artist discover/emerging/search/follow/unfollow/list/releases/tracks/news/refresh/inbox/read'),
     ('Radio', 'radio search/list/play/add/info/metadata/resync/health/leveling'),
     ('Discord Presence', 'discord presence off/app/track/session/status/refresh'),
-    ('Settings', 'theme, desktop close, autoplay|autonext, sleep, youtube auth, replaygain, output device, eq status/on/off/band/preamp/reset/preset, hotspots status/enable/disable/retention/logging/clear/current'),
+    ('Settings', 'theme, desktop open/close, autoplay|autonext, sleep, youtube auth, replaygain, output device, eq status/on/off/band/preamp/reset/preset, hotspots status/enable/disable/retention/logging/clear/current'),
     (
         'Diagnostics',
         'now, progress, media info/probe/fingerprint/identify/local-match, tools/setup/library status, check_dev',
@@ -5497,10 +5780,14 @@ HELP_GROUPS = (
 )
 
 HELP_EXAMPLES = {
-    'Getting started': ('all', '1', 'now', 'help playback'),
+    'Sound design': ('fx preset choir', 'soundbank play glass-opal 330', 'speed 0.8'),
+    'Listener profiles': ('profile list', 'accounts setup karaoke'),
+    'Getting started': ('all', '1', 'now', 'help playback', 'web session'),
     'Playback': ('play 4', 'p', '+', 'autonext on', 'loop once', 'reset', '.reset', 'restart'),
     'Session recipes': ('session record evening', 'session stop', 'session inspect evening',
                         'session play evening', 'session seek 01:30'),
+    'Music wall': ('wall help', 'wall add track "Artist" "Title"', 'fanroom help'),
+    'Artists': ('artist discover indie', 'artist search "Suggahunny"', 'artist refresh', 'artist inbox'),
     'Paired desktops': ('room status', 'room host 192.168.1.10 8765', 'room invite "desktop-invitation.json"',
                        'room requests', 'room devices', 'room stop'),
     'Seek and fade': ('seek +30s', 'seek 50%', 'fade out 10', 'fade from 20 to 80 in 6'),
@@ -5518,16 +5805,20 @@ HELP_EXAMPLES = {
         'tag help', 'tag attach current "Late night"', 'tag find --all ambient --not live',
         'tag play 1', 'tag queue 2', 'tag group create Mood',
     ),
-    'Composition': ('strudel open', 'strudel new "Night pattern"', 'strudel list', 'strudel play "Night pattern"'),
+    'Composition': ('dj status', 'dj crossfade 100 4', 'strudel open', 'strudel new "Night pattern"', 'strudel list', 'strudel play "Night pattern"'),
     'Lyrics': ('lyrics', 'lyrics edit', 'open lyrics'),
     'Radio': ('radio search jazz', 'radio list', 'radio play 1', 'radio metadata'),
     'Discord Presence': ('discord presence status', 'discord presence track', 'discord presence off'),
-    'Settings': ('theme list', 'desktop close status', 'autonext status', 'sleep 30m pause fade 5m', 'eq band 1khz 3', 'eq preset save "Quiet listening"'),
+    'Settings': ('theme list', 'desktop close status', 'autonext status', 'sleep 30m pause fade 5m', 'eq band 1khz 3', 'eq deesser gentle', 'eq preset save "Quiet listening"'),
     'Diagnostics': ('now', 'tools status', 'library verify', 'media probe current', 'media local-match current'),
     'Dangerous/destructive commands': ('rm 4', 'playlist delete "Road trip" --yes', 'exit y'),
 }
 
 HELP_TOPIC_ALIASES = {
+    'wall': 'Music wall',
+    'jam': 'Music wall',
+    'fanroom': 'Music wall',
+    'artist': 'Artists',
     'tag': 'Tags',
     'transfer': 'Playlists',
     'online': 'Search and online sources',
@@ -5767,6 +6058,7 @@ def eq_command(arguments):
     DESKTOP_CONTROL.emit('equalizer', status)
     IPrint(f'Equalizer: {"enabled" if status["enabled"] else "bypassed"}; '
            f'preamp {status["preamp"]:+g} dB; local output only', visible=visible)
+    IPrint(f'Podcasts and audiobooks · soften S sounds: {status["deesser"]}', visible=visible)
     IPrint(tbl(zip(status['frequencies'], status['bands']), headers=('Hz', 'dB')), visible=visible)
     IPrint(f'Conservative preamp suggestion: {status["recommended_preamp"]:g} dB (not automatic); '
            f'overload blocks since reset: {status["overload_blocks"]}', visible=visible)
@@ -5968,9 +6260,131 @@ def restart_command(arguments):
     return target
 
 
+_DJ_SESSION = None
+
+
+def _close_dj():
+    if _DJ_SESSION is not None:
+        return _DJ_SESSION.close()
+
+
+def _remove_blocked_dj_source(media):
+    if _DJ_SESSION is not None and media.source == MediaSource.LOCAL:
+        _DJ_SESSION.unload_source(media.original_uri)
+
+
+def dj_command(arguments):
+    global _DJ_SESSION
+    from mariana.dj import DJSession
+
+    if _DJ_SESSION is None:
+        _DJ_SESSION = DJSession(RUNTIME_PATHS.state('dj-recordings'))
+    if len(arguments) >= 3 and arguments[0].lower() == 'load':
+        _DJ_SESSION.ffmpeg = MEDIA_TOOLS.get('ffmpeg bin')
+        target = ' '.join(arguments[2:])
+        try:
+            media = vas.controller.snapshot().media if target.casefold() == 'current' else _media_from_argument(target)
+        except QueueError as error:
+            raise ValueError(str(error)) from error
+        if media is None or media.source != MediaSource.LOCAL:
+            raise ValueError('Choose a local audio file, loaded local track or local library index.')
+        _ensure_media_playable(media)
+        arguments = [*arguments[:2], media.original_uri]
+    result = _DJ_SESSION.command(arguments)
+    IPrint(result, visible=visible)
+    return result
+
+
+CLIPS = ClipSession()
+SPEECH = SpeechCapture(RUNTIME_PATHS.state('speech'))
+
+
+def speech_command(arguments):
+    if arguments and arguments[0].casefold() == 'transcribe':
+        from mariana.terminal_io import current_session
+        from mariana.transcription import parse_request, transcribe
+
+        request = parse_request(arguments[1:])
+        if request.send_audio and _WEB_SESSION_GATE.locked():
+            raise ValueError('Run Deepgram transcription directly in Mariana to consent to sending audio.')
+        snapshot = vas.controller.snapshot()
+        media = snapshot.media
+        if not media or media.source != MediaSource.LOCAL or media.capabilities.live:
+            raise ValueError('Load a local audio or video recording first.')
+        _ensure_media_playable(media)
+        session = current_session()
+        cancelled = session.cancelled.is_set if session is not None else lambda: False
+        path, draft = transcribe(
+            media.original_uri, request, ffmpeg=MEDIA_TOOLS.get('ffmpeg bin'),
+            temporary=RUNTIME_PATHS.temporary, cancelled=cancelled,
+        )
+        languages = ', '.join(draft['languages']) or 'unknown language'
+        message = f'Transcript draft saved to {path} · {languages} · {len(draft["segments"])} cues · Review required.'
+        IPrint(message, visible=visible)
+        return message
+    if [v.casefold() for v in arguments] == ['live']:
+        from mariana.terminal_io import current_session
+
+        if not visible or (current_session() is None and not sys.stdin.isatty()) or _WEB_SESSION_GATE.locked():
+            raise ValueError('Use speech text here. Open speech live in the interactive terminal.')
+        return show_live(SPEECH.take, SETTINGS.get('appearance', {}))
+    message = SPEECH.command(arguments)
+    IPrint(message, visible=visible)
+    return message
+
+
+def _open_social_composer(snapshot):
+    from urllib.parse import quote
+    page = RUNTIME_PATHS.resources / 'web/player/share-link.html'
+    if not page.is_file():
+        page = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent)) / 'web/player/share-link.html'
+    if not page.is_file():
+        raise ValueError('The public link composer is missing from this installation.')
+    try:
+        url = CLIPS.link(snapshot)
+    except ValueError:
+        url = ''
+    location = page.resolve().as_uri() + ('#' + quote(url, safe='') if url else '')
+    if not webbrowser.open(location):
+        raise ValueError('Could not open the sharing page in your default browser.')
+    return 'Public link composer opened in your browser.'
+
+
+def clip_command(arguments):
+    snapshot = vas.controller.snapshot()
+    if snapshot.media and _is_media_blocked(snapshot.media) and arguments[:1] not in (['help'], ['?']):
+        raise ValueError('Clipping is disabled for blocked media.')
+    if [arg.casefold() for arg in arguments] == ['social']:
+        result = _open_social_composer(snapshot)
+        IPrint(result, visible=visible)
+        return result
+    result = CLIPS.command(arguments, snapshot, RUNTIME_PATHS.state('clips'), MEDIA_TOOLS.get('ffmpeg bin'))
+    IPrint(result, visible=visible)
+    return result
+
+
 def help_command(arguments):
     """Display the command map, optionally narrowed to one documented category."""
     topic = ' '.join(arguments).casefold().strip() if arguments else None
+    if topic == 'fx':
+        return IPrint(FX.command(['help']), visible=visible)
+    if topic == 'soundbank':
+        return soundbank_command(['help'])
+    if topic == 'profile':
+        return profile_command(['help'])
+    if topic == 'accounts':
+        return accounts_command(['help'])
+    if topic == 'artist':
+        artist_command(['help'])
+        return tuple(row for row in HELP_GROUPS if row[0] == 'Artists')
+    if topic == 'tone':
+        return tone_command(['help'])
+    if topic == 'speech':
+        return speech_command(['help'])
+    if topic == 'dj':
+        return dj_command(['help'])
+    if topic == 'clip':
+        return clip_command(['help'])
     if topic == 'region':
         return region_command(['help'])
     rows = HELP_GROUPS
@@ -5987,6 +6401,89 @@ def help_command(arguments):
             IPrint(f'Examples: {examples}', visible=visible)
     IPrint("Use 'help <topic>' to narrow this list; help.md and README.md document every command family.", visible=visible)
     return rows
+
+
+_TONE_SESSION = None
+
+
+def soundbank_command(arguments):
+    from mariana import wavetables
+    global _TONE_SESSION
+    action, *values = arguments or ['help']
+    if action == 'help' and not values:
+        result = wavetables.HELP
+    elif action == 'list' and len(values) <= 1:
+        result = ' · '.join(wavetables.names(*values))
+    elif action == 'export-all' and len(values) == 1:
+        destination = Path(values[0]).expanduser()
+        wavetables.export_bank(destination)
+        result = f'Saved 64 wavetables to {destination}'
+    elif action == 'export' and len(values) == 2:
+        data = wavetables.table_wav(values[0])
+        destination = Path(values[1]).expanduser()
+        with destination.open('xb') as output:
+            output.write(data)
+        result = f'Saved {values[0]} to {destination}'
+    elif action == 'play' and 1 <= len(values) <= 2:
+        table = values[0]
+        hz = float(values[1]) if len(values) == 2 else 220.0
+        data = wavetables.preview_wav(table, hz)
+        if _TONE_SESSION is None:
+            _TONE_SESSION = tempfile.TemporaryDirectory(prefix='tones-', dir=RUNTIME_PATHS.temporary,
+                                                       ignore_cleanup_errors=True)
+        with tempfile.NamedTemporaryFile(dir=_TONE_SESSION.name, suffix='.wav', delete=False) as out:
+            out.write(data)
+            path = out.name
+        media = MediaRef(MediaSource.LOCAL, path, title=f'{table} · {hz:g} Hz', duration=2.0,
+                         provenance='tone-generator', capabilities=MediaCapabilities(
+                             finite=True, live=False, seekable=True, fingerprintable=False,
+                             downloadable=False, metadata_available=True))
+        play_local_default_player(path, _songindex=None, media=media, ephemeral=True)
+        return media
+    else:
+        raise ValueError(wavetables.HELP)
+    IPrint(result, visible=visible)
+    return result
+
+
+def tone_command(arguments):
+    """Render a local preview and play it through Mariana's existing transport."""
+    global _TONE_SESSION
+    if not arguments or (len(arguments) == 1 and arguments[0].casefold() in {'help', '--help', '-h'}):
+        IPrint(TONE_HELP, visible=visible)
+        return None
+    family = arguments[0].casefold()
+    if family == 'keys':
+        if len(arguments) > 2:
+            raise ValueError('Usage: tone keys [voice]')
+        device = vas.controller.active_output_device
+        message = tone_keys.open_keys(arguments[1] if len(arguments) == 2 else 'felt-keys',
+                                      getattr(device, 'index', None))
+        IPrint(message, visible=visible)
+        return message
+    if family in tone_procedures.FAMILIES:
+        tone = tone_procedures.command(arguments, RUNTIME_PATHS.state('tone-procedures.sqlite3'))
+        if isinstance(tone, str):
+            IPrint(tone, visible=visible)
+            return tone
+    else:
+        tone = parse_tone(arguments)
+    if _TONE_SESSION is None:
+        _TONE_SESSION = tempfile.TemporaryDirectory(
+            prefix='tones-', dir=RUNTIME_PATHS.temporary, ignore_cleanup_errors=True,
+        )
+    path = render_tone(tone, Path(_TONE_SESSION.name))
+    media = MediaRef(
+        MediaSource.LOCAL, str(path), title=tone.title, duration=tone.seconds,
+        provenance='tone-generator',
+        capabilities=MediaCapabilities(
+            finite=True, live=False, seekable=True, fingerprintable=False,
+            downloadable=False, metadata_available=True,
+        ),
+    )
+    IPrint(f'{tone.title} ({tone.seconds:g} s, {tone.level:g}%)', visible=visible)
+    play_local_default_player(str(path), _songindex=None, media=media, ephemeral=True)
+    return media
 
 
 def _emit_strudel_projects(*, open_requested=False, selected_id=None):
@@ -6019,7 +6516,7 @@ def _emit_startup_strudel_projects():
 
 
 def strudel_command(arguments):
-    """Manage local composition projects; editing and rendering stay in the desktop surface."""
+    """Manage local composition projects and request previews from the desktop renderer."""
     operation = arguments[0].casefold() if arguments else 'open'
     if (operation in {'open', 'editor'} and len(arguments) == 1) or not arguments:
         if not getattr(DESKTOP_CONTROL, 'enabled', False):
@@ -6043,6 +6540,25 @@ def strudel_command(arguments):
         project = STRUDEL_PROJECTS.create(' '.join(arguments[1:]))
         _emit_strudel_projects(open_requested=bool(getattr(DESKTOP_CONTROL, 'enabled', False)), selected_id=project.project_id)
         IPrint(f'Created Strudel project: {project.name} ({project.project_id[:8]})', visible=visible)
+        return project
+    if operation == 'render' and len(arguments) == 3:
+        project = STRUDEL_PROJECTS.get(arguments[1])
+        render_portable(project, Path(arguments[2]).expanduser())
+        IPrint(f'Rendered {project.name} revision {project.revision} to {arguments[2]}.', visible=visible)
+        return project
+    if operation == 'export' and len(arguments) == 3:
+        project = STRUDEL_PROJECTS.export_source(arguments[1], Path(arguments[2]).expanduser())
+        IPrint(f'Exported {project.name} revision {project.revision} to {arguments[2]}.', visible=visible)
+        return project
+    if operation == 'import' and len(arguments) in (4, 5):
+        try:
+            revision = int(arguments[2])
+            preview = int(arguments[4]) if len(arguments) == 5 else None
+        except ValueError as error:
+            raise StrudelProjectError('Revision and preview seconds must be whole numbers') from error
+        project = STRUDEL_PROJECTS.import_source(arguments[1], revision, Path(arguments[3]).expanduser(), preview)
+        _emit_strudel_projects(selected_id=project.project_id)
+        IPrint(f'Saved {project.name} revision {project.revision} ({project.preview_seconds}s preview).', visible=visible)
         return project
     if operation in {'show', 'play'} and len(arguments) >= 2:
         project = STRUDEL_PROJECTS.get(' '.join(arguments[1:]))
@@ -6072,7 +6588,8 @@ def strudel_command(arguments):
         IPrint(f'Deleted Strudel project: {deleted.name}', visible=visible)
         return deleted
     raise StrudelProjectError(
-        'Usage: strudel [open|list|new <name>|show <id-or-name>|play <id-or-name>|delete <id-or-name> [--yes]]'
+        'Usage: strudel open|list|new <name>|show <project>|export <project> <file>|'
+        'import <project> <revision> <file> [preview-seconds]|render <project> <new.wav>|play <project>|delete <project> [--yes]'
     )
 
 
@@ -6342,6 +6859,7 @@ def focus_command(arguments):
             provenance='focus-mode',
         )
         try:
+            _close_dj()
             play_vas_media(media_url, media_type='video', media_ref=media)
         except Exception:
             FOCUS_MODE.rollback_activation(activation)
@@ -6463,6 +6981,26 @@ def _persist_homepage_configuration(
         return projection
 
 
+def profile_command(arguments):
+    from mariana.listener_profiles import ListenerProfiles
+    registry = ListenerProfiles(RUNTIME_PATHS.profile_root or RUNTIME_PATHS.data)
+    IPrint(registry.command(arguments, RUNTIME_PATHS.profile_id), visible=visible)
+
+
+def accounts_command(arguments):
+    if arguments[:1] == ['setup']:
+        from mariana.connection_setup import setup
+        IPrint(setup(arguments[1:], DATABASE, process), visible=visible)
+        return
+    from mariana.connections import command
+    IPrint(command(arguments, DATABASE), visible=visible)
+
+
+def artist_command(arguments):
+    for line in run_artist_command(arguments, DATABASE, IDENTITY.musicbrainz):
+        IPrint(line, visible=visible)
+
+
 def _print_homepage(projection):
     state = projection['state']
     IPrint(
@@ -6501,6 +7039,24 @@ def home_command(arguments):
         DESKTOP_CONTROL.emit('homepage', {**projection, 'open_requested': True})
         _print_homepage(projection)
         return projection
+    from mariana.terminal_actions import PICKER_COMMANDS, run_release_picker
+    if normalized[0] in PICKER_COMMANDS:
+        return run_release_picker(
+            arguments, HOMEPAGE, DISCOVERY, lambda line: IPrint(line, visible=visible),
+            lambda media, intent: _apply_selected_media(media, intent, origin='cli'),
+        )
+    if normalized[0] == 'sources':
+        terms = normalized[1:]
+        results = []
+        for section in official_destination_sections():
+            for item in section['items']:
+                searchable = ' '.join([section['title'], item['title'], item['source'], item['summary']]).casefold()
+                if all(term in searchable for term in terms):
+                    results.append(item)
+                    IPrint(f"{item['title']} · {item['summary']} · {item['link']}", visible=visible)
+        if not results:
+            IPrint('No directory entries matched this search.', visible=visible)
+        return results
     if normalized in (['status'], ['current']):
         projection = HOMEPAGE.snapshot()
         IPrint(
@@ -6532,7 +7088,8 @@ def home_command(arguments):
         IPrint('Homepage discovery refresh started in the background.', visible=visible)
         return HOMEPAGE.snapshot()
     raise ValueError(
-        'Usage: home [status|enable|disable|refresh|online enable|online disable]'
+        'Usage: home [status|sources [query]|picks [query]|pick|choices|versions|play|queue|cancel|'
+        'enable|disable|refresh|online enable|online disable]'
     )
 
 
@@ -6643,56 +7200,207 @@ def thumb_command(arguments):
     raise ValueError('Usage: thumb [status|enable|disable|show [--fetch]]')
 
 
-THEME_PRESETS = {
-    'aurora': 'Mariana Aurora',
-    'windows': 'Windows Terminal Acrylic',
-    'kitty': 'Kitty / Catppuccin',
-    'gruvbox': 'Gruvbox Dark',
-}
+THEME_PRESETS = {key: value['name'] for key, value in THEME_PALETTES.items()}
 
 
 def theme_command(arguments):
-    with _SETTINGS_WRITE_LOCK:
-        appearance = SETTINGS.setdefault('appearance', {})
-        current = str(appearance.get('terminal theme') or 'aurora')
     operation = arguments[0].casefold() if arguments else 'current'
-    if operation in {'list', 'ls'}:
-        IPrint(tbl([(key, value, '*' if key == current else '') for key, value in THEME_PRESETS.items()],
-                   headers=('Preset', 'Name', ''), tablefmt='plain'), visible=visible)
-        return current
-    if operation in {'current', 'status'}:
-        IPrint(f'Theme: {current} ({THEME_PRESETS.get(current, "custom")})', visible=visible)
-        return current
-    if operation not in THEME_PRESETS or len(arguments) != 1:
-        raise ValueError(f'Usage: theme [{"|".join(THEME_PRESETS)}|list|current]')
     with _SETTINGS_WRITE_LOCK:
-        appearance = SETTINGS.setdefault('appearance', {})
-        previous = appearance.get('terminal theme')
-        appearance['terminal theme'] = operation
+        appearance = SETTINGS.get('appearance', {})
+        current = active_theme(appearance)
+        if len(arguments) <= 1 and operation in {'list', 'ls'}:
+            IPrint(tbl([(key, value, '*' if key == current else '') for key, value in THEME_PRESETS.items()],
+                       headers=('Preset', 'Name', ''), tablefmt='plain'), visible=visible)
+            return current
+        if len(arguments) <= 1 and operation in {'current', 'status'}:
+            IPrint(f'Theme: {current} ({THEME_PRESETS[current]})', visible=visible)
+            return current
+        if len(arguments) == 1 and operation == 'colors':
+            palette = resolved_theme(appearance)
+            for group in ('chrome', 'terminal'):
+                IPrint(tbl([(f'{group}.{key}', value) for key, value in palette[group].items()],
+                           tablefmt='plain'), visible=visible)
+            return current
+        updated = change_theme(appearance, arguments)
+        # Persist a complete candidate before publishing it to concurrent readers.
+        save_user_settings({**SETTINGS, 'appearance': updated}, RUNTIME_PATHS.settings)
+        SETTINGS['appearance'] = updated
+        current = active_theme(updated)
+        colors = saved_colors(updated, current)
+        DESKTOP_CONTROL.emit('theme', {'name': current, **({'colors': colors} if colors else {})})
+    IPrint(f'Theme changed to {THEME_PRESETS[current]}', visible=visible)
+    return current
+
+
+_TUI_GATE = threading.Lock()
+_WEB_SESSION_GATE = threading.Lock()
+
+
+def web_session_command(arguments):
+    words = [value.casefold() for value in arguments]
+    flags = [word for word in words if word.startswith('--')]
+    route = [word for word in words if not word.startswith('--')]
+    trusted = '--trust' in flags
+    share_output = '--share-output' in flags
+    if (route not in (['session'], ['session', 'flow'], ['session', 'console'])
+            or set(flags) - {'--trust', '--share-output'} or len(flags) != len(set(flags))
+            or share_output and not trusted or not words or words[0] != 'session'):
+        raise ValueError('Use web session [flow|console] [--trust [--share-output]]. '
+                         'In the paired terminal, type web help for browser controls.')
+    if not visible or not sys.stdin.isatty() or not sys.stdout.isatty():
+        raise ValueError('Start web session at a visible, interactive Mariana prompt.')
+    from mariana.theme_palette import resolved_theme
+    from mariana.terminal_library import library_rows
+    from mariana.web_session import serve_session
+    from mariana.web_collections import WebCollections
+    from mariana.web_home import browser_homepage
+    from mariana.web_similarity import browser_similarity
+    from mariana.web_transport import apply, playback_fields
+
+    if not _WEB_SESSION_GATE.acquire(blocking=False):
+        raise ValueError('A native browser session is already open.')
+    outer_busy = COMMAND_BUSY.is_set()
+
+    def dispatch(command):
+        COMMAND_BUSY.set()
         try:
-            save_user_settings(SETTINGS, RUNTIME_PATHS.settings)
-        except Exception:
-            appearance['terminal theme'] = previous
-            raise
-    DESKTOP_CONTROL.emit('theme', {'name': operation})
-    IPrint(f'Theme changed to {THEME_PRESETS[operation]}', visible=visible)
-    return operation
+            return process(command)
+        finally:
+            COMMAND_BUSY.clear()
+
+    def library_path(number):
+        rows = _sound_files
+        return rows[number - 1] if 0 < number <= len(rows) else None
+
+    def similarity(source, occurrence, mode, limit, key_for_path):
+        if source is None:
+            snapshot = vas.controller.snapshot()
+            media = snapshot.media
+            if snapshot.session_id != occurrence or media is None or media.source != MediaSource.LOCAL:
+                raise ValueError('Choose an indexed local recording to find similar tracks.')
+            source = media.original_uri
+        return browser_similarity(DATABASE, source, mode, limit, library_paths=lambda: tuple(_sound_files),
+                                  key_for_path=key_for_path)
+
+    def project():
+        snapshot = vas.controller.snapshot()
+        return playback_fields(_playback_status_projection(snapshot), snapshot, QUEUE.state())
+
+    def control(intent):
+        COMMAND_BUSY.set()
+        try:
+            return apply(intent, snap=vas.controller.snapshot, dispatch=process, control=_desktop_control_request)
+        finally:
+            COMMAND_BUSY.clear()
+
+    try:
+        COMMAND_BUSY.clear()
+        return serve_session(
+            assets=RUNTIME_PATHS.resource('web', 'player'), catalog=serialize_command_catalog(include_compatibility=True),
+            project=project, dispatch=dispatch, open_browser=webbrowser.open, control=control,
+            palette=lambda: resolved_theme(SETTINGS.get('appearance', {}))['chrome'],
+            view=route[-1], library_path=library_path, trusted=trusted, share_output=share_output,
+            homepage=lambda share: browser_homepage(HOMEPAGE, share, DISCOVERY),
+            homepage_image=HOMEPAGE.cached_image, similarity=similarity,
+            collections=WebCollections(queue=QUEUE, albums=ALBUMS,
+                                       favorites=lambda: PREFERENCES.list(PreferenceState.FAVORITE), radio=RADIO),
+            library=lambda: library_rows(DATABASE, _sound_files_names_only, _sound_files, include_folder=False),
+            available=lambda: visible and not _SESSION_REPLAY_ACTIVE.is_set()
+            and FOCUS_MODE.allows_command(['web', 'session']),
+        )
+    finally:
+        if outer_busy:
+            COMMAND_BUSY.set()
+        _WEB_SESSION_GATE.release()
+
+
+def _tui_restriction():
+    """Select the permitted direct-launch surface without reading private media state."""
+    if _SESSION_REPLAY_ACTIVE.is_set():
+        return 'replay'
+    if not FOCUS_MODE.allows_command(['tui']):
+        return 'recovery' if FOCUS_MODE.recovery_required else 'focus'
+    return None if visible else 'hidden'
+
+
+def tui_command(arguments, *, direct=False):
+    if arguments:
+        raise ValueError('Usage: tui')
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        raise ValueError('Open Mariana in an interactive terminal to use the player view')
+    from mariana.command_values import make_value_provider
+    from mariana.terminal_library import library_rows as indexed_rows
+    from mariana.terminal_player import run_player
+    from mariana.terminal_recovery import TerminalRecoveryWorkspace
+
+    if not direct and not visible:
+        return None
+    if not _TUI_GATE.acquire(blocking=False):
+        raise ValueError('The terminal player is already open. Press Esc to return to the workspace.')
+    outer_busy = COMMAND_BUSY.is_set()
+
+    def library_rows():
+        return indexed_rows(DATABASE, _sound_files_names_only, _sound_files)
+
+    def queue_rows():
+        return [(_media_display_label(item.media), item.media.artist or item.media.source.value,
+                 f'queue jump {index}', item.queue_id)
+                for index, item in enumerate(QUEUE.items(), 1)]
+
+    def dispatch(command):
+        COMMAND_BUSY.set()
+        try:
+            return process(command)
+        finally:
+            COMMAND_BUSY.clear()
+
+    try:
+        COMMAND_BUSY.clear()
+        if not direct and _tui_restriction():
+            return None
+        startup_notices = tuple(_STARTUP_NOTICES) if direct else ()
+        if direct:
+            _STARTUP_NOTICES.clear()
+        return run_player(
+            _playback_status_projection, lambda: SETTINGS.get('appearance', {}), dispatch,
+            library_rows=library_rows, queue_rows=queue_rows, direct=direct, startup_notices=startup_notices,
+            is_visible=lambda: _tui_restriction() is None,
+            value_provider=make_value_provider(sys.modules[__name__]),
+            dj_status=lambda: _DJ_SESSION.status() if _DJ_SESSION is not None else None,
+            recovery_view=(lambda play: TerminalRecoveryWorkspace(_tui_restriction, play, lambda: visible))
+                          if direct else None,
+        )
+    finally:
+        if outer_busy:
+            COMMAND_BUSY.set()
+        _TUI_GATE.release()
 
 
 def desktop_command(arguments):
     normalized = [value.casefold() for value in arguments]
+    if normalized[:1] == ['open']:
+        panels = ('mini', 'queue', 'playlists', 'albums', 'downloads', 'sleep', 'station')
+        if len(normalized) != 2 or normalized[1] not in panels:
+            raise ValueError('Usage: desktop open ' + '|'.join(panels))
+        if not DESKTOP_CONTROL.enabled:
+            raise ValueError('Run this command in the Mariana desktop terminal to open a graphical panel.')
+        panel = normalized[1]
+        if not DESKTOP_CONTROL.emit('desktop-open', {'panel': panel}):
+            raise ValueError('The Mariana desktop control channel is unavailable.')
+        IPrint(f'Requested the desktop {panel} panel.', visible=visible)
+        return panel
     if not normalized or normalized == ['close']:
         operation = 'status'
     elif len(normalized) == 2 and normalized[0] == 'close':
         operation = normalized[1]
     else:
-        raise ValueError('Usage: desktop close [tray|quit|status]')
+        raise ValueError('Usage: desktop close [tray|quit|status] or desktop open <panel>')
     current = _configured_desktop_close_behavior(SETTINGS)
     if operation in {'status', 'current'}:
         IPrint(f'Desktop close button: {current}', visible=visible)
         return current
     if operation not in {'tray', 'quit'}:
-        raise ValueError('Usage: desktop close [tray|quit|status]')
+        raise ValueError('Usage: desktop close [tray|quit|status] or desktop open <panel>')
     previous_section = SETTINGS.get('desktop')
     desktop_settings = previous_section if isinstance(previous_section, dict) else {}
     SETTINGS['desktop'] = desktop_settings
@@ -7096,9 +7804,10 @@ def _favorite_status_projection(media: MediaRef | None) -> FavoriteStatusProject
     return FavoriteStatusProjection(True, is_favorite, True, rating=rating)
 
 
-def _playback_status_projection() -> PlaybackStatusProjection:
+def _playback_status_projection(snapshot=None) -> PlaybackStatusProjection:
     """Return the safe, authoritative playback projection used by CLI surfaces."""
-    snapshot = vas.controller.snapshot()
+    if snapshot is None:
+        snapshot = vas.controller.snapshot()
     TIMED_LYRICS.update_playback(snapshot, session_id=snapshot.session_id)
     stable_id = snapshot.media.stable_id if snapshot.media else None
     queue_position, queue_count = QUEUE.playback_position(stable_id)
@@ -7165,7 +7874,13 @@ def _discovery_unavailable(media: MediaRef) -> str | None:
 
 def _apply_discovery_selection(media: MediaRef, intent: str) -> None:
     """Apply an explicit bound choice without interpreting CLI command text."""
-    if COMMAND_BUSY.is_set() or _discovery_unavailable(media):
+    if COMMAND_BUSY.is_set():
+        raise ValueError('Selected version is temporarily unavailable')
+    _apply_selected_media(media, intent, origin='desktop')
+
+
+def _apply_selected_media(media: MediaRef, intent: str, *, origin: str) -> None:
+    if _discovery_unavailable(media):
         raise ValueError('Selected version is temporarily unavailable')
     _ensure_media_playable(media)
     if intent == 'queue':
@@ -7173,7 +7888,7 @@ def _apply_discovery_selection(media: MediaRef, intent: str) -> None:
         _emit_queue_desktop_state()
     elif intent == 'play':
         # Direct playback leaves the existing queue intact.
-        vas.supervisor.play(media, origin='desktop')
+        vas.supervisor.play(media, origin=origin)
         _set_current_media_state(media)
         _record_successful_start(media)
     else:
@@ -7213,6 +7928,62 @@ def _desktop_control_request(action: str, payload: dict[str, object]) -> dict[st
 
 def _apply_desktop_control_request(action: str, payload: dict[str, object]) -> dict[str, object]:
     """Apply one allowlisted desktop intent against authoritative backend state."""
+    if action == 'accounts.action':
+        from mariana.connections import command, hub
+        values = payload.get('args')
+        if (not isinstance(values, list) or len(values) > 4 or
+                not all(isinstance(v, str) and len(v) <= 160 for v in values)):
+            raise ValueError('Invalid account request')
+        if not FOCUS_MODE.allows_command(['accounts', *values]):
+            raise ValueError('Account management is restricted in Focus mode')
+        if values[:1] == ['profile']:
+            if not FOCUS_MODE.allows_command(['profile', *values[1:]]):
+                raise ValueError('Profile management is restricted in Focus mode')
+            from mariana.listener_profiles import ListenerProfiles
+            listeners = ListenerProfiles(RUNTIME_PATHS.profile_root or RUNTIME_PATHS.data)
+            return {'ok': True, 'message': listeners.command(values[1:], RUNTIME_PATHS.profile_id)}
+        try:
+            message = '' if values == ['list'] else command(values, DATABASE)
+        except (ValueError, OSError) as error:
+            message = str(error)
+        return {'ok': True, 'services': hub(DATABASE).run(['list'])['services'], 'message': message}
+
+    if action in {'clip.status', 'clip.range', 'clip.export', 'clip.share', 'clip.job', 'clip.link'}:
+        try:
+            snapshot = vas.controller.snapshot()
+            if not FOCUS_MODE.allows_command(['clip']):
+                raise ValueError('Clipping is currently disabled by Focus mode.')
+            if action != 'clip.job' and snapshot.media and _is_media_blocked(snapshot.media):
+                raise ValueError('Clipping is disabled for blocked media.')
+            return CLIPS.desktop(action, payload, snapshot, RUNTIME_PATHS.state('clips'),
+                                 MEDIA_TOOLS.get('ffmpeg bin'))
+        except (ValueError, OSError) as error:
+            return {'ok': False, 'error': str(error)}
+    if action == 'karaoke.stage':
+        if payload:
+            return {'ok': False, 'error': 'Karaoke stage takes no arguments.'}
+        return {'ok': True, **_karaoke_stage()}
+    if action in {'karaoke.import', 'karaoke.vocals'}:
+        key = 'path' if action == 'karaoke.import' else 'mode'
+        if set(payload) != {'media_id', key} or not isinstance(payload[key], str):
+            return {'ok': False, 'error': 'Invalid karaoke request.'}
+        snapshot = vas.controller.snapshot()
+        if not snapshot.media or payload['media_id'] != snapshot.media.stable_id:
+            return {'ok': False, 'error': 'The selected recording changed. Open Karaoke again.'}
+        try:
+            if not FOCUS_MODE.allows_command(['karaoke']):
+                raise ValueError('Karaoke is unavailable in the current focus mode.')
+            if action == 'karaoke.vocals':
+                _karaoke_vocals(snapshot, str(payload[key]))
+                return {'ok': True, 'mode': payload[key]}
+            score = read_score(Path(str(payload[key])))
+            KARAOKE.install(snapshot, score)
+            state = _karaoke_stage()
+            if state['media_id'] != payload['media_id']:
+                return {'ok': False, 'error': 'The selected recording changed. Open Karaoke again.'}
+            return {'ok': True, **state}
+        except (ValueError, OSError, StemError, PlaybackError, PlaybackBlockedError) as error:
+            return {'ok': False, 'error': str(error)}
     if action in {'lyrics.status', 'lyrics.request', 'lyrics.offset', 'lyrics.hide'}:
         try:
             snapshot = vas.controller.snapshot()
@@ -7437,7 +8208,7 @@ def _apply_desktop_control_request(action: str, payload: dict[str, object]) -> d
             return {'ok': False, 'error': str(error)}
         except Exception:
             return {'ok': False, 'error': 'Download is unavailable'}
-    if action in {'video.status', 'video.configure', 'video.captions', 'video.audio-offset'}:
+    if action in {'video.status', 'video.configure', 'video.captions', 'video.audio-offset', 'video.filter'}:
         try:
             if action == 'video.status':
                 if payload:
@@ -7492,6 +8263,16 @@ def _apply_desktop_control_request(action: str, payload: dict[str, object]) -> d
                         str(operation), cast(int, value) if 'value' in payload else None,
                         expected_media=snapshot.media,
                     )
+            elif action == 'video.filter':
+                preset, threshold = payload.get('preset'), payload.get('threshold')
+                if (set(payload) not in ({'media_id', 'preset'}, {'media_id', 'preset', 'threshold'})
+                        or not isinstance(preset, str) or ('threshold' in payload and type(threshold) is not int)):
+                    raise VideoUnavailable('Invalid video filter request')
+                snapshot = vas.controller.snapshot()
+                if not payload.get('media_id') or payload['media_id'] != project_playback_status(snapshot).media_id:
+                    raise VideoUnavailable('Current media changed; try again')
+                _ensure_media_playable(snapshot.media)
+                state = VIDEO.configure_filter(preset, threshold, expected_media=snapshot.media)
             else:
                 value = payload.get('value')
                 relative = payload.get('relative')
@@ -7529,7 +8310,7 @@ def _apply_desktop_control_request(action: str, payload: dict[str, object]) -> d
 
     if action == 'playback.seek':
         action_origin = payload.get('origin', 'desktop')
-        if not isinstance(action_origin, str) or action_origin not in {'desktop', 'mini-player', 'cli'}:
+        if not isinstance(action_origin, str) or action_origin not in {'desktop', 'mini-player', 'cli', 'web'}:
             return {'ok': False, 'error': 'Playback action origin is invalid'}
         expected_media_id = payload.get('media_id')
         if not isinstance(expected_media_id, str) or not expected_media_id:
@@ -7576,7 +8357,7 @@ def _apply_desktop_control_request(action: str, payload: dict[str, object]) -> d
     }
     if action in playback_actions:
         action_origin = payload.get('origin', 'desktop')
-        if not isinstance(action_origin, str) or action_origin not in {'desktop', 'mini-player'}:
+        if not isinstance(action_origin, str) or action_origin not in {'desktop', 'mini-player', 'web'}:
             return {'ok': False, 'error': 'Playback action origin is invalid'}
         expected_media_id = payload.get('media_id')
         if not isinstance(expected_media_id, str) or not expected_media_id:
@@ -7666,6 +8447,43 @@ def _close_paired_companion():
     return True
 
 
+def jam_command(arguments):
+    from mariana.jams import run
+    if len(arguments) == 2 and arguments[0].casefold() == 'send':
+        snap = vas.controller.snapshot()
+        if (not snap.media or not snap.media.title
+                or snap.state not in {PlaybackState.PLAYING, PlaybackState.PAUSED}):
+            raise ValueError('Load a titled track first.')
+        action = 'play' if snap.state == PlaybackState.PLAYING else 'pause'
+        arguments = ['cue', arguments[1], action, str(snap.position), snap.media.title]
+    operation = arguments[0].casefold() if arguments else 'help'
+    apply = operation in {'apply', 'sync'}
+    result = run(['current', *arguments[1:]] if operation == 'apply' else arguments)
+    cue = result.get('cue')
+    if apply and cue:
+        snap = vas.controller.snapshot()
+        if not snap.media or snap.media.title != cue['title']:
+            raise ValueError('Load the matching track first: ' + cue['title'])
+        if not snap.duration or cue['seconds'] > snap.duration:
+            raise ValueError('The loaded track cannot seek to this position.')
+        target = {'media_id': snap.media.stable_id}
+        response = _desktop_control_request('playback.seek', {**target, 'target_seconds': cue['seconds'], 'origin': 'cli'})
+        if not response.get('ok'):
+            raise ValueError(response.get('error', 'Could not seek'))
+        state = vas.controller.snapshot().state
+        if ((cue['action'] == 'play' and state == PlaybackState.PAUSED)
+                or (cue['action'] == 'pause' and state == PlaybackState.PLAYING)):
+            response = _desktop_control_request('playback.' + cue['action'], target)
+            if not response.get('ok'):
+                raise ValueError(response.get('error', 'Could not change playback'))
+    IPrint(result['message'], visible=visible)
+
+
+def fanroom_command(arguments):
+    from mariana.fanrooms import run
+    IPrint(run(arguments), visible=visible)
+
+
 def room_command(arguments):
     """Explicit, read-only desktop pairing; slow operations run off the CLI."""
     from mariana.paired_trust import PairingError
@@ -7744,6 +8562,7 @@ def session_command(arguments):
             ):
                 return None
             result = SESSIONS.replay(values[0])
+            _close_dj()
         else:
             snapshot = vas.controller.snapshot()
             if snapshot.state not in {
@@ -7936,6 +8755,18 @@ def captions_command(parameters: list[str]) -> None:
             IPrint(f'Captions: none loaded{suffix}', visible=visible)
     except (CaptionError, OSError, VideoUnavailable) as error:
         IPrint(f'Caption error: {error}', visible=visible)
+
+
+def speed_command(arguments):
+    if arguments and arguments != ['status']:
+        if len(arguments) != 1:
+            raise ValueError('Usage: speed [0.5–2|status]')
+        try:
+            rate = float(arguments[0])
+        except ValueError:
+            raise ValueError('Usage: speed [0.5–2|status]') from None
+        vas.controller.set_playback_rate(rate)
+    IPrint(f'Playback speed: {vas.controller.snapshot().playback_rate:g}×', visible=visible)
 
 
 def avsync_command(parameters: list[str]) -> None:
@@ -8147,9 +8978,13 @@ def exitplayer(sys_exit=False):
     # These services are independent at shutdown. Closing them concurrently keeps
     # one slow network encoder, watcher, or device driver from serially delaying exit.
     closures = (
+        ('microphone', SPEECH.close),
         ('sleep timer', SLEEP_TIMER.close),
         ('discord presence', PRESENCE.close),
         ('station', STATION.close),
+        ('live synth keyboard', tone_keys.close_keys),
+        ('microphone monitor', FX.close),
+        ('CLI video window', CLI_VIDEO.close),
         ('video', VIDEO.close),
         ('playback resume', close_resume),
         ('downloads', DOWNLOADS.close),
@@ -8166,6 +9001,7 @@ def exitplayer(sys_exit=False):
         ('session recipes', SESSIONS.close),
         ('paired desktops', _close_paired_companion),
         ('focus recovery', _close_focus_recovery),
+        ('dj decks', _close_dj),
         ('stems', STEMS.shutdown),
         ('library profiler', LIBRARY_SERVICE.close),
     )
@@ -8584,6 +9420,7 @@ def play_local_default_player(songpath, _songindex, is_queue=False, media=None, 
         if media is not None:
             VIDEO.expect(media, presentation)
         vas.media_player(action='play')
+        _finish_cli_video_request(media, presentation)
         vas.player.audio_set_volume(int(cached_volume*100))
 
         isplaying = True
@@ -8919,6 +9756,51 @@ class _PresentationOptions(TypedDict, total=False):
     presentation: str
 
 
+def _request_current_picture(media, mode):
+    if DESKTOP_CONTROL.enabled:
+        state = VIDEO.request(mode, expected_media=media)
+        DESKTOP_CONTROL.emit('video', VIDEO.host_status())
+        if mode in {'video', 'audio'} or (media is not None and VIDEO.auto_open_local(media)):
+            DESKTOP_CONTROL.emit('video-window', {'open': mode != 'audio'})
+        return state
+    with _VIDEO_WINDOW_LOCK:
+        if mode == 'auto' and not CLI_VIDEO.is_open and media is not None and VIDEO.auto_open_local(media):
+            mode = 'video'
+        if mode == 'video':
+            if not _cli_video_allowed():
+                raise VideoUnavailable('Video is unavailable while the player is hidden or restricted.')
+            if media is None:
+                raise VideoUnavailable('Start media before opening video')
+            _ensure_media_playable(media)
+            was_open = CLI_VIDEO.is_open
+            try:
+                CLI_VIDEO.open()
+            except (CliVideoError, PlaybackError, OSError) as error:
+                raise VideoUnavailable(str(error)) from error
+            try:
+                return VIDEO.request(mode, expected_media=media)
+            except VideoUnavailable:
+                if not was_open:
+                    CLI_VIDEO.close()
+                raise
+        if mode == 'audio':
+            CLI_VIDEO.close()
+        if mode == 'auto' and not CLI_VIDEO.is_open:
+            mode = 'audio'
+        return VIDEO.request(mode, expected_media=media)
+
+
+def _finish_cli_video_request(media, presentation):
+    if presentation not in {'audio', 'video'} or DESKTOP_CONTROL.enabled:
+        return
+    if presentation == 'audio' and not CLI_VIDEO.is_open:
+        return
+    try:
+        _request_current_picture(media, presentation)
+    except VideoUnavailable as error:
+        IPrint(str(error), visible=visible)
+
+
 def _presentation_options(mode: str | None) -> _PresentationOptions:
     return {'presentation': mode} if mode else {}
 
@@ -8934,15 +9816,12 @@ def local_play_commands(commandslist, _command=False):
             arguments, mode = presentation_arguments(commandslist)
             if len(arguments) != 2:
                 raise VideoUnavailable('Usage: play <number|path|current> [--audio|--video|--auto]')
-            if mode == 'video' and not DESKTOP_CONTROL.enabled:
-                raise VideoUnavailable('Video currently requires the Mariana desktop; use --audio in this terminal')
             if arguments[1] == 'current':
                 active = vas.controller.snapshot().media
                 if active is None:
                     raise VideoUnavailable('No current media')
                 VIDEO.expect(active, mode)
-                state = VIDEO.request(mode or 'auto', expected_media=active)
-                DESKTOP_CONTROL.emit('video', VIDEO.host_status())
+                _request_current_picture(active, mode or 'auto')
                 return
             if not arguments[1].isnumeric():
                 path = Path(arguments[1]).expanduser()
@@ -9242,9 +10121,6 @@ def play_vas_media(media_url, single_video = None, media_name = None,
     global isplaying, visible, currentsong, cached_volume
     global currentsong_length, current_media_type, songindex
 
-    if presentation == 'video' and not DESKTOP_CONTROL.enabled:
-        raise VideoUnavailable('Video currently requires the Mariana desktop; use --audio in this terminal')
-
     if media_type == 'general' and media_ref is None and id_if_url_is_of_yt_format(media_url):
         media_type = 'video'
     elif media_type == 'general' and media_ref is None:
@@ -9341,6 +10217,8 @@ def play_vas_media(media_url, single_video = None, media_name = None,
         if prepared_media is not None:
             VIDEO.expect(prepared_media, presentation)
         vas.media_player(action='play')
+        if presentation in {'video', 'audio'}:
+            _finish_cli_video_request(prepared_media or vas.controller.snapshot().media, presentation)
         vas.player.audio_set_volume(int(cached_volume*100))
 
         # TODO - Save all audio info in `data` dir
@@ -9504,6 +10382,150 @@ def get_prettified_recents(indices):
 
     return results
 
+def _karaoke_stage():
+    if not visible or not FOCUS_MODE.allows_command(['karaoke', 'status']):
+        return {'available': False, 'reason': 'Karaoke is unavailable in this session.', 'media_id': None,
+                'score': None, 'source': '', 'threshold': 0.9, 'sheet': None, 'position_ms': 0, 'state': 'idle'}
+    return KARAOKE.stage(vas.controller.snapshot(), include_sheet=True)
+
+
+def _karaoke_vocals(snapshot, mode):
+    if mode not in {'on', 'off'}:
+        raise ValueError('Usage: karaoke vocals on|off')
+    if not snapshot.media:
+        raise ValueError('Load a recording first.')
+    _ensure_media_playable(snapshot.media)
+    # configure_stem_monitor checks the media identity again before changing audio.
+    if mode == 'on':
+        vas.controller.configure_stem_monitor(snapshot.media.stable_id, ())
+        _STEM_SELECTION.update(media_id=None, names=())
+    else:
+        KARAOKE.active(snapshot)
+        media_id = snapshot.media.stable_id
+        manifest = STEMS.manifest(media_id)
+        if manifest is None:
+            raise ValueError('Instrumental mix unavailable. Run stems prepare and wait for stems status.')
+        names = parse_stem_selection(['karaoke'], manifest.stems)
+        lease = STEMS.acquire(media_id, names)
+        vas.controller.configure_stem_monitor(media_id, lease.paths, lease=lease)
+        _STEM_SELECTION.update(media_id=media_id, names=names)
+
+
+def karaoke_command(arguments):
+    from mariana.terminal_io import current_session
+
+    operation = arguments[0].casefold() if arguments else 'status'
+    args = arguments[1:]
+    def write(text):
+        IPrint(text, visible=visible)
+    if operation in {'help', '?'} and not args:
+        write(KARAOKE_USAGE)
+        return
+    if operation == 'demo' and not args:
+        sample = RUNTIME_PATHS.resource('res', 'karaoke', 'practice-duet.wav')
+        media = MediaRef(MediaSource.LOCAL, str(sample), title='Mariana practice duet', duration=6)
+        _ensure_media_playable(media)
+        play_local_default_player(str(sample), _songindex=None, media=media)
+        snapshot = vas.controller.snapshot()
+        if not snapshot.media or snapshot.media.stable_id != media.stable_id:
+            raise ValueError('The practice duet could not be loaded.')
+        KARAOKE.install(snapshot, read_score(sample.with_suffix('.json')))
+        if current_session() is not None or (sys.stdin.isatty() and sys.stdout.isatty()):
+            return karaoke_command(['start'])
+        write('Practice duet loaded. Use karaoke start to sing along.')
+        return
+    snapshot = vas.controller.snapshot()
+    if operation == 'import' and len(args) == 1:
+        KARAOKE.install(snapshot, read_score(Path(args[0]).expanduser()))
+    elif operation == 'compare' and len(args) == 2:
+        from mariana.karaoke_ttml import compare
+        digest, duration = KARAOKE.recording(snapshot)
+        score = compare(Path(args[0]).expanduser(), Path(args[1]).expanduser(), digest, duration)
+        KARAOKE.install(snapshot, score)
+    elif operation == 'invite' and args:
+        KARAOKE.export_invite(snapshot, Path(args[0]).expanduser(), ' '.join(args[1:]) or None)
+        write(f'Practice invitation saved to {args[0]}.')
+        return
+    elif operation == 'open' and len(args) == 1:
+        invite = KARAOKE.open_invite(snapshot, Path(args[0]).expanduser())
+        write(f"Practice invitation · {invite['part'] or 'all voices'} · {invite['start_ms'] / 1000:g}s. "
+              "Use karaoke accept to seek and select the part.")
+        return
+    elif operation == 'accept' and not args:
+        def jump(seconds):
+            current = vas.controller.snapshot()
+            if not current.media or current.media.stable_id != snapshot.media.stable_id:
+                raise ValueError('The recording changed. Reopen the invitation.')
+            try:
+                vas.controller.seek(seconds, origin='cli')
+            except PlaybackError as error:
+                raise ValueError(str(error)) from error
+        invite = KARAOKE.accept_invite(snapshot, jump)
+        write(f"Practice cue selected · {invite['part'] or 'all voices'} · {invite['start_ms'] / 1000:g}s.")
+        return
+    elif operation == 'export' and len(args) == 1:
+        score, _ = KARAOKE.active(snapshot)
+        target = Path(args[0]).expanduser()
+        with target.open('x', encoding='utf-8') as stream:
+            json.dump(score.data, stream, ensure_ascii=False, separators=(',', ':'))
+        write(f'Exported karaoke timing to {target}.')
+        return
+    elif operation == 'clear' and not args:
+        KARAOKE.forget(snapshot)
+        write('Karaoke timing removed for the current recording.')
+        return
+    elif operation == 'start' and not args:
+        from mariana.karaoke_stage import sing
+        KARAOKE.active(snapshot)
+        if current_session() is None and not (sys.stdin.isatty() and sys.stdout.isatty()):
+            raise ValueError('Use karaoke start in an interactive terminal or use karaoke current.')
+        performance = KARAOKE.begin_stage()
+        try:
+            sing(KARAOKE, vas.controller.snapshot, process, SETTINGS.get('appearance', {}),
+                 lambda: visible and not performance.is_set() and FOCUS_MODE.allows_command(['karaoke', 'start'])
+                 and not _SESSION_REPLAY_ACTIVE.is_set())
+        finally:
+            KARAOKE.end_stage(performance)
+        return
+    elif operation == 'stop' and not args:
+        write('Closing the singing view.' if KARAOKE.stop() else 'The terminal singing view is closed.')
+        return
+    elif operation in {'previous', 'next'} and not args:
+        score, position = KARAOKE.active(snapshot)
+        target = score.seek_line(position, operation == 'next') / 1000
+        try:
+            vas.controller.seek(target, origin='cli')
+        except PlaybackError as error:
+            raise ValueError(str(error)) from error
+        return
+    elif operation == 'singers' and not args:
+        score, _ = KARAOKE.active(snapshot)
+        write(' · '.join(score.singers))
+        return
+    elif operation == 'part' and args:
+        part = KARAOKE.select(snapshot, ' '.join(args))
+        write(f'Practicing {part or "all voices"}.')
+        return
+    elif operation == 'vocals' and len(args) == 1:
+        try:
+            _karaoke_vocals(snapshot, args[0].casefold())
+        except (PlaybackError, StemError) as error:
+            raise ValueError(str(error)) from error
+        write(f'Original vocals {args[0]}.')
+        return
+    elif operation == 'current' and not args:
+        from mariana.karaoke_stage import stage_lines
+        score, position = KARAOKE.active(snapshot)
+        write(''.join(text for _, text in stage_lines(score, position, KARAOKE.part)))
+        return
+    elif operation != 'status' or args:
+        raise ValueError(KARAOKE_USAGE)
+    state = KARAOKE.stage(snapshot)
+    write(f"Karaoke ready · {state['score']:.2%} · {state['source']} · karaoke start" if state['available']
+          else 'Karaoke unavailable · ' + state['reason'])
+    return state
+
+
 def timed_lyrics_command(arguments):
     """Inspect synchronized lyrics without creating another playback clock."""
     operation = arguments[0].casefold() if arguments else 'status'
@@ -9541,27 +10563,81 @@ def timed_lyrics_command(arguments):
 def video_command(arguments):
     """Open the separate video window, close it, or inspect video readiness."""
     operation = arguments[0].casefold() if arguments else 'status'
-    usage = 'Usage: video [open|close|status]'
+    usage = 'Usage: video [open|close|status|filter|detect]'
+    if operation == 'detect':
+        option = arguments[1].casefold() if len(arguments) > 1 else 'status'
+        if DESKTOP_CONTROL.enabled:
+            raise VideoUnavailable('Object boxes are available in the standalone CLI/TUI video window.')
+        if option == 'on' and len(arguments) == 3:
+            if not detection_runtime_available():
+                raise VideoUnavailable('Install onnxruntime in your source Python environment before enabling object detection.')
+            try:
+                model = detection_model_path(arguments[2])
+            except (OSError, RuntimeError, ValueError):
+                raise VideoUnavailable('Choose an existing local .onnx model no larger than 160 MiB.') from None
+            CLI_VIDEO.configure_detector(model)
+        elif option == 'off' and len(arguments) == 2:
+            CLI_VIDEO.configure_detector(None)
+        elif option != 'status' or len(arguments) > 2:
+            raise ValueError('Usage: video detect [status|off|on "<model.onnx>"]')
+        state = CLI_VIDEO.detector_status()
+        messages = {
+            'waiting': 'Waiting for the standalone picture window.',
+            'loading': 'Loading the local detection model.',
+            'ready': 'Object boxes enabled.',
+            'error': 'Could not run this model. Choose a fixed-size detection export with integrated NMS off.',
+            'off': 'Object boxes disabled.',
+        }
+        IPrint(messages[state], visible=visible)
+        return {'detector': state}
+    if operation == 'filter':
+        if len(arguments) <= 2 and (len(arguments) == 1 or arguments[1].casefold() == 'status'):
+            effect = VIDEO.status()['filter']
+        elif len(arguments) == 2 and arguments[1].casefold() == 'list':
+            label = ', '.join(VIDEO_FILTERS)
+            IPrint(label, visible=visible)
+            return label
+        elif len(arguments) in {2, 3}:
+            effect = VIDEO.configure_filter(arguments[1], arguments[2] if len(arguments) == 3 else None)['filter']
+        else:
+            raise ValueError('Usage: video filter [list|status|preset] [threshold]')
+        label = VIDEO_FILTERS[effect['preset']]['label']
+        if effect['preset'] == 'threshold':
+            label += f" ({effect['threshold']}%)"
+        IPrint(f'Video filter: {label}', visible=visible)
+        return effect
     if operation not in {'open', 'close', 'status'} or len(arguments) > 1:
         raise ValueError(usage)
     if operation == 'status':
         state = VIDEO.status()
+        if not DESKTOP_CONTROL.enabled:
+            state = {**state, 'window': CLI_VIDEO.status()}
         IPrint(
             f"Video: {state['state']}"
+            + (f" | {state['stage']} ({state.get('elapsed_seconds', 0)}s)" if state.get('stage') else '')
+            + (f" | window {state['window']['state']}" if 'window' in state else '')
+            + (f" | {state['error']}" if state.get('error') else '')
+            + (f" | {state['window']['error']}" if state.get('window', {}).get('error') else '')
             + (f" | {state['media_id'][:8]}" if state.get('media_id') else ''),
             visible=visible,
         )
         return state
-    if not getattr(DESKTOP_CONTROL, 'enabled', False):
-        raise VideoUnavailable('Video currently requires the Mariana desktop')
     if operation == 'open':
         snapshot = vas.controller.snapshot()
-        _ensure_media_playable(snapshot.media)
-        state = VIDEO.request('video', expected_media=snapshot.media)
-        DESKTOP_CONTROL.emit('video-window', {'open': True})
+        if DESKTOP_CONTROL.enabled:
+            _ensure_media_playable(snapshot.media)
+            state = VIDEO.request('video', expected_media=snapshot.media)
+            DESKTOP_CONTROL.emit('video-window', {'open': True})
+        else:
+            state = _request_current_picture(snapshot.media, 'video')
         IPrint('Opening the separate video window.', visible=visible)
         return state
-    DESKTOP_CONTROL.emit('video-window', {'open': False})
+    if DESKTOP_CONTROL.enabled:
+        DESKTOP_CONTROL.emit('video-window', {'open': False})
+    else:
+        with _VIDEO_WINDOW_LOCK:
+            CLI_VIDEO.close()
+            VIDEO.request('audio')
     IPrint('Closing the separate video window.', visible=visible)
     return {'open': False}
 
@@ -9593,7 +10669,7 @@ def _play_canonical_match(row, query, presentation):
             provenance='history',
         )
         IPrint(f'Playing saved copy: {title}', visible=visible)
-        play_local_default_player(uri, None, media=media)
+        play_local_default_player(uri, None, media=media, **_presentation_options(presentation))
         return True
     return False
 
@@ -9647,7 +10723,8 @@ def lyrics_ops(show_window):
 
         if currentsong:
             if os.path.isfile(currentsong):
-                if show_window:
+                from mariana.terminal_io import current_session
+                if show_window and current_session() is None:
                     IPrint(lyrics_window_note, visible=visible)
                 get_lyrics.show_window(refresh_lyrics = refresh_lyrics,
                                        max_wait_lim = max_wait_limit_to_get_song_length,
@@ -9741,15 +10818,36 @@ def display_and_choose_podbean(latest_podbeans, commandslist, result_count, is_r
             log_message=f'Invalid {podtype} session number entered',
             log_priority=2)
 
+def _command_rejection(line, message):
+    from mariana.command_assist import command_corrections
+    choices = command_corrections(line)
+    if not choices:
+        return message
+    return message + '\nDid you mean ' + ' or '.join(choice.label for choice in choices) + '? Edit the command and submit it again.'
+
+
 def process(command):
     global _sound_files_names_only, visible, currentsong, isplaying, ismuted, cached_volume
     global current_media_type, DEFAULT_EDITOR, YOUTUBE_PLAY_TYPE, lyrics_saved_for_song
 
+    raw_command = command
     command = normalize_command(command)
     try:
         commandslist = split_command(command.strip())
     except CommandSyntaxError as error:
-        SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+        SAY(visible=visible, display_message=_command_rejection(raw_command, str(error)), log_message=str(error), log_priority=2)
+        return None
+
+    if [word.casefold() for word in commandslist] == ['fx', 'mic', 'off']:
+        IPrint(FX.command(['mic', 'off']), visible=visible)
+        return None
+
+    # Capture must be stoppable after focus mode or session replay takes ownership.
+    if [word.casefold() for word in commandslist] == ['speech', 'stop']:
+        try:
+            speech_command(['stop'])
+        except ValueError as error:
+            IPrint(_command_rejection(raw_command, str(error)), visible=visible)
         return None
 
     if _SESSION_REPLAY_ACTIVE.is_set() and commandslist and commandslist[0].casefold() not in {
@@ -9770,15 +10868,13 @@ def process(command):
     try:
         commandslist = _expand_relative_library_target(commandslist)
     except ValueError as error:
-        IPrint(str(error), visible=visible)
+        IPrint(_command_rejection(raw_command, str(error)), visible=visible)
         return None
     if commandslist and commandslist[0] in {'/ys', '/youtube-search', '/yl', '/youtube-link', '/ml', '/media-link'}:
         try:
             commandslist, presentation = presentation_arguments(commandslist)
-            if presentation == 'video' and not DESKTOP_CONTROL.enabled:
-                raise VideoUnavailable('Video currently requires the Mariana desktop; use --audio in this terminal')
         except VideoUnavailable as error:
-            IPrint(str(error), visible=visible)
+            IPrint(_command_rejection(raw_command, str(error)), visible=visible)
             return None
 
     try:
@@ -9800,13 +10896,26 @@ def process(command):
             'discord': discord_command,
             'desktop': desktop_command,
             'theme': theme_command,
+            'tui': tui_command,
+            'web': web_session_command,
             'banner': banner_command,
             'home': home_command,
+            'profile': profile_command,
+            'accounts': accounts_command,
+            'artist': artist_command,
             'thumb': thumb_command,
+            'soundbank': soundbank_command,
+            'tone': tone_command,
+            'speech': speech_command,
+            'karaoke': karaoke_command,
+            'dj': dj_command,
+            'clip': clip_command,
+            'fx': lambda args: IPrint(FX.command(args), visible=visible),
             'eq': eq_command,
             'stems': stems_command,
             'crossfade': crossfade_command,
             'video': video_command,
+            'speed': speed_command,
             'focus': focus_command,
             'chapters': chapters_command,
             'captions': captions_command,
@@ -9816,12 +10925,15 @@ def process(command):
             'librivox': librivox_command,
             'rename': rename_command,
             'station': station_command,
+            'similar': similarity_command,
             'download-ya': download_audio_command,
             'rate': rating_command,
             'rating': rating_command,
             '.rating': lambda values: rating_command(values, play=True),
             'ratings': ratings_command,
             'session': session_command,
+            'jam': jam_command,
+            'fanroom': fanroom_command,
             'room': room_command,
             'fav': favorite_command,
             '.fav': lambda values: favorite_command(values, play=True),
@@ -9835,14 +10947,19 @@ def process(command):
             '.next': lambda values: navigation_command('.next', values),
             '.prev': lambda values: navigation_command('.prev', values),
         }
+        if commandslist[0].casefold() == 'podbean' and (
+            len(commandslist) == 1 or commandslist[1].casefold() != 'vendors'
+        ):
+            routed['podbean'] = podbean_command
         if handler := routed.get(commandslist[0].casefold()):
             try:
-                handler(commandslist[1:])
-                return None
+                result = handler(commandslist[1:])
+                return False if handler in (tui_command, web_session_command) and result is False else None
             except (
                 AlbumError,
                 DownloadJobError,
                 LibraryError,
+                PlaybackError,
                 StationError,
                 StationSeedError,
                 YouTubeError,
@@ -9851,7 +10968,7 @@ def process(command):
             ) as error:
                 SAY(
                     visible=visible,
-                    display_message=str(error),
+                    display_message=_command_rejection(raw_command, str(error)),
                     log_message=f'{commandslist[0]} command failed: {error}',
                     log_priority=2,
                 )
@@ -9864,7 +10981,7 @@ def process(command):
             try:
                 yes, values = _confirmation_bypass(commandslist[1:])
             except ValueError as error:
-                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                SAY(visible=visible, display_message=_command_rejection(raw_command, str(error)), log_message=str(error), log_priority=2)
                 return None
             if values:
                 SAY(
@@ -9881,7 +10998,7 @@ def process(command):
             if perm.strip().lower() in {'y', 'yes'}:
                 return False
 
-        if commandslist in (['all'], ['all*']):
+        elif commandslist in (['all'], ['all*']):
             rescount = MAX_RESULT_COUNT
             results_enum = enumerate(
                 _sound_files_names_only if commandslist == ['all*'] else _sound_files_names_only[:rescount]
@@ -9908,7 +11025,7 @@ def process(command):
             )
 
         # TODO: Need to display files in n columns (Mostly 3 cols) depending upon terminal size (dynamically...)
-        if commandslist[0] in ['list', 'ls']:
+        elif commandslist[0] in ['list', 'ls']:
 
             if len(_sound_files) != 0:
                 # TODO: Get values for `order_results` and `order_type` from SETTINGS
@@ -10143,7 +11260,7 @@ def process(command):
                     log_message = 'Unknown pod vendor mentioned',
                     log_priority = 2)
 
-        if commandslist in [['recent', 'count'], ['recents', 'count']]:
+        elif commandslist in [['recent', 'count'], ['recents', 'count']]:
             IPrint(f"Recents count: {len(RECENTS_QUEUE)}", visible=visible)
 
         elif commandslist[0] in ['recent', 'recents']:
@@ -10282,7 +11399,7 @@ def process(command):
                 try:
                     yes, values = _confirmation_bypass(commandslist[2:])
                 except ValueError as error:
-                    SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                    SAY(visible=visible, display_message=_command_rejection(raw_command, str(error)), log_message=str(error), log_priority=2)
                     return None
                 if values:
                     SAY(
@@ -10352,33 +11469,26 @@ def process(command):
         elif commandslist[0].lower() == 'play':
             local_play_commands(commandslist=commandslist)
 
-        if len(commandslist) == 2:
-            if commandslist[1] == 'device':
-                device_kind = None
-                if commandslist[0] in ['output', 'input']:
-                    device_kind = commandslist[0]
-                elif commandslist[0] in ['out', 'in']:
-                    device_kind = commandslist[0]+'put'
+        elif len(commandslist) == 2 and commandslist[1] == 'device' and commandslist[0] in {'output', 'input', 'out', 'in'}:
+            device_kind = {'out': 'output', 'in': 'input'}.get(commandslist[0], commandslist[0])
+            if device_kind == 'output':
+                try:
+                    selected = vas.controller.default_output_device()
+                    active = vas.controller.active_output_device
+                    detail = f' via {selected.route}'
+                    if active and active.key != selected.key:
+                        detail += f'; switching from {active.name}'
+                    IPrint(
+                        f"{colored.fg('navajo_white_1')}output device: "
+                        f"{colored.attr('reset')}{selected.name}{detail}; auto-follow: on",
+                        visible=visible,
+                    )
+                except OutputDeviceError as error:
+                    IPrint(f'Output device unavailable: {error}', visible=visible)
+            elif device_name := sounddevice.query_devices(kind = device_kind).get('name'):
+                IPrint(f"{colored.fg('navajo_white_1')}{device_kind} device: {colored.attr('reset')}{device_name}", visible=visible)
 
-                if device_kind:
-                    if device_kind == 'output':
-                        try:
-                            selected = vas.controller.default_output_device()
-                            active = vas.controller.active_output_device
-                            detail = f' via {selected.route}'
-                            if active and active.key != selected.key:
-                                detail += f'; switching from {active.name}'
-                            IPrint(
-                                f"{colored.fg('navajo_white_1')}output device: "
-                                f"{colored.attr('reset')}{selected.name}{detail}; auto-follow: on",
-                                visible=visible,
-                            )
-                        except OutputDeviceError as error:
-                            IPrint(f'Output device unavailable: {error}', visible=visible)
-                    elif device_name := sounddevice.query_devices(kind = device_kind).get('name'):
-                        IPrint(f"{colored.fg('navajo_white_1')}{device_kind} device: {colored.attr('reset')}{device_name}", visible=visible)
-
-        if commandslist[:2] in [['fade', 'in'], ['fade', 'out']]:
+        elif commandslist[:2] in [['fade', 'in'], ['fade', 'out']]:
             try:
                 """
                 fade in  --> fade_type = 0
@@ -10395,7 +11505,7 @@ def process(command):
                         fade_in_out(fade_type=fade_type, fade_duration=fade_duration)
                     except ValueError as error:
                         SAY(visible=visible,
-                            display_message=str(error),
+                            display_message=_command_rejection(raw_command, str(error)),
                             log_message=str(error),
                             log_priority=2)
 
@@ -10504,7 +11614,7 @@ def process(command):
             try:
                 assume_yes, download_values = _confirmation_bypass(commandslist[1:])
             except ValueError as error:
-                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                SAY(visible=visible, display_message=_command_rejection(raw_command, str(error)), log_message=str(error), log_priority=2)
                 return None
             if len(download_values) > 1:
                 SAY(
@@ -10643,7 +11753,7 @@ def process(command):
                 else:
                     download_media_link_command(commandslist[1:])
             except (DownloadError, ValueError) as error:
-                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                SAY(visible=visible, display_message=_command_rejection(raw_command, str(error)), log_message=str(error), log_priority=2)
 
         elif commandslist == ['t']:
             IPrint(convert(get_current_progress()), visible=visible)
@@ -10682,11 +11792,11 @@ def process(command):
                 SAY(visible=visible, display_message="Error: Can't reset this audio",
                     log_message=f'Error in resetting: {currentsong}', log_priority=2)
 
-        elif commandslist[0].casefold() in SEARCH_COMMANDS:
+        elif is_search_command(commandslist[0]):
             try:
                 advanced_search_command(commandslist)
             except ValueError as error:
-                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                SAY(visible=visible, display_message=_command_rejection(raw_command, str(error)), log_message=str(error), log_priority=2)
 
         elif command[0] == '.':
             try:
@@ -10711,15 +11821,34 @@ def process(command):
 
                 elif command.startswith('.'):
                     if os.path.isfile(command.strip()[1:]):
-                        local_play_commands(commandslist=[None, command[1:]],
-                                            _command=command)
+                        local_play_commands(commandslist=[None, command[1:]], _command=command)
+                    else:
+                        IPrint(_command_rejection(raw_command, 'Unknown command or file. Type help for commands.'), visible=visible)
 
             except Exception:
                 raise
 
         elif commandslist in [['clear'], ['cls']]:
-            clear_terminal()
-            if visible: showbanner()
+            from mariana.terminal_io import current_session
+            terminal = current_session()
+            if terminal is not None:
+                terminal.clear_output()
+            else:
+                clear_terminal()
+                if visible:
+                    showbanner()
+
+        elif commandslist == ['pause']:
+            from mariana.playback import UnsupportedAction
+            controller = vas.controller
+            try:
+                controller.pause(origin='cli')
+            except UnsupportedAction:
+                if controller.snapshot().state != PlaybackState.PAUSED:
+                    IPrint('Nothing is currently playing.', visible=visible)
+                    return None
+            isplaying = False
+            IPrint('|| Paused', visible=visible)
 
         elif commandslist == ['p']:
             playpausetoggle()
@@ -10764,17 +11893,17 @@ def process(command):
                 visible=visible,
             )
 
-        if commandslist[0] == 'open':
+        elif commandslist[0] == 'open':
             if commandslist == ['open']:
                 if isinstance(currentsong, str) and currentsong and current_media_type is None:
                     if os.path.isfile(currentsong):
                         if os.path.splitext(currentsong)[1] in supported_file_types:
                             if sys.platform == 'win32':
-                                currentsong=currentsong.replace('/', '\\')
+                                currentsong = currentsong.replace('/', '\\')
                                 IPrint(f"Opening currently playing audio: {currentsong}", visible=visible)
-                                os.system(f'explorer /select, {currentsong}')
+                                reveal_path(currentsong)
                             else:
-                                currentsong=currentsong.replace('\\', '/')
+                                currentsong = currentsong.replace('\\', '/')
                         else:
                             IPrint(0, visible=visible)
                     else:
@@ -10803,25 +11932,15 @@ def process(command):
 
             elif len(commandslist) > 1 and commandslist[1] in ['lib', 'library']:
                 IPrint('Opening library file in editor', visible=visible)
-                if not DEFAULT_EDITOR:
-                    restore_default.restore('editor path', SETTINGS)
-                    DEFAULT_EDITOR = SETTINGS.get('editor path')
-                if DEFAULT_EDITOR:
-                    sp.Popen([fr"{DEFAULT_EDITOR}", str(RUNTIME_PATHS.library_file)], shell=False)
-                else:
-                    open_path(RUNTIME_PATHS.library_file)
+                _restore_cli_editor()
+                _open_text_document(RUNTIME_PATHS.library_file, 'Library')
 
             elif len(commandslist) > 1 and commandslist[1] in ['lyr', 'lyrics']:
                 IPrint('Opening lyrics file in editor', visible=visible)
                 lyrics_ops(show_window = False)
-                if not DEFAULT_EDITOR:
-                    restore_default.restore('editor path', SETTINGS)
-                    DEFAULT_EDITOR = SETTINGS.get('editor path')
-
-                if LYRICS_TEXT_PATH.is_file() and DEFAULT_EDITOR:
-                    sp.Popen([fr"{DEFAULT_EDITOR}", str(LYRICS_TEXT_PATH)], shell=False)
-                elif LYRICS_TEXT_PATH.is_file():
-                    open_path(LYRICS_TEXT_PATH)
+                _restore_cli_editor()
+                if LYRICS_TEXT_PATH.is_file():
+                    _open_text_document(LYRICS_TEXT_PATH, 'Lyrics')
                 else:
                     SAY(visible=visible,
                         log_message = 'No lyrics available to view',
@@ -10830,10 +11949,7 @@ def process(command):
 
             elif commandslist[1:] in (['hist'], ['history']):
                 history_path = RUNTIME_PATHS.logs / 'history.log'
-                if DEFAULT_EDITOR:
-                    sp.Popen([DEFAULT_EDITOR, str(history_path)], shell=False)
-                else:
-                    open_path(history_path)
+                _open_text_document(history_path, 'Command history', read_only=True)
 
             else:
                 if len(commandslist) == 2 and commandslist[1].isnumeric():
@@ -10907,7 +12023,7 @@ def process(command):
                     PreferenceState.BLOCKED,
                 )
             except ValueError as error:
-                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                SAY(visible=visible, display_message=_command_rejection(raw_command, str(error)), log_message=str(error), log_priority=2)
 
         elif commandslist[0] in {'favs', 'blacklist'}:
             try:
@@ -10920,7 +12036,7 @@ def process(command):
                     default_limit=None if commandslist[0] == 'favs' else MAX_RESULT_COUNT,
                 )
             except ValueError as error:
-                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                SAY(visible=visible, display_message=_command_rejection(raw_command, str(error)), log_message=str(error), log_priority=2)
 
         elif commandslist[0] == 'beta':
             if len(commandslist) <= 2 and (len(commandslist) == 1 or commandslist[1] in {'on', 'off'}):
@@ -10935,7 +12051,7 @@ def process(command):
             try:
                 recycle_library_media(commandslist[1:])
             except MediaRemovalError as error:
-                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                SAY(visible=visible, display_message=_command_rejection(raw_command, str(error)), log_message=str(error), log_priority=2)
 
         elif commandslist in [['s'], ['stop']]:
             stopsong()
@@ -10961,6 +12077,14 @@ def process(command):
                     log_message=f'ReplayGain command failed: {error}',
                     log_priority=2,
                 )
+
+        elif commandslist[0].lower() == 'wall':
+            from mariana.music_wall import wall_command
+            try:
+                current = vas.controller.snapshot().media if commandslist[1:] == ['listen', 'current'] else None
+                IPrint(wall_command(DATABASE, commandslist[1:], current), visible=visible)
+            except (ValueError, OSError) as error:
+                IPrint(f'Music wall: {error}', visible=visible)
 
         elif commandslist[0].lower() == 'broadcast':
             try:
@@ -11022,7 +12146,7 @@ def process(command):
             except StrudelProjectError as error:
                 SAY(
                     visible=visible,
-                    display_message=str(error),
+                    display_message=_command_rejection(raw_command, str(error)),
                     log_message=f'Strudel project command failed: {error}',
                     log_priority=2,
                 )
@@ -11037,13 +12161,29 @@ def process(command):
                 vas.player.audio_set_volume(cached_volume*100)
 
         elif commandslist[0] in {'lyr', 'lyrics'}:
-            if len(commandslist) == 1:
+            if commandslist[1:2] == ['detect']:
+                try:
+                    speech_command(['transcribe', *commandslist[2:]])
+                except (ValueError, PlaybackBlockedError) as error:
+                    IPrint(_command_rejection(raw_command, str(error)), visible=visible)
+            elif commandslist[1:2] == ['voices']:
+                try:
+                    if len(commandslist) not in (2, 3):
+                        raise ValueError('Usage: lyrics voices [FILE.ttml]')
+                    from mariana.karaoke_ttml import attributed_lyrics
+                    verses = attributed_lyrics(Path(commandslist[2]).expanduser()) if len(commandslist) == 3 else None
+                    rows = KARAOKE.lyrics(vas.controller.snapshot(), verses)
+                    for singer, line in rows:
+                        IPrint(f'{singer}  ·  {line}', visible=visible)
+                except (OSError, ValueError) as error:
+                    IPrint(_command_rejection(raw_command, str(error)), visible=visible)
+            elif len(commandslist) == 1:
                 lyrics_ops(show_window = True)
             elif commandslist[1] in {'current', 'status', 'offset', 'hide'}:
                 try:
                     timed_lyrics_command(commandslist[1:])
                 except (ValueError, PlaybackBlockedError) as error:
-                    IPrint(str(error), visible=visible)
+                    IPrint(_command_rejection(raw_command, str(error)), visible=visible)
             elif commandslist[1] == 'edit':
                 try:
                     yes, values = _confirmation_bypass(commandslist[2:])
@@ -11051,7 +12191,7 @@ def process(command):
                         raise ValueError('Usage: lyrics edit [y|yes|--yes]')
                     edit_current_lyrics(assume_yes=True) if yes else edit_current_lyrics()
                 except ValueError as error:
-                    SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                    SAY(visible=visible, display_message=_command_rejection(raw_command, str(error)), log_message=str(error), log_priority=2)
             else:
                 SAY(
                     visible=visible,
@@ -11255,7 +12395,7 @@ def process(command):
                                      **_presentation_options(presentation))
 
             except PlaybackBlockedError as error:
-                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                SAY(visible=visible, display_message=_command_rejection(raw_command, str(error)), log_message=str(error), log_priority=2)
             except Exception as error:
                 report_youtube_error(error, 'search/playback')
 
@@ -11268,7 +12408,7 @@ def process(command):
                         play_vas_media(media_url=media_url, single_video=True,
                                        **_presentation_options(presentation))
                     except PlaybackBlockedError as error:
-                        SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                        SAY(visible=visible, display_message=_command_rejection(raw_command, str(error)), log_message=str(error), log_priority=2)
                     except Exception as error:
                         report_youtube_error(error, 'playback')
 
@@ -11288,7 +12428,7 @@ def process(command):
                         play_vas_media(media_url=commandslist[1], media_type='general',
                                        **_presentation_options(presentation))
                     except PlaybackBlockedError as error:
-                        SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                        SAY(visible=visible, display_message=_command_rejection(raw_command, str(error)), log_message=str(error), log_priority=2)
                     except Exception as error:
                         stopsong()
                         if isinstance(error, MediaFailure) and error.code != FailureCode.DECODE:
@@ -11320,55 +12460,55 @@ def process(command):
             try:
                 library_command(commandslist[1:])
             except (LibraryError, ValueError, IndexError) as error:
-                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                SAY(visible=visible, display_message=_command_rejection(raw_command, str(error)), log_message=str(error), log_priority=2)
 
         elif commandslist[0].lower() == 'queue':
             try:
                 queue_command(commandslist[1:])
             except (QueueError, MediaFailure, ValueError, IndexError) as error:
-                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                SAY(visible=visible, display_message=_command_rejection(raw_command, str(error)), log_message=str(error), log_priority=2)
 
         elif commandslist[0].lower() == 'playlist':
             try:
                 playlist_command(commandslist[1:])
             except (PlaylistError, QueueError, MediaFailure, ValueError, IndexError) as error:
-                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                SAY(visible=visible, display_message=_command_rejection(raw_command, str(error)), log_message=str(error), log_priority=2)
 
         elif commandslist[0].lower() == 'hotspots':
             try:
                 hotspots_command(commandslist[1:])
             except (ValueError, OSError, SQLiteError) as error:
-                IPrint(str(error), visible=visible)
+                IPrint(_command_rejection(raw_command, str(error)), visible=visible)
 
         elif commandslist[0].lower() == 'tag':
             try:
                 tag_command(commandslist[1:])
             except (TagError, ValueError, PlaybackBlockedError) as error:
-                IPrint(str(error), visible=visible)
+                IPrint(_command_rejection(raw_command, str(error)), visible=visible)
 
         elif commandslist[0].lower() == 'transfer':
             try:
                 transfer_command(commandslist[1:])
             except (CollectionTransferError, PlaylistError, ValueError, IndexError) as error:
-                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                SAY(visible=visible, display_message=_command_rejection(raw_command, str(error)), log_message=str(error), log_priority=2)
 
         elif commandslist[0].lower() == 'album':
             try:
                 album_command(commandslist[1:])
             except (AlbumError, PlaylistError, QueueError, MediaFailure, ValueError, IndexError) as error:
-                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                SAY(visible=visible, display_message=_command_rejection(raw_command, str(error)), log_message=str(error), log_priority=2)
 
         elif commandslist[0].lower() == 'radio':
             try:
                 radio_command(commandslist[1:])
             except (RadioError, QueueError, MediaFailure, ValueError, IndexError) as error:
-                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                SAY(visible=visible, display_message=_command_rejection(raw_command, str(error)), log_message=str(error), log_priority=2)
 
         elif commandslist[0].lower() in {'recommend', 'recommendations'}:
             try:
                 recommendation_command(commandslist[1:])
             except (QueueError, ValueError, IndexError) as error:
-                SAY(visible=visible, display_message=str(error), log_message=str(error), log_priority=2)
+                SAY(visible=visible, display_message=_command_rejection(raw_command, str(error)), log_message=str(error), log_priority=2)
 
         elif commandslist[0].lower() in {'like', 'dislike'}:
             media = _preference_media(vas.controller.snapshot().media)
@@ -11425,18 +12565,24 @@ def process(command):
                 visible=visible,
             )
 
+        else:
+            IPrint(_command_rejection(raw_command, 'Unrecognized command or arguments. Type help for commands.'), visible=visible)
 
 
 def prompt_text():
     """Build the testing snapshot's richer two-line prompt from live state."""
+    palette = resolved_theme(SETTINGS.get('appearance', {}))['terminal']
+    def ink(key):
+        return ansi_foreground(palette[key]) if sys.stdout.isatty() and 'NO_COLOR' not in os.environ else ''
+
     status_projection = _playback_status_projection()
     has_active_label = status_projection.media_id is not None and status_projection.display_state != 'Stopped'
     if has_active_label:
         title = _status_media_label(status_projection)
         prefix = f'[{status_projection.library_index}] ' if status_projection.library_index else ''
         first = (
-            colored.fg('light_slate_blue') + '┏━' +
-            colored.fg('navajo_white_1') +
+            ink('magenta') + '┏━' +
+            ink('foreground') +
             f' {prefix}{text_overflow_prettify(str(title), 64)} '
             f'[{_status_source_label(status_projection).lower()}]'
         )
@@ -11468,25 +12614,36 @@ def prompt_text():
         if status_projection.safe_error:
             status += f' ━ {truncate_display_cells(status_projection.safe_error, 48)}'
     else:
-        first = colored.fg('light_slate_blue') + '┏━' + colored.fg('navajo_white_1') + ' (Not Playing)'
+        first = ink('magenta') + '┏━' + ink('foreground') + ' (Not Playing)'
         status = 'ready'
     second = (
-        colored.fg('light_slate_blue') + '┗━ ' +
-        colored.fg('aquamarine_3') + status + ' ' +
-        colored.fg('gold_1') + '❱ ' +
-        colored.attr('reset') + colored.fg('dark_turquoise')
+        ink('magenta') + '┗━ ' +
+        ink('cyan') + status + ' ' +
+        ink('yellow') + '❱ ' +
+        colored.attr('reset') + ink('foreground')
     )
     return f'{first}{colored.attr("reset")}\n{second}'
 
 
 def mainprompt():
     global visible
-    from mariana.command_prompt import read_command
+    if _START_IN_TUI:
+        COMMAND_BUSY.set()
+        try:
+            tui_command([], direct=True)
+        finally:
+            COMMAND_BUSY.clear()
+            exitplayer()
+        return
 
+    from mariana.command_prompt import read_command
+    from mariana.command_values import make_value_provider
+
+    value_provider = make_value_provider(sys.modules[__name__])
     while True:
         try:
             prompt = prompt_text()
-            command = read_command(prompt) if visible else getpass(prompt)
+            command = read_command(prompt, value_provider=value_provider) if visible else getpass(prompt)
             print(colored.attr('reset'), end='')
             COMMAND_BUSY.set()
             try:
@@ -11674,8 +12831,10 @@ def run():
         return not reasons, reasons
     DESKTOP_CONTROL.start_safety_monitor(update_safety)
     DESKTOP_CONTROL.emit('ready', {
+        'listener_profile_id': RUNTIME_PATHS.profile_id,
         'version': __version__,
-        'theme': SETTINGS.get('appearance', {}).get('terminal theme', 'aurora'),
+        'theme': active_theme(SETTINGS.get('appearance', {})),
+        'theme_colors': saved_colors(SETTINGS.get('appearance', {}), active_theme(SETTINGS.get('appearance', {}))),
         'close_button_behavior': _configured_desktop_close_behavior(SETTINGS),
     })
     homepage_projection = HOMEPAGE.snapshot()
@@ -11694,9 +12853,10 @@ def run():
         if startup_sound_path.is_file():
             vas.set_media(_type='local', localpath=startup_sound_path)
             vas.media_player(action='play')
-        notify(Time = 6000) # For 6 seconds
+        if not _START_IN_TUI:
+            notify(Time = 6000) # For 6 seconds
 
-    if visible:
+    if visible and not _START_IN_TUI:
         showbanner()
         if FOCUS_MODE.recovery_required:
             IPrint(_focus_status_text(FOCUS_MODE.status()), visible=visible)
@@ -11720,6 +12880,8 @@ def startup():
         if not SOFT_FATAL_ERROR_INFO and (not FATAL_ERROR_INFO or playback_only):
             run()
         elif FATAL_ERROR_INFO and not SOFT_FATAL_ERROR_INFO:
+            if _START_IN_TUI:
+                sys.exit(f'FATAL ERROR ENCOUNTERED: {FATAL_ERROR_INFO}')
             IPrint(f'FATAL ERROR ENCOUNTERED: {FATAL_ERROR_INFO}', visible=visible)
             sys.exit(1)
         return
@@ -11733,6 +12895,8 @@ def startup():
 
     if not SOFT_FATAL_ERROR_INFO: # End program silently if SOFT_FATAL_ERROR_INFO is set
         if FATAL_ERROR_INFO:
+            if _START_IN_TUI:
+                sys.exit(f'FATAL ERROR ENCOUNTERED: {FATAL_ERROR_INFO}')
             IPrint(f"FATAL ERROR ENCOUNTERED: {FATAL_ERROR_INFO}", visible=visible)
             IPrint("Exiting program...", visible=visible)
             sys.exit(1) # End program...forcefully...
@@ -11740,7 +12904,16 @@ def startup():
 
 
 if __name__ == '__main__':
-    startup()
+    if _START_IN_TUI:
+        from mariana.setup_terminal import direct_screen
+
+        with direct_screen():
+            try:
+                startup()
+            except (EOFError, KeyboardInterrupt):
+                pass
+    else:
+        startup()
 else:
     print(' '*30, end='\r')  # Get rid of the current '\r'...
 

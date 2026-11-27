@@ -461,7 +461,13 @@ class SessionRecipeService:
             self._current_media_id = payload["media"]
             self._playback_session_id = payload["playback_session_id"]
 
+    def _release_capture(self) -> None:
+        release = getattr(self._host.playback, 'end_recipe_capture', None)
+        if release is not None:
+            release(self.capture_program_event)
+
     def _finish_recording(self, at_ms: int) -> None:
+        self._release_capture()
         recorder = self._recorder
         if recorder is None:
             return
@@ -602,6 +608,7 @@ class SessionRecipeService:
                     self._error = code
                     self._state = "failed"
                     recorder = self._recorder
+                self._release_capture()
                 if recorder is not None:
                     recorder.mark_incomplete()
                 if self._replay_active:

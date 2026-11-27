@@ -1,0 +1,469 @@
+{
+  "version": 1,
+  "voices": {
+    "felt-keys": {
+      "partials": [
+        1,
+        0.3,
+        0.23,
+        0.06,
+        0.04
+      ],
+      "attack": 0.008,
+      "decay": 0.65,
+      "sustain": 0.28,
+      "release": 0.15,
+      "noise": 0,
+      "bend": 0
+    },
+    "choir": {
+      "partials": [
+        0.8,
+        0.16,
+        0.45,
+        0.3,
+        0.07,
+        0.18,
+        0.14,
+        0.03,
+        0.05
+      ],
+      "attack": 0.09,
+      "decay": 0.3,
+      "sustain": 0.8,
+      "release": 0.28,
+      "noise": 0,
+      "bend": 0
+    },
+    "round-bass": {
+      "partials": [
+        1,
+        0.2,
+        0.12,
+        0.04
+      ],
+      "attack": 0.012,
+      "decay": 0.15,
+      "sustain": 0.48,
+      "release": 0.09,
+      "noise": 0,
+      "bend": 0
+    },
+    "glass": {
+      "partials": [
+        1,
+        0.02,
+        0.04,
+        0.34,
+        0.1,
+        0.02,
+        0.1
+      ],
+      "attack": 0.006,
+      "decay": 0.6,
+      "sustain": 0.2,
+      "release": 0.36,
+      "noise": 0,
+      "bend": 0
+    },
+    "reed": {
+      "partials": [
+        0.8,
+        0.04,
+        0.55,
+        0.035,
+        0.23,
+        0.025,
+        0.13,
+        0.015,
+        0.055
+      ],
+      "attack": 0.035,
+      "decay": 0.18,
+      "sustain": 0.78,
+      "release": 0.12,
+      "noise": 0,
+      "bend": 0
+    },
+    "hollow": {
+      "partials": [
+        1,
+        0,
+        0.33,
+        0,
+        0.16,
+        0,
+        0.08,
+        0,
+        0.04
+      ],
+      "attack": 0.014,
+      "decay": 0.26,
+      "sustain": 0.56,
+      "release": 0.12,
+      "noise": 0,
+      "bend": 0
+    },
+    "flute": {
+      "partials": [
+        1,
+        0.1,
+        0.08,
+        0.02
+      ],
+      "attack": 0.07,
+      "decay": 0.25,
+      "sustain": 0.75,
+      "release": 0.11,
+      "noise": 0,
+      "bend": 0
+    },
+    "organ": {
+      "partials": [
+        1,
+        0.6,
+        0.03,
+        0.41,
+        0.035,
+        0,
+        0,
+        0.25
+      ],
+      "attack": 0.018,
+      "decay": 0.05,
+      "sustain": 0.93,
+      "release": 0.09,
+      "noise": 0,
+      "bend": 0
+    },
+    "strings": {
+      "partials": [
+        0.75,
+        0.5,
+        0.36,
+        0.27,
+        0.2,
+        0.15,
+        0.11,
+        0.09,
+        0.06,
+        0.04
+      ],
+      "attack": 0.13,
+      "decay": 0.3,
+      "sustain": 0.83,
+      "release": 0.24,
+      "noise": 0,
+      "bend": 0
+    },
+    "pluck": {
+      "partials": [
+        1,
+        0.65,
+        0.42,
+        0.25,
+        0.12,
+        0.09,
+        0.055,
+        0.03
+      ],
+      "attack": 0.003,
+      "decay": 0.28,
+      "sustain": 0.09,
+      "release": 0.1,
+      "noise": 0,
+      "bend": 0
+    },
+    "chime": {
+      "partials": [
+        1,
+        0,
+        0.02,
+        0.23,
+        0,
+        0.06,
+        0,
+        0.12,
+        0.04
+      ],
+      "attack": 0.004,
+      "decay": 0.54,
+      "sustain": 0.12,
+      "release": 0.33,
+      "noise": 0,
+      "bend": 0
+    },
+    "brass": {
+      "partials": [
+        0.76,
+        0.67,
+        0.52,
+        0.38,
+        0.24,
+        0.14,
+        0.07,
+        0.04
+      ],
+      "attack": 0.055,
+      "decay": 0.13,
+      "sustain": 0.74,
+      "release": 0.15,
+      "noise": 0,
+      "bend": 0
+    },
+    "vowel-a": {
+      "partials": [
+        0.6,
+        0.2,
+        0.15,
+        0.75,
+        0.62,
+        0.17,
+        0.12,
+        0.22,
+        0.12,
+        0.06
+      ],
+      "attack": 0.052,
+      "decay": 0.2,
+      "sustain": 0.73,
+      "release": 0.16,
+      "noise": 0,
+      "bend": 0
+    },
+    "vowel-e": {
+      "partials": [
+        0.7,
+        0.38,
+        0.15,
+        0.08,
+        0.03,
+        0.02,
+        0.04,
+        0.25,
+        0.51,
+        0.42,
+        0.13,
+        0.06
+      ],
+      "attack": 0.045,
+      "decay": 0.24,
+      "sustain": 0.72,
+      "release": 0.18,
+      "noise": 0,
+      "bend": 0
+    },
+    "soft-pad": {
+      "partials": [
+        1,
+        0.2,
+        0.29,
+        0.15,
+        0.08,
+        0.07,
+        0.04
+      ],
+      "attack": 0.2,
+      "decay": 0.36,
+      "sustain": 0.82,
+      "release": 0.32,
+      "noise": 0,
+      "bend": 0
+    },
+    "chip-lead": {
+      "partials": [
+        1,
+        0,
+        0.3,
+        0,
+        0.2,
+        0,
+        0.14,
+        0,
+        0.1,
+        0,
+        0.08
+      ],
+      "attack": 0.004,
+      "decay": 0.13,
+      "sustain": 0.65,
+      "release": 0.05,
+      "noise": 0,
+      "bend": 0
+    },
+    "sub": {
+      "partials": [
+        1,
+        0.04
+      ],
+      "attack": 0.02,
+      "decay": 0.24,
+      "sustain": 0.76,
+      "release": 0.07,
+      "noise": 0,
+      "bend": 0
+    },
+    "mallet": {
+      "partials": [
+        1,
+        0.11,
+        0.33,
+        0.1,
+        0.08,
+        0.16
+      ],
+      "attack": 0.003,
+      "decay": 0.34,
+      "sustain": 0.08,
+      "release": 0.14,
+      "noise": 0,
+      "bend": 0
+    },
+    "electric-piano": {
+      "partials": [
+        1,
+        0.31,
+        0.4,
+        0.035,
+        0.27,
+        0.06,
+        0.06,
+        0.01,
+        0.02
+      ],
+      "attack": 0.006,
+      "decay": 0.5,
+      "sustain": 0.23,
+      "release": 0.18,
+      "noise": 0,
+      "bend": 0
+    },
+    "pipe": {
+      "partials": [
+        1,
+        0.12,
+        0.035,
+        0.31,
+        0.02,
+        0.015,
+        0.02
+      ],
+      "attack": 0.065,
+      "decay": 0.09,
+      "sustain": 0.81,
+      "release": 0.14,
+      "noise": 0,
+      "bend": 0
+    },
+    "kick": {
+      "partials": [
+        1,
+        0.18
+      ],
+      "attack": 0.002,
+      "decay": 0.13,
+      "sustain": 0.025,
+      "release": 0.06,
+      "noise": 0.01,
+      "bend": -24
+    },
+    "snare": {
+      "partials": [
+        0.7,
+        0.22,
+        0.25
+      ],
+      "attack": 0.002,
+      "decay": 0.115,
+      "sustain": 0.02,
+      "release": 0.08,
+      "noise": 0.85,
+      "bend": -7
+    },
+    "hat": {
+      "partials": [
+        0.02,
+        0,
+        0.01
+      ],
+      "attack": 0.002,
+      "decay": 0.07,
+      "sustain": 0.008,
+      "release": 0.045,
+      "noise": 0.96,
+      "bend": 0
+    },
+    "footstep": {
+      "partials": [
+        1,
+        0.3,
+        0.14
+      ],
+      "attack": 0.004,
+      "decay": 0.095,
+      "sustain": 0.015,
+      "release": 0.04,
+      "noise": 0.52,
+      "bend": -13
+    },
+    "riser": {
+      "partials": [
+        0.55,
+        0.25,
+        0.06
+      ],
+      "attack": 0.27,
+      "decay": 0.08,
+      "sustain": 0.91,
+      "release": 0.045,
+      "noise": 0.61,
+      "bend": 18
+    },
+    "zap": {
+      "partials": [
+        1,
+        0.3,
+        0.1,
+        0.05
+      ],
+      "attack": 0.002,
+      "decay": 0.17,
+      "sustain": 0.07,
+      "release": 0.09,
+      "noise": 0.03,
+      "bend": -31
+    }
+  },
+  "procedures": {
+    "twinkle": {
+      "title": "Twinkle, Twinkle, Little Star",
+      "bpm": 100,
+      "chorus": 38,
+      "tracks": [
+        {
+          "voice": "felt-keys",
+          "score": "C5 C5 G5 G5 A5 A5 G5:2 F5 F5 E5 E5 D5 D5 C5:2 G5 G5 F5 F5 E5 E5 D5:2 G5 G5 F5 F5 E5 E5 D5:2 C5 C5 G5 G5 A5 A5 G5:2 F5 F5 E5 E5 D5 D5 C5:2",
+          "gain": 0.6
+        },
+        {
+          "voice": "choir",
+          "score": "C4+E4+G4:2 C4+E4+G4:2 C4+F4+A4:2 C4+E4+G4:2 C4+F4+A4:2 C4+E4+G4:2 B3+D4+F4:2 C4+E4+G4:2 C4+E4+G4:2 C4+F4+A4:2 C4+E4+G4:2 B3+D4+G4:2 C4+E4+G4:2 C4+F4+A4:2 C4+E4+G4:2 B3+D4+G4:2 C4+E4+G4:2 C4+E4+G4:2 C4+F4+A4:2 C4+E4+G4:2 C4+F4+A4:2 C4+E4+G4:2 B3+D4+F4:2 C4+E4+G4:2",
+          "gain": 0.26
+        },
+        {
+          "voice": "round-bass",
+          "score": "C3:2 C3:2 F2:2 C3:2 F2:2 C3:2 G2:2 C3:2 C3:2 F2:2 C3:2 G2:2 C3:2 F2:2 C3:2 G2:2 C3:2 C3:2 F2:2 C3:2 F2:2 C3:2 G2:2 C3:2",
+          "gain": 0.18
+        }
+      ]
+    }
+  },
+  "sfx": {
+    "kick": "C3",
+    "snare": "D3",
+    "hat": "C5",
+    "footstep": "C3",
+    "riser": "C3:3",
+    "zap": "E5"
+  }
+}

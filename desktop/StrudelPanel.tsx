@@ -3,12 +3,7 @@ import type { MarianaDesktopApi } from './shared'
 import { useModalFocusTrap } from './modalFocus'
 import type { StrudelPreviewInput, StrudelProjection, StrudelSaveInput } from './strudelProjects'
 
-const STARTER_CODE = `setcps(0.5)
-stack(
-  s("bd*4, ~ sd ~ sd, hh*8").gain(0.8),
-  note("<c3 eb3 g3 bb3>").s("sawtooth").lpf(900).gain(0.35)
-).room(0.15)
-`
+import STARTER_CODE from '../res/strudel/starter.js?raw'
 
 type Draft = StrudelSaveInput
 
@@ -37,7 +32,6 @@ export function StrudelPanel({
   onClose(): void
   confirmDelete?(name: string): boolean
 }) {
-  const { dialogRef, containTabFocus } = useModalFocusTrap(true, { onOutsidePointer: onClose })
   const [draft, setDraft] = useState<Draft>(() => {
     const selected = projection?.projects.find((project) => project.project_id === projection.selected_id)
       ?? projection?.projects[0]
@@ -47,6 +41,11 @@ export function StrudelPanel({
   const [pending, setPending] = useState<'save' | 'render' | 'delete' | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const dirty = JSON.stringify(draft) !== JSON.stringify(savedDraft)
+
+  const close = () => {
+    if (!dirty || window.confirm('Discard unsaved pattern changes?')) onClose()
+  }
+  const { dialogRef, containTabFocus } = useModalFocusTrap(true, { onOutsidePointer: close })
 
   const selectProject = (projectId: string) => {
     if (dirty && !window.confirm('Discard unsaved pattern changes?')) return
@@ -72,7 +71,21 @@ export function StrudelPanel({
     setMessage(null)
     try {
       const result = await api.strudelSave(draft)
-      setMessage(result.ok ? 'Pattern saved.' : result.error || 'Pattern could not be saved')
+      if (!result.ok) {
+        setMessage(result.error || 'Pattern could not be saved')
+        return
+      }
+      const snapshot = await api.snapshot()
+      const project = snapshot.strudel?.projects.find(item => draft.project_id
+        ? item.project_id === draft.project_id : item.name === draft.name.normalize('NFC').trim())
+      if (!project) {
+        setMessage('Pattern saved. Reopen the project to load its current revision.')
+        return
+      }
+      const next = projectDraft(project)
+      setDraft(next)
+      setSavedDraft(next)
+      setMessage('Pattern saved.')
     } catch {
       setMessage('Pattern could not be saved')
     } finally {
@@ -100,6 +113,11 @@ export function StrudelPanel({
     setMessage(null)
     try {
       const result = await api.strudelDelete(draft.project_id, draft.revision)
+      if (result.ok) {
+        const next = newDraft()
+        setDraft(next)
+        setSavedDraft(next)
+      }
       setMessage(result.ok ? 'Pattern deleted.' : result.error || 'Pattern could not be deleted')
     } catch {
       setMessage('Pattern could not be deleted')
@@ -111,7 +129,7 @@ export function StrudelPanel({
   return (
     <section
       ref={dialogRef}
-      className="strudel-panel"
+      className="studio-dialog strudel-panel"
       role="dialog"
       aria-modal="true"
       aria-label="Strudel pattern studio"
@@ -121,13 +139,13 @@ export function StrudelPanel({
         containTabFocus(event)
         if (event.key === 'Escape') {
           event.preventDefault()
-          onClose()
+          close()
         }
       }}
     >
       <header>
         <div><small>LOCAL COMPOSITION</small><h1>Strudel pattern studio</h1></div>
-        <button type="button" aria-label="Close pattern studio" onClick={onClose}>Close</button>
+        <button type="button" aria-label="Close pattern studio" onClick={close}>Close</button>
       </header>
       <div className="strudel-toolbar">
         <label>
@@ -138,21 +156,22 @@ export function StrudelPanel({
           </select>
         </label>
         <button type="button" onClick={createProject} disabled={Boolean(pending)}>New</button>
-        <button type="button" onClick={() => void save()} disabled={Boolean(pending) || !dirty}>Save</button>
+        <button type="button" onClick={() => void save()} disabled={Boolean(pending) || (!dirty && Boolean(draft.project_id))}>Save</button>
         <button type="button" onClick={() => void preview()} disabled={Boolean(pending) || dirty || !draft.project_id}>
           {pending === 'render' ? 'Rendering…' : 'Render & play'}
         </button>
         <button type="button" className="danger" onClick={() => void remove()} disabled={Boolean(pending) || !draft.project_id}>Delete</button>
       </div>
       <div className="strudel-fields">
-        <label><span>Project name</span><input autoFocus value={draft.name} maxLength={120} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} /></label>
-        <label><span>Preview seconds</span><input type="number" min={1} max={60} step={1} value={draft.preview_seconds} onChange={(event) => setDraft((value) => ({ ...value, preview_seconds: Number(event.target.value) }))} /></label>
+        <label><span>Project name</span><input autoFocus disabled={Boolean(pending)} value={draft.name} maxLength={120} onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))} /></label>
+        <label><span>Preview seconds</span><input type="number" disabled={Boolean(pending)} min={1} max={60} step={1} value={draft.preview_seconds} onChange={(event) => setDraft((value) => ({ ...value, preview_seconds: Number(event.target.value) }))} /></label>
       </div>
       <label className="strudel-editor-label">
         <span>Pattern source</span>
         <textarea
           aria-label="Pattern source"
           spellCheck={false}
+          disabled={Boolean(pending)}
           value={draft.code}
           onChange={(event) => setDraft((value) => ({ ...value, code: event.target.value }))}
           onKeyDown={(event) => {

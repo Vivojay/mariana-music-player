@@ -17,6 +17,8 @@ export type CommandSuggestionMatch =
   | 'canonical-prefix'
   | 'alias-exact'
   | 'alias-prefix'
+  | 'grammar'
+  | 'correction'
 
 export type CommandSuggestion = Readonly<{
   key: string
@@ -24,7 +26,7 @@ export type CommandSuggestion = Readonly<{
   display_label: string
   detail: string
   category: string
-  risk: CommandCatalogEntry['risk']
+  risk: CommandCatalogEntry['risk'] | 'unspecified'
   aliases: readonly string[]
   matched_alias: string | null
   match_kind: CommandSuggestionMatch

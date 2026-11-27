@@ -31,11 +31,36 @@ def test_video_open_uses_desktop_surface_only(window_cli, monkeypatch):
     main.DESKTOP_CONTROL.emit.assert_called_once_with("video-window", {"open": True})
 
 
-def test_video_open_requires_desktop(window_cli):
+def test_cli_open_close_uses_child_and_retains_controller_position(window_cli, monkeypatch):
     main.DESKTOP_CONTROL.enabled = False
-    with pytest.raises(VideoUnavailable):
-        main.video_command(["open"])
+    host = Mock(is_open=False)
+    service = Mock()
+    service.request.return_value = {"state": "preparing"}
+    monkeypatch.setattr(main, "CLI_VIDEO", host)
+    monkeypatch.setattr(main, "VIDEO", service)
+    monkeypatch.setattr(main, "_cli_video_allowed", lambda: True)
+    assert main.video_command(["open"]) == {"state": "preparing"}
+    host.open.assert_called_once_with()
+    service.request.assert_called_once_with("video", expected_media=window_cli.media)
+    assert main.video_command(["close"]) == {"open": False}
+    host.close.assert_called_once_with()
+    service.request.assert_called_with("audio")
     main.DESKTOP_CONTROL.emit.assert_not_called()
+
+
+def test_cli_restricted_and_live_media_leave_no_window(window_cli, monkeypatch):
+    main.DESKTOP_CONTROL.enabled = False
+    host = Mock(is_open=False)
+    monkeypatch.setattr(main, "CLI_VIDEO", host)
+    monkeypatch.setattr(main, "_cli_video_allowed", lambda: False)
+    with pytest.raises(VideoUnavailable, match="restricted"):
+        main.video_command(["open"])
+    host.open.assert_not_called()
+    monkeypatch.setattr(main, "_cli_video_allowed", lambda: True)
+    monkeypatch.setattr(main.VIDEO, "request", Mock(side_effect=VideoUnavailable("Live video is not supported")))
+    with pytest.raises(VideoUnavailable, match="Live video"):
+        main.video_command(["open"])
+    host.close.assert_called_once_with()
 
 
 def test_video_close_emits_without_backend_round_trip(window_cli):

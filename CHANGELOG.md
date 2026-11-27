@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added the terminal command workspace, layered tone procedures, sound-design rack and wavetable exports, listener profiles and guided setup, seek-aware video caching and portable release kits. [Features and verification](docs/STUDIO_WORKBENCH.md)
+
 - Hardened opt-in Discord Rich Presence with automatic recovery after Discord
   Desktop starts or restarts, bounded non-blocking shutdown, dormant permanent
   configuration failures, sanitized status text, and single-republish refresh.

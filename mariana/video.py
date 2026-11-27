@@ -10,6 +10,7 @@ import subprocess
 import threading
 import time
 from collections.abc import Callable, Sequence
+from concurrent.futures import Future
 from pathlib import Path
 
 from .captions import (
@@ -30,19 +31,26 @@ from .playback_status import project_playback_status
 from .provider_captions import ProviderCaptionCandidate, load_provider_caption
 from .sources import ResolvedMedia
 from .video_cache import CachedVideoProxy, VideoByteCache
-from .video_sources import VideoSourceError, VideoTracks, video_track_proxy
+from .video_filters import DEFAULT as DEFAULT_FILTER, parse_filter, projection as filter_projection
+from .video_sources import VideoAccessExpired, VideoSourceError, VideoTracks, video_track_proxy
 from .video_window_cache import VideoWindowCache
 
 MAX_DURATION_SECONDS = 2 * 60 * 60
-FIRST_WINDOW_SECONDS = 8.0
+RESOLVE_TIMEOUT = 30.0
+FIRST_WINDOW_SECONDS = 6.0
 WINDOW_SECONDS = 20.0
-WINDOW_OVERLAP_SECONDS = 4.0
+WINDOW_OVERLAP_SECONDS = 2.0
+WINDOW_HANDOFF_SECONDS = 0.4
+CATCH_UP_TIMEOUT = 18.0
+CATCH_UP_STAGE = "Preparing a lighter picture preview"
 MAX_WINDOW_BYTES = 32 * 1024 * 1024
 MAX_AUDIO_OFFSET_MS = 5_000
 MAX_CAPTION_OFFSET_MS = 60_000
 _CAPTION_WORKER_START_ERROR = (
     "Caption worker could not start; previous captions retained. Select a track or Automatic to retry"
 )
+_REMOTE_FORMATS = "mov,matroska,webm,avi,mpegts,mpegvideo,ogg,mp3,aac,wav,flac"
+_LOCAL_FORMATS = _REMOTE_FORMATS + ",asf,flv,nut,ivf,rm"
 
 
 class VideoUnavailable(ValueError):
@@ -60,6 +68,8 @@ class WindowSuperseded(Exception):
 def default_presentation(media: MediaRef) -> str:
     """YouTube is audio-first; actual local/direct-file streams decide otherwise."""
     if media.source in {MediaSource.YOUTUBE, MediaSource.RADIO} or media.capabilities.live:
+        return "audio"
+    if media.source == MediaSource.LOCAL and media.resolver_data.get("has_video_track") is False:
         return "audio"
     return "auto"
 
@@ -81,12 +91,13 @@ def _local_source(media: MediaRef) -> Path:
     return source
 
 
-def _probe(source: Path | str, *, require_audio: bool = True) -> tuple[str, float]:
+def _probe(source: Path | str, *, require_audio: bool = True, ffprobe: str | None = None) -> tuple[str, float]:
+    local = isinstance(source, Path)
     try:
         result = subprocess.run(
-            [find_executable("ffprobe"), "-v", "error", "-protocol_whitelist", "file,pipe,http,tcp",
-             "-format_whitelist", "mov,matroska,webm,avi,mpegts,mpegvideo,ogg,mp3,aac,wav,flac",
-             "-show_entries", "stream=codec_type,codec_name,width,height:stream_disposition=attached_pic:format=duration",
+            [ffprobe or find_executable("ffprobe"), "-v", "error", "-protocol_whitelist", "file" if local else "http,tcp",
+             "-format_whitelist", _LOCAL_FORMATS if local else _REMOTE_FORMATS,
+             "-show_entries", "stream=codec_type,codec_name,width,height,duration:stream_disposition=attached_pic:format=duration",
              "-of", "json", str(source)],
             capture_output=True, timeout=10, check=True, creationflags=CREATE_NO_WINDOW,
         )
@@ -100,7 +111,7 @@ def _probe(source: Path | str, *, require_audio: bool = True) -> tuple[str, floa
             raise NoVideoTrack("This media has no video track")
         if require_audio and not any(item.get("codec_type") == "audio" for item in streams):
             raise VideoUnavailable("Silent video needs a backend video clock; it is not supported yet")
-        duration = float(value["format"]["duration"])
+        duration = float(value.get("format", {}).get("duration") or video.get("duration") or 0)
         if not math.isfinite(duration) or not 0 < duration <= MAX_DURATION_SECONDS:
             raise VideoUnavailable("Video must have a finite duration of at most two hours")
         width, height = int(video.get("width", 0)), int(video.get("height", 0))
@@ -121,6 +132,8 @@ class LocalVideo:
         publish: Callable[[dict[str, object]], None],
         *, resolve_video: Callable[[MediaRef, ResolvedMedia | None], VideoTracks] | None = None,
         enabled: Callable[[], bool] = lambda: False,
+        default_mode: Callable[[], str] = lambda: "auto",
+        executable: Callable[[str], str] | None = None,
         youtube_cache_settings: dict[str, object] | None = None,
         caption_preferences: CaptionPreferences | None = None,
     ) -> None:
@@ -129,6 +142,8 @@ class LocalVideo:
         self.publish = publish
         self.resolve_video = resolve_video
         self.enabled = enabled
+        self.default_mode = default_mode
+        self._executable = executable
         options = youtube_cache_settings or {}
         limit = options.get("memory mib", 64)
         idle = options.get("idle seconds", 600)
@@ -136,6 +151,7 @@ class LocalVideo:
             "limit_mib": limit if type(limit) is int else 64,
             "idle_seconds": idle if type(idle) is int else 600,
         }
+        self._lookup_slot = threading.BoundedSemaphore(1)
         self._youtube_cache: VideoByteCache | None = None
         self._youtube_identity: str | None = None
         self._youtube_tracks: VideoTracks | None = None
@@ -169,17 +185,33 @@ class LocalVideo:
         self._caption_cancel = threading.Event()
         self._caption_pending: Callable[[], None] | None = None
         self._audio_offset_ms = 0
+        self._filter = DEFAULT_FILTER
+        self._prepare_started = 0.0
+        self._picture_duration: float | None = None
         self._state: dict[str, object] = {"revision": 0, "state": "off", "handle": None, "error": None}
+
+    def _tool(self, name: str) -> str:
+        return (self._executable or find_executable)(name)
+
+    def _inspect(self, source: Path | str, **kwargs) -> tuple[str, float]:
+        if self._executable:
+            kwargs["ffprobe"] = self._executable("ffprobe")
+        return _probe(source, **kwargs)
 
     def expect(self, media: MediaRef, mode: str | None) -> None:
         """Bind an explicit presentation intent before the controller starts media."""
         with self._condition:
-            self._intent = (media, mode or "auto")
+            self._intent = (media, mode) if mode else None
 
-    def activate(self, media: MediaRef | None, resolved: ResolvedMedia | None) -> None:
-        """Called on committed active-media changes, including queue promotion."""
-        if not self.enabled():
-            return
+    def auto_open_local(self, media: MediaRef) -> bool:
+        """Check for a confirmed local picture track in automatic presentation mode."""
+        with self._condition:
+            choice = self._intent[1] if self._intent and self._intent[0] is media else None
+        return (media.source == MediaSource.LOCAL and media.resolver_data.get("has_video_track") is True
+                and choice in {None, "auto"})
+
+    def activate(self, media: MediaRef | None, resolved: ResolvedMedia | None) -> str | None:
+        """Apply and return the presentation mode for a newly committed recording."""
         with self._condition:
             if media is not None and media is self._observed:
                 self._resolved = resolved
@@ -199,9 +231,14 @@ class LocalVideo:
             self._caption_source = None
             self._caption_message = None
             self._audio_offset_ms = 0
-            mode = self._intent[1] if self._intent and self._intent[0] is media else "auto"
+            # Track the committed input even when the terminal has no window.
+            # An explicit open later can reuse its exact resolver binding.
+            if not self.enabled():
+                return
+            mode = self._intent[1] if self._intent and self._intent[0] is media else self.default_mode()
         self.request(mode if media is not None else "audio", expected_media=media, _remember=False)
         self._emit()
+        return mode if media is not None else None
 
     def request(
         self, mode: str, *, expected_media: MediaRef | None = None, _remember: bool = True,
@@ -216,7 +253,8 @@ class LocalVideo:
         if mode == "auto" and media is not None and default_presentation(media) == "audio":
             mode = "audio"
         if mode != "audio":
-            if media is None or snapshot.state not in {PlaybackState.PLAYING, PlaybackState.PAUSED, PlaybackState.BUFFERING}:
+            if media is None or snapshot.state not in {PlaybackState.PLAYING, PlaybackState.PAUSED, PlaybackState.BUFFERING,
+                                                       PlaybackState.CROSSFADING, PlaybackState.SEEKING}:
                 raise VideoUnavailable("Start media before opening video")
             if media.capabilities.live or not media.capabilities.finite or media.source == MediaSource.RADIO:
                 raise VideoUnavailable("Live video is not supported yet")
@@ -230,13 +268,14 @@ class LocalVideo:
         with self._condition:
             if self._closed:
                 raise VideoUnavailable("Video service is closed")
-            if (media is not None and media.source == MediaSource.YOUTUBE and self._media is media
+            if (media is not None and self._media is media
                     and mode == "video" and self._state["state"] in {"preparing", "ready"}):
                 return self.status()
             if _remember and media is not None:
                 self._intent = (media, requested_mode)
             self._generation += 1
             self._resource = None
+            self._picture_duration = None
             self._cancel.set()
             self._caption_cancel.set()
             self._caption_pending = None
@@ -244,12 +283,14 @@ class LocalVideo:
                 self._caption_discovery = "idle"
             self._cancel = threading.Event()
             self._media = media if mode != "audio" else None
-            self._request = (self._generation, media, mode, self._resolved) if mode != "audio" and media is not None else None
+            resolved = self._resolved if media is self._observed else None
+            self._request = (self._generation, media, mode, resolved) if mode != "audio" and media is not None else None
+            self._prepare_started = time.monotonic()
             self._state = {
                 "revision": self._generation,
                 "state": "preparing" if mode != "audio" else "off", "handle": None, "error": None,
             }
-            if self._worker is None:
+            if self._request is not None and self._worker is None:
                 self._worker = threading.Thread(target=self._run, name="mariana-local-video", daemon=True)
                 self._worker.start()
             self._condition.notify_all()
@@ -265,13 +306,18 @@ class LocalVideo:
                 self._generation += 1
                 self._request = None
                 self._media = None
+                self._picture_duration = None
                 self._state = {"revision": self._generation, "state": "off", "handle": None, "error": None}
             result = dict(self._state)
             result["media_id"] = project_playback_status(snapshot).media_id if self._media is not None else None
             visual_position = self._video_position(snapshot.position)
+            if self._picture_duration is not None:
+                visual_position = min(self._picture_duration, visual_position)
             result["position_seconds"] = visual_position
             result["playing"] = snapshot.state in {PlaybackState.PLAYING, PlaybackState.CROSSFADING}
             result["audio_offset_ms"] = self._audio_offset_ms
+            result["filter"] = filter_projection(self._filter)
+            result["playback_rate"] = getattr(snapshot, "playback_rate", 1.0)
             caption_position = max(0.0, visual_position - self._caption_offset_ms / 1000)
             result["captions"] = {
                 "available": self._captions is not None,
@@ -293,7 +339,10 @@ class LocalVideo:
             if (result["state"] == "ready" and isinstance(start, (int, float)) and isinstance(end, (int, float))
                     and not start <= visual_position <= end):
                 # Never present a stale picture while a seek window is being prepared.
-                result.update(state="preparing", handle=None)
+                result.update(state="preparing", handle=None, elapsed_seconds=0,
+                              stage="Preparing a picture at the current position")
+            if result["state"] == "preparing":
+                result.setdefault("elapsed_seconds", int(max(0, time.monotonic() - self._prepare_started)))
             return result
 
     def host_status(self) -> dict[str, object]:
@@ -327,8 +376,52 @@ class LocalVideo:
                 self._youtube_duration = None
                 self._youtube_identity = None
 
+    def _preparing(self, generation: int, stage: str) -> None:
+        with self._condition:
+            if generation == self._generation and self._state["state"] == "preparing":
+                self._state["stage"] = stage
+
+    def _resolve_picture(self, media: MediaRef, resolved: ResolvedMedia | None,
+                         cancel: threading.Event) -> VideoTracks:
+        """Network libraries may block on DNS or browser keyrings beyond socket timeouts."""
+        assert self.resolve_video is not None
+        resolver = self.resolve_video
+        deadline = time.monotonic() + RESOLVE_TIMEOUT
+        pending: Future[VideoTracks] = Future()
+
+        def check() -> None:
+            if cancel.is_set():
+                raise VideoUnavailable("Video lookup was cancelled")
+            if time.monotonic() >= deadline:
+                raise VideoUnavailable("Video lookup timed out. Check the network and youtube auth status, "
+                                       "then use video open to retry.")
+
+        def lookup() -> None:
+            try:
+                pending.set_result(resolver(media, resolved))
+            except Exception as error:
+                pending.set_exception(error)
+            finally:
+                self._lookup_slot.release()
+
+        # Only one provider lookup can outlive its presentation. Its result is
+        # private to this request, so a late completion cannot restore stale video.
+        while not self._lookup_slot.acquire(timeout=.05):
+            check()
+        try:
+            check()
+            threading.Thread(target=lookup, name="mariana-video-lookup", daemon=True).start()
+        except BaseException:
+            self._lookup_slot.release()
+            raise
+        while not pending.done():
+            check()
+            cancel.wait(.025)
+        check()
+        return pending.result()
+
     def _youtube_source(self, media: MediaRef, resolved: ResolvedMedia | None,
-                        generation: int, cancel: threading.Event) -> None:
+                        generation: int, cancel: threading.Event, *, refresh: bool = True) -> None:
         """Serve original picture bytes; never restart, seek, or decode authoritative audio."""
         assert self.resolve_video is not None
         self._expire_youtube_cache()
@@ -337,7 +430,8 @@ class LocalVideo:
                  and time.monotonic() - self._youtube_resolved_at < 120
                  and (tracks.expires_at is None or time.time() + 30 < tracks.expires_at))
         if not fresh:
-            tracks = self.resolve_video(media, resolved)
+            self._preparing(generation, "Resolving the video format")
+            tracks = self._resolve_picture(media, resolved, cancel)
         assert tracks is not None
         if tracks.duration is not None and (not math.isfinite(tracks.duration)
                                            or not 0 < tracks.duration <= MAX_DURATION_SECONDS):
@@ -354,7 +448,15 @@ class LocalVideo:
             cache = VideoByteCache(limit_mib=self._cache_options["limit_mib"],
                                    idle_seconds=self._cache_options["idle_seconds"])
         if not fresh or cache.track is None:
-            cache.bind(track, cancel)
+            self._preparing(generation, "Checking provider byte ranges")
+            try:
+                cache.bind(track, cancel)
+            except VideoAccessExpired:
+                if not refresh or not tracks.from_audio_selection or cancel.is_set():
+                    raise
+                # Audio hints are single-use. Ordinary resolution now selects a
+                # fresh signed URL for the same recording and account.
+                return self._youtube_source(media, resolved, generation, cancel, refresh=False)
         if cancel.is_set():
             return
         def transport_error(message: str) -> None:
@@ -372,7 +474,8 @@ class LocalVideo:
         try:
             duration = self._youtube_duration if fresh else None
             if duration is None:
-                _codec, duration = _probe(proxy.url, require_audio=False)
+                self._preparing(generation, "Reading the video index")
+                _codec, duration = self._inspect(proxy.url, require_audio=False)
             if media.duration is not None and abs(duration - media.duration) > max(2.0, media.duration * 0.005):
                 raise VideoUnavailable("Video duration differs from the active recording; audio playback is unchanged")
             with self._condition:
@@ -542,7 +645,7 @@ class LocalVideo:
                     except CaptionError:
                         track = None
                 else:
-                    track = load_caption_candidate(candidate, self.cache, find_executable("ffmpeg"), cancel)
+                    track = load_caption_candidate(candidate, self.cache, self._tool("ffmpeg"), cancel)
                     if source is None or caption_source_signature(source) != signature:
                         track = None
                 with self._condition:
@@ -616,18 +719,37 @@ class LocalVideo:
         self._emit()
         return self.status()
 
+    def configure_filter(
+        self, preset: str, threshold: int | str | None = None, *, expected_media: MediaRef | None = None,
+    ) -> dict[str, object]:
+        try:
+            selection = parse_filter(preset, threshold)
+        except ValueError as error:
+            raise VideoUnavailable(str(error)) from None
+        with self._condition:
+            if expected_media is not None and self.snapshot().media is not expected_media:
+                raise VideoUnavailable("Current media changed; try again")
+            self._filter = selection
+        self._emit()
+        return self.status()
+
     def _encode_window(
         self, source: Path | str, output: Path, start: float, length: float,
-        cancel: threading.Event, still_needed: Callable[[], bool],
+        cancel: threading.Event, still_needed: Callable[[], bool], *, lighter: bool = False,
     ) -> None:
         """Accurate input seek and a short, zero-based silent picture window."""
+        width, height, fps = (640, 360, 18) if lighter else (1280, 720, 30)
+        filters = (
+            f"setpts=PTS-STARTPTS,scale='min(iw,{width})':'min(ih,{height})':"
+            f"force_original_aspect_ratio=decrease:force_divisible_by=2,fps={fps}"
+        )
         command = [
-            find_executable("ffmpeg"), "-nostdin", "-hide_banner", "-loglevel", "error",
-            "-protocol_whitelist", "file,pipe,http,tcp",
-            "-format_whitelist", "mov,matroska,webm,avi,mpegts,mpegvideo,ogg,mp3,aac,wav,flac",
+            self._tool("ffmpeg"), "-nostdin", "-hide_banner", "-loglevel", "error",
+            "-protocol_whitelist", "file" if isinstance(source, Path) else "http,tcp",
+            "-format_whitelist", _LOCAL_FORMATS if isinstance(source, Path) else _REMOTE_FORMATS,
             "-ss", str(start), "-threads", "2", "-i", str(source),
             "-map", "0:V:0", "-an", "-sn", "-dn", "-map_metadata", "-1",
-            "-vf", "setpts=PTS-STARTPTS,scale=1280:720:force_original_aspect_ratio=decrease:force_divisible_by=2,fps=30",
+            "-vf", filters,
             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast", "-tune", "zerolatency",
             "-crf", "24", "-g", "60", "-keyint_min", "60", "-sc_threshold", "0",
             "-threads", "2", "-t", str(length), "-fs", str(MAX_WINDOW_BYTES),
@@ -671,12 +793,17 @@ class LocalVideo:
         """Keep only current/next windows, prefetching independently of the audio clock."""
         current: tuple[Path, float, float] | None = None
         following: tuple[Path, float, float] | None = None
+        lighter = False
+        catch_up_deadline: float | None = None
+        with self._condition:
+            if generation != self._generation:
+                return
+            self._picture_duration = duration
 
-        def position() -> float:
-            return min(duration, self._video_position(self.snapshot().position))
+        def position(snapshot: PlaybackSnapshot) -> float:
+            return min(duration, self._video_position(snapshot.position))
 
-        def valid() -> bool:
-            snapshot = self.snapshot()
+        def valid(snapshot: PlaybackSnapshot) -> bool:
             return (not cancel.is_set() and snapshot.media is media
                     and snapshot.state not in {PlaybackState.IDLE, PlaybackState.FAILED})
 
@@ -687,13 +814,23 @@ class LocalVideo:
             output = self._window_cache.allocate()
             self._owned.add(output)
             end = min(duration, start + length)
+
+            def still_needed() -> bool:
+                snapshot = self.snapshot()
+                if not valid(snapshot):
+                    return False
+                point = position(snapshot)
+                needed = start <= point <= end or contains(existing, point)
+                if needed and catch_up_deadline is not None and time.monotonic() >= catch_up_deadline:
+                    raise VideoUnavailable("Picture could not catch up in time; audio is unchanged")
+                return needed
+
             try:
-                self._encode_window(source, output, start, end - start, cancel,
-                                    lambda: valid() and (start <= position() <= end or contains(existing, position())))
+                self._encode_window(source, output, start, end - start, cancel, still_needed, lighter=lighter)
                 self._window_cache.validate(output)
                 if not unchanged():
                     raise VideoUnavailable("Local media changed during video preparation")
-                if not valid() or not (start <= position() <= end or contains(existing, position())):
+                if not still_needed():
                     raise WindowSuperseded()
                 return output, start, end
             except BaseException:
@@ -701,20 +838,57 @@ class LocalVideo:
                 raise
 
         try:
-            while valid():
-                point = position()
-                if following is not None and contains(following, point):
+            while valid(snapshot := self.snapshot()):
+                point = position(snapshot)
+                advancing = snapshot.state in {PlaybackState.PLAYING, PlaybackState.CROSSFADING}
+                near_end = current is not None and advancing and point >= current[2] - WINDOW_HANDOFF_SECONDS
+                if following is not None and contains(following, point) and (near_end or not contains(current, point)):
                     current, following = following, None
                 elif not contains(current, point):
                     current, following = None, None
+                    started = time.monotonic()
+                    with self._condition:
+                        if generation != self._generation or not valid(self.snapshot()):
+                            return
+                        announce = self._state["state"] == "ready"
+                        if announce:
+                            self._prepare_started = started
+                            self._state = {
+                                "revision": generation, "state": "preparing", "handle": None, "error": None,
+                                "stage": CATCH_UP_STAGE if lighter else "Preparing a picture at the current position",
+                            }
+                    if announce:
+                        self._emit()
                     self._cleanup()
+                    if catch_up_deadline is None:
+                        catch_up_deadline = started + CATCH_UP_TIMEOUT
+                    elif started >= catch_up_deadline:
+                        raise VideoUnavailable("Picture could not catch up in time; audio is unchanged")
+                    start = max(0.0, min(point - 1.0, duration - 1.0))
                     try:
-                        current = prepare(max(0.0, min(point - 1.0, duration - 1.0)), FIRST_WINDOW_SECONDS, None)
+                        current = prepare(start, FIRST_WINDOW_SECONDS, None)
                     except WindowSuperseded:
+                        latest = self.snapshot()
+                        if not valid(latest):
+                            return
+                        latest_point = position(latest)
+                        # Compare against elapsed wall time and the maximum playback rate.
+                        # Large/reverse jumps are new seek targets. A normal clock must
+                        # not restart the deadline on every missed window.
+                        if (advancing and latest.state in {PlaybackState.PLAYING, PlaybackState.CROSSFADING}
+                                and latest_point > start + FIRST_WINDOW_SECONDS
+                                and latest_point <= point + 2 * (time.monotonic() - started) + 1):
+                            if not lighter:
+                                lighter = True
+                                self._preparing(generation, CATCH_UP_STAGE)
+                                self._emit()
+                        else:
+                            catch_up_deadline = None
                         continue
+                    catch_up_deadline = None
                 assert current is not None
                 with self._condition:
-                    if generation != self._generation or not valid():
+                    if generation != self._generation or not valid(self.snapshot()):
                         return
                     changed = self._state.get("handle") != current[0].stem
                     self._state = {
@@ -799,7 +973,7 @@ class LocalVideo:
                 if sidecars:
                     local = Path(source)
                     signature = caption_source_signature(local)
-                    tracks = discover_caption_tracks(local, find_executable("ffprobe"), caption_cancel)
+                    tracks = discover_caption_tracks(local, self._tool("ffprobe"), caption_cancel)
                     ranked = rank_caption_tracks(tracks, self.caption_preferences.languages)
                     if saved:
                         ranked = tuple(item for item in tracks if item.key == saved["track"]) \
@@ -808,7 +982,7 @@ class LocalVideo:
                             message = "Saved caption choice is unavailable; choose a track or Automatic"
                     track = None
                     for candidate in ranked:
-                        track = load_caption_candidate(candidate, self.cache, find_executable("ffmpeg"), caption_cancel)
+                        track = load_caption_candidate(candidate, self.cache, self._tool("ffmpeg"), caption_cancel)
                         if track is not None:
                             selected = candidate.key
                             break
@@ -818,8 +992,8 @@ class LocalVideo:
                         raise CaptionError("Media changed during caption discovery")
                 else:
                     track = autodetect_embedded_captions(
-                        source, self.cache, ffprobe_bin=find_executable("ffprobe"),
-                        ffmpeg_bin=find_executable("ffmpeg"), cancel=caption_cancel,
+                        source, self.cache, ffprobe_bin=self._tool("ffprobe"),
+                        ffmpeg_bin=self._tool("ffmpeg"), cancel=caption_cancel,
                     )
                 with self._condition:
                     if cancel.is_set() or not self._caption_current(media, generation, caption_cancel, choice_revision):
@@ -862,10 +1036,12 @@ class LocalVideo:
                     self._youtube_source(media, resolved, generation, cancel)
                 elif media.source == MediaSource.LOCAL:
                     source = _local_source(media)
-                    _codec, duration = _probe(source)
+                    self._preparing(generation, "Reading the video index")
+                    _codec, duration = self._inspect(source, require_audio=False)
                     if cancel.is_set():
                         continue
                     self._start_caption_discovery(source, media, generation, cancel, sidecars=True)
+                    self._preparing(generation, "Preparing the first picture")
                     self._local_windows(source, media, duration, generation, cancel)
                 else:
                     if self.resolve_video is None:
@@ -878,7 +1054,7 @@ class LocalVideo:
                     if tracks.captions:
                         self._publish_provider_captions(tracks, media, generation, cancel)
                     with video_track_proxy(tracks.video, cancel) as source:
-                        _codec, duration = _probe(source, require_audio=False)
+                        _codec, duration = self._inspect(source, require_audio=False)
                         if media.duration is not None and (
                             abs(duration - media.duration) > max(2.0, media.duration * 0.005)
                         ):
@@ -930,6 +1106,7 @@ class LocalVideo:
             self._generation += 1
             self._media = None
             self._request = None
+            self._picture_duration = None
             self._state = {"revision": self._generation, "state": "off", "handle": None, "error": None}
             self._condition.notify_all()
         if self._worker is not None and self._worker is not threading.current_thread():

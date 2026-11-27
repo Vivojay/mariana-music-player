@@ -13,6 +13,7 @@ import json
 import math
 import os
 import re
+import stat
 import tempfile
 import threading
 import time
@@ -67,6 +68,7 @@ _PRIVATE_REFERENCE = re.compile(
 )
 _READ_MORE = re.compile(r"\s*Read full story on (?:the )?Bandcamp Daily\.?\s*$", re.IGNORECASE)
 _IMAGE_CACHE_NAME = re.compile(r"^[0-9a-f]{64}\.(?:jpg|png|webp)$")
+HOMEPAGE_IMAGE_MIME = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
 _BANDCAMP_IMAGE_HOST = re.compile(r"^f[0-9]+\.bcbits\.com$", re.IGNORECASE)
 _MBID = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
@@ -95,94 +97,42 @@ class HomepageSectionProjection(TypedDict):
     items: list[HomepageItemProjection]
 
 
-# These are deliberately destinations, not scraped headlines or chart rankings.
-# Merely projecting them performs no network requests, even when discovery is on.
-_OFFICIAL_DESTINATIONS = (
-    ("culture-links", "grammys", "GRAMMY news", "Recording Academy",
-     "Awards, music interviews, and official announcements.", "https://www.grammy.com/news"),
-    ("culture-links", "sxsw", "SXSW", "SXSW",
-     "Music, film, and festival programming from the organiser.", "https://sxsw.com/"),
-    ("culture-links", "pitchfork", "Pitchfork", "Pitchfork",
-     "Music criticism, reviews, and artist interviews.", "https://pitchfork.com/"),
-    ("culture-links", "playbill", "Playbill", "Playbill",
-     "Theatre, Broadway, musicals, and stage news.", "https://playbill.com/"),
-    ("culture-links", "sight-sound", "Sight and Sound", "BFI",
-     "Film criticism, cinema history, and international perspectives.",
-     "https://www.bfi.org.uk/sight-and-sound"),
-    ("culture-links", "indian-express", "Indian Express entertainment", "Indian Express",
-     "Indian cinema, regional films, music, and entertainment coverage.",
-     "https://indianexpress.com/section/entertainment/"),
-    ("culture-links", "comic-con", "Comic-Con", "Comic-Con International",
-     "Official convention, comics, and arts programming.", "https://www.comic-con.org/"),
-    ("chart-links", "billboard", "Billboard charts", "Billboard",
-     "Open the official charts. Rankings and chart dates are not imported into Mariana.",
-     "https://www.billboard.com/charts/"),
-    ("chart-links", "official-charts", "UK Official Charts", "Official Charts Company",
-     "UK singles, albums, and genre charts on the original site.",
-     "https://www.officialcharts.com/charts/"),
-    ("chart-links", "ifpi", "IFPI Global Charts", "IFPI",
-     "Annual global rankings; not a weekly or real-time chart.",
-     "https://www.ifpi.org/our-industry/global-charts/"),
-    ("performance-links", "boiler-room", "Boiler Room", "Boiler Room",
-     "DJ sets and club communities from around the world. Opens the official site.",
-     "https://boilerroom.tv/"),
-    ("performance-links", "book-club-radio", "Book Club Radio", "Book Club Radio",
-     "Community-centred dance-floor sets from New York. Opens the official site.",
-     "https://www.bookclub.radio/"),
-    ("performance-links", "triple-j-like-a-version", "Like A Version", "triple j / ABC",
-     "Studio performances: an original song and a cover. Opens the official episode catalogue.",
-     "https://www.abc.net.au/triplej/programs/like-a-version"),
-    ("performance-links", "kexp", "Live on KEXP", "KEXP",
-     "Studio performances and global music discovery. Opens the official podcast page.",
-     "https://www.kexp.org/podcasts/live-on-kexp/"),
-    ("performance-links", "nts", "NTS Radio", "NTS",
-     "Human-curated radio and international specialist shows. Opens the official site.",
-     "https://www.nts.live/"),
-    ("performance-links", "colors", "COLORS", "COLORS",
-     "Emerging artists and intimate performances. Opens the official site.",
-     "https://colorsxstudios.com/"),
-    ("performance-links", "cercle", "Cercle", "Cercle",
-     "Electronic performances connected to distinctive locations. Opens the official site.",
-     "https://www.cercle.io/"),
-    ("performance-links", "elevator-music-live", "Elevator Music Live", "Elevator Music Live",
-     "DJ performances and community sessions. Opens the confirmed official link hub.",
-     "https://linktr.ee/elevatormusiclive"),
-    ("show-links", "vanderpump-rules", "Vanderpump Rules", "Bravo",
-     "Official episodes, clips, and After Show catalogue. Full episodes may require an authorised provider.",
-     "https://www.bravotv.com/vanderpump-rules"),
-    ("show-links", "bravo", "BravoTV", "Bravo",
-     "Official show, video, news, and schedule destination. Playback availability depends on the provider.",
-     "https://www.bravotv.com/"),
-    ("show-links", "hayu", "Hayu", "NBCUniversal",
-     "Subscription reality-TV catalogue with regional availability; opens the official service.",
-     "https://www.hayu.com/"),
-)
+def culture_directory() -> list[dict[str, str]]:
+    """Read the shared bundled directory once, including in packaged builds."""
+    path = Path(__file__).resolve().parents[1] / "desktop" / "culture_sources.json"
+    return json.loads(path.read_bytes())
+
+
+_CULTURE_DIRECTORY = culture_directory()
 
 
 def official_destination_sections() -> list[HomepageSectionProjection]:
     """Return fresh display-only records, without remote images or playback claims."""
 
+    native_links = {entry.homepage for entry in ENTRIES}
     return [
         {
             "key": key,
             "title": title,
             "items": [
                 {
-                    "id": f"destination:{identifier}",
-                    "title": name,
-                    "source": source,
-                    "summary": summary,
+                    "id": f"destination:{row['id']}",
+                    "title": row["title"],
+                    "source": row["source"],
+                    "summary": row["summary"],
                     "published_at": None,
-                    "link": link,
+                    "link": row["url"],
                     "image_key": None,
                     "image_mime": None,
                 }
-                for group, identifier, name, source, summary, link in _OFFICIAL_DESTINATIONS
-                if group == key and link not in {entry.homepage for entry in ENTRIES}
+                for row in _CULTURE_DIRECTORY if row["group"] == key and row["url"] not in native_links
             ],
         }
         for key, title in (
             ("culture-links", "Explore culture · official links"),
+            ("press-links", "Music press and criticism"),
+            ("discovery-links", "Discover artists, records and genres"),
+            ("festival-links", "Festivals and conventions"),
             ("chart-links", "Charts · official links"),
             ("performance-links", "Performance channels · official links"),
             ("show-links", "Shows · official links"),
@@ -624,41 +574,48 @@ class HomepageImageCache:
             if temporary_path is not None:
                 self._safe_unlink(temporary_path)
 
+    def _read_image_file(self, path: Path, mime_type: str) -> bytes:
+        before = path.lstat()
+        if (not stat.S_ISREG(before.st_mode) or before.st_size < 1
+                or before.st_size > self._max_encoded_bytes
+                or self._now() - before.st_mtime > self._cache_ttl_seconds):
+            raise ValueError("Homepage image cache entry is unavailable")
+        with path.open("rb") as opened:
+            current = os.fstat(opened.fileno())
+            if not os.path.samestat(before, current) or not stat.S_ISREG(current.st_mode):
+                raise ValueError("Homepage image cache entry changed while opening")
+            data = opened.read(self._max_encoded_bytes + 1)
+        return validate_artwork_image(
+            data, mime_type, max_encoded_bytes=self._max_encoded_bytes,
+            max_dimension=MAX_HOMEPAGE_IMAGE_DIMENSION, max_pixels=MAX_HOMEPAGE_IMAGE_PIXELS,
+        ).data
+
+    def read(self, cache_key: str, mime_type: str) -> bytes | None:
+        """Read a published image from disk without starting a provider request."""
+        if (_IMAGE_CACHE_NAME.fullmatch(cache_key) is None
+                or HOMEPAGE_IMAGE_MIME.get(cache_key.rsplit(".", 1)[-1]) != mime_type):
+            return None
+        with self._lock:
+            if self._closed:
+                return None
+            with suppress(ArtworkError, OSError, ValueError):
+                return self._read_image_file(self.cache_dir / cache_key, mime_type)
+        return None
+
     def _read_cached(
         self,
         cache_stem: str,
         cancelled: threading.Event,
     ) -> HomepageImageRef | None:
-        for mime_type, extension in (
-            ("image/jpeg", "jpg"),
-            ("image/png", "png"),
-            ("image/webp", "webp"),
-        ):
+        for extension, mime_type in HOMEPAGE_IMAGE_MIME.items():
             path = self.cache_dir / f"{cache_stem}.{extension}"
             try:
-                stat = path.stat()
-                if path.is_symlink() or self._now() - stat.st_mtime > self._cache_ttl_seconds:
-                    self._safe_unlink(path)
-                    continue
-                if stat.st_size < 1 or stat.st_size > self._max_encoded_bytes:
-                    self._safe_unlink(path)
-                    continue
                 if cancelled.is_set():
                     raise ArtworkCancelled("Homepage image request was cancelled")
-                data = path.read_bytes()
-                validated = validate_artwork_image(
-                    data,
-                    mime_type,
-                    max_encoded_bytes=self._max_encoded_bytes,
-                    max_dimension=MAX_HOMEPAGE_IMAGE_DIMENSION,
-                    max_pixels=MAX_HOMEPAGE_IMAGE_PIXELS,
-                )
-                if validated.extension != extension:
-                    self._safe_unlink(path)
-                    continue
+                self._read_image_file(path, mime_type)
                 with suppress(OSError):
                     os.utime(path, None)
-                return HomepageImageRef(path.name, validated.mime_type)
+                return HomepageImageRef(path.name, mime_type)
             except ArtworkCancelled:
                 raise
             except (ArtworkError, OSError, ValueError):
@@ -1266,8 +1223,19 @@ class HomepageService:
                 "Local homepage information is temporarily unavailable",
             )
 
-    def snapshot(self) -> HomepageProjection:
-        """Return the complete allowlisted, JSON-safe renderer projection."""
+    def cached_image(self, cache_key: str) -> tuple[bytes, str] | None:
+        """Return the bounded public artwork currently referenced by a feed card."""
+        with self._lock:
+            if self._closed or self.image_cache is None:
+                return None
+            mime_type = next((a.image_mime for a in self._articles if a.image_key == cache_key), None)
+            image_cache = self.image_cache
+        if mime_type and (data := image_cache.read(cache_key, mime_type)) is not None:
+            return data, mime_type
+        return None
+
+    def snapshot(self, *, include_local: bool = True) -> HomepageProjection:
+        """Return the allowlisted, JSON-safe renderer projection."""
 
         with self._lock:
             fetched_at = self._fetched_at
@@ -1276,7 +1244,11 @@ class HomepageService:
             articles = self._articles
             startup = self.configuration.show_on_startup
             online_enabled = self.configuration.online_enabled
-        local_section, local_error = self._local_section()
+        local_sections = []
+        local_error = None
+        if include_local:
+            local_section, local_error = self._local_section()
+            local_sections.append(local_section)
         editorial_section: HomepageSectionProjection = {
             "key": "culture",
             "title": "Music, art, and culture",
@@ -1290,6 +1262,25 @@ class HomepageService:
             "items": [
                 article.to_projection_item() for article in articles if article.section == "releases"
             ],
+        }
+        spotlights: dict[str, HomepageItemProjection] = {}
+        for release in articles:
+            if release.section != "releases" or not release.attribution:
+                continue
+            artist = release.attribution
+            if artist.casefold() not in spotlights:
+                card = release.to_projection_item()
+                card.update(id=f"spotlight:{release.article_id}", title=artist, source=release.source,
+                            summary=f"Credited on {release.title}")
+                spotlights[artist.casefold()] = card
+        # A deterministic daily order keeps repeated renders stable and gives other
+        # artists a turn even between successful feed refreshes.
+        day = int(self.now() // 86400)
+        spotlight_cards = sorted(
+            spotlights.values(), key=lambda card: hashlib.sha256(f"{day}:{card['id']}".encode()).digest()
+        )[:4]
+        spotlight_section: HomepageSectionProjection = {
+            "key": "artist-spotlight", "title": "Artist spotlight · fresh releases", "items": spotlight_cards,
         }
         if not online_enabled:
             state: HomepageState = "offline"
@@ -1311,7 +1302,8 @@ class HomepageService:
             "refreshed_at": fetched_at,
             "safe_message": message,
             "sections": [
-                local_section, editorial_section, release_section, *catalogue_sections(), *official_destination_sections(),
+                *local_sections, editorial_section, release_section,
+                *([spotlight_section] if spotlight_cards else []), *catalogue_sections(), *official_destination_sections(),
             ],
         }
 

@@ -1084,3 +1084,32 @@ def test_plain_dl_cancel_and_refusal_have_no_download_side_effect(cli, monkeypat
     main.process("dl")
     assert not any(action[0] == "download-media" for action in cli.actions)
     assert any("No active or recently played media" in message["display_message"] for message in cli.messages)
+
+
+@pytest.mark.parametrize("head", [".find3", ".f3", ".rf3", ".lfind3"])
+def test_indexed_search_reaches_the_scoped_search_handler(cli, monkeypatch, head):
+    received = []
+    monkeypatch.setattr(main, "advanced_search_command", received.append)
+    main.process(f'{head} "Quiet Light" --in queue')
+    assert received == [[head, "Quiet Light", "--in", "queue"]]
+
+
+def test_explicit_pause_never_toggles_playback(cli, monkeypatch):
+    from mariana.playback import UnsupportedAction
+
+    states = [PlaybackState.PLAYING, PlaybackState.PAUSED, PlaybackState.IDLE]
+    pauses = []
+    monkeypatch.setattr(main.vas.controller, "snapshot", lambda: PlaybackSnapshot(states[0]))
+    def pause(*, origin):
+        if states[0] == PlaybackState.PLAYING:
+            pauses.append(origin)
+        else:
+            raise UnsupportedAction("Nothing is currently playing")
+    monkeypatch.setattr(main.vas.controller, "pause", pause)
+    monkeypatch.setattr(main, "playpausetoggle", lambda *a, **kw: pytest.fail("Explicit pause must never toggle"))
+    for _ in range(3):
+        main.process("pause")
+        states.pop(0)
+    assert pauses == ["cli"]
+    assert not main.isplaying
+    assert "Nothing is currently playing." in cli.printed

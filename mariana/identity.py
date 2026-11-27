@@ -22,6 +22,7 @@ import requests
 from mutagen import File as MutagenFile  # pyright: ignore[reportMissingImports]
 from mutagen import MutagenError  # pyright: ignore[reportMissingImports]
 
+from .artist_catalogues import catalogue_error
 from .database import MarianaDatabase
 from .models import IdentityStatus, LyricsResult, MediaRef, MediaSource, TrackIdentity
 from .playback import CHANNELS, CREATE_NO_WINDOW, SAMPLE_RATE, SAMPLE_WIDTH, PlaybackError, find_executable
@@ -185,10 +186,11 @@ class MusicBrainzClient:
         endpoint: str,
         *,
         params: dict[str, Any],
-        cache_key: str,
+        cache_key: str | None,
         refresh: bool = False,
+        report_errors: bool = False,
     ) -> dict[str, Any] | None:
-        if not refresh and cache_key in self._cache:
+        if cache_key is not None and not refresh and cache_key in self._cache:
             return self._cache[cache_key]
         with self._lock:
             payload = None
@@ -200,22 +202,35 @@ class MusicBrainzClient:
                     response = self.session.get(
                         f"{MUSICBRAINZ_URL}/{endpoint.lstrip('/')}",
                         params=params,
-                        headers={"User-Agent": USER_AGENT},
-                        timeout=self.timeout,
+                        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+                        timeout=min(8, self.timeout) if report_errors else self.timeout,
                     )
                     self._last_request = time.monotonic()
                     response.raise_for_status()
                     payload = response.json()
                     break
-                except (requests.RequestException, ValueError, AttributeError):
+                except (requests.RequestException, ValueError, AttributeError) as error:
+                    self._last_request = time.monotonic()
+                    if report_errors:
+                        raise ValueError(catalogue_error("MusicBrainz", error)) from error
                     if attempt + 1 < self.retries:
                         time.sleep(self.backoff * (2**attempt))
             if payload is None:
-                return self._cache.get(cache_key)
+                return self._cache.get(cache_key) if cache_key is not None else None
         if not isinstance(payload, dict):
             return None
-        self._cache[cache_key] = payload
+        if cache_key is not None:
+            self._cache[cache_key] = payload
         return payload
+
+    def artist_catalogue_search(self, entity: str, query: str) -> list[dict[str, Any]]:
+        result_key = {"artist": "artists", "recording": "recordings", "release-group": "release-groups"}[entity]
+        payload = self._request(
+            f"{entity}/", params={"fmt": "json", "query": query, "limit": 100}, cache_key=None, report_errors=True
+        )
+        if payload is None or not isinstance(payload.get(result_key), list):
+            raise ValueError("MusicBrainz returned an unexpected search response.")
+        return [item for item in payload[result_key] if isinstance(item, dict)]
 
     def recording(self, mbid: str, refresh: bool = False) -> dict[str, Any] | None:
         return self._request(

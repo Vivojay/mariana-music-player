@@ -205,7 +205,7 @@ export function formatChapterLabel(chapter: PlaybackStatus['chapter']): string {
   return position && title ? `${position} · ${title}` : position || title
 }
 
-type BackendEventName = 'starting' | 'ready' | 'playback' | 'hotspots' | 'resume-offer' | 'video' | 'video-window' | 'desktop-download' | 'homepage' | 'discovery' | 'artwork' | 'lyrics' | 'equalizer' | 'crossfade' | 'strudel' | 'strudel-render-requested' | 'station' | 'sleep' | 'broadcast' | 'loudness' | 'queue' | 'playlist' | 'album' | 'download' | 'theme' | 'desktop-preferences' | 'desktop-notice' | 'focus-recovery' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error' | 'control-result'
+type BackendEventName = 'starting' | 'ready' | 'playback' | 'hotspots' | 'resume-offer' | 'video' | 'video-window' | 'desktop-download' | 'homepage' | 'discovery' | 'artwork' | 'lyrics' | 'equalizer' | 'crossfade' | 'strudel' | 'strudel-render-requested' | 'station' | 'sleep' | 'broadcast' | 'loudness' | 'queue' | 'playlist' | 'album' | 'download' | 'theme' | 'desktop-open' | 'desktop-preferences' | 'desktop-notice' | 'focus-recovery' | 'update-safe' | 'update-prepared' | 'shutdown-ack' | 'fatal-error' | 'control-result'
 
 export type BackendEvent = {
   event: Exclude<BackendEventName, 'playback'>
@@ -230,12 +230,14 @@ export type BackendSnapshot = {
   hotspots?: PlaybackHotspots | null
   homepage?: HomepageProjection | null
   artwork?: ArtworkStatus | null
+  video?: import('./localVideo.js').LocalVideoStatus | null
 }
 
 export type MiniPlayerSnapshot = {
   ready: boolean
   diagnostic: string | null
   playback: PlaybackStatus | null
+  hotspots?: PlaybackHotspots | null
   video?: import('./localVideo.js').LocalVideoStatus | null
   videoTimestamp?: number | null
   artwork?: ArtworkStatus | null
@@ -320,6 +322,18 @@ export type TerminalExit = {
   intentional: boolean
 }
 
+export type DesktopVideoControls = {
+  videoStatus?(): Promise<DesktopControlResult>
+  videoConfigure?(mediaId: string, mode: 'audio' | 'video'): Promise<DesktopControlResult>
+  videoFilter?(mediaId: string, preset: string, threshold?: number): Promise<DesktopControlResult>
+  videoCaptionFile?(mediaId: string, replace: boolean): Promise<DesktopControlResult>
+  videoCaptionSelect?(mediaId: string, revision: number, trackId: string): Promise<DesktopControlResult>
+  videoCaptionLanguages?(mediaId: string, languages: string[]): Promise<DesktopControlResult>
+  videoCaptionAutomatic?(mediaId: string): Promise<DesktopControlResult>
+  videoCaptionConfigure?(mediaId: string, action: 'on' | 'off' | 'clear' | 'shift' | 'set-offset', value?: number): Promise<DesktopControlResult>
+  videoAudioOffset?(mediaId: string, value: number, relative: boolean): Promise<DesktopControlResult>
+}
+
 export type MarianaDesktopApi = {
   terminal: {
     write(data: string): void
@@ -329,7 +343,7 @@ export type MarianaDesktopApi = {
     onData(callback: (data: string) => void): () => void
     onExit(callback: (event: TerminalExit) => void): () => void
   }
-  backend: {
+  backend: DesktopVideoControls & {
     snapshot(): Promise<BackendSnapshot>
     commandCatalog(options?: CommandCatalogOptions): Promise<CommandCatalogResult>
     toggleFavorite(mediaId: string): Promise<FavoriteToggleResult>
@@ -340,14 +354,6 @@ export type MarianaDesktopApi = {
     pause(mediaId: string): Promise<DesktopControlResult>
     previous(mediaId: string): Promise<DesktopControlResult>
     next(mediaId: string): Promise<DesktopControlResult>
-    videoStatus?(): Promise<DesktopControlResult>
-    videoConfigure?(mediaId: string, mode: 'audio' | 'video'): Promise<DesktopControlResult>
-    videoCaptionFile?(mediaId: string, replace: boolean): Promise<DesktopControlResult>
-    videoCaptionSelect?(mediaId: string, revision: number, trackId: string): Promise<DesktopControlResult>
-    videoCaptionLanguages?(mediaId: string, languages: string[]): Promise<DesktopControlResult>
-    videoCaptionAutomatic?(mediaId: string): Promise<DesktopControlResult>
-    videoCaptionConfigure?(mediaId: string, action: 'on' | 'off' | 'clear' | 'shift' | 'set-offset', value?: number): Promise<DesktopControlResult>
-    videoAudioOffset?(mediaId: string, value: number, relative: boolean): Promise<DesktopControlResult>
     videoWindow(open: boolean): Promise<DesktopControlResult>
     equalizerStatus(): Promise<import('./equalizer.js').EqualizerResult>
     equalizerConfigure(intent: import('./equalizer.js').EqualizerIntent): Promise<import('./equalizer.js').EqualizerResult>
@@ -361,6 +367,7 @@ export type MarianaDesktopApi = {
     homepageConfigure(setting: 'startup' | 'online', enabled: boolean): Promise<DesktopControlResult>
     homepageImageData(cacheKey: string): Promise<ArtworkDataResult>
     focusRecoveryRetry(): Promise<DesktopControlResult>
+    mediaStudio?(intent: import('./mediaStudioProtocol.js').StudioAction): Promise<import('./mediaStudioProtocol.js').StudioResult>
     lyricsStatus(): Promise<DesktopControlResult>
     lyricsRequest(mediaId: string, refresh: boolean): Promise<DesktopControlResult>
     lyricsOffset(mediaId: string, offsetMs: number): Promise<DesktopControlResult>
@@ -369,6 +376,7 @@ export type MarianaDesktopApi = {
     artworkShow(mediaId: string, fetch: boolean): Promise<DesktopControlResult>
     artworkData(cacheKey: string): Promise<ArtworkDataResult>
     crossfadeConfigure(seconds: number): Promise<DesktopControlResult>
+    accounts?(args: string[]): Promise<import('./connectionProjection.js').AccountReply>
     strudelOpen(): Promise<DesktopControlResult>
     strudelSave(input: import('./strudelProjects.js').StrudelSaveInput): Promise<DesktopControlResult>
     strudelDelete(projectId: string, revision: number): Promise<DesktopControlResult>
@@ -390,10 +398,7 @@ export type MarianaDesktopApi = {
   platform: string
 }
 
-export type MarianaMiniPlayerApi = {
-  videoStatus?(): Promise<DesktopControlResult>
-  videoCaptionConfigure?(mediaId: string, action: 'on' | 'off' | 'clear' | 'shift' | 'set-offset', value?: number): Promise<DesktopControlResult>
-  videoAudioOffset?(mediaId: string, value: number, relative: boolean): Promise<DesktopControlResult>
+export type MarianaMiniPlayerApi = Required<DesktopVideoControls> & {
   downloadCurrent(mediaId: string, format: 'mp3' | 'mp4'): Promise<DesktopControlResult>
   downloadStatus(): Promise<DesktopControlResult>
   snapshot(): Promise<MiniPlayerSnapshot>
@@ -403,6 +408,7 @@ export type MarianaMiniPlayerApi = {
   previous(mediaId: string): Promise<DesktopControlResult>
   next(mediaId: string): Promise<DesktopControlResult>
   showMain(): Promise<void>
+  seek(mediaId: string, targetSeconds: number): Promise<SeekResult>
   hide(): Promise<void>
   platform: string
 }

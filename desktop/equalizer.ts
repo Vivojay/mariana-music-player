@@ -1,5 +1,11 @@
 export const EQ_FREQUENCIES = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000] as const
+export const DEESSER_MODES = ['off', 'gentle', 'balanced', 'strong'] as const
+export type DeesserMode = typeof DEESSER_MODES[number]
+function deesserMode(value: unknown): value is DeesserMode {
+  return DEESSER_MODES.some((mode) => mode === value)
+}
 export type EqualizerChange =
+  | { operation: 'deesser'; mode: DeesserMode }
   | { operation: 'enabled'; enabled: boolean }
   | { operation: 'band'; frequency: number; gain: number }
   | { operation: 'preamp'; gain: number }
@@ -7,7 +13,7 @@ export type EqualizerChange =
   | { operation: 'preset-apply' | 'preset-save' | 'preset-delete'; name: string }
 export type EqualizerIntent = EqualizerChange & { revision: number }
 export type EqualizerState = {
-  enabled: boolean; bands: number[]; preamp: number; revision: number; sample_rate: number
+  deesser: DeesserMode; enabled: boolean; bands: number[]; preamp: number; revision: number; sample_rate: number
   frequencies: number[]; available_bands: boolean[]; response: [number, number][]
   recommended_preamp: number; peak: number; overload_blocks: number; fault: boolean
   warning: string | null; presets: { name: string; factory: boolean }[]
@@ -21,6 +27,7 @@ export function validEqualizerIntent(value: unknown): value is EqualizerIntent {
   if (!object(value) || !Number.isSafeInteger(value.revision) || (value.revision as number) < 0) return false
   const keys = Object.keys(value).sort().join(',')
   switch (value.operation) {
+    case 'deesser': return keys === 'mode,operation,revision' && deesserMode(value.mode)
     case 'enabled': return keys === 'enabled,operation,revision' && typeof value.enabled === 'boolean'
     case 'band': return keys === 'frequency,gain,operation,revision' && EQ_FREQUENCIES.some((hz) => hz === value.frequency) && number(value.gain, -12, 12)
     case 'preamp': return keys === 'gain,operation,revision' && number(value.gain, -36, 12)
@@ -31,7 +38,7 @@ export function validEqualizerIntent(value: unknown): value is EqualizerIntent {
 }
 
 export function projectEqualizer(value: unknown): EqualizerState | null {
-  if (!object(value) || typeof value.enabled !== 'boolean' || typeof value.fault !== 'boolean'
+  if (!object(value) || (value.deesser !== undefined && !deesserMode(value.deesser)) || typeof value.enabled !== 'boolean' || typeof value.fault !== 'boolean'
     || !number(value.preamp, -36, 12) || !number(value.recommended_preamp, -36, 0)
     || !Number.isSafeInteger(value.revision) || (value.revision as number) < 0
     || !number(value.sample_rate, 8000, 192000) || !number(value.peak, 0, 1e12)
@@ -44,7 +51,7 @@ export function projectEqualizer(value: unknown): EqualizerState | null {
     || !Array.isArray(value.presets) || value.presets.length > 36
     || !value.presets.every((item) => object(item) && name(item.name) && typeof item.factory === 'boolean')) return null
   return {
-    enabled: value.enabled, bands: [...value.bands], preamp: value.preamp, revision: value.revision as number,
+    deesser: value.deesser ?? 'off', enabled: value.enabled, bands: [...value.bands], preamp: value.preamp, revision: value.revision as number,
     sample_rate: value.sample_rate, frequencies: [...EQ_FREQUENCIES], available_bands: [...value.available_bands],
     response: value.response.map(([hz, db]) => [hz, db]), recommended_preamp: value.recommended_preamp,
     peak: value.peak, overload_blocks: value.overload_blocks as number, fault: value.fault,

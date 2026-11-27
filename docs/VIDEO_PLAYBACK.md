@@ -2,17 +2,73 @@
 
 The first video slice adds an optional picture surface to the existing backend
 audio player. It does not replace the queue, decoder controls, history, favourites,
-or command loop. YouTube defaults to audio-only. In the desktop, local files and
-direct online media files automatically use video when an actual moving-picture
-track is present; audio files remain audio-only. File extensions and embedded
-album covers do not decide presentation. No desktop attachment is created for a
-standalone terminal; explicit video requests there explain the desktop requirement.
+or command loop. YouTube defaults to audio-only. In Electron and a graphical
+CLI or TUI session, starting a local file with a confirmed moving-picture track
+automatically opens the separate Mariana Video window. The Electron window
+opens as preparation begins and keeps keyboard focus on the command prompt
+where supported. FFprobe identifies the streams, so a cover-art attachment does
+not trigger video. A finite local video without an
+audio stream uses generated silence as its playback clock. Select
+`--audio` to suppress the picture for a playback request.
+
+FLOW and browser Console play imported local video through a native browser
+video element. Audio and picture follow the same playhead in that element.
+Use **Library → Import** to select a file, then play its row. Older
+imports are checked when their stored file is opened. Browser playback depends
+on the device's codecs. Try WebM with VP8/VP9 or MP4 with H.264 where supported.
+When a browser cannot decode the original, its picture panel gives a local-video
+error. The native player uses FFmpeg to decode and prepare supported formats.
+
+## Separate window from the CLI or TUI
+
+With a supported track already playing or paused, enter `play current --video` or `video open`. Keep using the same terminal for playback. For example, `p` toggles pause and `seek +10s` moves forward ten seconds. The window takes its position from Mariana’s audio clock, including the configured `avsync` offset. The picture also follows `speed 0.8` or `speed 1.25` on eligible finite tracks. During preparation or a seek the picture may take time to catch up.
+
+While the window is open it follows the active track, including supported items promoted from the queue. Use `video status` to inspect the window and video preparation. Use `video close` or close the window itself to continue listening. You can reopen it at the current position. In the TUI, enter these commands with **:**. In Electron, typing `play current --video` in Mariana's terminal opens the separate window before its renderer finishes loading. The terminal keeps keyboard focus where the platform supports inactive windows. Closing during loading takes effect immediately.
+
+The separate Electron window receives preparation, ready, and playback updates
+after it opens. It shows the preparation step and its elapsed time while the
+first window is built. A visible picture window requests fresh clock samples.
+Concurrent requests from the main player and the separate window share one
+backend exchange.
+
+During playback, the muted Electron renderer follows the backend clock. It
+uses small rate adjustments for ordinary drift and waits for a pending decoder
+seek to complete. Large drift corrections are spaced apart. A new authoritative
+seek still updates the picture promptly. If clock updates stop, the picture
+holds its current frame until a fresh sample arrives. This path does not
+validate playback on every Windows decoder, long high-resolution file, or
+unstable provider connection.
+
+The standalone window reports readiness after the OS maps it. While the source
+is loading it displays the preparation stage and elapsed seconds. A warm YouTube
+audio selection can supply its already-discovered picture format for the same
+recording and browser profile for up to two minutes. Mariana still validates byte
+ranges, duration, and format before showing the picture. One expired audio-time
+hint triggers a fresh format lookup. Cold starts depend on extractor, host and network. A stalled YouTube format
+lookup leaves the loading state after 30 seconds with a retry message. The OS
+can still take longer to return from DNS or browser credential access. At most
+one such outstanding lookup is allowed and a late result cannot open a stale picture.
+
+Finite media resolution allows two attempts per format lookup. The Python yt-dlp adapter gets ten seconds per attempt. With no alternate configured, Mariana may retry a transient transport or extraction failure once. At most four in-process workers can remain busy if an operating-system or extractor call outlives its deadline.
+
+Choose one optional secondary executable before launching Mariana. It runs only on that second attempt. Use its installed absolute path.
+
+| PowerShell example | Eligible requests |
+| --- | --- |
+| `$env:MARIANA_YTDLP_BINARY = 'D:\tools\yt-dlp.exe'` | Separate yt-dlp installation. An explicitly selected browser profile is passed through. |
+| `$env:MARIANA_YOUTUBE_DL_BINARY = 'D:\tools\youtube-dl.exe'` | Independent youtube-dl implementation for anonymous public YouTube videos. Matching video identity and restriction metadata are checked before accepting output. |
+
+On Linux/macOS use `export MARIANA_YOUTUBE_DL_BINARY=/absolute/path/to/youtube-dl` or set the yt-dlp variable similarly. When both are configured, yt-dlp takes precedence. A legacy executable cannot import a named browser profile, so profile-based requests stay with Python yt-dlp when only youtube-dl was configured. The secondary process has an 18-second deadline and bounded JSON output. It ignores user extractor configuration, disables geographic bypass, and has no further fallback on failure. One format lookup waits up to approximately 30 seconds including process cleanup. A recording can require separate audio and picture lookups.
+
+For an eligible account use `youtube auth set edge:Default` or `youtube auth set firefox` after signing in to the browser. Explicit sign-in, regional, age, rights, and quota errors stop retries. A rate-limited session can be tried again later. [yt-dlp options](https://github.com/yt-dlp/yt-dlp#usage-and-options) · [youtube-dl options](https://github.com/ytdl-org/youtube-dl#options)
+
+Standalone viewing requires a graphical display, a Python installation with Tk and Pillow, and Mariana’s FFmpeg and FFprobe tools. For YouTube it uses Mariana’s existing resolver and range cache for supported finite recordings. Live video and sources without a suitable picture track remain unavailable.
 
 ## Current interface
 
 - In the desktop, start a supported finite item and select **Video**.
 - `play <library number> --video` starts local playback and prepares its picture.
-- `play "C:\Videos\Concert.mp4"` selects a local path with automatic presentation.
+- `play "C:\Videos\Concert.mp4"` selects a local path and opens its picture automatically.
 - `/yl "<YouTube URL>" --video` and `/ys "artist concert" 5 --video` request video
   through the existing link/search-and-select commands. Omitting the flag keeps
   YouTube audio-only, including a YouTube link supplied through `/ml`.
@@ -24,9 +80,55 @@ standalone terminal; explicit video requests there explain the desktop requireme
   recording another listen. Conflicting presentation flags are rejected.
 - Existing pause/resume, seek, reset, volume and chapter controls remain authoritative.
 
-The viewer overlays a centered play/pause control and Mariana's shared timeline
+## Picture filters and local object detection
+
+| Command | Result |
+| --- | --- |
+| `video filter list` | Names of all filters. |
+| `video filter sepia` or `video filter grayscale` | Apply a continuous color transform as picture frames are displayed. |
+| `video filter threshold 42` | Render luminance as black or white at the selected percentage. `bw` is shorthand for threshold. |
+| `video filter high-contrast`, `invert`, `blue-gold` | Increase contrast, invert the colors, or remap luminance to an explicit blue–gold palette. Put the preset name after `video filter`. |
+| `video filter protanopia`, `deuteranopia`, `tritanopia` | Simulate the corresponding form of color-vision deficiency using the published Machado–Oliveira–Fernandes severity-1 linear-sRGB matrix. The blue–gold and high-contrast filters are optional alternatives for visual accessibility. |
+| `video filter off` | Restore the original picture. |
+
+Filters are presentation effects in the standalone window, Electron and
+portable browser player. They leave the recording and any clip export intact.
+The browser accepts the same commands and has a preset menu under the picture.
+Electron offers the filter menu under **Captions & sync** and applies the same
+selection in its mini and separate video windows. On slower processors the
+standalone window may reduce its decode resolution to follow playback.
+[Machado, Oliveira & Fernandes, 2009](https://lume.ufrgs.br/handle/10183/27630)
+
+The standalone CLI/TUI picture window supports optional local YOLO11 or YOLO12
+detection exports via ONNX Runtime. Install `onnxruntime` in the Python
+environment that starts Mariana. Supply a local, trusted detection model you
+have rights to use. Export a detection checkpoint with batch 1, a fixed RGB
+input size such as 640 × 640, and integrated NMS disabled. The player only
+loads the supplied ONNX file. The runtime and model weights are separate
+installations. Use the weight license that applies to your model.
+
+```text
+video detect on "C:\Models\yolo11n.onnx"
+video detect status
+video detect off
+```
+
+A single background worker accepts up to four pictures per second and drops
+obsolete work across seeks, source changes, or slow inference. The boxes
+use model labels, confidence, and class-aware suppression. YOLO is currently
+scoped to the source-installed standalone window. A browser and Electron
+overlay, actual YOLO checkpoint inference on target machines, and detector
+latency across hardware remain acceptance items.
+[Ultralytics ONNX export documentation](https://docs.ultralytics.com/integrations/onnx/)
+
+The Electron viewer overlays a centered play/pause control and Mariana's shared timeline
 along its bottom edge, with elapsed/duration text. Chapter markers, snapping and
 preferred-region clamping use the same components as the footer and Mini-player.
+The separate Mariana Video window and the Mini-player's picture mode mount the
+same viewer. Use **Captions & sync** in either window for caption track selection,
+file loading, visibility, exact offsets or 250 ms shifts, A/V delay, chapter
+snapping, and picture filters. The viewer also exposes fullscreen and audio-only
+mode. The native player remains the playback clock for both windows.
 The seven-pixel visual track sits inside a thirty-two-pixel invisible hit target
 in the video viewer, making pointer entry and clicking easier without thickening
 the displayed bar. When local interaction history exists, its noninteractive
@@ -175,21 +277,27 @@ Online database lookup will require an explicit network action and
 provider credentials because it discloses a media fingerprint or title; it will not
 be silently coupled to local playback.
 
-Preparation is asynchronous. Local files prepare an initial eight-second picture
+Preparation is asynchronous. Local files prepare an initial six-second picture
 window around the current position, then prefetch twenty-second windows with
-four-second overlaps. A distant seek cancels obsolete work and prepares a
+two-second overlaps. A distant seek cancels obsolete work and prepares a
 new window at that position. Paused playback stays paused and prepares at most
-the current and following windows; it does not convert the rest of the movie.
+the current and following windows. A paused seek within a window overlap keeps
+the existing picture. During playback, a prepared successor replaces the current
+window near its end.
 Each window has an explicit source-timeline offset, subtracted by the renderer
 when following the backend clock. Local windows use accurate input seeking and
 H.264 conversion at up to 1280×720/30 fps, an ultrafast low-latency preset, a
 two-second keyframe interval, fragmented MP4 output, and two threads. Fragmented
 output avoids the separate end-of-encode metadata relocation performed by
 `faststart`; longer overlapping windows reduce source swaps while keeping work and
-cache size bounded. No local file is converted in full before the first picture.
-This does not make the split backend-audio/muted-picture design equivalent to a
-single-decoder player; native long-playback latency and hardware-decoding work
-remain separate acceptance items.
+cache size bounded. The scaler keeps small sources at their native size. If the
+audio clock runs past the picture being prepared, the worker retries at up to
+640×360/18 fps and keeps that lower output load for the current opening. An
+18-second catch-up budget applies across attempts at an advancing playhead. An
+explicit seek to another position starts a new attempt. If the worker cannot
+catch up, the window reports a picture error and audio continues. Check
+`video status` for preparation details. Long playback on physical Windows
+hardware and hardware-accelerated decoding remain acceptance items.
 
 Online files use the same short rolling-window model. A backend-owned loopback
 transport gives FFprobe/FFmpeg bounded range access to the selected remote video
@@ -199,11 +307,11 @@ window, not a complete 80-minute file. A distant seek discards obsolete work and
 prepares a fresh window around the authoritative audio position. There is no
 image scraping and this presentation cache is not a permanent download.
 
-Only supported finite audiovisual files are supported: at most two hours, input
-dimensions up to 7680×4320. Windows have a 30-second preparation deadline and a
-32 MiB per-window limit. Unsupported/oversized files leave audio unchanged and
-report a nonfatal error. Silent videos require a future backend video clock.
-Source replacement during preparation is rejected.
+Supported finite media runs for at most two hours and has input dimensions up to
+7680×4320. Trailing windows have a 30-second encoding deadline. Each output has
+a 32 MiB limit. A supported silent local video uses a backend clock. Unsupported
+or oversized files, and source replacement during preparation, produce a
+nonfatal picture error.
 
 Online window transport is capped at 4 GiB over one presentation session, with
 per-request deadlines and the same short-window output limits. Selected audio and
@@ -283,8 +391,13 @@ The backend range cache contains original compressed picture bytes in RAM only:
 64 MiB by default, adjustable from 16–256 MiB through `youtube video cache.memory
 mib` in settings. Its idle expiry defaults to 600 seconds (30–1800 configurable
 via `idle seconds`). Settings take effect on restart. One cache is shared by the
-main and Mini viewers. Requests use 256 KiB blocks, an LRU memory budget and
-coalesced misses; no parallel duplicate block downloads are made. A 4 GiB source
+main and Mini viewers. The proxy gives the first block of a new range priority over queued continuation
+reads. Cache hits return immediately even while another viewer is fetching a
+miss. It retains the header and a small neighborhood around the newest decoder
+range (two 256 KiB blocks behind and four ahead) when choosing which bytes to
+evict. This uses actual file offsets, including variable-bitrate seeks. Old readers
+cannot move the new cursor. One upstream miss can be in flight at once.
+Only requested bytes are fetched, with eviction when the memory budget is reached. A 4 GiB source
 size/transfer budget applies to one retained recording. No cache files, signed
 URLs or cookies are written to disk. Source changes and shutdown clear the cache;
 idle entries are cleared within five seconds of expiry.
@@ -314,8 +427,11 @@ headers. The renderer still has a muted picture element and the backend audio cl
 
 The main-window preload exposes video status and identity-bound mode changes,
 plus narrow play/pause and seek intents for the overlay controls.
-The Mini-player preload additionally exposes a read-only video-status refresh;
-its snapshot carries validated current-video metadata and the sampling timestamp.
+The Mini-player preload exposes video-status refresh, seek, caption controls,
+A/V offset, and filters for both auxiliary windows. Its snapshot carries validated
+current-video metadata and the sampling timestamp. Click the timeline to seek the
+finite recording. It sends the selected position for the displayed media to the
+native playback engine and updates from the next playback snapshot.
 The existing Mini-player window shows a muted picture using the same clock follower
 as the main viewer. Its playback/chapter/seek controls stay backend-authoritative.
 It is always-on-top, resizable in video mode, and returns to fixed audio geometry
@@ -326,6 +442,10 @@ always-on-top/resizable video mode and fixed-size audio fallback. Public-provide
 physical display-scaling and packaged acceptance remain pending.
 A private application protocol serves only
 the current validated handle from the bounded cache, with byte-range support.
+The desktop page allows media from `mariana-video://current`. The host still
+validates the `current` host, active recording, and exact handle before serving
+any bytes. Without the media policy entry, Chromium rejects the picture before
+the decoder can read it and might keep retrying as new windows are prepared.
 Renderer state contains no filesystem paths, provider credentials or signed URLs.
 The cache has no audio stream, so the browser cannot produce duplicate sound.
 
@@ -380,14 +500,13 @@ mapping tests; the native fixture does not establish every transport's behavior.
 ## Deferred milestones
 
 1. Native synchronization acceptance, same-recording mode switching, source
-   replacement/decoder failure cases, and video-only sources with a backend clock.
+   replacement/decoder failure cases, and online video-only sources.
 2. Native public-provider acceptance, authenticated request transports, and
    resilience measurement for providers with slow or specialized range behavior.
    Rolling windows do not make this universal YouTube/web streaming support.
 3. Persist per-occurrence presentation in mixed queues without changing recording
    identity, favourites or audio-only crossfade behavior.
-4. Direct-terminal attachment to one existing backend, additional provider subtitle
-   formats/catalogues, online-container multi-track selection, and an optional
+4. Additional provider subtitle formats/catalogues, online-container multi-track selection, and an optional
    persistent presentation default.
 5. Supported live HLS/DASH and verified DVR ranges, followed by temporal previews.
 

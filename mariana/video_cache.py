@@ -9,7 +9,7 @@ from collections import OrderedDict
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler
 
-from .video_sources import MAX_PROXY_BYTES, VideoSourceError, VideoTrack, _open_response, _TrackProxy
+from .video_sources import MAX_PROXY_BYTES, VideoAccessExpired, VideoSourceError, VideoTrack, _open_response, _TrackProxy
 
 BLOCK_BYTES = 256 * 1024
 _CONTENT_RANGE = re.compile(r"bytes (\d+)-(\d+)/(\d+)")
@@ -17,7 +17,7 @@ _REQUEST_RANGE = re.compile(r"bytes=(\d*)-(\d*)")
 
 
 class VideoByteCache:
-    """One representation, an LRU byte budget, and serialized cache misses.
+    """One representation, a seek-aware memory budget, and coalesced cache misses.
 
     The miss lock coalesces overlapping main/Mini requests. It is never acquired
     by the playback/control thread. Only one 256 KiB source request runs at once.
@@ -40,12 +40,17 @@ class VideoByteCache:
         self._lock = threading.RLock()
         self._miss = threading.Lock()
         self._epoch = 0
+        self._seek_serial = 0
+        self._cursor: int | None = None
+        self._urgent = 0
 
     def clear(self) -> None:
         with self._lock:
             self.blocks.clear()
             self.size = 0
             self._epoch += 1
+            self._seek_serial += 1
+            self._cursor = None
 
     def expired(self) -> bool:
         return self.clock() - self.last_used >= self.idle_seconds
@@ -59,7 +64,7 @@ class VideoByteCache:
     @staticmethod
     def _descriptor(response, start: int, end: int | None = None) -> tuple[int, int, str | None, str]:
         if response.status in {401, 403, 410}:
-            raise VideoSourceError("Video access expired; select Video again. Audio is unchanged")
+            raise VideoAccessExpired("Video access expired; select Video again. Audio is unchanged")
         match = _CONTENT_RANGE.fullmatch(response.getheader("Content-Range") or "")
         if response.status != 206 or match is None:
             raise VideoSourceError("Video requires verified byte-range support")
@@ -104,20 +109,62 @@ class VideoByteCache:
             self.last_used = self.clock()
             self.downloaded += 1
 
-    def block(self, index: int, cancel: threading.Event) -> bytes:
-        while not self._miss.acquire(timeout=0.05):
-            if cancel.is_set():
-                raise VideoSourceError("Video retrieval was cancelled")
+    def focus(self, index: int) -> int:
+        """Latest real decoder range wins, including seeks into variable-bitrate media."""
+        with self._lock:
+            self._seek_serial += 1
+            self._cursor = index
+            return self._seek_serial
+
+    def advance(self, serial: int, index: int) -> None:
+        with self._lock:
+            if serial == self._seek_serial:
+                self._cursor = index
+
+    def _hit(self, index: int, cancel: threading.Event) -> bytes | None:
+        if cancel.is_set():
+            raise VideoSourceError("Video retrieval was cancelled")
+        self.last_used = self.clock()
+        if index in self.blocks:
+            self.blocks.move_to_end(index)
+            result = self.blocks[index]
+            self.reused += len(result)
+            return result
+        return None
+
+    def _make_room(self, required: int) -> None:
+        # Keep the index/header and a small neighborhood around the newest
+        # decoder range even if an old read-ahead request is still draining.
+        cursor = self._cursor
+        while self.blocks and self.size + required > self.limit:
+            victim = next(iter(self.blocks))
+            if cursor is not None:
+                victim = next((i for i in self.blocks
+                               if i != 0 and not cursor - 2 <= i <= cursor + 4), victim)
+            self.size -= len(self.blocks.pop(victim))
+
+    def block(self, index: int, cancel: threading.Event, urgent: bool = False) -> bytes:
+        with self._lock:
+            if (hit := self._hit(index, cancel)) is not None:
+                return hit
+            self._urgent += int(urgent)
         try:
-            with self._lock:
+            while True:
                 if cancel.is_set():
                     raise VideoSourceError("Video retrieval was cancelled")
-                self.last_used = self.clock()
-                if index in self.blocks:
-                    self.blocks.move_to_end(index)
-                    result = self.blocks[index]
-                    self.reused += len(result)
-                    return result
+                with self._lock:
+                    defer = not urgent and self._urgent > 0
+                if not defer and self._miss.acquire(timeout=0.025):
+                    break
+                if defer:
+                    cancel.wait(.01)
+        finally:
+            with self._lock:
+                self._urgent -= int(urgent)
+        try:
+            with self._lock:
+                if (hit := self._hit(index, cancel)) is not None:
+                    return hit
                 track, epoch = self.track, self._epoch
                 start = index * BLOCK_BYTES
                 end = min(start + BLOCK_BYTES, self.total) - 1
@@ -149,9 +196,7 @@ class VideoByteCache:
             with self._lock:
                 if cancel.is_set() or epoch != self._epoch:
                     raise VideoSourceError("Video retrieval was cancelled")
-                while self.blocks and self.size + len(result) > self.limit:
-                    _, removed = self.blocks.popitem(last=False)
-                    self.size -= len(removed)
+                self._make_room(len(result))
                 self.blocks[index] = result
                 self.size += len(result)
             return result
@@ -192,7 +237,9 @@ class CachedVideoProxy(_TrackProxy):
                 handler.send_error(416)
                 return
             # Check availability before committing response headers.
-            first = self.cache.block(start // BLOCK_BYTES, self.cancel) if include_body else b""
+            if include_body:
+                serial = self.cache.focus(start // BLOCK_BYTES)
+                first = self.cache.block(start // BLOCK_BYTES, self.cancel, True)
             handler.send_response(206 if raw else 200)
             handler.send_header("Content-Type", self.cache.mime)
             handler.send_header("Content-Length", str(end - start + 1))
@@ -206,6 +253,7 @@ class CachedVideoProxy(_TrackProxy):
             handler.close_connection = True
             if include_body:
                 while start <= end and not self.cancel.is_set():
+                    self.cache.advance(serial, start // BLOCK_BYTES)
                     data = first or self.cache.block(start // BLOCK_BYTES, self.cancel)
                     first = b""
                     offset = start % BLOCK_BYTES

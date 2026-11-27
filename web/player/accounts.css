@@ -1,0 +1,10 @@
+.connections > label { display: block; color: var(--muted); margin-bottom: .35rem; }
+.connections select { width: min(100%, 24rem); }
+.connections .account-state { margin: 1rem 0 .45rem; font-weight: 600; }
+.connections .account-actions { display: flex; flex-wrap: wrap; gap: .45rem .65rem; align-items: end; margin: .65rem 0; }
+.connections .account-actions label { display: grid; gap: .3rem; }
+.connections .account-actions a { align-self: center; color: var(--accent); }
+#account-feedback { white-space: pre-line; }
+#listener-profiles { display: flex; flex-wrap: wrap; align-items: end; gap: .6rem; padding: .7rem 0; }
+#listener-profiles label { display: grid; gap: .3rem; }
+#listener-profiles output { flex-basis: 100%; }

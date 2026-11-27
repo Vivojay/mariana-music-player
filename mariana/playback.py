@@ -114,7 +114,7 @@ def probe_media(
         "-v",
         "error",
         "-show_entries",
-        "format=duration,format_name,tags:stream=codec_type,codec_name,duration,tags",
+        "format=duration,format_name,tags:stream=codec_type,codec_name,duration,tags:stream_disposition=attached_pic",
         "-of",
         "json",
     ]
@@ -139,7 +139,9 @@ def probe_media(
     format_info = payload.get("format") or {}
     streams = payload.get("streams") or []
     audio_stream = next((stream for stream in streams if stream.get("codec_type") == "audio"), {})
-    duration_value = format_info.get("duration") or audio_stream.get("duration")
+    video_stream = next((stream for stream in streams if stream.get("codec_type") == "video"
+                         and not (stream.get("disposition") or {}).get("attached_pic")), {})
+    duration_value = format_info.get("duration") or audio_stream.get("duration") or video_stream.get("duration")
     try:
         duration = float(duration_value) if duration_value not in (None, "N/A") else None
     except (TypeError, ValueError):
@@ -147,6 +149,11 @@ def probe_media(
     tags = {str(key).lower(): value for key, value in (format_info.get("tags") or {}).items()}
     tags.update({str(key).lower(): value for key, value in (audio_stream.get("tags") or {}).items()})
     is_live = media.capabilities.live or media.source == MediaSource.RADIO
+    if media.source == MediaSource.LOCAL:
+        media.resolver_data["has_video_track"] = bool(video_stream)
+        media.resolver_data["video_clock_only"] = bool(
+            video_stream and not audio_stream and duration is not None and math.isfinite(duration) and duration > 0
+        )
     media.duration = duration
     media.title = media.title or tags.get("title")
     media.artist = media.artist or tags.get("artist")
@@ -162,7 +169,7 @@ def probe_media(
         finite=not is_live,
         live=is_live,
         seekable=media.capabilities.seekable and not is_live,
-        fingerprintable=True,
+        fingerprintable=not media.resolver_data.get("video_clock_only", False),
         downloadable=media.source != MediaSource.RADIO,
         metadata_available=bool(tags),
     )
@@ -262,6 +269,7 @@ class DecoderSession:
         self._reader: threading.Thread | None = None
         self._stderr: deque[str] = deque(maxlen=30)
         self.eof = False
+        self.rate = 1.0
         self.frames_emitted = 0
         self.on_metadata: Callable[[str], None] | None = None
         self._last_stream_title: str | None = None
@@ -269,7 +277,7 @@ class DecoderSession:
 
     @property
     def position(self) -> float:
-        return self.start_at + self.frames_emitted / SAMPLE_RATE
+        return self.start_at + self.frames_emitted * self.rate / SAMPLE_RATE
 
     @property
     def buffered_seconds(self) -> float:
@@ -311,6 +319,10 @@ class DecoderSession:
             source = self._auth_tunnel.start()
         log_level = "info" if self.media.capabilities.live else "warning"
         command = [self.ffmpeg, "-hide_banner", "-loglevel", log_level, "-nostdin"]
+        clock_only = (not self.input_sources and self.media.source == MediaSource.LOCAL
+                      and self.media.resolver_data.get("video_clock_only") is True
+                      and self.media.duration is not None and math.isfinite(self.media.duration)
+                      and self.media.duration > 0)
         if self.input_sources:
             for stem_source in self.input_sources:
                 if self.start_at:
@@ -326,7 +338,7 @@ class DecoderSession:
                     "-map",
                     "[stem]",
                 ]
-        else:
+        elif not clock_only:
             if self.start_at and self.media.capabilities.seekable:
                 command += ["-ss", f"{self.start_at:.3f}"]
         if not self.input_sources and source.startswith(("http://", "https://")):
@@ -358,15 +370,21 @@ class DecoderSession:
                 command += ["-icy", "1"]
         if self.resolved and self.resolved.headers:
             command += ["-headers", "".join(f"{key}: {value}\r\n" for key, value in self.resolved.headers.items())]
-        if not self.input_sources:
+        if clock_only:
+            duration = max(1 / SAMPLE_RATE, self.media.duration - self.start_at)
+            command += ["-f", "lavfi", "-i", f"anullsrc=r={SAMPLE_RATE}:cl=stereo:d={duration:.9f}"]
+        elif not self.input_sources:
             command += ["-i", source, "-map", "0:a:0"]
         command += [
             "-vn",
             "-sn",
             "-dn",
         ]
-        if self.audio_filter:
-            command += ["-af", self.audio_filter]
+        filters = [self.audio_filter] if self.audio_filter else []
+        if self.rate != 1.0:
+            filters.append(f"atempo={self.rate:.9g}")
+        if filters:
+            command += ["-af", ",".join(filters)]
         command += [
             "-ac",
             str(CHANNELS),
@@ -583,6 +601,7 @@ class PlaybackController:
         self._output_interrupted = False
         self._state = PlaybackState.IDLE
         self._volume = 1.0
+        self.monitor_effect = None
         self.equalizer = EqualizerProcessor(SAMPLE_RATE)
         self._automation_gain = 1.0
         self._muted = False
@@ -664,11 +683,19 @@ class PlaybackController:
     ) -> None:
         """Queue the initial state before any later committed action can follow it."""
         with self._lock:
+            if getattr(self._active, "rate", 1.0) != 1.0:
+                raise UnsupportedAction("Set speed 1 before recording a session recipe")
             snapshot = self._program_snapshot_locked()
             initialize(snapshot)
             self._recipe_capture_sink = sink
             self._captured_transition = (self._active, self._next) if snapshot.overlap is not None \
                 and self._active is not None and self._next is not None else None
+
+    def end_recipe_capture(self, sink) -> None:
+        with self._lock:
+            if self._recipe_capture_sink == sink:
+                self._recipe_capture_sink = None
+                self._captured_transition = None
 
     def _capture_program_event(self, event: CommittedProgramEvent) -> None:
         sink = self._recipe_capture_sink
@@ -993,6 +1020,8 @@ class PlaybackController:
                 raise UnsupportedAction("Stem monitoring requires playing or paused finite media")
             if active.media.capabilities.live or not active.media.capabilities.finite:
                 raise UnsupportedAction("Live media cannot use prepared stem monitoring")
+            if normalized and getattr(active, "rate", 1.0) != 1.0:
+                raise UnsupportedAction("Set speed 1 before enabling prepared stem monitoring")
             if normalized == self._stem_sources and self._stem_media_id == media_id:
                 return
             retired_transition = self._stem_previous
@@ -1334,6 +1363,57 @@ class PlaybackController:
         )
         return media
 
+    def set_playback_rate(self, rate: float) -> None:
+        """Prepare a pitch-preserving decoder, then switch on the same audio occurrence."""
+        if isinstance(rate, bool) or not math.isfinite(rate) or not 0.5 <= rate <= 2.0:
+            raise ValueError("Speed must be a number from 0.5 to 2")
+        def available():
+            if self._state not in {PlaybackState.PLAYING, PlaybackState.PAUSED} or self._active is None:
+                raise UnsupportedAction("Adjust speed on a playing or paused recording, outside a crossfade")
+            if self._recipe_capture_sink is not None or any(x is not None for x in
+                    (self._recipe_mix, self._pending_recipe_mix, self._prepared_recipe_mix, self._stem_session, self._stem_previous)):
+                raise UnsupportedAction("Finish the session recipe or stem monitor before changing speed")
+        with self._lock:
+            available()
+            active = self._active
+            media = active.media
+            if not media.capabilities.seekable or not media.capabilities.finite or media.capabilities.live:
+                raise UnsupportedAction("Speed requires a finite seekable recording")
+            if getattr(active, "rate", 1.0) == rate:
+                return
+            generation = self._request_generation
+            replacement = DecoderSession(media, resolved=active.resolved, ffmpeg_bin=self.ffmpeg_bin,
+                                         start_at=active.position, program_gain_db=active.program_gain_db)
+            replacement.rate = rate
+            replacement.on_metadata = lambda title: self._handle_stream_metadata(replacement, title)
+
+        # The original decoder keeps playing while FFmpeg starts. Its position may
+        # advance during preparation. Discard just that many source seconds from
+        # the new decoder before committing the switch at an audio-block boundary.
+        try:
+            replacement.start()
+            if not replacement.wait_for_buffer(timeout=6):
+                raise PlaybackError("Could not buffer audio at the requested speed")
+            deadline = time.monotonic() + 4
+            while True:
+                with self._audio_block_lock, self._lock:
+                    if self._active is not active or generation != self._request_generation:
+                        raise UnsupportedAction("The active recording changed while preparing speed")
+                    available()
+                    skip = max(0, round((active.position - replacement.position) * SAMPLE_RATE / rate))
+                    buffered = round(replacement.buffered_seconds * SAMPLE_RATE)
+                    if buffered > skip:
+                        replacement.read(skip)
+                        self._active = replacement
+                        break
+                if replacement.eof or time.monotonic() >= deadline:
+                    raise PlaybackError("Could not synchronize the requested speed with this recording")
+                time.sleep(.01)
+        except BaseException:
+            replacement.stop()
+            raise
+        active.stop()
+
     @operation("prefetch", priority=4)
     def prefetch(self, media: MediaRef, *, probe: bool = True) -> MediaRef:
         resolved = self.resolvers.resolve(media)
@@ -1567,6 +1647,7 @@ class PlaybackController:
             mix = self._recipe_mix
             if mix is None:
                 return False
+            outgoing, incoming = mix.outgoing, mix.incoming
             if self._state == PlaybackState.PAUSED or self._output_interrupted:
                 samples = np.zeros((frames, CHANNELS), dtype=np.float32)
             else:
@@ -1583,6 +1664,10 @@ class PlaybackController:
                     self._state = PlaybackState.CROSSFADING if mix.incoming else PlaybackState.PLAYING
             local_gain = 0 if self._muted else self._volume * self._automation_gain
         self._publish_program(samples, frames)
+        samples = self._spoken_samples(samples, outgoing, incoming)
+        effect = self.monitor_effect
+        if effect is not None and outgoing is not None and self._state != PlaybackState.PAUSED:
+            samples = effect.render(samples, (id(outgoing), self.equalizer.reset_serial))
         processed = self.equalizer.process(samples)
         processed = np.clip(processed * local_gain, -1, 1)
         if isinstance(outdata, np.ndarray):
@@ -1590,6 +1675,15 @@ class PlaybackController:
         else:
             outdata[:] = processed.astype(np.float32).tobytes()
         return True
+
+    def _spoken_samples(self, samples, outgoing, incoming):
+        processor = self.equalizer.deesser
+        if processor is None:
+            return samples
+        # Never apply the voice setting to a music track, including a mixed overlap.
+        spoken = (outgoing is not None and outgoing.media.source == MediaSource.PODCAST
+                  and (incoming is None or incoming.media.source == MediaSource.PODCAST))
+        return processor.process(samples, id(outgoing) if spoken else None)
 
     def _render_ordinary_audio(self, outdata, frames, _time_info, _status) -> None:
         size = frames * BYTES_PER_FRAME
@@ -1617,13 +1711,14 @@ class PlaybackController:
                 outdata[:] = b"\0" * size
             self._publish_program(outdata, frames)
             return
+        rate = getattr(active, "rate", 1.0)
         crossfade = False
         fraction = 0.0
         region_end = active_region.end_seconds if active_region else None
         effective_end = region_end if region_end is not None else active.media.duration
         read_frames = frames
         if region_end is not None:
-            remaining_frames = max(0, math.ceil((region_end - active.position) * SAMPLE_RATE))
+            remaining_frames = max(0, math.ceil((region_end - active.position) * SAMPLE_RATE / rate))
             read_frames = min(frames, remaining_frames)
             if read_frames == 0:
                 if numpy_output:
@@ -1633,7 +1728,7 @@ class PlaybackController:
                 self._publish_program(outdata, frames)
                 self._finish_active(active)
                 return
-        crossfade_window = crossfade_seconds
+        crossfade_window = crossfade_seconds * rate
         if crossfade_window > 0 and effective_end is not None:
             crossfade_window = min(
                 crossfade_window,
@@ -1644,7 +1739,7 @@ class PlaybackController:
                 else next_session.media.duration
             crossfade_window = min(
                 crossfade_window,
-                max(0.0, next_end - float(getattr(next_session, "start_at", 0.0))),
+                max(0.0, next_end - float(getattr(next_session, "start_at", 0.0))) * rate / getattr(next_session, "rate", 1.0),
             )
         if (
             next_session
@@ -1730,7 +1825,7 @@ class PlaybackController:
                 if self._active is active and self._state == PlaybackState.CROSSFADING:
                     self._state = PlaybackState.PLAYING
         program = outdata if numpy_output else np.frombuffer(payload, dtype=np.float32).reshape(-1, CHANNELS)
-        if decoded_frames and playback_session_id:
+        if decoded_frames and playback_session_id and rate == 1.0:
             self._publish_identification_pcm(
                 program,
                 decoded_frames,
@@ -1753,6 +1848,10 @@ class PlaybackController:
             stem_previous,
             stem_transition_frames,
         )
+        local_samples = self._spoken_samples(local_samples, active, next_session if crossfade else None)
+        effect = self.monitor_effect
+        if effect is not None:
+            local_samples = effect.render(local_samples, (id(active), self.equalizer.reset_serial))
         if numpy_output:
             if local_samples is not outdata:
                 outdata[:] = local_samples
@@ -2008,6 +2107,8 @@ class PlaybackController:
             if active:
                 active.stop()
             replacement = self._new_session(media, start_at=target)
+            if getattr(active, "rate", 1.0) != 1.0:
+                replacement.rate = active.rate
             replacement.on_metadata = lambda title, source=replacement: self._handle_stream_metadata(source, title)
             self._active = replacement
             self._active_region = region
@@ -2294,6 +2395,8 @@ class PlaybackController:
                 raise UnsupportedAction("Nothing is currently playing")
             if self._state != PlaybackState.PLAYING:
                 raise UnsupportedAction("Start time-specific identification while media is playing")
+            if getattr(self._active, "rate", 1.0) != 1.0:
+                raise UnsupportedAction("Set speed 1 before identifying a playback capture")
             if not self._active.media.capabilities.fingerprintable:
                 raise UnsupportedAction("The current source cannot be fingerprinted")
             return (
@@ -2317,7 +2420,7 @@ class PlaybackController:
         with self._lock:
             if media_id is not None and (self._active is None or self._active.media.stable_id != media_id):
                 raise UnsupportedAction("Active media changed before fingerprint capture; retry the command")
-            return self._active.fingerprint_pcm if self._active else b""
+            return self._active.fingerprint_pcm if self._active and getattr(self._active, "rate", 1.0) == 1.0 else b""
 
     def notify_metadata_boundary(self, title: str | None = None) -> int:
         """Start a fresh live fingerprint window and invalidate stale identification work."""
@@ -2441,7 +2544,8 @@ class PlaybackController:
                 ) else self._state,
                 position=position,
                 duration=active.media.duration if active else self._completed_duration,
-                buffered_seconds=active.buffered_seconds if active else 0.0,
+                buffered_seconds=active.buffered_seconds * getattr(active, "rate", 1.0) if active else 0.0,
+                playback_rate=getattr(active, "rate", 1.0),
                 volume=self._volume,
                 muted=self._muted,
                 error=self._error,

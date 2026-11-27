@@ -18,6 +18,7 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     rolldownOptions: {
+      input: { player: 'index.html', strudel: 'strudel.html' },
       output: {
         // Keep stable renderer dependencies cacheable across application edits.
         strictExecutionOrder: true,

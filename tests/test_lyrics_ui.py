@@ -164,3 +164,17 @@ def test_show_window_handles_invalid_wallpaper_index_and_missing_cache(monkeypat
     get_lyrics.show_window(5, True, False, refresh_lyrics=False)
     assert spawned["kwargs"]["head_text"] == "Lyrics N/A"
     assert spawned["kwargs"]["text_to_be_displayed"] == "(Lyrics not available)"
+
+
+def test_tui_lyrics_opens_existing_workspace_reader(monkeypatch, lyrics_paths):
+    from mariana.terminal_io import TerminalIO
+
+    temp, _, _ = lyrics_paths
+    divider = "-" * 80
+    (temp / "lyrics.txt").write_text(f"{divider}\nLate set\n{divider}\nVerse one\nVerse two\n",
+                                     encoding="utf-8")
+    views = []
+    monkeypatch.setattr("mariana.terminal_text.view_text", lambda title, text: views.append((title, text)))
+    with TerminalIO(lambda: None, lambda text: None).worker():
+        get_lyrics.show_window(5, True, False, refresh_lyrics=False)
+    assert views == [("Late set", "Verse one\nVerse two")]

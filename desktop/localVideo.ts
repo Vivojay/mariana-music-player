@@ -3,6 +3,16 @@ export type CaptionChoice = {
   default: boolean; forced: boolean; codec: string
 }
 
+export type PictureFilter = { preset: string; threshold: number }
+
+export function projectPictureFilter(value: unknown): PictureFilter | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const { preset, threshold } = value as Record<string, unknown>
+  if (typeof preset !== 'string' || !/^[a-z-]{1,30}$/.test(preset)
+    || typeof threshold !== 'number' || !Number.isInteger(threshold) || threshold < 0 || threshold > 100) return undefined
+  return { preset, threshold }
+}
+
 function safeCaptionLabel(value: unknown, maximum: number): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= maximum && !/[\\/]/.test(value)
     && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
@@ -25,14 +35,24 @@ function captionChoices(value: unknown): CaptionChoice[] | null {
   return result
 }
 
+const VIDEO_PREPARATION_STAGES = [
+  'Reading the video index', 'Preparing the first picture', 'Preparing the next picture',
+  'Resolving the video format', 'Checking provider byte ranges',
+  'Preparing a lighter picture preview', 'Preparing a picture at the current position',
+] as const
+
 export type LocalVideoStatus = {
   revision: number
   state: 'off' | 'preparing' | 'ready' | 'error'
+  stage?: typeof VIDEO_PREPARATION_STAGES[number]
+  elapsed_seconds?: number
   media_id: string | null
   handle: string | null
   error: string | null
   position_seconds: number
   playing: boolean
+  playback_rate?: number
+  filter?: PictureFilter
   transport?: 'source'
   audio_offset_ms: number
   captions: {
@@ -108,13 +128,22 @@ export function projectLocalVideo(value: unknown): LocalVideoStatus | null {
     && ![...row.error].some((character) => character.charCodeAt(0) < 32)
     && !/https?:|[A-Za-z]:[\\/]|\/home\/|\/Users\//.test(row.error)
     ? row.error : 'Local video is unavailable'
+  const filter = projectPictureFilter(row.filter)
+  const stage = VIDEO_PREPARATION_STAGES.find((label) => label === row.stage)
+  const elapsed = typeof row.elapsed_seconds === 'number' && Number.isSafeInteger(row.elapsed_seconds)
+    && row.elapsed_seconds >= 0 && row.elapsed_seconds <= 86400 ? row.elapsed_seconds : undefined
   return {
     revision: row.revision as number, state: row.state as LocalVideoStatus['state'],
+    ...(row.state === 'preparing' && stage ? { stage } : {}),
+    ...(row.state === 'preparing' && elapsed !== undefined ? { elapsed_seconds: elapsed } : {}),
     media_id: row.media_id as string | null,
     handle: row.state === 'ready' ? row.handle as string : null,
     error: row.state === 'error' ? error : null,
     position_seconds: row.position_seconds, playing: row.playing,
+    ...(typeof row.playback_rate === 'number' && row.playback_rate >= 0.5 && row.playback_rate <= 2
+      ? { playback_rate: row.playback_rate } : {}),
     ...(row.transport === 'source' ? { transport: 'source' as const } : {}),
+    ...(filter ? { filter } : {}),
     audio_offset_ms: audioOffset as number,
     captions: {
       available: captionAvailable,
@@ -131,11 +160,21 @@ export function projectLocalVideo(value: unknown): LocalVideoStatus | null {
   }
 }
 
+export function videoPreparationMessage(status: LocalVideoStatus): string {
+  const stage = status.stage || 'Preparing video at the current position'
+  const elapsed = status.elapsed_seconds ? ` (${status.elapsed_seconds}s)` : ''
+  return `${stage}${elapsed}…${status.playing ? ' Audio playback continues.' : ''}`
+}
+
+export function freshVideoClock(sampledAt: number, now: number): boolean {
+  const age = now - sampledAt
+  return Number.isFinite(age) && age >= -100 && age <= 1000
+}
+
 export function videoClockTarget(status: LocalVideoStatus, sampledAt: number, now: number): { seconds: number; play: boolean } {
   const age = now - sampledAt
-  const fresh = Number.isFinite(age) && age >= -100 && age <= 1000
-  const advancing = fresh && status.playing && status.state === 'ready'
-  const absolute = status.position_seconds + (advancing ? Math.max(0, age) / 1000 : 0)
+  const advancing = freshVideoClock(sampledAt, now) && status.playing && status.state === 'ready'
+  const absolute = status.position_seconds + (advancing ? (Math.max(0, age) / 1000) * (status.playback_rate ?? 1) : 0)
   const start = status.window_start_seconds ?? 0
   const end = status.window_end_seconds ?? Infinity
   const play = advancing && absolute >= start && absolute < end

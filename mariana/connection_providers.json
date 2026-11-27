@@ -1,0 +1,13 @@
+{
+  "spotify":{"name":"Spotify","site":"https://open.spotify.com/","profile":"https://open.spotify.com/user/","hint":"Spotify user ID"},
+  "lastfm":{"name":"Last.fm","site":"https://www.last.fm/","profile":"https://www.last.fm/user/","hint":"Last.fm username"},
+  "musicbrainz":{"name":"MusicBrainz","site":"https://musicbrainz.org/","profile":"https://musicbrainz.org/user/","hint":"MusicBrainz username"},
+  "youtube":{"name":"YouTube Music","site":"https://music.youtube.com/","profile":"https://music.youtube.com/channel/","hint":"Channel ID beginning with UC"},
+  "tiktok":{"name":"TikTok","site":"https://www.tiktok.com/","profile":"https://www.tiktok.com/@","hint":"TikTok username"},
+  "instagram":{"name":"Instagram","site":"https://www.instagram.com/","profile":"https://www.instagram.com/","hint":"Instagram username"},
+  "snapchat":{"name":"Snapchat","site":"https://www.snapchat.com/","profile":"https://www.snapchat.com/add/","hint":"Snapchat username"},
+  "facebook":{"name":"Facebook","site":"https://www.facebook.com/","profile":"https://www.facebook.com/","hint":"Facebook username"},
+  "bandcamp":{"name":"Bandcamp","site":"https://bandcamp.com/","profile":"https://bandcamp.com/","hint":"Bandcamp fan username"},
+  "soundcloud":{"name":"SoundCloud","site":"https://soundcloud.com/","profile":"https://soundcloud.com/","hint":"SoundCloud profile name"},
+  "listenbrainz":{"name":"ListenBrainz","site":"https://listenbrainz.org/","profile":"https://listenbrainz.org/user/","hint":"ListenBrainz username"}
+}

@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from functools import lru_cache
 
-from mariana.command_catalog import COMMAND_CATALOG
+from mariana.command_assist import literal_paths
 
 _COMMAND_TEXT = re.compile(r"[a-zA-Z0-9_.*+/? -]+\Z")
 MAX_COMPLETIONS = 20
@@ -22,20 +22,7 @@ class CommandCompletion:
 
 @lru_cache(maxsize=1)
 def _names() -> tuple[tuple[str, str], ...]:
-    names: dict[str, str] = {}
-    for spec in COMMAND_CATALOG:
-        if not spec.suggest:
-            continue
-        spellings = (spec.canonical, *(alias.spelling for alias in spec.aliases
-                                      if alias.status in {"native", "compatibility-only"}))
-        summary = f"{spec.summary} [{spec.risk.value}]"
-        for spelling in spellings:
-            names.setdefault(spelling, summary)
-            for form in spec.forms:
-                if form.tokens:
-                    name = " ".join((spelling, *form.tokens))
-                    if _COMMAND_TEXT.fullmatch(name):
-                        names.setdefault(name, summary)
+    names = {path: description for path, description in literal_paths() if _COMMAND_TEXT.fullmatch(path)}
     return tuple(sorted(names.items(), key=lambda item: item[0].casefold()))
 
 

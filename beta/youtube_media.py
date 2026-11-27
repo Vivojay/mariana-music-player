@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import math
+import queue
+import re
+import threading
+import time
+from collections import OrderedDict
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any, cast
 
+from beta import extractor_fallback
 from mariana.chapters import normalize_chapters
 from mariana.media_details import normalized_provider_metadata
+from mariana.models import MediaSource, canonical_uri
 from mariana.toolchain import find_javascript_runtime
 from mariana.video_sources import VideoTracks
 
@@ -50,6 +58,9 @@ def youtube_error_message(error: BaseException, browser_profile: str | None = No
             "login required",
             "requires authorization",
             "requires a signed-in",
+            "age-restricted",
+            "confirm your age",
+            "private video",
             "rejected browser profile",
         )
     ):
@@ -123,6 +134,110 @@ def _extract(query: str, **options: Any) -> Mapping[str, Any]:
             return info
     except download_error as exc:
         raise YouTubeError(str(exc)) from exc
+
+
+# A socket timeout alone cannot bound a provider making several requests, DNS
+# or reading the browser profile. A stalled in-process lookup may finish late.
+# Keep those workers bounded and discard the results once the caller has left.
+_PYTHON_BUDGET = 10.
+_LOOKUPS = threading.BoundedSemaphore(4)
+
+
+def _timed_playback_lookup(url: str, options: dict) -> Mapping[str, Any]:
+    if not _LOOKUPS.acquire(blocking=False):
+        raise YouTubeError("Other playback lookups are still finishing. Try again shortly.")
+    done = queue.Queue(maxsize=1)
+
+    def lookup():
+        try:
+            done.put((True, _extract(url, **options)))
+        except Exception as error:
+            done.put((False, error))
+        finally:
+            _LOOKUPS.release()
+
+    try:
+        threading.Thread(target=lookup, name="mariana-playback-resolve", daemon=True).start()
+    except RuntimeError:
+        _LOOKUPS.release()
+        raise
+    try:
+        ok, result = done.get(timeout=_PYTHON_BUDGET)
+    except queue.Empty:
+        raise TimeoutError("The playback metadata lookup timed out.") from None
+    if not ok:
+        raise result
+    return result
+
+
+def _playback_extract(url: str, *, format: str, browser_profile: str | None) -> Mapping[str, Any]:
+    options = dict(format=format, browser_profile=browser_profile, socket_timeout=8,
+                   retries=0, extractor_retries=0, geo_bypass=False)
+    try:
+        return _timed_playback_lookup(url, options)
+    except (YouTubeError, OSError, ModuleNotFoundError) as error:
+        if not extractor_fallback.retryable(error):
+            raise
+        alternate = extractor_fallback.external_info(url, format, browser_profile)
+        if alternate is not None:
+            return alternate
+        if isinstance(error, ModuleNotFoundError):
+            raise YouTubeError("Install yt-dlp in Mariana or configure MARIANA_YTDLP_BINARY. Anonymous public videos may also use MARIANA_YOUTUBE_DL_BINARY.") from error
+    # Retry a transient failure once with a new extractor instance. Access and
+    # rate limits are handled by the normal account/error flow on the first try.
+    return _timed_playback_lookup(url, options)
+
+
+_picture_hints: OrderedDict[tuple[str, str | None], tuple[float, VideoTracks]] = OrderedDict()
+_hint_lock = threading.Lock()
+
+
+def _picture_key(url: str, profile: str | None) -> tuple[str, str | None] | None:
+    identity = canonical_uri(MediaSource.YOUTUBE, url)
+    match = re.fullmatch(r"https://www\.youtube\.com/watch\?v=([A-Za-z0-9_-]{11})", identity)
+    return (match[1], profile) if match else None
+
+
+def _remember_available_picture(url, profile, info):
+    key = _picture_key(url, profile)
+    if (key is None or info.get("id") != key[0] or info.get("has_drm") or info.get("is_live")
+            or info.get("live_status") in {"is_live", "is_upcoming"}):
+        return
+    # yt-dlp sorts formats from least to most preferable for this extraction.
+    # Keep only the chosen metadata. No video bytes are fetched during audio playback.
+    formats = info.get("formats")
+    if not isinstance(formats, list):
+        return
+    for row in reversed(formats):
+        if (not isinstance(row, Mapping) or row.get("protocol") != "https" or row.get("has_drm")
+                or row.get("ext") not in {"mp4", "webm"} or row.get("acodec") != "none"
+                or not str(row.get("vcodec", "")).startswith(("avc1", "av01", "vp9", "vp09"))
+                or not str(row.get("url", "")).startswith("https://")):
+            continue
+        try:
+            tracks = replace(_selected_video_tracks(info, [row], native=True), from_audio_selection=True)
+        except (TypeError, ValueError, OverflowError):
+            return  # Unexpected optional picture metadata cannot block audio.
+        with _hint_lock:
+            _picture_hints[key] = (time.monotonic() + 120, tracks)
+            _picture_hints.move_to_end(key)
+            while len(_picture_hints) > 8:
+                _picture_hints.popitem(last=False)
+        return
+
+
+def _take_available_picture(url, profile):
+    key = _picture_key(url, profile)
+    with _hint_lock:
+        now = time.monotonic()
+        for stale in [entry for entry, (deadline, _) in _picture_hints.items() if deadline <= now]:
+            del _picture_hints[stale]
+        hint = _picture_hints.pop(key, None) if key else None
+    if hint:
+        tracks = hint[1]
+        if tracks.expires_at is None or tracks.expires_at > time.time() + 30:
+            return tracks
+    return None
 
 
 def _webpage_url(entry: Mapping[str, Any]) -> str:
@@ -262,7 +377,8 @@ def media_info(
     *,
     browser_profile: str | None = None,
 ) -> dict[str, Any]:
-    info = _extract(url, browser_profile=browser_profile)
+    info = _playback_extract(url, format="bestvideo*+bestaudio/best", browser_profile=browser_profile)
+    _remember_available_picture(url, browser_profile, info)
     stream_options = {"browser_profile": browser_profile} if browser_profile else {}
     normalized: dict[str, Any] = {
         "title": info.get("title") or "[Untitled YouTube media]",
@@ -299,7 +415,8 @@ def stream_url(
     browser_profile: str | None = None,
 ) -> str:
     format_selector = "bestaudio/best" if audio_only else "best[acodec!=none][vcodec!=none]/best"
-    info = _extract(url, format=format_selector, browser_profile=browser_profile)
+    info = _playback_extract(url, format=format_selector, browser_profile=browser_profile)
+    _remember_available_picture(url, browser_profile, info)
     direct_url = info.get("url")
     if not direct_url:
         requested = info.get("requested_formats") or []
@@ -318,7 +435,8 @@ def resolve_stream(
 ) -> dict[str, Any]:
     """Return transient stream information without persisting credentials."""
     format_selector = "bestaudio/best" if audio_only else "best[acodec!=none][vcodec!=none]/best"
-    info = _extract(url, format=format_selector, browser_profile=browser_profile)
+    info = _playback_extract(url, format=format_selector, browser_profile=browser_profile)
+    _remember_available_picture(url, browser_profile, info)
     direct_url = info.get("url")
     if not direct_url:
         requested = info.get("requested_formats") or []
@@ -359,10 +477,9 @@ def resolve_video_tracks(
     url: str, *, browser_profile: str | None = None, native: bool = False,
 ) -> VideoTracks:
     """Select finite HTTP file tracks without collapsing separate audio/video."""
-    from mariana.provider_captions import provider_caption_tracks
-    from mariana.video_sources import VideoSourceError, VideoTrack
-
-    info = _extract(
+    if native and (hint := _take_available_picture(url, browser_profile)) is not None:
+        return hint
+    info = _playback_extract(
         url,
         format=(
             'bestvideo[protocol=https][vcodec~="^(avc1|av01|vp0?9)"]'
@@ -370,11 +487,16 @@ def resolve_video_tracks(
             "bestvideo[height<=720][protocol=https]+bestaudio[protocol=https]/best[height<=720][protocol=https]"
         ),
         browser_profile=browser_profile,
-        **({"socket_timeout": 10, "retries": 1} if native else {}),
     )
+    return _selected_video_tracks(info, info.get("requested_formats") or [info], native=native)
+
+
+def _selected_video_tracks(info, selected, *, native: bool) -> VideoTracks:
+    from mariana.provider_captions import provider_caption_tracks
+    from mariana.video_sources import VideoSourceError, VideoTrack
+
     if info.get("is_live") or info.get("live_status") == "is_live" or info.get("has_drm"):
         raise VideoSourceError("Live or protected video is not supported by this transport")
-    selected = info.get("requested_formats") or [info]
     rows = [row for row in selected if isinstance(row, Mapping)]
     picture = next((row for row in rows if row.get("vcodec") not in {None, "none"}), None)
     audio = next((row for row in rows if row.get("acodec") not in {None, "none"}), None)
@@ -408,7 +530,8 @@ def resolve_video_tracks(
 
 def is_resolvable(url: str, *, browser_profile: str | None = None) -> bool:
     try:
-        _extract(url, browser_profile=browser_profile)
-    except YouTubeError:
+        info = _playback_extract(url, format="bestaudio/best", browser_profile=browser_profile)
+        _remember_available_picture(url, browser_profile, info)
+    except (YouTubeError, ValueError, OSError):
         return False
     return True

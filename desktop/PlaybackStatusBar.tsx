@@ -1,4 +1,4 @@
-import type { MouseEvent } from 'react'
+import type { MouseEvent, ReactNode } from 'react'
 import { seekTargetFromPointer } from './playbackSeek'
 import type { PlaybackChapterMarker, PlaybackStatus } from './shared'
 
@@ -12,6 +12,7 @@ type PlaybackStatusBarProps = {
   seekPending?: boolean
   seekError?: string | null
   onSeek?: (targetSeconds: number) => void
+  timeline?: ReactNode
 }
 
 function finiteNumber(value: unknown): number | null {
@@ -97,6 +98,7 @@ export function PlaybackStatusBar({
   seekPending = false,
   seekError = null,
   onSeek,
+  timeline,
 }: PlaybackStatusBarProps) {
   if (!status) {
     return (
@@ -246,7 +248,7 @@ export function PlaybackStatusBar({
       </span>
 
       <span className="playback-progress-slot">
-        {progress !== null ? (
+        {timeline ?? (progress !== null ? (
           onSeek ? (
             <button
               type="button"
@@ -267,7 +269,7 @@ export function PlaybackStatusBar({
             className={`playback-progress-placeholder ${status.live ? 'is-live' : 'is-unknown'}`}
             aria-hidden="true"
           />
-        )}
+        ))}
       </span>
 
       {hasQueuePosition && (

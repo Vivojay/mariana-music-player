@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#11141b"><meta name="color-scheme" content="dark light">
+<title>Mariana — player</title>
+<link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="player.css"><link rel="stylesheet" href="workspace.css"><link rel="stylesheet" href="accounts.css"><link rel="stylesheet" href="karaoke.css">
+<link rel="stylesheet" href="tone-keys.css"><link rel="stylesheet" href="command-input.css">
+<link rel="stylesheet" href="video-filters.css">
+<script defer src="video-presets.js"></script><script defer src="video-filters.js"></script>
+<script defer src="platform.js"></script><script defer src="listener-profiles.js"></script><script defer src="command-grammar.js"></script><script defer src="command-match.js"></script><script defer src="completion-values.js"></script><script defer src="command-input.js"></script>
+<link rel="stylesheet" href="clip.css"><link rel="stylesheet" href="dj.css">
+<script defer src="dj-engine.js"></script><script defer src="dj.js"></script>
+<script defer src="public-share.js"></script><script defer src="clip-media.js"></script><script defer src="clip-story.js"></script><script defer src="clip-share.js"></script><script defer src="clip.js"></script>
+
+<script defer src="strudel-pattern.js"></script><script defer src="strudel.js"></script>
+<script defer src="meeting-config.js"></script><script defer src="voice.js"></script>
+<script defer src="companion.js"></script><script defer src="themes.js"></script><script defer src="soundbank-data.js"></script><script defer src="soundbank.js"></script><script defer src="tone-bank.js"></script><script defer src="tone-procedures.js"></script><script defer src="tone.js"></script><script defer src="speech-dsp.js"></script><script defer src="effect-studio.js"></script><script defer src="speech-capture.js"></script><script defer src="karaoke-invite.js"></script><script defer src="karaoke-mix.js"></script><script defer src="karaoke-ttml.js"></script><script defer src="karaoke.js"></script><script defer src="transcripts.js"></script><script defer src="workspace.js"></script><script defer src="player.js"></script><script defer src="directory-data.js"></script><script defer src="account-config.js"></script><script defer src="jams.js"></script><script defer src="accounts.js"></script><script defer src="directory.js"></script><script defer src="catalog.js"></script><script defer src="wall.js"></script>
+</head>
+<body data-mode="console">
+<header class="top"><span class="brand"><i aria-hidden="true">≋</i> Mariana</span>
+<button id="flow-command" type="button" aria-expanded="false" aria-controls="player-console">Commands</button><nav aria-label="Player view"><button data-mode="console" aria-pressed="true">Console</button><button data-mode="flow" aria-pressed="false">Flow</button></nav></header>
+<aside id="workspace-navigation" aria-label="Flow workspace">
+<div class="workspace-links">
+<button type="button" data-area="library" aria-controls="workspace-library"><span aria-hidden="true">▤</span> Library</button>
+<button type="button" data-area="discover" aria-controls="workspace-discover"><span aria-hidden="true">◈</span> Discover</button>
+<button type="button" data-area="studio" aria-controls="workspace-studio"><span aria-hidden="true">≋</span> Studio</button>
+<button type="button" data-area="rooms" aria-controls="workspace-rooms"><span aria-hidden="true">◎</span> Rooms</button>
+<button type="button" data-area="settings" aria-controls="workspace-settings"><span aria-hidden="true">⚙</span> Settings</button>
+</div>
+<a href="#native-link-title" id="native-navigation">Connect native player <span aria-hidden="true">↗</span></a>
+</aside>
+<main class="player-workspace">
+<section class="console" id="player-console" aria-label="Command console"><div class="console-head">Mariana console</div>
+<pre id="transcript" role="log" aria-label="Command history">Type help for commands.</pre>
+<form id="command"><label for="cmd">›</label><input id="cmd" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="Type a command" aria-label="Player command" aria-describedby="cmd-keys"><button>Run</button><button type="button" id="cmd-history" aria-controls="cmd-suggestions">History</button></form>
+<ul id="cmd-suggestions" aria-label="Command suggestions" hidden></ul><p id="cmd-announcement" class="sr" role="status"></p>
+<p id="cmd-keys">Tab completes · ↑ ↓ selects · Esc dismisses</p></section>
+<section class="player player-feature" aria-label="Player">
+<div class="stage"><div class="disc" aria-hidden="true"><i></i></div><div><p class="eyebrow">Now playing</p><h1 id="title">Choose something to play</h1><p id="kind">Music, podcasts &amp; audiobooks</p></div></div>
+<audio id="audio" preload="metadata"></audio>
+<svg class="picture-filters-svg" width="0" height="0" aria-hidden="true"><defs><filter id="mariana-portable-video-filter"></filter></defs></svg>
+<div class="local-picture-panel" id="local-picture-panel" hidden>
+<video id="local-picture" preload="metadata" playsinline aria-label="Current video"></video>
+<div class="picture-controls">
+<label>Picture filter <select id="local-picture-filter"></select></label>
+<label hidden>Threshold <input id="local-picture-threshold" type="range" min="0" max="100" step="1" value="50"></label>
+<button id="local-picture-fullscreen" type="button">Fullscreen</button>
+</div>
+<p id="local-picture-notice" role="status"></p>
+</div>
+<div class="player-dock"><div id="dock-title" class="dock-title" aria-hidden="true"></div><div class="timeline"><span id="elapsed">0:00</span><input type="range" min="0" max="100" value="0" step="0.1" id="seek" aria-label="Playback position" disabled><span id="duration">0:00</span></div>
+<div class="transport"><button id="rew" title="Back 15 seconds">−15 s</button><button id="play" class="primary" disabled>Play</button><button id="fwd" title="Forward 30 seconds">+30 s</button><button id="next">Next</button><button id="clip-open" type="button" aria-controls="clip-panel" aria-expanded="false" disabled>Clip &amp; share</button></div></div>
+</section>
+<section data-flow-area="studio" id="clip-panel" aria-labelledby="clip-title" hidden>
+<div class="clip-heading"><div><h2 id="clip-title" tabindex="-1">Clip studio</h2><p id="clip-source"></p></div><button id="clip-close" type="button">Close editor</button></div>
+<fieldset id="clip-fieldset"><legend class="sr">Clip boundaries and export format</legend>
+<div class="clip-edit">
+<div><label for="clip-start">In point · seconds</label><div class="clip-field-row"><input id="clip-start" inputmode="decimal" aria-label="Clip start in seconds or minutes and seconds"><button type="button" id="clip-mark-start">Mark in here</button></div></div>
+<div><label for="clip-end">Out point · seconds</label><div class="clip-field-row"><input id="clip-end" inputmode="decimal" aria-label="Clip end in seconds or minutes and seconds"><button type="button" id="clip-mark-end">Mark out here</button></div></div>
+<div><label for="clip-format">Export as</label><select id="clip-format"><option value="wav">Audio clip · WAV</option><option id="clip-story-option" value="story">Portrait video · 9:16</option><option id="clip-video-option" value="video">Original video</option></select></div>
+</div><div id="clip-selection" aria-hidden="true"></div><div class="clip-actions"><button id="clip-build" type="button" class="primary">Prepare clip</button><output id="clip-length" aria-label="Selection duration"></output></div></fieldset>
+<a class="button" id="clip-social" target="_blank" rel="noopener noreferrer" href="share-link.html">Share a music link</a>
+<form id="clip-public-form" hidden><label>Public music link <input id="clip-public-input" type="url" required></label>
+<button type="submit">Share link…</button></form>
+<button hidden id="clip-link" type="button">Copy YouTube timestamp link</button><p id="clip-status" role="status"></p>
+<div id="clip-result" hidden><video id="clip-preview" controls playsinline aria-label="Preview your clip"></video><div class="clip-actions"><label id="clip-target-label" hidden>Destination <select id="clip-target"><option value="system">All apps · system share sheet</option></select></label><button id="clip-share" type="button" class="primary">Share clip…</button><a id="clip-download" class="button" download>Download clip</a></div></div>
+</section>
+<div class="workspace-area-title" id="workspace-studio" data-flow-area="studio" tabindex="-1"><h2>Studio</h2></div>
+<section data-flow-area="studio" id="dj" tabindex="-1" aria-labelledby="dj-title">
+<div class="section-head"><h2 id="dj-title" tabindex="-1">DJ studio</h2><button type="button" id="dj-open" aria-expanded="false" aria-controls="dj-studio">Open mixer</button></div>
+<div id="dj-studio" hidden>
+<div class="dj-wave-bank">
+<div class="dj-heading"><h3>Waveforms</h3><label for="dj-span">Window <select id="dj-span"><option value="4">4 seconds</option><option value="8">8 seconds</option><option value="16" selected>16 seconds</option><option value="32">32 seconds</option></select></label></div>
+<div id="dj-waveforms"></div>
+<template id="dj-wave-row">
+<div class="dj-wave-row"><b data-wave="name"></b><canvas data-wave="detail" aria-hidden="true"></canvas><output data-wave="position">–:––</output></div>
+</template>
+</div>
+<div id="dj-decks">
+<div class="dj-master" id="dj-master">
+<div class="dj-heading"><h3>Mixer</h3></div>
+<div class="dj-channels" id="dj-channels"></div>
+<div class="dj-master-meter" role="group" aria-label="Stereo master peak">
+<div><span aria-hidden="true">L</span><meter id="dj-meter-l" aria-label="Left peak in dBFS" min="-60" max="0" low="-38" high="-5" optimum="-12" value="-60"></meter></div>
+<div><span aria-hidden="true">R</span><meter id="dj-meter-r" aria-label="Right peak in dBFS" min="-60" max="0" low="-38" high="-5" optimum="-12" value="-60"></meter></div>
+</div>
+<label for="dj-cross">Crossfader <output id="dj-balance">A 100 / B 0</output></label>
+<div class="dj-cross-row"><b aria-hidden="true">A</b><input id="dj-cross" type="range" min="0" max="100" value="0" step="1"><b aria-hidden="true">B</b></div>
+<div class="dj-actions"><button type="button" id="dj-headphones" disabled>Headphone output…</button><button type="button" id="dj-headphones-off" hidden>Disconnect</button></div>
+<p id="dj-monitor-status" class="dj-note">Master uses the system output.</p>
+</div>
+</div>
+<template id="dj-deck">
+<fieldset class="dj-deck"><legend>Deck <b data-ui="name"></b></legend>
+<h3 data-ui="title">No track loaded</h3>
+<div class="dj-actions"><label class="button dj-file">Choose file<input data-ui="file" type="file" class="sr" accept="audio/*,video/mp4,.flac,.m4a,.m4b,.opus,.aif,.aiff"></label><button type="button" data-ui="queue">Use current track</button></div>
+<div class="dj-position">
+<canvas data-ui="overview" aria-hidden="true" title="Click or tap to seek"></canvas>
+<label>Position <output data-ui="clock">0:00 / –:––</output><input type="range" data-ui="seek" min="0" max="1" step=".01" value="0" disabled></label>
+</div>
+<div class="dj-actions dj-transport"><button type="button" class="primary" data-ui="play" disabled>Play</button><button type="button" data-ui="stop" disabled>Stop</button><button type="button" data-ui="pfl" aria-pressed="false" disabled>Headphone cue</button></div>
+<label class="dj-rate">Rate <output data-ui="rate-value">1.00×</output><input data-ui="rate" type="range" min=".25" max="4" step=".01" value="1"></label>
+<div class="dj-heading"><h4>Hot cues</h4><button type="button" data-ui="clear" disabled>Clear selected</button></div>
+<div class="dj-cues" data-ui="pads" role="group" aria-label="Hot cue pads"></div>
+<div class="dj-heading dj-loop-heading"><h4>Loop</h4><output data-ui="loop-info">Off</output></div>
+<div class="dj-actions"><button type="button" data-ui="in" disabled>Mark in</button><button type="button" data-ui="out" disabled>Mark out</button><button type="button" data-ui="off" disabled>Clear loop</button></div>
+</fieldset>
+</template>
+<div class="dj-crate" aria-labelledby="dj-crate-title">
+<div class="dj-heading"><h3 id="dj-crate-title">Local tracks</h3><label class="sr" for="dj-crate-search">Filter local tracks for DJ decks</label><input id="dj-crate-search" type="search" placeholder="Filter by track or artist"></div>
+<p id="dj-crate-empty" class="dj-note">Add files to the local library to load them into a deck.</p>
+<ul id="dj-crate-list"></ul>
+</div>
+<div class="dj-recorder" aria-labelledby="dj-record-title">
+<div class="dj-heading"><h3 id="dj-record-title">Master recording</h3><output id="dj-record-time"></output></div>
+<div class="dj-actions"><button type="button" id="dj-record">Record master</button><button type="button" id="dj-record-disk" hidden>Record to disk…</button><a id="dj-save" class="button" hidden download>Download WAV</a><button id="dj-share" type="button" hidden>Share WAV…</button></div>
+</div>
+<p id="dj-status" role="status"></p>
+</div></section>
+<section class="local-library" id="workspace-library" tabindex="-1" data-flow-area="library" aria-labelledby="local-library-title">
+<div class="section-head library-heading">
+<div><h2 id="local-library-title">Local library</h2><p id="library-count" role="status"></p></div>
+<div class="library-import">
+<label class="button primary" for="files">Import files</label><input class="sr" type="file" id="files" accept="audio/*,video/*,.mkv,.m4v,.m4b,.m4a,.flac,.ogg,.opus,.avi,.mov,.webm" multiple>
+<label class="button" for="library-folder">Import folder</label><input class="sr" type="file" id="library-folder" webkitdirectory multiple>
+</div></div>
+<div class="library-toolbar"><label>Search library <input id="library-query" type="search" placeholder="Search imported media"></label>
+<label>Media type <select id="library-kind"><option value="all">All media</option><option value="audio">Audio</option><option value="video">Video</option></select></label></div>
+<div id="local-library-rows"></div><div id="library-pages" class="controls" hidden>
+<button type="button" id="library-earlier">Previous page</button><span id="library-page"></span><button type="button" id="library-later">Next page</button></div>
+</section>
+<section class="library playback-queue" data-flow-area="library" aria-labelledby="queue-heading"><div class="section-head"><h2 id="queue-heading">Play queue</h2></div>
+<ol id="queue"></ol><p id="empty">Your queue is empty.</p>
+<details><summary>Add a stream or feed</summary>
+<form id="add-url"><label class="sr" for="url">Audio or podcast RSS URL</label><input type="url" id="url" required placeholder="Audio or podcast RSS URL"><select id="source-kind" aria-label="Link type"><option value="audio">Audio</option><option value="feed">RSS feed</option></select><button>Add</button></form></details>
+</section>
+<section data-flow-area="studio" class="karaoke" aria-labelledby="karaoke-title">
+<div class="section-head"><h2 id="karaoke-title" tabindex="-1">Karaoke</h2><button id="karaoke-demo" type="button">Try a duet</button></div>
+<p role="status" id="karaoke-status"></p>
+<div class="karaoke-actions"><label class="button" for="karaoke-file">Import timing sheet</label><input class="sr" id="karaoke-file" type="file" accept=".json,application/json" disabled>
+<label class="button" for="karaoke-ttml">Compare two TTML files</label><input class="sr" id="karaoke-ttml" type="file" accept=".ttml,.xml,application/ttml+xml,application/xml,text/xml" multiple disabled></div>
+<label class="button" for="karaoke-lyrics">Import singer-labelled lyrics</label><input class="sr" type="file" id="karaoke-lyrics" accept=".ttml,.xml,application/ttml+xml,application/xml,text/xml" disabled>
+<a class="button" id="karaoke-export" download="mariana-karaoke.json" hidden>Save timing sheet</a>
+<p id="karaoke-feedback" role="status"></p>
+<div id="karaoke-controls" hidden><div class="karaoke-actions"><button class="primary" id="karaoke-toggle" aria-pressed="false">Start karaoke</button>
+<label>Sing along with <select id="karaoke-part"><option>All singers</option></select></label>
+<button id="karaoke-prev" aria-label="Seek to previous lyric">Previous line</button><button id="karaoke-next" aria-label="Seek to next lyric">Next line</button></div></div>
+<details id="karaoke-invite"><summary>Duet invites</summary>
+<p>Invite someone to sing a part from your current position. They can open it with the same recording and timing sheet.</p>
+<div class="karaoke-actions"><button type="button" id="karaoke-invite-create" disabled>Create invite</button>
+<a class="button" id="karaoke-invite-download" hidden download="mariana-duet.json">Save invite</a><button type="button" id="karaoke-invite-share" hidden>Share invite</button>
+<label class="button" for="karaoke-invite-file">Open invite</label><input class="sr" type="file" id="karaoke-invite-file" accept=".json,application/json"></div>
+<p id="karaoke-invite-info" role="status"></p><button type="button" id="karaoke-invite-accept" hidden>Apply part and position</button></details>
+<details id="karaoke-mixer"><summary>Vocal mix</summary>
+<p>Choose an isolated vocal stem made from this exact recording to lower the original voice.</p>
+<div class="karaoke-actions"><label class="button" for="karaoke-stem">Choose vocal stem</label><input class="sr" id="karaoke-stem" type="file" accept="audio/*,.wav,.flac" disabled>
+<label>Original vocals <select id="karaoke-vocal-level" disabled><option value="1">100%</option><option value="0.75">75%</option><option value="0.5">50%</option><option value="0.25">25%</option><option value="0">Off</option></select></label></div></details>
+<div id="karaoke-stage" hidden><div id="karaoke-lines"></div><p id="karaoke-upcoming" dir="auto"></p></div>
+<details id="karaoke-book" hidden><summary>Read lyrics by singer</summary><ol id="karaoke-book-lines"></ol><button id="karaoke-book-prev">Previous verses</button> <button id="karaoke-book-next">More verses</button></details>
+<p id="karaoke-announce" class="sr" aria-live="polite" aria-atomic="true"></p>
+</section>
+<section data-flow-area="studio" class="listen" aria-labelledby="fx-heading"><h2 id="fx-heading">Sound design</h2><div class="controls"><label>Effect preset<select id="fx-preset"></select></label><button type="button" id="fx-mic">Toggle headphone mic monitor</button></div><p id="fx-note" role="status">Local file FX: dry · microphone: off</p></section>
+<div class="workspace-area-title" id="workspace-settings" data-flow-area="settings" tabindex="-1"><h2>Settings</h2></div>
+<section data-flow-area="settings" class="listen"><h2>Listening controls</h2><div class="controls"><label>Playback speed<select id="rate"><option>0.75</option><option selected>1</option><option>1.25</option><option>1.5</option><option>1.75</option><option>2</option><option>2.5</option><option>3</option></select></label>
+<label>Soften S sounds<select id="voice" disabled><option value="off">Off</option><option value="gentle">Gentle</option><option value="balanced">Balanced</option><option value="strong">Strong</option></select></label>
+<label>Sleep timer<select id="sleep"><option value="0">Off</option><option value="5">5 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">60 minutes</option></select></label>
+<button id="bookmark">Add bookmark</button></div><p id="voice-note">Available for local files.</p><ul id="marks" aria-label="Saved bookmarks"></ul></section>
+<section data-flow-area="studio" id="mic-panel" aria-labelledby="mic-title">
+<h2 id="mic-title" tabindex="-1">Microphone studio</h2>
+<p id="mic-availability"></p>
+<div class="controls"><label>Speaker label <input id="mic-speaker" maxlength="80" placeholder="Speaker"></label>
+<label>Caption language <input id="mic-lang" maxlength="32" placeholder="en-US"></label></div>
+<p><label><input type="checkbox" id="mic-consent"> Allow browser captions for this take. My browser may send speech to its recognition provider.</label></p>
+<div class="transport"><button type="button" class="primary" id="mic-record">Record microphone</button>
+<button type="button" id="mic-start">Record with captions</button><button type="button" id="mic-stop" disabled>Stop microphone</button></div>
+<details><summary>Record a jam with other performers</summary>
+<p id="mic-jam-note"></p><p><label><input type="checkbox" id="mic-participants"> Everyone in this jam has agreed to this recording.</label></p>
+<button type="button" id="mic-jam">Record shared tab audio + my microphone</button></details>
+<p role="status" id="mic-status"></p><div id="mic-text" aria-label="Recent captions" aria-live="polite"></div><div id="mic-partial" aria-label="Interim words"></div>
+<div id="mic-result" hidden><audio id="mic-preview" controls aria-label="Recorded microphone" hidden></audio>
+<div class="controls"><label>Export <select id="mic-format"><option value="audio">Audio recording</option><option value="vtt">Timed captions · VTT</option><option value="txt">Transcript · TXT</option></select></label>
+<button id="mic-save" type="button">Save</button><button id="mic-share" type="button">Share…</button></div></div>
+</section>
+<section data-flow-area="library" id="episode-transcript" aria-labelledby="episode-transcript-title" hidden>
+<h2 id="episode-transcript-title">Transcript</h2>
+<div id="transcript-local" hidden><label>Import captions for this file <input id="transcript-file" type="file" accept=".json,.vtt,application/json,text/vtt"></label></div>
+<div id="transcript-online" class="controls"><label>Publisher edition <select id="transcript-variant"></select></label>
+<button type="button" id="transcript-load">Read transcript</button><a id="transcript-publisher" target="_blank" rel="noopener noreferrer">Publisher transcript</a> <button id="transcript-copy" type="button">Copy publisher link</button></div>
+<input id="transcript-address" aria-label="Publisher transcript link to copy" readonly hidden>
+<p id="transcript-status" role="status"></p>
+<div id="transcript-tools" hidden><label>Search transcript <input id="transcript-query" type="search" maxlength="200"></label>
+<ol id="transcript-cues"></ol><button type="button" id="transcript-prev">Previous page</button> <button type="button" id="transcript-next">Next page</button></div>
+</section>
+<section data-flow-area="discover" id="workspace-discover" tabindex="-1" class="catalog" aria-labelledby="catalog-title"><h2 id="catalog-title">Podcasts &amp; audiobooks</h2>
+<form id="catalog-search"><label for="catalog-source" class="sr">Catalog</label><select id="catalog-source" name="catalog"><option value="podcast">Apple Podcasts</option><option value="book">LibriVox</option><option value="podbean">Podbean by title</option><option value="podbean-show">Podbean by slug or URL</option></select>
+<label class="sr" for="catalog-term">Title, Podbean slug or public address</label><input id="catalog-term" name="term" type="search" maxlength="180" required placeholder="Title, show slug or URL"><button>Search</button></form>
+<p role="status" id="catalog-status"></p><ul id="catalog-results"></ul><h3 id="shelf-heading" hidden>Saved shows &amp; books</h3><ul id="catalog-shelf"></ul></section>
+<div class="workspace-area-title" id="workspace-rooms" data-flow-area="rooms" tabindex="-1"><h2>Rooms and community</h2></div>
+<section data-flow-area="rooms" class="wall" aria-labelledby="wall-title">
+<div class="section-head"><h2 id="wall-title" tabindex="-1">Music wall</h2><label class="wall-view">View wall <select id="wall-view"></select></label></div>
+<form id="wall-profile"><label>Profile name <input name="name" maxlength="80" required></label><button>Save name</button></form>
+<details id="wall-compose"><summary>Add a post</summary>
+<form id="wall-post"><label>Post type <select name="kind"><option value="track">Track</option><option value="album">Album</option><option value="review">Review</option><option value="take">Hot take</option></select></label>
+<label>Artist <input name="artist" maxlength="160" required></label><label>Title <input name="title" maxlength="240" required></label>
+<label hidden>Stars <select name="stars"><option>5</option><option>4</option><option>3</option><option>2</option><option>1</option></select></label>
+<label hidden>Comment <textarea name="body" maxlength="600" rows="2"></textarea></label><button class="primary">Add to wall</button></form></details>
+<p id="wall-status" role="status"></p><p id="wall-empty"></p><ol id="wall-posts"></ol><button id="wall-more" hidden>Show more posts</button>
+<div id="wall-card" hidden><h3 id="wall-card-title" tabindex="-1">Share card</h3><img id="wall-card-preview" alt=""><div>
+<div class="wall-actions"><a id="wall-card-download" class="button" hidden download="mariana-card.png">Download PNG</a><button id="wall-card-share" hidden>Share PNG</button><button id="wall-card-copy" hidden>Copy image</button></div>
+<label>Card text <textarea id="wall-card-caption" readonly rows="4"></textarea></label><div class="wall-actions"><button id="wall-card-text">Copy text</button><button id="wall-card-close">Close preview</button></div></div></div>
+<details id="wall-exchange"><summary>Exchange walls</summary><p>Export shares the posts you added to your wall. Your queue and playback history stay on this device.</p>
+<div class="wall-actions"><button id="wall-export">Show my JSON</button><a id="wall-download" class="button" hidden download="mariana-wall.json">Download JSON</a><button type="button" id="wall-transfer" hidden>Copy JSON</button>
+<label class="button" for="wall-file">Import JSON file</label><input id="wall-file" class="sr" type="file" accept=".json,application/json,text/json"></div>
+<label>Wall JSON <textarea id="wall-json" rows="4" maxlength="8388608" placeholder="Paste a friend's wall here"></textarea></label><button id="wall-import">Import pasted wall</button></details></section>
+<section data-flow-area="discover" class="directory" aria-labelledby="directory-title"><h2 id="directory-title">Culture directory</h2>
+<div class="directory-search"><label>Search sources <input type="search" id="directory-query" maxlength="180" placeholder="Festival, artist, publication…"></label>
+<label>Category <select id="directory-group"><option value="">All sources</option></select></label></div>
+<p id="directory-count" role="status"></p><ul id="directory-results"></ul>
+<button type="button" id="directory-more" hidden>Show more sources</button><p id="directory-status" role="status"></p></section>
+<section data-flow-area="rooms" id="jam-panel" aria-labelledby="jam-title"><h2 id="jam-title" tabindex="-1">Listening rooms</h2>
+<p id="jam-availability">Sign in to your Matrix homeserver to host a private jam or join a friend.</p>
+<div id="jam-actions">
+<label>Homeserver <input id="jam-server" type="url" placeholder="https://matrix.example.org" autocomplete="off"></label>
+<div class="controls"><button data-jam="login">Sign in</button><button data-jam="status">Account</button><button data-jam="logout">Sign out</button></div>
+<label>Room name <input id="jam-name" maxlength="200"></label><button data-jam="create">Create private room</button>
+<div class="controls"><button data-jam="rooms">Joined rooms</button><button data-jam="invites">Invitations</button></div>
+<label>Room ID or alias <input id="jam-room" maxlength="255" placeholder="!room:example.org" autocomplete="off"></label>
+<div class="controls"><button data-jam="join">Join</button><button data-jam="members">Members</button><button data-jam="leave">Leave</button></div>
+<label>Invite someone <input id="jam-user" maxlength="255" placeholder="@friend:example.org"></label><button data-jam="invite">Send invitation</button>
+<label>Track suggestion <input id="jam-track" maxlength="200"></label><button data-jam="suggest">Suggest track</button>
+<div class="controls"><button data-jam="timeline">Read timeline</button><button data-jam="current">Read latest cue</button>
+<button data-jam="send">Share my playhead</button><button data-jam="apply">Apply cue to loaded track</button><button data-jam="sync">Sync to host position</button></div></div>
+<pre id="jam-feedback" role="status" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></section>
+<section data-flow-area="settings" class="connections" aria-labelledby="connections-title">
+<h2 id="connections-title" tabindex="-1">Connections</h2>
+<details><summary>Listener profiles</summary>
+<form id="listener-profiles"><label>Profile for this tab <select name="listener"></select></label>
+<button value="use">Switch and reload</button><label>New profile name <input name="newName" maxlength="40" autocomplete="off"></label>
+<button value="create">Create profile</button><output id="listener-feedback" role="status"></output></form></details>
+<label for="setup-feature">Guided setup</label><select id="setup-feature"><option value="karaoke">Karaoke</option><option value="podcasts">Podcasts</option><option value="audiobooks">Audiobooks</option></select>
+<button type="button" id="setup-feature-open">Continue setup</button>
+<label for="account-provider">Music and social accounts</label><select id="account-provider"></select>
+<div id="account-detail"></div><p role="status" id="account-feedback"></p>
+</section>
+<section data-flow-area="studio" id="strudel-studio" aria-labelledby="strudel-title">
+<h2 id="strudel-title">Strudel patterns</h2>
+<label for="strudel-source">Pattern source</label>
+<textarea id="strudel-source" rows="7" maxlength="65536" spellcheck="false" autocapitalize="none" autocomplete="off" aria-describedby="strudel-guide">__STRUDEL_STARTER__</textarea>
+<p id="strudel-guide">Render an oscillator preview offline or open the Strudel live editor for advanced patterns.</p>
+<div class="controls"><label>Preview seconds <input id="strudel-seconds" type="number" min="1" max="60" step="1" value="8"></label><button id="strudel-render" type="button">Render preview</button>
+<label class="button" for="strudel-import">Import source</label><input class="sr" id="strudel-import" type="file" accept=".js,.txt,text/plain,text/javascript,application/javascript">
+<a id="strudel-download" class="button" download="mariana-pattern.js">Download source</a><button id="strudel-copy" type="button">Copy source</button></div>
+<p role="status" id="strudel-status"></p>
+<div id="strudel-result" hidden><audio id="strudel-audio" controls aria-label="Rendered pattern"></audio><div class="controls">
+<button type="button" id="strudel-queue">Add to queue</button><a class="button" id="strudel-wav" download="mariana-pattern.wav">Download WAV</a>
+<button type="button" id="strudel-share">Share WAV</button></div></div>
+</section>
+<section data-flow-area="rooms" aria-labelledby="voice-title">
+<details id="voice-panel"><summary id="voice-title">Voice room</summary>
+<p>Create an invite or paste a Jitsi Meet link. Meetings open on <span id="voice-host">meet.jit.si</span>. Your meeting provider handles sign-in and microphone permission.</p>
+<form id="voice-form"><label for="voice-link">Meeting link</label>
+<input id="voice-link" type="url" placeholder="https://meet.jit.si/…" autocomplete="off" required>
+<div class="controls"><button id="voice-new" type="button">Create invite link</button><button id="voice-join" type="submit">Join here</button><button id="voice-copy" type="button">Copy invite</button></div></form>
+<a id="voice-external" class="button" target="_blank" rel="noopener noreferrer" hidden>Join in browser</a>
+<button id="voice-leave" type="button" hidden>Leave embedded call</button>
+<p id="voice-status" role="status"></p><div id="voice-frame"></div></details></section>
+<section data-flow-area="settings" class="appearance"><h2>Appearance</h2><label>Theme <select id="theme"></select></label><details><summary>Customize colors</summary><div id="colors" class="colors"></div><button id="reset">Restore preset colors</button></details></section>
+<section data-flow-area="settings" aria-labelledby="native-link-title"><details><summary id="native-link-title">Connect to the native Mariana player</summary>
+<p>For the full command catalog and your computer’s audio output, type <code>web session flow</code> in the Mariana terminal on this computer. Open its invitation or paste it here.</p>
+<form id="native-invitation"><label>Private invitation <input id="native-invitation-url" type="password" required maxlength="200" autocomplete="off"></label>
+<button type="submit">Open native workspace</button></form><p id="native-invitation-note" role="status"></p></details></section>
+</main><div id="status" role="status" aria-live="polite"></div>
+</body></html>

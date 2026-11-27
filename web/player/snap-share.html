@@ -1,0 +1,21 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Share on Snapchat</title>
+<style>body{font:16px system-ui;background:#171b23;color:white}a{color:#fffc00}</style></head>
+<body><div id="target"></div><p id="snap-note" role="status"></p>
+<script src="public-share.js"></script><script>
+(() => {
+  let url;
+  try { url = MarianaPublicLink(decodeURIComponent(location.hash.slice(1))); } catch {}
+  const note = document.getElementById('snap-note');
+  if (!url || window.parent === window || self.origin !== 'null') { note.textContent = 'Open Snapchat from the Mariana sharing page.'; return; }
+  const button = document.createElement('div');
+  button.className = 'snapchat-creative-kit-share';
+  button.dataset.shareUrl = url;
+  document.getElementById('target').append(button);
+  const sdk = document.createElement('script');
+  sdk.src = 'https://sdk.snapkit.com/js/v1/create.js';
+  sdk.referrerPolicy = 'no-referrer';
+  sdk.onerror = () => { note.textContent = 'Snapchat could not load. Use Copy link in Mariana.'; };
+  document.body.append(sdk);
+})();
+</script></body></html>

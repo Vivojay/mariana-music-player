@@ -1,0 +1,192 @@
+#dj {
+  --dj-a:#aaa9ff;
+  --dj-b:#f0ad84;
+  --dj-surface:#171822;
+  --dj-ink:#f1f0f6;
+  --dj-muted:#babac9;
+  --dj-line:#434451;
+  --dj-accent:var(--dj-a);
+  grid-column:1/-1;
+}
+
+#dj [hidden] { display:none }
+#dj [data-deck=A] { --dj-accent:var(--dj-a) }
+#dj [data-deck=B] { --dj-accent:var(--dj-b) }
+#dj-studio {
+  display:grid;
+  gap:.85rem;
+  margin-top:.85rem;
+  color:var(--dj-ink);
+}
+
+.dj-wave-bank,.dj-deck,.dj-master,.dj-crate,.dj-recorder {
+  min-width:0;
+  margin:0;
+  padding:clamp(.65rem,1.3vw,1rem);
+  border:1px solid var(--dj-line);
+  border-radius:.85rem;
+  background:var(--dj-surface);
+}
+
+.dj-heading {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:.65rem;
+  flex-wrap:wrap;
+}
+
+.dj-heading h3,.dj-heading h4,.dj-channel h4 { margin:0; font-size:.95rem }
+#dj label { font-size:.82rem }
+#dj output,#dj .dj-wave-row>b,#dj .dj-cues { font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums }
+#dj output { color:var(--dj-muted); font-size:.78rem }
+#dj :where(button,.button,select,input[type=search]) {
+  color:var(--dj-ink);
+  background:#242530;
+  border-color:var(--dj-line);
+  min-height:2.55rem;
+  padding:.4rem .7rem;
+  font-size:.82rem;
+}
+
+#dj :where(button,.button):hover,#dj button[aria-pressed=true] { border-color:var(--dj-accent); color:var(--dj-accent) }
+#dj :focus-visible,#dj .dj-file:focus-within { outline:2px solid var(--dj-accent); outline-offset:2px }
+#dj input[type=range] { accent-color:var(--dj-accent); min-width:0 }
+#dj-open { margin-left:auto }
+#dj-waveforms { display:grid; gap:3px; margin-top:.65rem }
+.dj-wave-row {
+  display:grid;
+  grid-template-columns:1.8rem minmax(0,1fr) 3.5rem;
+  align-items:center;
+  gap:.5rem;
+  padding:.25rem .4rem;
+  background:#11121a;
+  border:1px solid #33343e;
+  border-radius:.35rem;
+}
+
+.dj-wave-row>b { color:var(--dj-accent); text-align:center }
+.dj-wave-row output { text-align:center }
+.dj-wave-row canvas,.dj-position canvas { display:block; width:100%; background:#11121a; border-radius:.25rem }
+.dj-wave-row canvas { height:clamp(2.35rem,5vw,3.75rem) }
+.dj-position canvas { height:2rem; margin-bottom:.45rem; border:1px solid #343642 }
+#dj canvas[data-loaded=true] { cursor:crosshair }
+
+#dj-decks {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(13rem,.74fr) minmax(0,1fr);
+  grid-template-areas:"left mixer right";
+  gap:.65rem;
+}
+
+.dj-deck[data-deck=A] { grid-area:left }
+.dj-deck[data-deck=B] { grid-area:right }
+.dj-deck legend {
+  color:var(--dj-accent);
+  padding:0 .4rem;
+  font:650 .87rem/1.3 "IBM Plex Mono",monospace;
+}
+
+.dj-deck h3 { margin:.15rem 0 .65rem; font-size:1.08rem; overflow-wrap:anywhere }
+.dj-deck,.dj-master { align-self:stretch }
+.dj-actions { display:flex; align-items:center; gap:.42rem; flex-wrap:wrap }
+.dj-actions .button { display:inline-flex; align-items:center }
+.dj-position,.dj-rate { display:block; margin:.9rem 0 }
+.dj-position input,.dj-rate input,.dj-channel input { display:block; width:100%; margin:.3rem 0 0 }
+.dj-position label { display:block }
+.dj-position label output,.dj-rate output,.dj-master>label output,.dj-channel output { float:right }
+#dj .dj-transport button.primary {
+  min-width:4.5rem;
+  color:#151421;
+  border-color:var(--dj-accent);
+  background:var(--dj-accent);
+  font-weight:750;
+}
+
+.dj-cues {
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:.35rem;
+  margin:.5rem 0 .85rem;
+}
+
+#dj .dj-cues button {
+  display:grid;
+  justify-items:start;
+  min-height:2.65rem;
+  padding:.35rem .5rem;
+  line-height:1.15;
+  border-bottom-width:2px;
+  font-weight:750;
+}
+
+.dj-cues button span { color:var(--dj-muted); font-size:.68rem; font-weight:500 }
+#dj .dj-cues button[data-cued=true] { border-bottom-color:var(--dj-accent) }
+#dj .dj-cues button[data-cued=true][aria-pressed=true] { background:#323342 }
+.dj-loop-heading { margin:0 0 .45rem }
+
+.dj-master { grid-area:mixer; margin-top:.55rem }
+.dj-master-meter {
+  display:grid;
+  gap:.18rem;
+  margin:.9rem 0;
+}
+
+.dj-master-meter>div {
+  display:grid;
+  align-items:center;
+  grid-template-columns:.85rem minmax(0,1fr);
+  gap:.4rem;
+  color:var(--dj-muted);
+  font: .75rem/1 "IBM Plex Mono",monospace;
+}
+
+.dj-master-meter meter { width:100%; height:.65rem }
+.dj-master-meter meter::-webkit-meter-bar { background:#353642; border:0; border-radius:2px }
+.dj-master-meter meter::-webkit-meter-optimum-value { background:#9fdcb7 }
+.dj-master-meter meter::-webkit-meter-suboptimum-value { background:#eec274 }
+.dj-master-meter meter::-webkit-meter-even-less-good-value { background:#ee957c }
+.dj-master>label { display:block }
+.dj-channels { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.7rem; margin:.75rem 0 0 }
+.dj-channel { min-width:0 }
+.dj-channel h4 { color:var(--dj-accent) }
+.dj-channel label { display:block; margin-top:.55rem }
+.dj-cross-row {
+  display:flex;
+  align-items:center;
+  gap:.45rem;
+  margin:.2rem 0 .8rem;
+  font:650 .8rem/1 "IBM Plex Mono",monospace;
+}
+
+.dj-cross-row input { flex:1; margin:0 }
+.dj-cross-row b:first-child { color:var(--dj-a) }
+.dj-cross-row b:last-child { color:var(--dj-b) }
+.dj-note,#dj-status { margin:.55rem 0 0; color:var(--dj-muted); font-size:.82rem }
+#dj-status:empty { display:none }
+
+.dj-crate ul { display:grid; gap:0; padding:0; margin:.45rem 0 0; list-style:none; max-height:18rem; overflow-y:auto }
+.dj-crate li {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto auto;
+  align-items:center;
+  gap:.45rem;
+  min-width:0;
+  padding:.4rem .08rem;
+  border-bottom:1px solid #363744;
+}
+
+.dj-crate li>div { min-width:0; overflow:hidden }
+.dj-crate li :where(b,span) { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:.87rem }
+.dj-crate li span { color:var(--dj-muted); font-size:.77rem }
+.dj-crate .dj-heading input { max-width:100% }
+.dj-recorder .dj-actions { margin-top:.5rem }
+@media (max-width:820px) {
+  #dj-decks { grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-areas:"left right" "mixer mixer" }
+  .dj-master { margin-top:0 }
+}
+@media (max-width:530px) {
+  #dj-decks { grid-template-columns:minmax(0,1fr); grid-template-areas:"left" "right" "mixer" }
+  #dj .dj-cues button { min-height:2.8rem }
+  .dj-wave-row { grid-template-columns:1rem minmax(0,1fr) 2.45rem }
+}

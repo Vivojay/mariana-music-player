@@ -1,5 +1,7 @@
 import { createRoot } from 'react-dom/client'
 import { CaptionSelection } from '../../CaptionSelection'
+import { PlaybackTimeline } from '../../PlaybackTimeline'
+import type { PlaybackStatus } from '../../shared'
 import '../../styles.css'
 import '../../localVideo.css'
 
@@ -33,6 +35,12 @@ createRoot(document.getElementById('root')!).render(<main className="app">
         <button onClick={() => void document.querySelector('section')!.requestFullscreen()}>Fullscreen</button>
         <button>Audio only</button>
       </header>
+      <div className="local-video-controls local-video-bottom">
+        <PlaybackTimeline status={{ media_id: 'fixture', title: 'Fixture', state: 'paused', finite: true,
+          live: false, seekable: true, duration_seconds: 100, position_seconds: 20, percent: 20,
+          region: { active: false, start_seconds: null, end_seconds: null },
+        } as PlaybackStatus} seekEnabled expandedHitTarget onSeek={(seconds, mediaId) => void record('seek', [mediaId, seconds])} />
+      </div>
     </div>
   </section>
 </main>)

@@ -1,3 +1,5 @@
+// This path also resolves from compiled dist-electron and packaged app roots.
+import cultureSources from '../desktop/culture_sources.json' with { type: 'json' }
 import type { ArtworkStatus, DiscoveryCandidate, DiscoverySelection, DiscoveryTrack, HomepageItem, HomepageProjection, HomepageSection } from './shared.js'
 
 const PRIVATE_TEXT = /(?:https?:\/\/|[a-z]:[\\/]|\\\\|(?:^|\s)~?\/[a-z0-9._~-]+(?:[\\/][^\s]*)?|\b(?:authorization|bearer|cookie|credential|password|private[_ -]?id|resolver)\b)/i
@@ -9,32 +11,13 @@ const ARTWORK_SOURCES = new Set(['embedded', 'adjacent', 'cache', 'provider'])
 const ARTWORK_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 // Exact destinations only: adding a site does not grant arbitrary links on it.
 const OFFICIAL_DESTINATIONS = new Set([
+  ...cultureSources.map(row => row.url),
   'https://somafm.com/groovesalad/',
   'https://somafm.com/secretagent/',
   'https://www.wfmu.org/audiostream.shtml',
   'https://www.wbur.org/podcasts/circleround',
   'https://www.deutschlandfunk.de/kulturfragen-100.html',
-  'https://www.grammy.com/news',
-  'https://sxsw.com/',
-  'https://pitchfork.com/',
-  'https://playbill.com/',
-  'https://www.bfi.org.uk/sight-and-sound',
-  'https://indianexpress.com/section/entertainment/',
-  'https://www.comic-con.org/',
-  'https://www.billboard.com/charts/',
-  'https://www.abc.net.au/triplej/programs/like-a-version',
-  'https://www.officialcharts.com/charts/',
-  'https://www.ifpi.org/our-industry/global-charts/',
-  'https://boilerroom.tv/',
-  'https://www.bookclub.radio/',
   'https://www.kexp.org/podcasts/live-on-kexp/',
-  'https://www.nts.live/',
-  'https://colorsxstudios.com/',
-  'https://www.cercle.io/',
-  'https://linktr.ee/elevatormusiclive',
-  'https://www.bravotv.com/vanderpump-rules',
-  'https://www.bravotv.com/',
-  'https://www.hayu.com/',
 ])
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -156,7 +139,7 @@ export function projectHomepage(value: unknown): HomepageProjection | null {
     || source.refreshed_at > 4_102_444_800
   )) return null
   const message = safeText(source.safe_message, 240, { optional: true })
-  if (message === undefined || !Array.isArray(source.sections) || source.sections.length > 12) return null
+  if (message === undefined || !Array.isArray(source.sections) || source.sections.length > 16) return null
   const sections = source.sections.map(projectHomepageSection)
   if (sections.some((section) => section === null)) return null
   const projectedSections = sections as HomepageSection[]

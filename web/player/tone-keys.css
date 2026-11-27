@@ -1,0 +1,10 @@
+#tone-keys {
+  box-sizing: border-box; background: var(--surface, #1d2028); color: var(--text, #f5f2e8);
+  border: 1px solid var(--accent, #66dac5); border-radius: .8rem; max-width: min(96vw, 50rem);
+}
+#tone-keys::backdrop { background: rgb(0 0 0 / .55); }
+.tone-keyboard { display: flex; min-height: 7rem; margin-block: 1.25rem; overflow: auto; }
+.tone-keyboard button { flex: 1; min-width: 2rem; touch-action: none; background: #f3f0e7; color: #14171b; border: 1px solid #555b61; border-radius: 0 0 .3rem .3rem; }
+.tone-keyboard .accidental { background: #262a32; color: white; align-self: start; height: 4.3rem; }
+.tone-keyboard button[aria-pressed=true] { background: var(--accent, #66dac5); color: #161819; }
+.tone-keyboard button:focus-visible { outline: 3px solid #4089ec; outline-offset: -4px; }

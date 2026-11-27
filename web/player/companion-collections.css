@@ -1,0 +1,86 @@
+#native-collections .collection-heading,
+#native-collections .collection-filters,
+#native-collections .collection-toolbar,
+#native-collections .collection-pages,
+#native-collections .collection-actions {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  flex-wrap: wrap;
+}
+#native-collections .collection-heading {
+  justify-content: space-between;
+}
+#native-collections .collection-heading h2 {
+  margin: 0;
+}
+#native-collections .collection-toolbar:not(:empty),
+#native-collections .collection-filters {
+  margin-top: .9rem;
+}
+#native-collections .collection-filters input {
+  flex: 1 1 13rem;
+  min-width: 0;
+}
+#native-collections .collection-status,
+#native-collections small {
+  color: var(--muted);
+}
+#native-collections .collection-status,
+#native-collections .collection-error {
+  margin: .7rem 0;
+}
+#native-collections .collection-error:empty {
+  display: none;
+}
+#native-collections .collection-error {
+  color: var(--accent);
+}
+#native-collections .collection-results {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+#native-collections .collection-record {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .6rem;
+  padding: .7rem 0;
+  border-top: 1px solid var(--border);
+}
+#native-collections .collection-record[aria-current=true] strong {
+  color: var(--accent);
+}
+#native-collections .collection-label {
+  overflow-wrap: anywhere;
+}
+#native-collections .collection-label small {
+  display: block;
+}
+#native-collections .collection-open {
+  padding: .2rem 0;
+  min-height: 1.7rem;
+  color: var(--accent);
+  border: 0;
+  text-align: left;
+  font-weight: 650;
+}
+#native-collections .collection-actions button {
+  min-height: 2.4rem;
+  font-size: .86rem;
+  padding: .35rem .6rem;
+}
+#native-collections .collection-pages {
+  justify-content: space-between;
+  border-top: 1px solid var(--border);
+  padding-top: .8rem;
+}
+#native-collections [hidden] {
+  display: none;
+}
+@media(max-width: 650px) {
+  #native-collections .collection-record {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

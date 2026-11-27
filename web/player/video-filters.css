@@ -1,0 +1,10 @@
+.picture-filters-svg { position:absolute; width:0; height:0; pointer-events:none }
+.local-picture-panel { min-width:0; margin-top:1.2rem }
+.local-picture-panel video { display:block; width:100%; max-height:min(64vh, 650px); background:#0b0b10; border-radius:16px; object-fit:contain; aspect-ratio:16 / 9 }
+.local-picture-panel .picture-controls { display:flex; align-items:center; flex-wrap:wrap; gap:.65rem; margin-top:.7rem }
+.local-picture-panel .picture-controls label { display:inline-flex; align-items:center; gap:.5rem }
+.local-picture-panel .picture-controls label[hidden], .player.has-picture .disc { display:none }
+.local-picture-panel #local-picture-notice:empty { display:none }
+.local-picture-panel:fullscreen { display:flex; flex-direction:column; place-content:center; margin:0; background:#0b0b10 }
+.local-picture-panel:fullscreen video { max-height:calc(100dvh - 4.5rem); min-height:0; flex:1 }
+.local-picture-panel:fullscreen .picture-controls { justify-content:center; padding:.5rem }

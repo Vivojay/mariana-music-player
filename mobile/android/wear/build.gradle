@@ -1,0 +1,24 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'org.marianaplayer.wear'
+    compileSdk 36
+    androidResources { noCompress += ['wav'] }
+    sourceSets.main.assets.srcDir '../../../res/karaoke'
+    defaultConfig {
+        applicationId 'org.marianaplayer.wear'
+        minSdk 30
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0-preview'
+    }
+}
+
+// Bundle the same palette file that drives the desktop and browser clients.
+def watchPalettes = tasks.register('copyWatchPalettes', Copy) {
+    from '../../../mariana/theme_presets.json'
+    into layout.buildDirectory.dir('generated/mariana-palettes')
+}
+android.sourceSets.main.assets.srcDir layout.buildDirectory.dir('generated/mariana-palettes')
+tasks.named('preBuild').configure { dependsOn watchPalettes }
+
+dependencies { implementation "androidx.core:core:1.13.1" }

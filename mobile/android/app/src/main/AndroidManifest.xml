@@ -1,0 +1,20 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-feature android:name="android.hardware.microphone" android:required="false"/>
+    <queries>
+        <package android:name="com.instagram.android"/>
+        <package android:name="com.snapchat.android"/>
+        <package android:name="com.zhiliaoapp.musically"/>
+        <package android:name="com.ss.android.ugc.trill"/>
+    </queries>
+    <application android:icon="@drawable/mariana_icon" android:label="Mariana" android:theme="@android:style/Theme.Material.NoActionBar" android:usesCleartextTraffic="false">
+        <meta-data android:name="org.marianaplayer.META_APP_ID" android:value="id:${marianaMetaAppId}"/>
+        <provider android:name=".ClipFileProvider" android:authorities="${applicationId}.clips" android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/clip_paths"/>
+        </provider>
+        <activity android:name=".MainActivity" android:configChanges="orientation|screenSize|keyboardHidden" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+        </activity>
+    </application>
+</manifest>

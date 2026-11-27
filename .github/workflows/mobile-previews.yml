@@ -1,0 +1,72 @@
+name: Mariana web and mobile preview builds
+on: workflow_dispatch
+permissions:
+  contents: read
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - run: python tools/build_web_player.py
+      - run: npm ci --ignore-scripts
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --config web/player.e2e.config.ts
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: Mariana-Web
+          path: build/web-player
+          if-no-files-found: error
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: '8.13'
+      - run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - run: python3 tools/build_web_player.py
+      - run: gradle -p mobile/android :app:assembleDebug :wear:assembleDebug :app:bundleRelease :wear:bundleRelease
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: Mariana-Android-and-Wear-previews
+          path: |
+            mobile/android/app/build/outputs/apk/debug/*.apk
+            mobile/android/wear/build/outputs/apk/debug/*.apk
+            mobile/android/app/build/outputs/bundle/release/*.aab
+            mobile/android/wear/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+  apple-simulators:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - run: python3 tools/build_web_player.py --apple-icons
+      - run: command -v xcodegen || brew install xcodegen
+      - working-directory: mobile/apple
+        run: |
+          xcodegen generate
+          xcodebuild -project MarianaMobile.xcodeproj -scheme MarianaPhone -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO build
+          xcodebuild -project MarianaMobile.xcodeproj -scheme MarianaWatch -configuration Debug -destination 'generic/platform=watchOS Simulator' -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO build
+          ditto -c -k --keepParent DerivedData/Build/Products/Debug-iphonesimulator/MarianaPhone.app MarianaPhone-simulator.zip
+          ditto -c -k --keepParent DerivedData/Build/Products/Debug-watchsimulator/MarianaWatch.app MarianaWatch-simulator.zip
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: Mariana-Apple-simulator-previews
+          path: mobile/apple/*-simulator.zip
+          if-no-files-found: error

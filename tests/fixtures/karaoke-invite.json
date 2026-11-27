@@ -1,0 +1,8 @@
+{
+  "schema": "mariana.duet-invite.v1",
+  "media_sha256": "0791809f3271c740cb45aec7f04ce63d98386d1220fa2029ee7976492e923c15",
+  "timing_sha256": "fdfe8ed549a1830a4d5fadd4e653571ab4bd32a2a3626635166009ee75e7f255",
+  "duration_ms": 4000,
+  "part": "Tenor",
+  "start_ms": 1325
+}

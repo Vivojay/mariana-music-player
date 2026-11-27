@@ -1,5 +1,8 @@
 # Mariana Command Help
 
+Press **Tab** in the Mariana prompt to complete a command, subcommand or flag. In the TUI press **:** first. For example, type `dj cro` then Tab to insert `dj crossfade`. See [keyboard and touch command completion](docs/COMMAND_COMPLETION.md).
+
+
 Mariana is a local-first media player. Enter commands at the `)>` prompt. Use
 `help`, `h`, or `?` for the compact command map, and `help <topic>` for examples
 from one category. `help all` and `help full` show the complete map.
@@ -25,6 +28,10 @@ contain spaces.
 Start with `library status`, then use `all` or `ls` to see indexed local media.
 If the library is empty, inspect its configured roots with `library roots` and
 run `library scan changed` after correcting them.
+
+## Studio shortcuts
+
+Try `tone procedure play twinkle --bpm 90 --chorus 50`, `soundbank play glass-opal 330`, `fx presets`, `profile list`, or `accounts setup`. **Ctrl+R** opens command recall in the standalone TUI. [Full studio command guide](docs/STUDIO_WORKBENCH.md)
 
 ## Playback
 
@@ -57,13 +64,15 @@ are also supported after `chapters`. Navigation preserves pause state, respects
 preferred play-region bounds, and does not wrap. Use `chapters help` for details.
 
 `play <number|path|current> [--audio|--video|--auto]` chooses presentation.
+Local media with a moving-picture track opens as video by default. Use `video filter list`, `video filter sepia` or `video filter threshold 42` to change the picture while it plays. The standalone video window also accepts `video detect on "<local model.onnx>"` with the optional ONNX Runtime.
 Quote paths containing spaces. Selecting `current` changes presentation without
 restarting audio. The same flags work with `/ys`, `/yl`, and `/ml`; for
 example, `/ys "concert" 5 --video` preserves the existing result-choice flow.
-Explicit video requires the desktop host. YouTube, radio, and live sources stay
-audio-first under automatic presentation; local video can be presented when the
-desktop video surface is connected. Unsupported picture preparation leaves the
-authoritative audio pipeline unchanged.
+In the standalone CLI or TUI, `play current --video` or `video open` opens a
+separate picture window for the active recording. Use `p` or `seek +10s` in the
+terminal to control playback, `video status` to check preparation, and `video close`
+to dismiss the picture. YouTube starts in audio mode by default. See
+[video playback](docs/VIDEO_PLAYBACK.md) for requirements and supported sources.
 
 | Command | Purpose |
 | --- | --- |
@@ -167,6 +176,8 @@ Group paths are one-based, such as `2.3.1`; durable node IDs are also accepted.
 | `album search|show|tracks|fetch|play|queue|save ...` | Resolve distinct album editions and their tracks |
 | `station start|status|list|more|pause|resume|stop ...` | Build a music-only station from a verified track seed |
 | `recommend [count]`, `recommend related [count]` | Show explainable local recommendations |
+| `similar [current\|<library index>] [--mode hybrid\|audio\|tags\|fingerprint]` | Rank similar local items and show the evidence |
+| `similar scan [--limit N] [--retry]` | Build acoustic profiles from short local excerpts. See [media similarity](docs/MEDIA_SIMILARITY.md). |
 | `recommend autofill [count]`, `recommend train` | Fill the queue or train the lightweight local model |
 
 Prefix `find`, `rfind`, or `lfind` with `.` to play the first match, or `/` to
@@ -196,6 +207,12 @@ a universal authenticated or DRM playback command.
 Mariana does not currently provide SoundCloud catalog search, so `queue sc`
 and `/scq` are not commands. Known public SoundCloud URLs remain supported by
 the extractor-backed `/ml` playback and `download-ml` commands.
+
+### Spoken-word listening
+
+Use the **Podcasts & audiobooks** strip in the desktop player to soften sharp S sounds. Choose Off, Gentle, Balanced, or Strong while listening. The setting applies to podcast episodes and LibriVox chapters. Back 15s, Forward 30s, and a chapter selector (when markers exist) appear for spoken tracks.
+
+In the terminal, use `eq deesser off`, `eq deesser gentle`, `eq deesser balanced`, or `eq deesser strong`. Run `eq status` to see the current level. The setting is independent of graphic EQ bypass and presets. [Listening controls and scope](docs/SPOKEN_LISTENING.md)
 
 ### LibriVox audiobooks
 
@@ -420,6 +437,46 @@ playlist name or description. Deleting a playlist still deletes its history.
 
 ## Composition
 
+### Clip and share a recording
+
+Use `karaoke demo` to try the two-part practice track. `karaoke status` explains availability for the loaded media. `karaoke start` displays live words by singer. Use `lyrics voices` for singer-labelled reading and the [duet guide](docs/KARAOKE.md) for verified score import, vocal control, and practice invitations.
+
+Use `lyrics detect OUTPUT.json` or `speech transcribe OUTPUT.vtt` to draft captions for the loaded local audio or video. The default recognizer runs on the host. A separately configured hosted provider can label speakers and language changes after explicit consent. [Transcription setup](docs/LIVE_SPEECH.md#draft-a-transcript-for-a-recording)
+
+Use `clip start` and `clip end` at the playhead, or enter `clip range 0:15 0:25`.
+Run `clip share --format story` for a vertical MP4 with a file-sharing picker,
+or `clip export "my clip.wav"` to save audio. For YouTube or YouTube Music, `clip link` prints a timestamped watch URL. Use `clip social` to share a public music link. See [clip formats and sharing](docs/CLIP_SHARING.md).
+
+### DJ studio
+
+Use `help dj` for two local decks, hotcues, loops, playback rate, an equal-power crossfader, stereo WAV recording and file sharing. Press **F8** in the TUI to see both decks and select mixer controls, or enter the same commands in its prompt. See [DJ Studio](docs/DJ_STUDIO.md).
+
+### Tone generator
+
+Type `tone help` in the CLI, Electron terminal, or web Console to see the available waveforms.
+Tones play offline through the selected output. Use the normal pause, seek and
+stop controls, or enter a new tone command to change the sound.
+
+| Command | Result |
+| --- | --- |
+| `tone sine` | Play 440 Hz for two seconds at 15% generator level |
+| `tone triangle 220 --seconds 3` | Play an A3 triangle wave |
+| `tone square 110 --level 8` | Play a quieter square wave |
+| `tone sawtooth 330` | Play a sawtooth wave |
+| `tone harmony 220 277.18 329.63 --wave triangle` | Mix the three pitches into an A-major chord |
+| `tone harmony 220 --chord minor7` | Build an A minor seventh from its root in equal temperament |
+| `tone sweep 100 1200 --curve linear --seconds 4` | Sweep upward at a constant number of hertz per second |
+| `tone sweep 1760 110 --curve log --seconds 5` | Sweep downward at a constant number of octaves per second |
+
+Enter frequencies from 1 to 20,000 Hz, a duration from 0.05 to 60 seconds
+and a generator level from 0 to 100 percent. Harmony mixes two to eight voices
+at equal gain. The master volume still applies. Sweeps and harmonies accept
+any of the four waveforms with `--wave`. CLI and Electron previews live in a temporary
+session directory. The web player adds generated previews to its queue and saves
+them when browser storage is available.
+
+### Strudel
+
 The desktop **Patterns** button opens a compact Strudel project studio. Project
 source is saved locally in Mariana's writable application data and is revision
 checked, so an older editor cannot overwrite a newer save. The editor renders a
@@ -433,6 +490,9 @@ audible Web Audio player, alter downloads, or publish project source.
 | `strudel list` | List saved project names, short IDs, revisions, and preview durations |
 | `strudel new <name>` | Create a saved project from the starter pattern and open it in the desktop |
 | `strudel show <name-or-id>` | Print a saved project's bounded source and revision |
+| `strudel export <name-or-id> <file>` | Write the source to a new UTF-8 file and print its revision |
+| `strudel import <name-or-id> <revision> <file> [preview-seconds]` | Save edited source if the revision still matches. Optional preview duration is 1–60 seconds. Quote names and paths containing spaces |
+| `strudel render <name-or-id> <new.wav>` | Write an offline oscillator preview to a new WAV file using Node.js 20+. The desktop editor supports additional syntax. |
 | `strudel play <name-or-id>` | Ask the desktop renderer to render the saved revision, then play it through Mariana |
 | `strudel delete <name-or-id> [y\|yes\|--yes]` | Confirm deletion of a saved project; generated previews remain disposable runtime data |
 
@@ -560,7 +620,16 @@ never affects playback or startup.
 
 | Command | Purpose |
 | --- | --- |
-| `theme aurora|windows|kitty|gruvbox` | Select a terminal preset |
+| `accounts list` | Show available browser sign-ins, previously confirmed identities and saved public profiles. See [Connections](docs/CONNECTIONS.md). |
+| `accounts connect <service>` | Open the official consent screen. For Last.fm, return and enter `accounts finish lastfm`. |
+| `accounts verify\|activity\|disconnect <service>` | Recheck identity, show supported listening history or playlists, or remove a local authorization. |
+| `accounts link <service> <username>`, `accounts open\|unlink <service>` | Save, visit or remove a public profile bookmark. |
+| `tui` | Open the [terminal workspace](docs/TUI_CAPABILITIES.md). Press F6 to browse commands, : or F1 to type one, Ctrl+O for output, and Q from a workspace view to return to the prompt. With `python main.py --tui`, Q asks to exit Mariana. |
+| `web session [flow|console] [--trust [--share-output]]` | Pair native Console or Flow. At the paired terminal, type `web help` for browser controls and `web revoke` to restore per-command review. [Connection and host capabilities](docs/SURFACE_PARITY.md) |
+| `theme PRESET` | Select aurora, windows, kitty, gruvbox, winamp (Classic Amp), napster, dracula, vampire, vamp or redblood |
+| `theme colors` | List editable chrome and terminal color tokens for the selected preset |
+| `theme color chrome.accent #ef839d` | Save a six- or eight-digit hex override for this preset. Every listed token is editable. |
+| `theme reset` | Restore this preset’s original colors |
 | `theme list`, `theme current` | List presets or show the active one |
 | `banner status`, `banner show` | Inspect occasion greeting policy or redraw the startup banner |
 | `banner occasions on|off` | Enable or disable date-aware greetings without hiding the normal banner |
@@ -568,6 +637,7 @@ never affects playback or startup.
 | `banner subdivision <code|none>` | Select a supported state/province calendar; an invalid code lists available choices |
 | `banner country detect [--yes]` | Confirm a country-only network lookup, then save that country; never runs automatically |
 | `banner preview YYYY-MM-DD`, `banner help` | Preview an occasion palette/greeting or explain calendar controls |
+| `desktop open <panel>` | Open mini, queue, playlists, albums, downloads, sleep, or station from inside the desktop terminal |
 | `desktop close [tray|quit|status]` | Hide to the system tray on window close (default), quit on close, or show the current policy |
 | `autonext [on|off|status]` | Configure automatic queue progression |
 | `sleep <duration> [pause|stop] [fade <duration>]` | Start a session-scoped sleep timer |
@@ -794,3 +864,61 @@ Credentials require supported operating-system protected storage. An unavailable
 or plaintext-only backend is refused, without a file or environment-variable
 fallback. See [paired desktop boundaries](docs/PAIRED_DESKTOPS.md) for resource
 limits, trust lifecycle, and the separate two-device acceptance requirement.
+
+## Artist chat rooms
+
+Run `fanroom help` for account setup, room membership, message reads, posting and reporting on your chosen Matrix homeserver. See [artist chat rooms](docs/FAN_ROOMS.md).
+
+
+## Artists and culture
+
+Use `home sources QUERY` to search offline or open `home` for music press, record directories, performance channels,
+festivals and conventions. The `artist` commands work in the terminal and in
+Electron's terminal. Use `artist discover` for artists with recently indexed or
+upcoming releases, `artist emerging indie` for recently formed groups tagged indie,
+or `artist search Suggahunny` to look up a specific performer. If MusicBrainz has no result or cannot be reached, Mariana also searches Apple Music (US by default). Copy the artist ID
+from the results into `artist follow ID` (a MusicBrainz UUID or `apple:NUMBER`). Read your list offline with `artist list`.
+Run `artist releases`, `artist tracks` and `artist news` to check your follows.
+Add a followed ID to narrow any of these checks. Use `artist refresh` to save new items, `artist inbox` to read updates offline, and `artist read all` to acknowledge them. Remove a follow with
+`artist unfollow ID`. Coverage and source status are in
+[Artist discovery](docs/ARTIST_DISCOVERY.md).
+
+For release, radio and episode choices, use `home picks [query]`, copy the displayed
+`home pick <card-id> [page]` command, and inspect `home choices`. Use
+`home versions <revision> <row>` for track versions, then `home play <revision> <row>`
+or `home queue <revision> <row>`. Use `home cancel` to close the selection.
+See [terminal player capabilities](docs/TUI_CAPABILITIES.md) for navigation, settings and host-specific features.
+
+### Music walls and listening history
+
+In the Mariana prompt, `wall help` lists the commands. Quote multiword titles,
+artist names and review text. The desktop terminal and native CLI use the same
+SQLite wall. Browser and phone profiles live on their own device.
+In the browser, open **Exchange walls**, choose **Show my JSON**, then
+**Download JSON**. The phone apps offer **Share JSON** when the system share
+sheet accepts files and **Copy JSON** otherwise. The selected text can also
+be copied using the system text menu.
+
+```text
+wall profile Vivan
+wall add album "KATSEYE" "SIS (Soft Is Strong)"
+wall review "KATSEYE" "Touch" 4 "The vocal layers are my favorite part."
+wall listen current
+wall history
+wall stats
+wall quiz
+wall badges
+wall export "my-music-wall.json"
+wall import "friend-wall.json"
+wall profiles
+```
+
+Use `wall follow PROFILE-ID` after importing to include that wall in `wall feed`.
+`wall matches` reports the share of distinct artists in common across the union
+of two selected music collections. Re-import a newer snapshot to update it.
+The snapshot identifier associates a file with an imported profile. Accept
+updates from people you trust. `wall forget PROFILE-ID` removes the local
+import. Your export contains your wall posts, profile ID and display name.
+Actual playback history and top artists are private local views of catalogued
+play starts recorded under the existing hotspots preference. Publishing a
+listen to the wall takes an explicit `wall listen` command.

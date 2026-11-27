@@ -82,7 +82,7 @@ it('uses the identity-bound mode boundary, never terminal or seek execution', as
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Video$/ })) })
   expect(configure).toHaveBeenCalledWith('current', 'video')
   publish({ state: 'preparing', handle: null })
-  expect(screen.getByRole('status')).toHaveTextContent('Preparing a short video window')
+  expect(screen.getByRole('status')).toHaveTextContent('Preparing video at the current position')
   expect(screen.getByRole('status')).not.toHaveTextContent('Online files')
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Audio only' })) })
   expect(configure).toHaveBeenLastCalledWith('current', 'audio')

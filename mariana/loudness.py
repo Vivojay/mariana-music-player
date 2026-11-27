@@ -236,8 +236,14 @@ class LoudnessRepository:
 
 def parse_rsgain_output(output: str, paths: Iterable[Path]) -> dict[str, dict[str, float | None]]:
     """Parse pinned rsgain 3.7 TSV output with a conservative text fallback."""
+    results, _album = _parse_rsgain(output, paths)
+    return results
+
+
+def _parse_rsgain(output, paths):
     path_list = [Path(path) for path in paths]
     results: dict[str, dict[str, float | None]] = {}
+    album_values = None
     rows = list(csv.reader(io.StringIO(output), delimiter="\t"))
     if rows:
         headers = [re.sub(r"[^a-z0-9]+", "_", cell.casefold()).strip("_") for cell in rows[0]]
@@ -261,7 +267,6 @@ def parse_rsgain_output(output: str, paths: Iterable[Path]) -> dict[str, dict[st
             by_name: dict[str, list[Path]] = {}
             for path in path_list:
                 by_name.setdefault(path.name.casefold(), []).append(path)
-            album_values: dict[str, float | None] | None = None
             for row in rows[1:]:
                 if len(row) != len(headers):
                     continue
@@ -285,13 +290,15 @@ def parse_rsgain_output(output: str, paths: Iterable[Path]) -> dict[str, dict[st
                 candidate = str(Path(name).resolve())
                 if candidate not in known:
                     matches = by_name.get(Path(name).name.casefold(), [])
-                    candidate = str(matches[0].resolve()) if len(matches) == 1 else candidate
+                    if len(matches) != 1:
+                        continue
+                    candidate = str(matches[0].resolve())
                 results[candidate] = values
             if album_values:
                 for values in results.values():
                     values.update(album_values)
     if results:
-        return results
+        return results, album_values
     labels = {
         "track gain": "track_gain_db", "track peak": "track_peak",
         "album gain": "album_gain_db", "album peak": "album_peak",
@@ -303,7 +310,7 @@ def parse_rsgain_output(output: str, paths: Iterable[Path]) -> dict[str, dict[st
                 values[key] = parse_peak(line) if "peak" in key else parse_gain_db(line)
     if values and len(path_list) == 1:
         results[str(path_list[0].resolve())] = values
-    return results
+    return results, album_values
 
 
 class RSGainAnalyzer:
@@ -340,10 +347,28 @@ class RSGainAnalyzer:
         return executable, version
 
     def analyze(self, paths: Iterable[Path], *, album: bool = False) -> dict[str, dict[str, float | None]]:
-        files = [Path(path).resolve() for path in paths]
+        files = list(dict.fromkeys(Path(path).resolve() for path in paths))
         if not files:
             return {}
         executable = self.resolve()
+        parsed, album_values = self._scan(executable, files, album)
+        basenames: dict[str, int] = {}
+        for path in files:
+            name = path.name.casefold()
+            basenames[name] = basenames.get(name, 0) + 1
+        for path in files:
+            # rsgain 3.7 writes base names, which cannot identify two same-name tracks.
+            if str(path) not in parsed and basenames[path.name.casefold()] > 1:
+                resolved, _summary = self._scan(executable, [path], False)
+                if values := resolved.get(str(path)):
+                    parsed[str(path)] = values
+                    if album_values:
+                        values.update(album_values)
+        if not parsed:
+            raise LoudnessError("rsgain returned no usable scan results")
+        return parsed
+
+    def _scan(self, executable, files, album):
         command = [executable, "custom", "-s", "s", "-t", "-l", "-18", "-O"]
         if album and len(files) > 1:
             command.append("-a")
@@ -361,7 +386,4 @@ class RSGainAnalyzer:
             )
         except (OSError, subprocess.SubprocessError) as error:
             raise LoudnessError(f"rsgain analysis failed: {error}") from error
-        parsed = parse_rsgain_output(result.stdout or result.stderr, files)
-        if not parsed:
-            raise LoudnessError("rsgain returned no usable scan results")
-        return parsed
+        return _parse_rsgain(result.stdout or result.stderr, files)

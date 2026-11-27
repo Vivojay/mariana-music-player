@@ -303,6 +303,7 @@ class PlaybackSnapshot:
     # Internal occurrence identity for asynchronous presentation consumers.
     # Public status projections continue to expose only the media identity.
     session_id: str | None = None
+    playback_rate: float = 1.0
 
 
 @dataclass(slots=True)

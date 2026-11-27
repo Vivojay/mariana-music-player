@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { HomepagePanel } from './HomepagePanel'
+import { projectLocalVideo } from './localVideo'
 import type { HomepageProjection } from './shared'
 
 const projection = (overrides: Partial<HomepageProjection> = {}): HomepageProjection => ({
@@ -59,7 +60,7 @@ describe('HomepagePanel', () => {
         }],
       }],
     })} onClose={() => {}} onRefresh={() => {}} onOpenSettings={() => {}} onOpenLink={open} loadImage={loadImage} />)
-    expect(screen.getByText(/Curated destinations, not a live feed/)).toBeInTheDocument()
+    expect(screen.getByText(/Curated destinations open in your browser/)).toBeInTheDocument()
     expect(screen.getByText(/Rankings and chart dates are not imported/)).toBeInTheDocument()
     expect(open).not.toHaveBeenCalled()
     expect(loadImage).not.toHaveBeenCalled()
@@ -151,6 +152,38 @@ describe('HomepagePanel', () => {
     ))
     expect(loadImage).toHaveBeenCalledWith(key)
     expect(screen.getByRole('heading', { name: 'A visual story' })).toBeInTheDocument()
+  })
+
+  it('loops at most four seconds of the current local picture and respects motion preference', () => {
+    const handle = 'ab'.repeat(16)
+    const input = {
+      homepage: projection(), backendReady: true,
+      playback: { source: 'local', media_id: 'local-one', title: 'Current movie', duration_seconds: 100 } as const,
+      video: projectLocalVideo({ revision: 1, state: 'ready', media_id: 'local-one', handle,
+        position_seconds: 50, window_start_seconds: 30, window_end_seconds: 52, playing: true }),
+      onClose: () => {}, onRefresh: () => {}, onOpenSettings: () => {}, onOpenLink: () => {},
+      loadImage: async () => ({ ok: false, error: 'Unavailable' } as const),
+    }
+    const view = render(<HomepagePanel {...input} />)
+    expect(view.container.querySelector('video')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Loop video preview' }))
+    const element = view.container.querySelector('video') as HTMLVideoElement
+    expect(element.src).toBe(`mariana-video://current/${handle}.mp4`)
+    expect(element.muted).toBe(true)
+    const play = vi.fn(async () => {})
+    element.play = play
+    fireEvent.loadedMetadata(element)
+    expect(element.currentTime).toBe(18)
+    expect(play).toHaveBeenCalledOnce()
+    element.currentTime = 22
+    fireEvent.timeUpdate(element)
+    expect(element.currentTime).toBe(18)
+    fireEvent.click(screen.getByRole('button', { name: 'Stop preview' }))
+    expect(view.container.querySelector('video')).toBeNull()
+    view.rerender(<HomepagePanel {...input} reducedMotion />)
+    expect(screen.queryByRole('button', { name: 'Loop video preview' })).toBeNull()
+    view.rerender(<HomepagePanel {...input} playback={{ ...input.playback, media_id: 'other' }} />)
+    expect(screen.queryByRole('button', { name: 'Loop video preview' })).toBeNull()
   })
 
   it('keeps loading, stale, failure, and empty states understandable', () => {

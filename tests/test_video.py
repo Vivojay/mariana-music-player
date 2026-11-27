@@ -46,7 +46,7 @@ def test_probe_checks_actual_tracks_not_filename(monkeypatch, tmp_path):
 
     monkeypatch.setattr(video.subprocess, "run", probe)
     assert video._probe(source) == ("h264", 20)
-    assert "file,pipe,http,tcp" in calls[0]
+    assert calls[0][calls[0].index("-protocol_whitelist") + 1] == "file"
     tracks[:] = [{"codec_type": "audio"}]
     with pytest.raises(video.VideoUnavailable, match="no video"):
         video._probe(source)
@@ -95,7 +95,10 @@ def test_activation_and_request_lifecycle_boundaries(tmp_path, monkeypatch):
 
     disabled = video.LocalVideo(tmp_path / "disabled", lambda: snapshot, lambda _row: None)
     monkeypatch.setattr(disabled, "request", lambda *_args, **_kwargs: pytest.fail("Disabled service must stay idle"))
-    disabled.activate(media, None)
+    resolved = ResolvedMedia(media, str(media_file), str(media_file), media.capabilities)
+    disabled.activate(media, resolved)
+    assert disabled._resolved is resolved and disabled._observed is media
+    assert disabled._worker is None
     disabled.close()
 
     active = video.LocalVideo(tmp_path / "active", lambda: snapshot, lambda _row: None, enabled=lambda: True)
@@ -112,6 +115,8 @@ def test_activation_and_request_lifecycle_boundaries(tmp_path, monkeypatch):
     idle = video.LocalVideo(tmp_path / "idle", lambda: PlaybackSnapshot(PlaybackState.IDLE), lambda _row: None)
     with pytest.raises(video.VideoUnavailable, match="Start media"):
         idle.request("video")
+    assert idle.request("audio")["state"] == "off"
+    assert idle._worker is None
     idle.close()
     with pytest.raises(video.VideoUnavailable, match="closed"):
         idle.request("audio")
@@ -183,7 +188,7 @@ def test_cancelled_preparation_never_publishes_late_result(monkeypatch, tmp_path
     entered, release = threading.Event(), threading.Event()
     published = []
 
-    def probe(_source):
+    def probe(_source, **_kwargs):
         entered.set()
         assert release.wait(3)
         return "h264", 2
@@ -219,7 +224,7 @@ def test_local_caption_discovery_is_async_nonfatal_and_identity_bound(monkeypatc
         return ()
 
     monkeypatch.setattr(video, "discover_caption_tracks", discover)
-    monkeypatch.setattr(video, "_probe", lambda _source: ("h264", 10))
+    monkeypatch.setattr(video, "_probe", lambda _source, **_kwargs: ("h264", 10))
     service = video.LocalVideo(tmp_path / "cache", lambda: snapshot, lambda _row: None)
     monkeypatch.setattr(service, "_local_windows", lambda *_args: None)
     try:
@@ -320,7 +325,7 @@ def test_native_preparation_produces_video_without_audio_and_cleans_up(tmp_path,
 
     @contextmanager
     def local_transport(_track, _cancel):
-        yield str(source)
+        yield source
 
     monkeypatch.setattr(video, "video_track_proxy", local_transport)
     service = video.LocalVideo(
@@ -362,7 +367,7 @@ def test_automatic_local_audio_is_quiet_and_explicit_video_reports_missing_track
     media = MediaRef(MediaSource.LOCAL, str(source))
     completed = threading.Event()
 
-    def probe(_path):
+    def probe(_path, **_kwargs):
         raise video.NoVideoTrack("This media has no video track")
 
     monkeypatch.setattr(video, "_probe", probe)
@@ -490,7 +495,8 @@ def test_play_path_and_current_flags_do_not_restart_current_playback(monkeypatch
     ('/ml "https://example.org/movie.mp4" --audio', 'file'),
     ('/ys "a concert" 5 --audio', 'search'),
 ])
-def test_online_flags_survive_existing_command_selection(monkeypatch, command, kind):
+@pytest.mark.parametrize("mode", ["audio", "video"])
+def test_online_flags_survive_existing_command_selection(monkeypatch, command, kind, mode):
     import main
 
     calls = []
@@ -498,9 +504,9 @@ def test_online_flags_survive_existing_command_selection(monkeypatch, command, k
     monkeypatch.setattr(main, "choose_media_url", lambda **kwargs: calls.append(kwargs))
     monkeypatch.setattr(main, "url_is_valid", lambda _url: True)
     monkeypatch.setattr(main.YT_query, "search_youtube", lambda **kwargs: [kwargs])
-    main.process(command)
+    main.process(command.replace("--audio", "--" + mode))
     assert len(calls) == 1
-    assert calls[0]["presentation"] == "audio"
+    assert calls[0]["presentation"] == mode
     if kind == 'search':
         assert calls[0]['media_url_choices'] == [{'search': 'a concert', 'rescount': 5}]
     elif kind == 'file':
@@ -515,14 +521,14 @@ def test_long_local_media_prefetches_windows_and_rebases_paused_seeks(monkeypatc
     condition = threading.Condition()
     updates, jobs = [], []
     prefetched = threading.Event()
-    monkeypatch.setattr(video, "_probe", lambda _source: ("hevc", 4800))
+    monkeypatch.setattr(video, "_probe", lambda _source, **_kwargs: ("hevc", 4800))
 
     def publish(row):
         with condition:
             updates.append(row)
             condition.notify_all()
 
-    def encode(_source, output, start, length, _cancel, still_needed):
+    def encode(_source, output, start, length, _cancel, still_needed, *, lighter=False):
         if not still_needed():
             raise video.WindowSuperseded()
         output.write_bytes(b"picture")
@@ -592,7 +598,7 @@ def test_long_online_media_prepares_short_windows_without_whole_file_download(mo
         "h264", 4800,
     ) if source.startswith("http://127.0.0.1:") else pytest.fail("Remote URL escaped the private transport"))
 
-    def encode(source, output, start, length, _cancel, still_needed):
+    def encode(source, output, start, length, _cancel, still_needed, *, lighter=False):
         assert source == "http://127.0.0.1:12345/opaque/media"
         assert still_needed()
         output.write_bytes(b"window")
@@ -623,9 +629,9 @@ def test_seek_cancels_obsolete_prefetch_without_reporting_playback_failure(monke
     snapshot = PlaybackSnapshot(PlaybackState.PAUSED, media=media)
     entered, release, ready = threading.Event(), threading.Event(), threading.Event()
     updates = []
-    monkeypatch.setattr(video, "_probe", lambda _source: ("hevc", 4800))
+    monkeypatch.setattr(video, "_probe", lambda _source, **_kwargs: ("hevc", 4800))
 
-    def encode(_source, output, start, _length, _cancel, still_needed):
+    def encode(_source, output, start, _length, _cancel, still_needed, *, lighter=False):
         if start == video.FIRST_WINDOW_SECONDS - video.WINDOW_OVERLAP_SECONDS:
             entered.set()
             assert release.wait(3)
@@ -652,6 +658,105 @@ def test_seek_cancels_obsolete_prefetch_without_reporting_playback_failure(monke
         release.set()
         service.close()
     assert not list((tmp_path / "cache").iterdir())
+
+
+@pytest.mark.parametrize("recover", [True, False])
+def test_advancing_audio_uses_lighter_preview_or_stops_retrying(monkeypatch, tmp_path, recover):
+    source = tmp_path / "long.mp4"
+    source.touch()
+    media = MediaRef(MediaSource.LOCAL, str(source), duration=6065)
+    now, playhead = [100.0], [37.0]
+    updates, attempts = [], []
+    finished = threading.Event()
+    monkeypatch.setattr(video, "_probe", lambda *_args, **_kwargs: ("hevc", 6065))
+    monkeypatch.setattr(video, "time", SimpleNamespace(monotonic=lambda: now[0]))
+    monkeypatch.setattr(video, "CATCH_UP_TIMEOUT", 10)
+
+    def snapshot():
+        return PlaybackSnapshot(PlaybackState.PLAYING, media=media, position=playhead[0])
+
+    def publish(status):
+        updates.append(status)
+        if status["state"] in {"ready", "error"}:
+            finished.set()
+
+    def encode(_source, output, _start, _length, _cancel, still_needed, *, lighter=False):
+        attempts.append(lighter)
+        assert still_needed()
+        if len(attempts) == 1 or not recover:
+            now[0] += 5.5
+            playhead[0] += 5.5
+            assert not still_needed()
+            raise video.WindowSuperseded()
+        output.write_bytes(b"lighter picture")
+
+    service = video.LocalVideo(tmp_path / "cache", snapshot, publish)
+    monkeypatch.setattr(service, "_encode_window", encode)
+    try:
+        service.request("video")
+        assert finished.wait(3)
+        assert attempts[:2] == [False, True]
+        assert any(status.get("stage") == video.CATCH_UP_STAGE for status in updates)
+        status = service.status()
+        assert status["position_seconds"] == playhead[0]
+        assert status["playing"]
+        if recover:
+            assert status["state"] == "ready" and status["window_start_seconds"] == 41.5
+        else:
+            assert attempts == [False, True]
+            assert status["state"] == "error"
+            assert "could not catch up in time" in status["error"]
+    finally:
+        service.close()
+    assert not list((tmp_path / "cache").iterdir())
+
+
+def test_overlapping_window_does_not_reload_until_needed(monkeypatch, tmp_path):
+    source = tmp_path / "movie.mp4"
+    source.touch()
+    media = MediaRef(MediaSource.LOCAL, str(source), duration=20)
+    snapshot = PlaybackSnapshot(PlaybackState.PAUSED, media=media)
+    monkeypatch.setattr(video, "_probe", lambda *_args, **_kwargs: ("h264", 20))
+    another_window = threading.Event()
+    checked_overlap = threading.Event()
+    handoff = threading.Event()
+    updates = []
+
+    def current_snapshot():
+        if another_window.is_set() and snapshot.position == 4.5:
+            checked_overlap.set()
+        return snapshot
+
+    def publish(status):
+        updates.append(status)
+        if status.get("window_start_seconds") == 4:
+            handoff.set()
+
+    def encode(_source, output, start, _length, _cancel, _still_needed, *, lighter=False):
+        output.write_bytes(b"picture")
+        if start == 4:
+            another_window.set()
+
+    service = video.LocalVideo(tmp_path / "cache", current_snapshot, publish)
+    monkeypatch.setattr(service, "_encode_window", encode)
+    try:
+        service.request("video")
+        assert another_window.wait(3)
+        handle = service.status()["handle"]
+        snapshot = PlaybackSnapshot(PlaybackState.PAUSED, media=media, position=4.5)
+        assert checked_overlap.wait(3)
+        assert service.status()["handle"] == handle
+        assert service.status()["window_start_seconds"] == 0
+        snapshot = PlaybackSnapshot(PlaybackState.PLAYING, media=media, position=5.8)
+        assert handoff.wait(3)
+        assert service.status()["handle"] != handle
+        assert service.status()["window_start_seconds"] == 4
+        snapshot = PlaybackSnapshot(PlaybackState.PAUSED, media=media, position=20.1)
+        assert service.status()["state"] == "ready"
+        assert service.status()["position_seconds"] == 20
+        assert all(row["state"] != "error" for row in updates)
+    finally:
+        service.close()
 
 
 def test_shutdown_does_not_release_lease_or_remove_window_while_worker_remains_active(tmp_path):

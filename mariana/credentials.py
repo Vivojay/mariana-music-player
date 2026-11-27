@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .paths import profile_service_name, runtime_paths
+
 import base64
 import os
 import re
@@ -21,12 +23,14 @@ def environment_name(reference: str) -> str:
     normalized = re.sub(r"[^A-Z0-9]+", "_", reference.upper()).strip("_")
     if not normalized:
         raise CredentialError("Credential references must contain a letter or number")
-    return f"MARIANA_ICECAST_PASSWORD_{normalized}"
+    profile = runtime_paths().profile_id
+    prefix = "MARIANA" if profile == "default" else f"MARIANA_LISTENER_{profile.upper()}"
+    return f"{prefix}_ICECAST_PASSWORD_{normalized}"
 
 
 class CredentialStore:
     def __init__(self, service: str = SERVICE_NAME):
-        self.service = service
+        self.service = profile_service_name(service)
 
     @staticmethod
     def _keyring():

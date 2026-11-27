@@ -19,6 +19,7 @@
     "test:e2e:packaged": "playwright test desktop/e2e/packaged.spec.ts",
     "lint": "eslint desktop --max-warnings=0",
     "pack": "npm run build && electron-builder --dir",
+    "pack:lite": "node tools/package_electron_lite.mjs",
     "dist": "npm run build && electron-builder",
     "rebuild:native": "electron-builder install-app-deps"
   },
@@ -46,7 +47,7 @@
     "@types/react-dom": "latest",
     "@vitejs/plugin-react": "6.0.3",
     "concurrently": "^9.2.4",
-    "electron": "43.7.9",
+    "electron": "43.8.13",
     "electron-builder": "26.15.3",
     "eslint": "latest",
     "eslint-plugin-react-hooks": "latest",
@@ -55,8 +56,8 @@
     "jsdom": "latest",
     "typescript": "6.0.3",
     "typescript-eslint": "latest",
-    "vite": "8.1.4",
-    "vitest": "4.1.11",
+    "vite": "8.4.0",
+    "vitest": "4.1.12",
     "wait-on": "latest"
   },
   "build": {
@@ -75,13 +76,16 @@
     "files": [
       "dist/**",
       "dist-electron/**",
+      "desktop/culture_sources.json",
       "package.json"
     ],
     "extraResources": [
       {
         "from": "dist-backend/${os}-${arch}",
         "to": "backend",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "tools/manifest.json",
@@ -103,20 +107,46 @@
       "releaseType": "release"
     },
     "win": {
-      "target": [{"target": "nsis", "arch": ["x64"]}],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "artifactName": "Mariana-${version}-windows-${arch}.${ext}"
     },
     "mac": {
       "target": [
-        {"target": "dmg", "arch": ["x64", "arm64"]},
-        {"target": "zip", "arch": ["x64", "arm64"]}
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "hardenedRuntime": true,
       "notarize": true,
       "artifactName": "Mariana-${version}-macos-${arch}.${ext}"
     },
     "linux": {
-      "target": [{"target": "AppImage", "arch": ["x64"]}],
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "category": "AudioVideo;Audio;Player",
       "artifactName": "Mariana-${version}-linux-${arch}.${ext}"
     }

@@ -3,7 +3,7 @@ import { EQ_FREQUENCIES, projectEqualizer, validEqualizerIntent, type EqualizerS
 
 export function equalizerState(changes: Partial<EqualizerState> = {}): EqualizerState {
   return {
-    enabled: false, bands: Array(10).fill(0), preamp: 0, revision: 0, sample_rate: 48000,
+    deesser: 'off', enabled: false, bands: Array(10).fill(0), preamp: 0, revision: 0, sample_rate: 48000,
     frequencies: [...EQ_FREQUENCIES], available_bands: Array(10).fill(true),
     response: Array.from({ length: 128 }, (_, index) => [20 * 1000 ** (index / 127), 0]),
     recommended_preamp: 0, peak: 0, overload_blocks: 0, fault: false, warning: null,

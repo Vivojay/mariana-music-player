@@ -44,6 +44,7 @@ class BootstrapArtifact:
 
 
 BOOTSTRAP_HOSTS = (
+    "https://github.com/GyanD/codexffmpeg/releases/download/",
     "https://www.gyan.dev/ffmpeg/builds/packages/",
     "https://github.com/acoustid/chromaprint/releases/download/",
     "https://github.com/complexlogic/rsgain/releases/download/",
@@ -181,6 +182,55 @@ class ToolchainManager:
         if manifest["artifacts"].get(key):
             return self.install(key)
         return self.install_bootstrap(key, progress=progress)
+
+    def install_missing(self, names: set[str], *, progress=None) -> dict[str, str]:
+        """Return verified component paths without replacing the active full bundle."""
+        if not names:
+            return {}
+        key = platform_key()
+        platforms = self.bootstrap_manifest()["platforms"]
+        if key not in platforms:
+            # Release-only platforms distribute one archive.
+            root = self.install(key)
+            files = self.artifact(key).executables
+            if not names <= files.keys():
+                raise ToolchainError("Published tool bundle does not cover all missing tools")
+            return {name: str(root / files[name]) for name in names}
+
+        sources = [source for source in self.bootstrap_artifacts(key) if names.intersection(source.executables)]
+        if names.difference(name for source in sources for name in source.executables):
+            raise ToolchainError("No verified download is configured for one or more missing tools")
+        base = self.paths.tools / "components" / key
+        base.mkdir(parents=True, exist_ok=True)
+        paths = {}
+        for source in sources:
+            target = base / source.sha256
+            if not target.is_dir():
+                with tempfile.TemporaryDirectory(dir=base) as tmp:
+                    archive = Path(tmp) / "archive"
+                    payload = Path(tmp) / "payload"
+                    payload.mkdir()
+                    if progress:
+                        progress(f"Downloading {source.name}...")
+                    self._download(ToolArtifact(source.url, source.sha256, source.archive, {}),
+                                   archive, progress=progress, label=source.name)
+                    self._extract(archive, payload, source.archive)
+                    files = self._locate_executables(payload, source.executables)
+                    if set(files) != set(source.executables):
+                        raise ToolchainError(f"Missing executables in {source.name}")
+                    for relative in files.values():
+                        if os.name != "nt":
+                            (payload / relative).chmod(0o755)
+                    try:
+                        payload.rename(target)
+                    except OSError:
+                        if not target.is_dir():
+                            raise
+            files = self._locate_executables(target, source.executables)
+            if set(files) != set(source.executables):
+                raise ToolchainError(f"Incomplete cached component at {target}")
+            paths.update({name: str(target / relative) for name, relative in files.items()})
+        return paths
 
     def install_bootstrap(
         self,
