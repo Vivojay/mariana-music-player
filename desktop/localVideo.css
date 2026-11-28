@@ -15,8 +15,15 @@
 }
 .local-video-stage {
   position: relative; width: 100%; height: min(360px, calc(100dvh - 26px));
-  container-type: size; background: black;
+  container-type: size; background: black; touch-action: none;
 }
+.mini-player.is-video { display: flex; flex-direction: column; height: 100vh; min-height: 0; overflow: hidden; }
+.mini-player.is-video .mini-player-titlebar, .mini-player.is-video .mini-player-controls { flex-shrink: 0; }
+.local-video-panel.is-windowed {
+  position: relative; inset: auto; flex: 1 1 0; width: 100%; height: auto; min-height: 0; max-height: none;
+  border-color: var(--border);
+}
+.local-video-panel.is-windowed .local-video-stage { height: 100%; }
 .local-video-panel video { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 .local-video-controls { opacity: 0; pointer-events: none; transition: opacity .22s; }
 .local-video-panel.controls-visible .local-video-controls,
@@ -31,7 +38,7 @@
 .local-video-sync > summary { cursor: pointer; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--app-bg); }
 .local-video-sync-menu {
   position: absolute; z-index: 6; top: 100%; right: 8px; width: min(360px, calc(100% - 16px));
-  box-sizing: border-box; max-height: max(80px, calc(100cqh - 110px)); overflow-y: auto;
+  box-sizing: border-box; max-height: max(80px, calc(100vh - 130px)); max-height: max(80px, calc(100cqh - 110px)); overflow-y: auto;
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; align-items: center;
   padding: 8px; border: 1px solid var(--border); border-radius: 7px; background: color-mix(in srgb, var(--app-bg) 94%, black);
   box-shadow: 0 6px 18px #0008;
@@ -44,6 +51,7 @@
 }
 .caption-selection small, .caption-selection [role="status"] { font-size: 11px; white-space: normal; }
 .local-video-sync-menu strong, .local-video-sync-value { grid-column: 1 / -1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.local-video-sync-value input[type=number] { margin-inline-start: 8px; width: 8ch; }
 .local-video-panel button:not(.playback-seek-target):not(.seek-precision-track):not(.local-video-toggle) {
   color: var(--text); background: var(--app-bg); border: 1px solid var(--border);
   border-radius: 6px; cursor: pointer; padding: 4px 8px;
@@ -77,13 +85,10 @@
 .local-video-panel .playback-progress-track.has-expanded-hit-target .playback-hotspots {
   height: 28px; bottom: calc(50% + 3px);
 }
-.local-video-panel .playback-progress-track.has-expanded-hit-target .seek-hover-needle {
-  top: 50%; bottom: auto; height: 14px; transform: translateY(-50%);
-}
 .local-video-message {
   position: absolute; z-index: 3; inset: 48px 8px auto; max-height: calc(100% - 110px);
   overflow: auto; margin: 0; padding: 8px; font-size: 12px; background: var(--app-bg);
 }
 .local-video-panel .seek-precision-panel { z-index: 4; }
-.local-video-panel:fullscreen { width: 100%; height: 100%; max-height: none; border: 0; border-radius: 0; }
+.local-video-panel:fullscreen, .local-video-panel.is-windowed:fullscreen { width: 100%; height: 100%; max-height: none; border: 0; border-radius: 0; }
 .local-video-panel:fullscreen .local-video-stage { height: 100%; }

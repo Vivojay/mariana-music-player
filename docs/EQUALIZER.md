@@ -6,6 +6,8 @@ user presets are stored in the existing user settings file; explicit saved value
 are preserved. Invalid saved EQ data falls back to bypass with a warning without
 overwriting that data merely on startup.
 
+The listening EQ and the [sound-design rack](SOUND_DESIGN.md) can be used together. For de-essing on music or microphone input try `fx set deess 60`. For spoken-word listening use the existing `eq deesser` presets.
+
 ## Controls
 
 ```text

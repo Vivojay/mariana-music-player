@@ -16,6 +16,19 @@ from .playback_status import PlaybackStatusProjection
 ControlHandler = Callable[[str, dict[str, Any]], dict[str, Any]]
 
 
+def _write_message(stream: BinaryIO | socket.socket, message: bytes) -> None:
+    if isinstance(stream, socket.socket):
+        stream.sendall(message)
+        return
+    # Windows named pipes are opened as unbuffered FileIO; a write can be short.
+    pending = memoryview(message)
+    while pending:
+        count = stream.write(pending)
+        if not count:
+            raise OSError("Desktop control pipe stopped accepting data")
+        pending = pending[count:]
+
+
 class DesktopControl:
     def __init__(self, endpoint: str | None = None, token: str | None = None) -> None:
         self.endpoint = endpoint or os.environ.get("MARIANA_CONTROL_ENDPOINT")
@@ -59,10 +72,7 @@ class DesktopControl:
                     self._event_stream = self._event_stream or self._connect()
                     if self._event_stream is None:
                         return False
-                    if isinstance(self._event_stream, socket.socket):
-                        self._event_stream.sendall(message)
-                    else:
-                        self._event_stream.write(message)
+                    _write_message(self._event_stream, message)
                     return True
                 except OSError:
                     self._close_event_stream()
@@ -156,10 +166,7 @@ class DesktopControl:
                                 ensure_ascii=False,
                                 separators=(",", ":"),
                             ).encode("utf-8") + b"\n"
-                            if isinstance(stream, socket.socket):
-                                stream.sendall(handshake)
-                            else:
-                                stream.write(handshake)
+                            _write_message(stream, handshake)
                     if stream is None:
                         return
                     line = self._read_request_line(stream)

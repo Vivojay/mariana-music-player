@@ -50,8 +50,9 @@ describe('ThemePicker', () => {
     await waitFor(() => expect(gruvbox).toHaveFocus())
 
     fireEvent.keyDown(gruvbox, { key: 'ArrowDown' })
-    expect(screen.getByRole('menuitemradio', { name: 'Mariana Aurora' })).toHaveFocus()
-    fireEvent.keyDown(screen.getByRole('menuitemradio', { name: 'Mariana Aurora' }), { key: 'ArrowUp' })
+    const amp = screen.getByRole('menuitemradio', { name: 'Classic Amp' })
+    expect(amp).toHaveFocus()
+    fireEvent.keyDown(amp, { key: 'ArrowUp' })
     expect(screen.getByRole('menuitemradio', { name: 'Gruvbox Dark' })).toHaveFocus()
     fireEvent.keyDown(screen.getByRole('menuitemradio', { name: 'Gruvbox Dark' }), { key: 'Escape' })
 

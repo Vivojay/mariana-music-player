@@ -21,6 +21,7 @@ function setup(onClose = vi.fn()) {
   const preview = vi.fn(async () => ({ ok: true }))
   const remove = vi.fn(async () => ({ ok: true }))
   const api = {
+    snapshot: vi.fn(async () => ({ strudel:{ ...projection, projects:[{ ...project, code:'note("d3")', revision:3 }] } })),
     strudelSave: save,
     strudelPreview: preview,
     strudelDelete: remove,
@@ -43,6 +44,9 @@ describe('Strudel pattern studio', () => {
       revision: 2,
     }))
     expect(preview).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Render & play' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Render & play' }))
+    await waitFor(() => expect(preview).toHaveBeenCalledWith(expect.objectContaining({ revision:3, code:'note("d3")' })))
   })
 
   it('renders only the unchanged saved revision', async () => {

@@ -1,5 +1,7 @@
 import type { MiniPlayerSnapshot, PlaybackStatus } from './shared'
 
+export type MiniPlaybackIntent = 'play' | 'pause' | 'previous' | 'next' | { mediaId: string; targetSeconds: number }
+
 export function playbackToggleAction(status: PlaybackStatus | null, ready: boolean): 'play' | 'pause' | null {
   if (!ready || !status?.media_id || status.policy?.blocked || status.policy?.playable === false) return null
   return status.state === 'paused' ? 'play' : ['playing', 'crossfading'].includes(status.state) ? 'pause' : null

@@ -88,3 +88,24 @@ def test_strudel_store_rejects_corrupt_or_future_data(tmp_path):
     path.write_text("not json", encoding="utf-8")
     with pytest.raises(StrudelProjectError, match="corrupt"):
         StrudelProjectStore(path).list()
+
+
+def test_source_file_import_preserves_revision_on_stale_or_invalid_input(tmp_path):
+    store = StrudelProjectStore(tmp_path / "projects.json")
+    project = store.create("Phrase")
+    source = tmp_path / "Phrase.js"
+    assert store.export_source("Phrase", source) == project
+    assert source.read_bytes() == project.code.encode()
+    with pytest.raises(StrudelProjectError, match="already exists"):
+        store.export_source("Phrase", source)
+    source.write_bytes('s("bd") // 夜\r\n'.encode("utf-8-sig"))
+    updated = store.import_source("Phrase", 1, source, 3)
+    assert updated.code == 's("bd") // 夜\n'
+    assert updated.preview_seconds == 3
+    with pytest.raises(StrudelProjectError, match="changed"):
+        store.import_source("Phrase", 1, source)
+    for invalid in (b"x" * 65537, b"\xff", b"foo\0bar"):
+        source.write_bytes(invalid)
+        with pytest.raises(StrudelProjectError):
+            store.import_source("Phrase", 2, source)
+    assert store.get("Phrase") == updated

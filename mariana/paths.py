@@ -14,6 +14,8 @@ from pathlib import Path
 
 from platformdirs import user_data_path
 
+from .listener_profiles import DEFAULT, ListenerProfiles
+
 APP_NAME = "Mariana"
 APP_AUTHOR = "Vivojay"
 MIGRATION_VERSION = 1
@@ -23,6 +25,8 @@ MIGRATION_VERSION = 1
 class RuntimePaths:
     resources: Path
     data: Path
+    profile_id: str = DEFAULT
+    profile_root: Path | None = None
 
     @property
     def settings(self) -> Path:
@@ -88,7 +92,10 @@ def discover_runtime_paths() -> RuntimePaths:
         if configured_data
         else Path(user_data_path(APP_NAME, APP_AUTHOR, roaming=True)).resolve()
     )
-    return RuntimePaths(resources, data)
+    profile_id = ListenerProfiles(data).resolve(os.environ.get("MARIANA_PROFILE") or None)
+    if profile_id == DEFAULT:
+        return RuntimePaths(resources, data)
+    return RuntimePaths(resources, data / "listeners" / profile_id, profile_id, data)
 
 
 def runtime_paths() -> RuntimePaths:
@@ -146,7 +153,7 @@ def initialize_runtime_paths(paths: RuntimePaths | None = None) -> RuntimePaths:
         (paths.resource("data", "track-infos.yml"), paths.state("data", "track-infos.yml")),
     )
     copied: list[str] = []
-    for source, destination in migrations:
+    for source, destination in migrations if paths.profile_id == DEFAULT else ():
         if source.is_file() and not destination.exists() and source.resolve() != destination.resolve():
             _copy_atomic(source, destination)
             copied.append(str(destination.relative_to(paths.data)))
@@ -186,3 +193,8 @@ def initialize_runtime_paths(paths: RuntimePaths | None = None) -> RuntimePaths:
         temporary.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
         os.replace(temporary, paths.setup_state)
     return paths
+
+
+def profile_service_name(service: str) -> str:
+    profile = runtime_paths().profile_id
+    return service if profile == DEFAULT else f"{service}.listener-{profile}"

@@ -1,21 +1,34 @@
+import { exploreCommandSuggestions } from './commandExplorer'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
 import {
   isCommandSuggestionProjectionCurrent,
-  projectCommandSuggestions,
   type CommandSuggestionProjection,
 } from './commandCatalog'
 import { acceptPlaybackStatusEvent, projectPlaybackStatus } from './playbackProjection'
+import { projectPlaybackHotspots } from './playbackHotspots'
 import { PlaybackStatusBar } from './PlaybackStatusBar'
+import { PlaybackTimeline } from './PlaybackTimeline'
+import { MediaStudio } from './MediaStudio'
+import { HomepagePanel } from './HomepagePanel'
+import { projectLocalVideo, type LocalVideoStatus } from './localVideo'
+import { projectHomepage } from './discoveryProjection'
+import { StrudelPanel } from './StrudelPanel'
+import { projectStrudelProjection, type StrudelProjection } from './strudelProjects'
+import { ListeningControls } from './ListeningControls'
 import { validateSeekIntent } from './playbackSeek'
+import { readChapterSnapping, SNAP_CHAPTERS_KEY } from './seekPreferences'
 import { TerminalSurface } from './TerminalSurface'
-import { themes, type ThemeName } from './themes'
+import { isThemeName, readSelection, resolveTheme, selection, themes, themeStyle, type ThemeName } from './themes'
+import { AccountConnections } from './AccountConnections'
+import { PaletteEditor } from './PaletteEditor'
 import {
   formatChapterLabel,
   trimDisplayCells,
   type BackendEvent,
   type CommandCatalogResult,
   type CommandCatalogSnapshot,
+  type HomepageProjection,
+  type PlaybackHotspots,
   type PlaybackStatus,
   type UpdateState,
 } from './shared'
@@ -100,15 +113,24 @@ function formatRemaining(value: unknown): string {
 }
 
 export default function App() {
-  const [themeName, setThemeName] = useState<ThemeName>(() => {
-    const stored = localStorage.getItem('mariana.theme')
-    return stored && stored in themes ? stored as ThemeName : 'aurora'
-  })
+  const [palette, setPalette] = useState(readSelection)
+  const themeName = palette.name
   const [fontSize, setFontSize] = useState(() => {
     const stored = Number(localStorage.getItem('mariana.fontSize') || 14)
     return Number.isFinite(stored) ? Math.max(10, Math.min(24, stored)) : 14
   })
   const [reducedMotion, setReducedMotion] = useState(() => matchMedia('(prefers-reduced-motion: reduce)').matches)
+  const [homepage, setHomepage] = useState<HomepageProjection | null>(null)
+  const [homeVideo, setHomeVideo] = useState<LocalVideoStatus | null>(null)
+  const [homeOpen, setHomeOpen] = useState(false)
+  const [homeSettingsOpen, setHomeSettingsOpen] = useState(false)
+  const [homeRefreshing, setHomeRefreshing] = useState(false)
+  const [homeConfiguring, setHomeConfiguring] = useState(false)
+  const [homeError, setHomeError] = useState<string | null>(null)
+  const homeButtonRef = useRef<HTMLButtonElement>(null)
+  const [strudel, setStrudel] = useState<StrudelProjection | null>(null)
+  const [strudelOpen, setStrudelOpen] = useState(false)
+  const [accountsOpen,setAccountsOpen] = useState(false)
   const [timerOpen, setTimerOpen] = useState(false)
   const [customTimer, setCustomTimer] = useState('30m')
   const [timerAction, setTimerAction] = useState<'pause' | 'stop'>('pause')
@@ -136,6 +158,8 @@ export default function App() {
   const [broadcastStatus, setBroadcastStatus] = useState<Record<string, unknown>>({ state: 'idle' })
   const [loudnessStatus, setLoudnessStatus] = useState<Record<string, unknown>>({ replaygain_db: 0, live_leveling: false })
   const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus | null>(null)
+  const [hotspots, setHotspots] = useState<PlaybackHotspots | null>(null)
+  const [snapChapters, setSnapChapters] = useState(readChapterSnapping)
   const playbackStatusRef = useRef<PlaybackStatus | null>(null)
   const playbackEventTimestampRef = useRef<number | null>(null)
   const favoritePendingRef = useRef(false)
@@ -157,21 +181,23 @@ export default function App() {
   const [selectedAlbum, setSelectedAlbum] = useState<AlbumSummary | undefined>()
   const [albumQuery, setAlbumQuery] = useState('')
   const [downloads, setDownloads] = useState<DownloadSummary[]>([])
-  const theme = themes[themeName] ?? themes.aurora
-  const style = useMemo(() => ({
-    '--app-bg': theme.chrome.background,
-    '--panel': theme.chrome.panel,
-    '--border': theme.chrome.border,
-    '--accent': theme.chrome.accent,
-    '--text': theme.chrome.text,
-    '--muted': theme.chrome.muted,
-    '--glow': theme.chrome.glow,
-  }) as CSSProperties, [theme])
+  const theme = useMemo(() => resolveTheme(palette), [palette])
+  const style = useMemo(() => themeStyle(theme), [theme])
 
   useEffect(() => {
-    localStorage.setItem('mariana.theme', themeName)
+    localStorage.setItem('mariana.theme', palette.name)
+    localStorage.setItem('mariana.themeColors', JSON.stringify(palette))
+  }, [palette])
+  useEffect(() => {
     localStorage.setItem('mariana.fontSize', String(fontSize))
-  }, [themeName, fontSize])
+  }, [fontSize])
+  useEffect(() => {
+    const syncSnapping = (event: StorageEvent) => {
+      if (event.key === SNAP_CHAPTERS_KEY || event.key === null) setSnapChapters(readChapterSnapping())
+    }
+    window.addEventListener('storage', syncSnapping)
+    return () => window.removeEventListener('storage', syncSnapping)
+  }, [])
 
   useEffect(() => {
     tabsRef.current = tabs
@@ -179,11 +205,26 @@ export default function App() {
   }, [tabs, activeTab])
 
   useEffect(() => {
+    let strudelEventReceived = false
     let playbackEventReceived = false
+    let hotspotsEventReceived = false
+    let homepageEventReceived = false
+    let homeVideoEventReceived = false
+    let homepageInitialized = false
+    let active = true
+    const receiveHomepage = (value: unknown) => {
+      const projected = projectHomepage(value)
+      if (!projected) return false
+      setHomepage(projected)
+      if (projected.open_requested || (!homepageInitialized && projected.show_on_startup)) setHomeOpen(true)
+      homepageInitialized = true
+      return true
+    }
     const receivePlaybackStatus = (next: PlaybackStatus | null): boolean => {
       const projected = next === null ? null : projectPlaybackStatus(next)
       if (next !== null && !projected) return false
       if (playbackStatusRef.current?.media_id !== projected?.media_id) {
+        setHotspots(null)
         favoriteRequestEpoch.current += 1
         favoritePendingRef.current = false
         setFavoritePending(false)
@@ -198,6 +239,7 @@ export default function App() {
       return true
     }
     void window.mariana.backend.snapshot().then((snapshot) => {
+      if (!active) return
       if (snapshot.ready) {
         setBackendState('ready')
         setBackendDiagnostic(null)
@@ -207,11 +249,25 @@ export default function App() {
       }
       setTimerStatus((current) => ({ ...current, active: snapshot.sleepActive }))
       setDesktopNotice(snapshot.desktopNotice)
+      if (!strudelEventReceived && snapshot.strudel) setStrudel(snapshot.strudel)
       if (!playbackEventReceived) receivePlaybackStatus(snapshot.playback)
+      if (!hotspotsEventReceived) setHotspots(projectPlaybackHotspots(snapshot.hotspots))
+      if (!homepageEventReceived) receiveHomepage(snapshot.homepage)
+      if (!homeVideoEventReceived) setHomeVideo(projectLocalVideo(snapshot.video))
     })
     const backend = window.mariana.backend.onEvent((event: BackendEvent) => {
       if (event.event === 'starting') {
+        homepageEventReceived = true
+        homepageInitialized = false
+        setHomepage(null)
+        setHomeOpen(false)
+        setHomeSettingsOpen(false)
+        setHomeError(null)
+        homeVideoEventReceived = true
+        setHomeVideo(null)
         playbackEventReceived = true
+        hotspotsEventReceived = true
+        setHotspots(null)
         playbackEventTimestampRef.current = null
         setBackendState('starting')
         setBackendDiagnostic(null)
@@ -221,7 +277,7 @@ export default function App() {
         setBackendState('ready')
         setBackendDiagnostic(null)
         const name = String(event.payload.theme || '')
-        if (name in themes) setThemeName(name as ThemeName)
+        if (isThemeName(name)) setPalette(selection(name, event.payload.theme_colors))
       }
       if (event.event === 'fatal-error') {
         seekRequestEpoch.current += 1
@@ -235,6 +291,32 @@ export default function App() {
             : 'Backend reported a startup error',
         )
       }
+      if (event.event === 'homepage' && receiveHomepage(event.payload)) homepageEventReceived = true
+      if (event.event === 'video') {
+        const next = projectLocalVideo(event.payload)
+        if (next) {
+          homeVideoEventReceived = true
+          setHomeVideo((current) => current?.handle && current.handle === next.handle && current.media_id === next.media_id
+            ? current : next.state === 'ready' ? next : null)
+        }
+      }
+      if (event.event === 'strudel') {
+        const next = projectStrudelProjection(event.payload)
+        if (next) {
+          strudelEventReceived = true
+          setStrudel(next)
+          if (next.open_requested) setStrudelOpen(true)
+        }
+      }
+      if (event.event === 'desktop-open') {
+        const panel = event.payload.panel
+        if (panel === 'queue' || panel === 'playlists' || panel === 'albums' || panel === 'downloads') {
+          setMediaView(panel)
+          setMediaOpen(true)
+        } else if (panel === 'sleep') setTimerOpen(true)
+        else if (panel === 'station') setStationOpen(true)
+        else if (panel === 'mini') void window.mariana.app.showMiniPlayer()
+      }
       if (event.event === 'sleep') setTimerStatus(event.payload)
       if (event.event === 'broadcast') setBroadcastStatus(event.payload)
       if (event.event === 'loudness') setLoudnessStatus(event.payload)
@@ -247,6 +329,13 @@ export default function App() {
         if (accepted && receivePlaybackStatus(accepted.status)) {
           playbackEventTimestampRef.current = accepted.timestamp
           playbackEventReceived = true
+        }
+      }
+      if (event.event === 'hotspots') {
+        const next = projectPlaybackHotspots(event.payload)
+        if (next?.media_id && next.media_id === playbackStatusRef.current?.media_id) {
+          hotspotsEventReceived = true
+          setHotspots(next)
         }
       }
       if (event.event === 'station') setStationStatus(event.payload)
@@ -275,7 +364,7 @@ export default function App() {
       }
       if (event.event === 'theme') {
         const name = String(event.payload.name || '')
-        if (name in themes) setThemeName(name as ThemeName)
+        if (isThemeName(name)) setPalette(selection(name, event.payload.colors))
       }
       if (event.event === 'desktop-notice') {
         setDesktopNotice(
@@ -316,7 +405,7 @@ export default function App() {
       }
     }
     window.addEventListener('keydown', shortcut)
-    return () => { backend(); updater(); exited(); window.removeEventListener('keydown', shortcut) }
+    return () => { active = false; backend(); updater(); exited(); window.removeEventListener('keydown', shortcut) }
   }, [])
 
   useEffect(() => {
@@ -349,7 +438,7 @@ export default function App() {
         setAutocompleteError(true)
         return
       }
-      const projection = projectCommandSuggestions(result.catalog, request)
+      const projection = exploreCommandSuggestions(result.catalog, request)
       if (!isCommandSuggestionProjectionCurrent(projection, current.typedPrefix, current.generation)) return
       setAutocompleteProjection(projection)
       setAutocompleteActiveIndex(
@@ -368,6 +457,49 @@ export default function App() {
     })
     return () => { cancelled = true }
   }, [autocompleteOpen, autocompleteRequest])
+
+  const closeHomepage = () => {
+    setHomeOpen(false)
+    setHomeSettingsOpen(false)
+    requestAnimationFrame(() => homeButtonRef.current?.focus())
+  }
+
+  const openHomepage = async () => {
+    if (homeOpen) { closeHomepage(); return }
+    setHomeError(null)
+    try {
+      const result = await window.mariana.backend.homepageOpen()
+      if (!result.ok) setDesktopNotice(result.error || 'Home is unavailable')
+    } catch {
+      setDesktopNotice('Home is unavailable')
+    }
+  }
+
+  const refreshHomepage = async () => {
+    setHomeError(null)
+    setHomeRefreshing(true)
+    try {
+      const result = await window.mariana.backend.homepageRefresh()
+      if (!result.ok) setHomeError(result.error || 'Could not refresh Home')
+    } catch {
+      setHomeError('Could not refresh Home')
+    } finally {
+      setHomeRefreshing(false)
+    }
+  }
+
+  const configureHomepage = async (setting: 'startup' | 'online', enabled: boolean) => {
+    setHomeError(null)
+    setHomeConfiguring(true)
+    try {
+      const result = await window.mariana.backend.homepageConfigure(setting, enabled)
+      if (!result.ok) setHomeError(result.error || 'Could not update Home settings')
+    } catch {
+      setHomeError('Could not update Home settings')
+    } finally {
+      setHomeConfiguring(false)
+    }
+  }
 
   const startTimer = (duration: string) => {
     sendCommand(`sleep ${duration} ${timerAction}`)
@@ -393,11 +525,11 @@ export default function App() {
     if (!result.ok) setFavoriteError(result.error || 'Favourite update failed')
   }
 
-  const seekPlayback = async (targetSeconds: number) => {
+  const seekPlayback = async (targetSeconds: number, mediaId = playbackStatusRef.current?.media_id) => {
     const status = playbackStatusRef.current
     const validation = validateSeekIntent(
       status,
-      status?.media_id,
+      mediaId,
       targetSeconds,
       backendState === 'ready',
     )
@@ -559,7 +691,7 @@ export default function App() {
                   closeCommandSuggestions()
                   return
                 }
-                if (event.key === 'Enter') {
+                if (event.key === 'Enter' || (event.key === 'Tab' && !event.shiftKey && commandSuggestions.length)) {
                   event.preventDefault()
                   const suggestion = commandSuggestions[autocompleteActiveIndex]
                   if (suggestion) acceptCommandSuggestion(suggestion.key, autocompleteRequest)
@@ -638,11 +770,19 @@ export default function App() {
           </div>
           <select aria-label="Terminal theme" value={themeName} onChange={(event) => {
             const value = event.target.value as ThemeName
-            setThemeName(value)
+            setPalette(selection(value))
             sendCommand(`theme ${value}`)
           }}>
             {Object.entries(themes).map(([id, value]) => <option key={id} value={id}>{value.name}</option>)}
           </select>
+          <PaletteEditor key={themeName} theme={theme} onSave={(key, color) => sendCommand(`theme color ${key} ${color}`)}
+            onReset={() => sendCommand('theme reset')} />
+          <button aria-expanded={strudelOpen} onClick={() => {
+            void window.mariana.backend.strudelOpen().then(result => {
+              if (!result.ok) setDesktopNotice(result.error || 'The pattern editor could not open.')
+            }).catch(() => setDesktopNotice('The pattern editor could not open.'))
+          }}>Strudel</button>
+          <button aria-expanded={accountsOpen} onClick={()=>setAccountsOpen(open=>!open)}>Connections</button>
           <button title="Decrease font" onClick={() => setFontSize((value) => Math.max(10, value - 1))}>A−</button>
           <button title="Increase font" onClick={() => setFontSize((value) => Math.min(24, value + 1))}>A+</button>
           <button className={timerStatus.active ? 'active' : ''} onClick={() => setTimerOpen((open) => !open)}>
@@ -655,6 +795,10 @@ export default function App() {
       </header>
 
       <nav className="tabbar" aria-label="Terminal views">
+        <button type="button" ref={homeButtonRef} className="desktop-home-button" aria-haspopup="dialog"
+          aria-expanded={homeOpen} disabled={backendState !== 'ready'} onClick={() => void openHomepage()}>
+          Home
+        </button>
         {tabs.map((tab) => (
           <div key={tab.id} className={`terminal-tab ${activeTab === tab.id ? 'active' : ''}`}>
             <button role="tab" aria-selected={activeTab === tab.id} onClick={() => setActiveTab(tab.id)}>{tab.title}</button>
@@ -669,24 +813,27 @@ export default function App() {
         <div className="terminal-lights" aria-hidden="true"><i /><i /><i /></div>
         {tabs.map((tab) => (
           <div key={tab.id} className="terminal-pane" hidden={activeTab !== tab.id}>
-            <TerminalSurface theme={theme} fontSize={fontSize} reducedMotion={reducedMotion} tabId={tab.id} />
+            <TerminalSurface theme={theme} fontSize={fontSize} reducedMotion={reducedMotion} tabId={tab.id} interactive={!homeOpen} />
           </div>
         ))}
       </section>
 
       <footer className="statusbar">
+        <ListeningControls key={backendState} ready={backendState === 'ready'} status={playbackStatus}
+          seekEnabled={seekEnabled && !seekPending} onSeek={(target) => void seekPlayback(target)} />
         <PlaybackStatusBar
           status={playbackStatus}
           unavailableReason={backendDiagnostic}
           favoritePending={favoritePending}
           favoriteError={favoriteError}
           onToggleFavorite={() => void toggleFavorite()}
-          seekEnabled={seekEnabled}
-          seekPending={seekPending}
           seekError={seekError}
-          onSeek={(targetSeconds) => void seekPlayback(targetSeconds)}
+          timeline={playbackStatus && <PlaybackTimeline status={playbackStatus} seekEnabled={seekEnabled}
+            seekPending={seekPending} snapChapters={snapChapters} hotspots={hotspots}
+            onSeek={(targetSeconds, mediaId) => void seekPlayback(targetSeconds, mediaId)} />}
         />
         <div className="statusbar-operations" aria-label="Desktop operational status">
+          <MediaStudio ready={backendState === 'ready'} status={playbackStatus} />
           <span><b>PTY</b> {backendState}</span><span>{window.mariana.platform}</span>
           {desktopNotice && <span role="status" title={desktopNotice}>{desktopNotice}</span>}
           <span title="Program loudness normalization"><b>RG</b> {Number(loudnessStatus.replaygain_db || 0).toFixed(1)} dB{loudnessStatus.live_leveling ? ' · live' : ''}</span>
@@ -724,6 +871,30 @@ export default function App() {
         </div>
       </footer>
 
+      {homeOpen && (
+        <div className="homepage-backdrop">
+          <HomepagePanel homepage={homepage} error={homeError} refreshing={homeRefreshing}
+            onClose={closeHomepage} onRefresh={() => void refreshHomepage()}
+            onOpenSettings={() => setHomeSettingsOpen((open) => !open)}
+            onOpenLink={(link) => { void window.mariana.openExternal(link).catch(() => setHomeError('Could not open this source')) }}
+            loadImage={window.mariana.backend.homepageImageData}
+            selectionApi={window.mariana.backend} backendReady={backendState === 'ready'}
+            playback={playbackStatus} video={homeVideo} reducedMotion={reducedMotion}
+            active={!strudelOpen && !accountsOpen}
+            settings={homeSettingsOpen ? (
+              <fieldset className="homepage-settings" disabled={!homepage || homeConfiguring}>
+                <legend>Home settings</legend>
+                <label><input type="checkbox" checked={Boolean(homepage?.show_on_startup)}
+                  onChange={(event) => void configureHomepage('startup', event.target.checked)} /> Show Home on startup</label>
+                <label><input type="checkbox" checked={Boolean(homepage?.online_enabled)}
+                  onChange={(event) => void configureHomepage('online', event.target.checked)} /> Enable online discovery</label>
+              </fieldset>
+            ) : undefined}
+          />
+        </div>
+      )}
+      {strudelOpen && <div className="studio-backdrop"><StrudelPanel projection={strudel} api={window.mariana.backend} onClose={() => setStrudelOpen(false)} /></div>}
+      {accountsOpen && <AccountConnections close={()=>setAccountsOpen(false)} />}
       {timerOpen && (
         <aside className="timer-popover" aria-label="Sleep timer">
           <div className="popover-heading"><strong>Sleep timer</strong><button onClick={() => setTimerOpen(false)}>×</button></div>

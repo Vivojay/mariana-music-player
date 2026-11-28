@@ -8,6 +8,7 @@ import pytest
 
 import main
 from mariana.models import MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
+from mariana.video import LocalVideo
 
 
 def test_controller_reconnect_detaches_old_observers_and_rejects_late_delivery(monkeypatch):
@@ -23,7 +24,8 @@ def test_controller_reconnect_detaches_old_observers_and_rejects_late_delivery(m
     new_controller = controller("new", current)
     monkeypatch.setattr(main, "_PRESENTATION_OBSERVER_REMOVERS", [])
     monkeypatch.setattr(main, "_PRESENTATION_OBSERVER_GENERATION", None)
-    monkeypatch.setattr(main, "VIDEO", SimpleNamespace(activate=lambda *args: video.append(args)))
+    monkeypatch.setattr(main, "VIDEO", SimpleNamespace(activate=lambda *args: video.append(args),
+                                                       auto_open_local=lambda _media: False))
     monkeypatch.setattr(main, "PLAYBACK_RESUME", SimpleNamespace(activate=lambda *args: resume.append(args)))
     monkeypatch.setattr(main.vas, "controller", old_controller)
     media = MediaRef(MediaSource.LOCAL, "C:/fixture/movie.mp4")
@@ -49,6 +51,44 @@ def test_controller_reconnect_detaches_old_observers_and_rejects_late_delivery(m
     for callback in current:
         callback(media, resolved)
     assert len(video) == len(resume) == 2
+
+
+def test_electron_opens_window_for_committed_picture_and_honors_audio_only(tmp_path, monkeypatch):
+    callbacks, events = [], []
+    controller = SimpleNamespace(add_active_media_sink=lambda callback: callbacks.append(callback) or (lambda: None))
+    service = LocalVideo(tmp_path, lambda: None, lambda _state: None, enabled=lambda: True)
+    monkeypatch.setattr(service, "request", lambda *_args, **_options: None)
+    monkeypatch.setattr(service, "_emit", lambda: None)
+    monkeypatch.setattr(main.vas, "controller", controller)
+    monkeypatch.setattr(main, "_PRESENTATION_OBSERVER_REMOVERS", [])
+    monkeypatch.setattr(main, "_PRESENTATION_OBSERVER_GENERATION", None)
+    monkeypatch.setattr(main, "VIDEO", service)
+    monkeypatch.setattr(main, "_cli_video_allowed", lambda: True)
+    monkeypatch.setattr(main, "DESKTOP_CONTROL", SimpleNamespace(enabled=True,
+                                                                 emit=lambda name, payload: events.append((name, payload))))
+    main._connect_video_controller()
+    video_changed = callbacks[0]
+
+    first = MediaRef(MediaSource.LOCAL, str(tmp_path / "first.mp4"), resolver_data={"has_video_track": True})
+    video_changed(first, None)
+    video_changed(first, None)
+    assert events == [("video-window", {"open": True})]
+
+    audio_only = MediaRef(MediaSource.LOCAL, str(tmp_path / "audio-only.mp4"), resolver_data={"has_video_track": True})
+    service.expect(audio_only, "audio")
+    video_changed(audio_only, None)
+    assert events[-1] == ("video-window", {"open": False})
+
+    cover_art = MediaRef(MediaSource.LOCAL, str(tmp_path / "cover-art.m4a"), resolver_data={"has_video_track": False})
+    video_changed(cover_art, None)
+    youtube = MediaRef(MediaSource.YOUTUBE, "https://youtu.be/abcdefghijk")
+    video_changed(youtube, None)
+    video_changed(None, None)
+    assert len(events) == 2
+
+    queued = MediaRef(MediaSource.LOCAL, str(tmp_path / "queued.mp4"), resolver_data={"has_video_track": True})
+    video_changed(queued, None)
+    assert events[2:] == [("video-window", {"open": True})]
 
 
 def test_caption_persistence_preserves_other_settings_and_does_not_publish_a_failed_save(monkeypatch):
@@ -119,20 +159,25 @@ def test_resume_final_flush_runs_with_parallel_shutdown_and_uses_captured_positi
     assert "HOMEPAGE" in closes and "artwork" in closes
 
 
-@pytest.mark.parametrize("command", [
-    "play current --video", "/ys concert --video", "/yl https://youtu.be/abcdefghijk --video",
-    "/ml https://example.org/movie.mp4 --video",
-])
-def test_terminal_only_video_request_is_rejected_before_playback_or_resolution(monkeypatch, command):
-    calls, printed = [], []
+@pytest.mark.parametrize("play_state", [PlaybackState.PLAYING, PlaybackState.PAUSED])
+def test_terminal_play_current_video_attaches_to_youtube_without_touching_audio(monkeypatch, play_state):
+    from unittest.mock import Mock
+
+    media = MediaRef(MediaSource.YOUTUBE, "https://youtu.be/abcdefghijk")
+    snapshot = PlaybackSnapshot(play_state, media=media, position=8, duration=234)
+    controller = SimpleNamespace(snapshot=lambda: snapshot)
+    host, presentation = Mock(is_open=False), Mock()
+    monkeypatch.setattr(main.vas, "controller", controller)
     monkeypatch.setattr(main, "DESKTOP_CONTROL", SimpleNamespace(enabled=False))
-    monkeypatch.setattr(main, "play_vas_media", lambda *_args, **_kwargs: calls.append("play"))
-    monkeypatch.setattr(main, "choose_media_url", lambda *_args, **_kwargs: calls.append("choose"))
-    monkeypatch.setattr(main.YT_query, "search_youtube", lambda **_kwargs: calls.append("search"))
-    monkeypatch.setattr(main, "IPrint", lambda message, **_kwargs: printed.append(str(message)))
-    main.process(command)
-    assert calls == []
-    assert any("requires the Mariana desktop" in line for line in printed)
+    monkeypatch.setattr(main, "CLI_VIDEO", host)
+    monkeypatch.setattr(main, "_cli_video_allowed", lambda: True)
+    monkeypatch.setattr(main, "VIDEO", presentation)
+    monkeypatch.setattr(main, "_ensure_media_playable", lambda _media: None)
+    main.local_play_commands(["play", "current", "--video"])
+    host.open.assert_called_once_with()
+    presentation.request.assert_called_once_with("video", expected_media=media)
+    assert controller.snapshot().position == 8
+    assert controller.snapshot().state == play_state
 
 
 @pytest.mark.parametrize(("command", "value", "relative"), [

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { projectLocalVideo, videoClockTarget } from './localVideo'
+import { projectLocalVideo, videoClockTarget, videoPreparationMessage } from './localVideo'
 import { videoByteRange } from './localVideoProtocol'
 
 const row = {
@@ -33,6 +33,16 @@ describe('local video contract', () => {
       .toEqual({ available: true, enabled: true, label: 'English.srt', source: 'sidecar', auto_status: 'loaded', offset_ms: 250, text: 'Current cue', ...selection })
     expect(projectLocalVideo({ ...row, captions: { available: false, enabled: true, label: null, source: 'network', offset_ms: 0, text: null } })).toBeNull()
   })
+  it('surfaces safe preparation progress and omits other stage text', () => {
+    const state = projectLocalVideo({ ...row, state: 'preparing', handle: null,
+      stage: 'Preparing a lighter picture preview', elapsed_seconds: 6 })!
+    expect(videoPreparationMessage(state)).toBe('Preparing a lighter picture preview (6s)… Audio playback continues.')
+    const unsafe = projectLocalVideo({ ...row, state: 'preparing', stage: 'D:\\private.mp4', elapsed_seconds: -1 })!
+    expect(unsafe.stage).toBeUndefined()
+    expect(unsafe.elapsed_seconds).toBeUndefined()
+    expect(videoPreparationMessage(unsafe)).toContain('Preparing video at the current position')
+  })
+
   it('validates caption revisions and strips private catalogue metadata', () => {
     const track = { id: 'b'.repeat(32), label: 'English', language: 'eng', source: 'embedded', default: true, forced: false, codec: 'subrip' }
     const captions = { ...selection, revision: 7, tracks: [{ ...track, path: '/private/movie' }], selected_id: track.id, preferred_languages: ['eng'] }
@@ -46,6 +56,9 @@ describe('local video contract', () => {
   })
   it('follows backend time and freezes on stale or paused state', () => {
     const status = projectLocalVideo(row)!
+    const fast = projectLocalVideo({ ...row, playback_rate: 1.75 })!
+    expect(videoClockTarget(fast, 1000, 1250)).toEqual({ seconds: 10.4375, play: true })
+    expect(videoClockTarget({ ...fast, playing: false }, 1000, 1250)).toEqual({ seconds: 10, play: false })
     expect(videoClockTarget(status, 1000, 1250)).toEqual({ seconds: 10.25, play: true })
     expect(videoClockTarget({ ...status, playing: false }, 1000, 1250)).toEqual({ seconds: 10, play: false })
     expect(videoClockTarget(status, 1000, 2500)).toEqual({ seconds: 10, play: false })

@@ -29,19 +29,25 @@ function host() {
   const request = vi.fn<(action: string, payload: object, messages: object) => Promise<{ ok: boolean }>>()
     .mockResolvedValue({ ok: true })
   const validateSeek = vi.fn(() => ({ ok: true, targetSeconds: 60 }))
+  const playback = { media_id: 'media-1' }
+  const showOpenDialog = vi.fn<(...args: unknown[]) => Promise<{ canceled: boolean; filePaths: string[] }>>()
+    .mockResolvedValue({ canceled: false, filePaths: ['D:/Videos/fixture.srt'] })
   runInNewContext(hostCode, {
     mainWindow: desktop, miniPlayerWindow: mini, videoWindow: video,
     ipcMain: { handle: (channel: string, handler: Handler) => handlers.set(channel, handler), on: vi.fn() },
     protocol: { handle: vi.fn() },
     requestBackendControl: request, validateSeekIntent: validateSeek,
-    playbackStatus: { media_id: 'media-1' }, backendReady: true, seekControlMessages: {}, playbackControlMessages: {},
+    BrowserWindow: { fromWebContents: (sender: object) => [desktop, mini, video].find((window) => window.webContents === sender) },
+    dialog: { showOpenDialog },
+    playbackStatus: playback, backendReady: true, seekControlMessages: {}, playbackControlMessages: {},
   })
   const invoke = (channel: string, sender: object, ...args: unknown[]) => {
     const handler = handlers.get(channel)
     if (!handler) throw new Error(`Unregistered IPC channel: ${channel}`)
     return handler({ sender }, ...args)
   }
-  return { desktop: desktop.webContents, mini: mini.webContents, video: video.webContents, request, validateSeek, invoke }
+  return { desktop: desktop.webContents, mini: mini.webContents, video: video.webContents, request, validateSeek,
+    showOpenDialog, playback, invoke }
 }
 
 describe('host-authored playback origins', () => {
@@ -50,6 +56,15 @@ describe('host-authored playback origins', () => {
     expect(await scene.invoke('backend:seek', scene.desktop, 'media-1', 999, { origin: 'automatic' })).toEqual({ ok: true })
     expect(scene.request).toHaveBeenCalledExactlyOnceWith(
       'playback.seek', { media_id: 'media-1', target_seconds: 60, origin: 'desktop' }, {},
+    )
+    expect(scene.validateSeek).toHaveBeenCalledWith({ media_id: 'media-1' }, 'media-1', 999, true)
+  })
+
+  it.each(['mini', 'video'] as const)('validates %s window seek and supplies the Mini-player origin', async (surface) => {
+    const scene = host()
+    expect(await scene.invoke('mini:seek', scene[surface], 'media-1', 999, { origin: 'cli' })).toEqual({ ok: true })
+    expect(scene.request).toHaveBeenCalledExactlyOnceWith(
+      'playback.seek', { media_id: 'media-1', target_seconds: 60, origin: 'mini-player' }, {},
     )
     expect(scene.validateSeek).toHaveBeenCalledWith({ media_id: 'media-1' }, 'media-1', 999, true)
   })
@@ -70,7 +85,7 @@ describe('host-authored playback origins', () => {
     )
   })
 
-  it.each(['backend:seek', 'mini:play', 'mini:pause', 'mini:previous', 'mini:next'])('refuses foreign and opposite-window senders for %s', async (channel) => {
+  it.each(['backend:seek', 'mini:seek', 'mini:play', 'mini:pause', 'mini:previous', 'mini:next'])('refuses foreign and opposite-window senders for %s', async (channel) => {
     const scene = host()
     const opposite = channel === 'backend:seek' ? scene.mini : scene.desktop
     for (const sender of [{}, opposite]) {
@@ -116,6 +131,47 @@ describe('host-authored playback origins', () => {
       ok: false, error: 'Caption selection is invalid',
     })
     expect(scene.request).not.toHaveBeenCalled()
+  })
+
+  it.each(['mini', 'video'] as const)('routes caption, timing and picture controls from the %s window', async (surface) => {
+    const scene = host()
+    const track = 'a'.repeat(32)
+    const controls = [
+      ['video-configure', ['audio'], 'video.configure', { mode: 'audio' }],
+      ['video-filter', ['threshold', 38], 'video.filter', { preset: 'threshold', threshold: 38 }],
+      ['video-caption-configure', ['shift', -250], 'video.captions', { operation: 'shift', value: -250 }],
+      ['video-caption-select', [2, track], 'video.captions', { operation: 'select', revision: 2, track_id: track }],
+      ['video-caption-languages', [['en', 'pt-BR']], 'video.captions', { operation: 'languages', languages: ['en', 'pt-BR'] }],
+      ['video-caption-automatic', [], 'video.captions', { operation: 'auto' }],
+      ['video-audio-offset', [50, true], 'video.audio-offset', { value: 50, relative: true }],
+    ] as const
+    for (const [channel, args, operation, payload] of controls) {
+      expect(await scene.invoke(`mini:${channel}`, scene[surface], 'media-1', ...args)).toEqual({ ok: true })
+      expect(scene.request).toHaveBeenLastCalledWith(operation, { media_id: 'media-1', ...payload }, {})
+      expect(await scene.invoke(`mini:${channel}`, scene[surface], 'other-media', ...args)).toMatchObject({ ok: false })
+      expect(await scene.invoke(`mini:${channel}`, scene.desktop, 'media-1', ...args)).toMatchObject({ ok: false })
+      expect(await scene.invoke(`backend:${channel}`, scene[surface], 'media-1', ...args)).toMatchObject({ ok: false })
+    }
+    expect(scene.request).toHaveBeenCalledTimes(controls.length)
+  })
+
+  it('uses the pop-out native dialog as the only source of the caption path', async () => {
+    const scene = host()
+    expect(await scene.invoke('mini:video-caption-file', scene.video, 'media-1', true, 'D:/untrusted.vtt')).toEqual({ ok: true })
+    expect(scene.showOpenDialog).toHaveBeenCalledExactlyOnceWith({ webContents: scene.video, hide: expect.any(Function) }, {
+      title: 'Replace captions', properties: ['openFile'], filters: [{ name: 'Caption files', extensions: ['srt', 'vtt'] }],
+    })
+    expect(scene.request).toHaveBeenCalledExactlyOnceWith('video.captions', {
+      media_id: 'media-1', operation: 'replace', path: 'D:/Videos/fixture.srt',
+    }, {})
+    scene.showOpenDialog.mockImplementationOnce(async () => {
+      scene.playback.media_id = 'new-media'
+      return { canceled: false, filePaths: ['D:/Videos/late.vtt'] }
+    })
+    expect(await scene.invoke('mini:video-caption-file', scene.video, 'media-1', false)).toEqual({
+      ok: false, error: 'Current media changed; try again',
+    })
+    expect(scene.request).toHaveBeenCalledTimes(1)
   })
 
   it('forwards valid star ratings and rejects non whole numbers at the host', async () => {

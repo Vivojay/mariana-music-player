@@ -15,7 +15,7 @@ from typing import Any
 
 from .paths import runtime_paths
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 
 
 SCHEMA = """
@@ -308,10 +308,39 @@ CREATE TABLE IF NOT EXISTS recommendation_models (
     champion INTEGER NOT NULL DEFAULT 0,
     created_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS wall_profiles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    local INTEGER NOT NULL DEFAULT 0,
+    following INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX IF NOT EXISTS wall_single_owner ON wall_profiles(local) WHERE local = 1;
+CREATE TABLE IF NOT EXISTS wall_posts (
+    profile TEXT NOT NULL REFERENCES wall_profiles(id) ON DELETE CASCADE,
+    id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    artist TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    stars INTEGER NOT NULL,
+    created INTEGER NOT NULL,
+    PRIMARY KEY (profile, id)
+);
+CREATE INDEX IF NOT EXISTS wall_feed_order ON wall_posts(created DESC);
+CREATE TABLE IF NOT EXISTS wall_quiz (
+    day TEXT PRIMARY KEY, question TEXT NOT NULL, answer TEXT NOT NULL, won INTEGER
+);
 CREATE TABLE IF NOT EXISTS app_state (
     key TEXT PRIMARY KEY,
     value_json TEXT NOT NULL,
     updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS artist_inbox (
+    item_id TEXT PRIMARY KEY,
+    summary TEXT NOT NULL,
+    url TEXT NOT NULL UNIQUE,
+    first_seen REAL NOT NULL,
+    is_read INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS library_roots (
     root_id TEXT PRIMARY KEY,
@@ -349,6 +378,13 @@ CREATE TABLE IF NOT EXISTS library_files (
 CREATE INDEX IF NOT EXISTS library_files_root_idx ON library_files(root_id, state);
 CREATE INDEX IF NOT EXISTS library_files_file_key_idx ON library_files(file_key);
 CREATE INDEX IF NOT EXISTS library_files_content_idx ON library_files(content_signature);
+CREATE TABLE IF NOT EXISTS library_similarity (
+    library_id TEXT PRIMARY KEY REFERENCES library_files(library_id) ON DELETE CASCADE,
+    analysis_version INTEGER NOT NULL,
+    size INTEGER NOT NULL,
+    mtime_ns INTEGER NOT NULL,
+    features_json TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS library_scan_runs (
     scan_id TEXT PRIMARY KEY,
     mode TEXT NOT NULL,

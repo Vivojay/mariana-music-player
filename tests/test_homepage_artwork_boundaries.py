@@ -167,7 +167,7 @@ def test_runtime_reconfiguration_rebinds_artwork_and_applies_independent_setting
     monkeypatch.setattr(main, "_artwork_active_media_changed", lambda media, _resolved: deliveries.append(("artwork", media)))
     monkeypatch.setattr(main, "VIDEO", SimpleNamespace(activate=lambda media, _resolved: deliveries.append(("video", media))))
     monkeypatch.setattr(main, "PLAYBACK_RESUME", SimpleNamespace(activate=lambda media, _resolved: deliveries.append(("resume", media))))
-    monkeypatch.setattr(main, "EQUALIZER", SimpleNamespace(settings=object()))
+    monkeypatch.setattr(main, "EQUALIZER", SimpleNamespace(restore_processor=lambda: replacement.equalizer.submit(object())))
     monkeypatch.setattr(main.vas, "controller", main.vas.controller)
     monkeypatch.setattr(main.vas, "configure", lambda **_kwargs: setattr(main.vas, "controller", replacement))
     monkeypatch.setattr(main.YT_query, "configure", lambda **_kwargs: None)

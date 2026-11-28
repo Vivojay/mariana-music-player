@@ -7,23 +7,33 @@ import { pathToFileURL } from 'node:url'
 
 test.use({ trace: 'off', screenshot: 'off', video: 'off' })
 
-test('native source-picture protocol preserves HD picture in two muted viewers', async () => {
+test('desktop content policy allows cached and source video in muted viewers', async () => {
   test.setTimeout(60_000)
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mariana-source-picture-'))
   const source = path.join(root, 'picture.mp4')
+  const cache = path.join(root, 'cache')
+  const sourceHandle = 'a'.repeat(32)
+  const localHandle = 'b'.repeat(32)
   const bootstrap = path.join(root, 'viewer.mjs')
   let application: Awaited<ReturnType<typeof electron.launch>> | undefined
   try {
+    const policy = fs.readFileSync(path.resolve('index.html'), 'utf8')
+      .match(/<meta\s+http-equiv="Content-Security-Policy"\s+content="[^"]+"\s*\/>/)?.[0]
+    if (!policy) throw new Error('The desktop index is missing its content security policy')
     execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-f', 'lavfi', '-i',
       'testsrc2=size=1920x1080:rate=60', '-t', '4', '-an', '-c:v', 'libx264',
       '-preset', 'ultrafast', '-movflags', '+faststart', source], { timeout: 30_000, stdio: 'pipe' })
+    fs.mkdirSync(cache)
+    execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-i', source, '-c:v', 'copy',
+      '-movflags', '+frag_keyframe+empty_moov+default_base_moof', path.join(cache, `${localHandle}.mp4`)],
+    { timeout: 30_000, stdio: 'pipe' })
     // Load the actual host protocol in an isolated native shell. No user profile,
     // provider credentials, audio output, or application library are involved.
     fs.writeFileSync(bootstrap, `
       import { app, BrowserWindow, protocol } from 'electron';
       import fs from 'node:fs';
       import http from 'node:http';
-      import { serveSourceVideo } from ${JSON.stringify(pathToFileURL(path.resolve('dist-electron/localVideoProtocol.js')).href)};
+      import { serveLocalVideo, serveSourceVideo } from ${JSON.stringify(pathToFileURL(path.resolve('dist-electron/localVideoProtocol.js')).href)};
       globalThis.viewerDiagnostics = [];
       const record = (event, details={}) => globalThis.viewerDiagnostics.push({event,time:performance.now(),...details});
       app.on('browser-window-created', (_event, window) => {
@@ -39,13 +49,13 @@ test('native source-picture protocol preserves HD picture in two muted viewers',
       app.setPath('userData', ${JSON.stringify(path.join(root, 'profile'))});
       const viewers = [];
       let viewersCreated;
-      const bothViewersCreated = new Promise(resolve => { viewersCreated = resolve });
+      const allViewersCreated = new Promise(resolve => { viewersCreated = resolve });
       const bytes = fs.readFileSync(${JSON.stringify(source)});
       const server = http.createServer(async (request, response) => {
         record('http', {method:request.method,range:request.headers.range});
         // Source readiness must not serialize fixture-window construction.
         // This gate also makes an accidental await inside the creation loop fail.
-        await bothViewersCreated;
+        await allViewersCreated;
         const match = /^bytes=(\\d*)-(\\d*)$/.exec(request.headers.range || '');
         const start = match && match[1] ? Number(match[1]) : 0;
         const end = match && match[2] ? Math.min(bytes.length-1, Number(match[2])) : bytes.length-1;
@@ -55,22 +65,28 @@ test('native source-picture protocol preserves HD picture in two muted viewers',
       });
       server.listen(0,'127.0.0.1',async () => {
         await app.whenReady();
-        const handle = 'a'.repeat(32);
+        const handle = ${JSON.stringify(sourceHandle)};
+        const localHandle = ${JSON.stringify(localHandle)};
         const status = {revision:1,state:'ready',handle,media_id:'one',transport:'source'};
+        const localStatus = {revision:1,state:'ready',handle:localHandle,media_id:'two'};
         const resource = {url:'http://127.0.0.1:'+server.address().port+'/'+'x'.repeat(32)+'/media',
           handle,revision:1,mediaId:'one'};
         protocol.handle('mariana-video', async request => {
           record('protocol', {method:request.method,range:request.headers.get('range')});
-          const response = await serveSourceVideo(request, () => ({status,resource,mediaId:'one'}));
+          const response = new URL(request.url).pathname === '/' + localHandle + '.mp4'
+            ? serveLocalVideo(request, ${JSON.stringify(cache)}, localStatus, 'two')
+            : await serveSourceVideo(request, () => ({status,resource,mediaId:'one'}));
           record('response', {status:response.status,length:response.headers.get('content-length')});
           return response;
         });
         const loads = [];
-        for (let n=0;n<2;n++) {
-          const window = new BrowserWindow({width:n ? 480:900,height:n ? 300:600,show:false,
+        for (const [index, pictureHandle] of [handle, handle, localHandle].entries()) {
+          const window = new BrowserWindow({width:index ? 480:900,height:index ? 300:600,show:false,
             webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
           viewers.push(window);
-          loads.push(window.loadURL('data:text/html,'+encodeURIComponent('<video muted playsinline preload="metadata" style="width:100%" src="mariana-video://current/'+handle+'.mp4"></video>'))
+          const html = '<!doctype html><head>' + ${JSON.stringify(policy)} + '</head>'
+            + '<video muted playsinline preload="metadata" style="width:100%" src="mariana-video://current/' + pictureHandle + '.mp4"></video>';
+          loads.push(window.loadURL('data:text/html,'+encodeURIComponent(html))
             .then(() => { record('load-resolved', {id:window.id}); window.show() }));
         }
         viewersCreated();
@@ -79,7 +95,7 @@ test('native source-picture protocol preserves HD picture in two muted viewers',
       app.on('window-all-closed',()=>{viewers.length=0;server.close();app.quit()});
     `)
     application = await electron.launch({ args: [bootstrap] })
-    await expect.poll(() => application!.windows().length).toBe(2)
+    await expect.poll(() => application!.windows().length).toBe(3)
     for (const page of application.windows()) {
       await expect.poll(() => page.locator('video').evaluate(node => (node as HTMLVideoElement).readyState)).toBeGreaterThan(0)
       const metadata = await page.locator('video').evaluate(node => {

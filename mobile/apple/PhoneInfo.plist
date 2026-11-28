@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+    <key>NSMicrophoneUsageDescription</key><string>Record your microphone when you start a take in Mariana.</string>
+    <key>NSSpeechRecognitionUsageDescription</key><string>Provide captions when you choose browser speech recognition.</string>
+    <key>LSApplicationQueriesSchemes</key><array><string>instagram-stories</string></array>
+    <key>MarianaMetaAppID</key><string>$(MARIANA_META_APP_ID)</string>
+</dict></plist>

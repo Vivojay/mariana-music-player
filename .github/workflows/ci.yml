@@ -29,13 +29,23 @@ jobs:
           cache: npm
       - name: Install Linux media runtime
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libportaudio2 ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2 ffmpeg pulseaudio pulseaudio-utils
       - name: Install macOS media runtime
         if: runner.os == 'macOS'
         run: brew install ffmpeg portaudio
       - name: Install Windows media runtime
         if: runner.os == 'Windows'
-        run: choco install ffmpeg --version=8.1.2 -y --no-progress
+        shell: pwsh
+        run: |
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            choco install ffmpeg --version=8.1.2 -y --no-progress
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($attempt -eq 3) { throw "Chocolatey could not install FFmpeg after three attempts." }
+            Start-Sleep -Seconds (15 * $attempt)
+          }
+          ffmpeg -version
+          if ($LASTEXITCODE -ne 0) { throw "FFmpeg failed its version check." }
+          ffprobe -version
       - name: Install Python environment
         run: python -m pip install -r requirements-dev.txt
       - name: Install desktop environment
@@ -53,6 +63,20 @@ jobs:
           python -m compileall -q main.py mariana beta lyrics_provider recommendation_engine tools
           python -m ruff check .
           pyright
+      - name: Start headless Linux audio
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          pulse_runtime="$(mktemp -d "$RUNNER_TEMP/mariana-pulse.XXXXXX")"
+          export PULSE_RUNTIME_PATH="$pulse_runtime"
+          pulseaudio --daemonize=yes --exit-idle-time=-1 -n \
+            --load=module-native-protocol-unix \
+            --load="module-null-sink sink_name=mariana_ci"
+          export PULSE_SERVER="unix:$pulse_runtime/native"
+          pactl info
+          pactl set-default-sink mariana_ci
+          python -c 'import sounddevice; print(sounddevice.query_hostapis())'
+          printf 'PULSE_SERVER=%s\n' "$PULSE_SERVER" >> "$GITHUB_ENV"
       - name: Test Python with branch coverage
         run: >-
           python -m pytest -q

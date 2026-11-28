@@ -24,6 +24,7 @@ class MemoryStream:
         if self.fail:
             raise OSError("disconnected")
         self.data += value
+        return len(value)
 
     def close(self):
         self.closed = True
@@ -327,3 +328,18 @@ def test_desktop_control_rejects_unauthenticated_and_sanitizes_handler_failure(m
     control.close()
     request_desktop.close()
     event_desktop.close()
+
+def test_control_results_remain_complete_across_short_named_pipe_writes():
+    class ShortPipe(MemoryStream):
+        def write(self, value):
+            chunk = bytes(value[:4096])
+            self.data += chunk
+            return len(chunk)
+
+    pipe = ShortPipe()
+    control = DesktopControl(endpoint="fixture", token="local-token")
+    control._event_stream = pipe
+    text = "duet 音符" * 20000
+    assert control.emit("control-result", {"request_id": "karaoke", "sheet": text})
+    assert pipe.data.endswith(b"\n")
+    assert json.loads(pipe.data)["payload"]["sheet"] == text

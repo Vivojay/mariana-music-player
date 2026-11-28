@@ -4,15 +4,6 @@ import MiniPlayerApp from './MiniPlayerApp'
 import { projectMiniPlayerControls } from './miniPlayerControls'
 import type { MarianaMiniPlayerApi, MiniPlayerSnapshot, PlaybackStatus } from './shared'
 
-vi.mock('./PlaybackStatusBar', () => ({
-  PlaybackStatusBar: ({ status, unavailableReason }: {
-    status?: PlaybackStatus | null
-    unavailableReason?: string | null
-  }) => (
-    <div aria-label="Playback status">{status?.title || unavailableReason}</div>
-  ),
-}))
-
 const showMain = vi.fn(async () => undefined)
 const hide = vi.fn(async () => undefined)
 const play = vi.fn(async () => ({ ok: true }))
@@ -21,6 +12,7 @@ const downloadCurrent = vi.fn(async () => ({ ok: true }))
 const downloadStatus = vi.fn(async () => ({ ok: true }))
 const previous = vi.fn(async () => ({ ok: true }))
 const next = vi.fn(async () => ({ ok: true }))
+const seek = vi.fn<(mediaId: string, targetSeconds: number) => Promise<{ ok: boolean; error?: string }>>()
 let snapshot: MiniPlayerSnapshot
 let receiveSnapshot: ((next: MiniPlayerSnapshot) => void) | undefined
 
@@ -33,9 +25,19 @@ beforeEach(() => {
   downloadStatus.mockClear()
   previous.mockClear()
   next.mockClear()
+  seek.mockReset().mockResolvedValue({ ok: true })
   receiveSnapshot = undefined
   snapshot = { ready: false, diagnostic: null, playback: null }
   const api: MarianaMiniPlayerApi = {
+    videoStatus: async () => ({ ok: true }),
+    videoConfigure: async () => ({ ok: true }),
+    videoFilter: async () => ({ ok: true }),
+    videoCaptionFile: async () => ({ ok: true }),
+    videoCaptionSelect: async () => ({ ok: true }),
+    videoCaptionLanguages: async () => ({ ok: true }),
+    videoCaptionAutomatic: async () => ({ ok: true }),
+    videoCaptionConfigure: async () => ({ ok: true }),
+    videoAudioOffset: async () => ({ ok: true }),
     snapshot: async () => snapshot,
     onSnapshot: (callback) => {
       receiveSnapshot = callback
@@ -45,6 +47,7 @@ beforeEach(() => {
     pause,
     previous,
     next,
+    seek,
     downloadCurrent,
     downloadStatus,
     showMain,
@@ -162,6 +165,28 @@ describe('Mini-player lifecycle surface', () => {
 
     await waitFor(() => expect(play).toHaveBeenCalledWith('track-1'))
     expect(pause).not.toHaveBeenCalled()
+  })
+
+  it('sends the seekbar target for the shown recording and follows authoritative updates', async () => {
+    let finishSeek: ((result: { ok: boolean }) => void) | undefined
+    seek.mockImplementationOnce(() => new Promise((resolve) => { finishSeek = resolve }))
+    snapshot = { ready: true, diagnostic: null, playback: playbackStatus({ state: 'paused' }) }
+    render(<MiniPlayerApp />)
+    const track = await screen.findByRole('button', { name: 'Seek playback position' })
+    vi.spyOn(track, 'getBoundingClientRect').mockReturnValue({
+      x: 10, y: 0, left: 10, right: 210, width: 200, height: 24, top: 0, bottom: 24,
+      toJSON: () => ({}),
+    })
+    fireEvent.click(track, { clientX: 84.5, detail: 1 })
+    expect(seek).toHaveBeenCalledExactlyOnceWith('track-1', 37.25)
+    expect(track).toBeDisabled()
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuetext', '10%')
+    await act(async () => {
+      receiveSnapshot?.({ ...snapshot, playback: playbackStatus({ state: 'paused', position_seconds: 37.25, percent: 37.25 }) })
+      finishSeek?.({ ok: true })
+    })
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuetext', '37%')
+    expect(track).toBeEnabled()
   })
 
   it('restores its safe snapshot and receives lifecycle updates', async () => {

@@ -1,0 +1,22 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'org.marianaplayer.app'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'org.marianaplayer.app'
+        minSdk 26
+        targetSdk 36
+        versionCode 1
+        versionName '0.1.0-preview'
+        manifestPlaceholders = [marianaMetaAppId: providers.gradleProperty("marianaMetaAppId").orElse("").get()]
+    }
+    sourceSets.main.assets.srcDir '../../../build/web-player'
+}
+tasks.register('checkPlayerAssets') {
+    doLast {
+        if (!file('../../../build/web-player/themes.js').isFile()) throw new GradleException('Run python tools/build_web_player.py from the repository root.')
+    }
+}
+tasks.named('preBuild').configure { dependsOn 'checkPlayerAssets' }
+
+dependencies { implementation "androidx.core:core:1.13.1" }

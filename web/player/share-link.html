@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer"><title>Share a music link · Mariana</title>
+<style>
+:root{color-scheme:dark;font:16px/1.5 system-ui;color:#f4f1ed;background:#11141b}
+body{max-width:37rem;margin:clamp(2rem,9vh,7rem) auto;padding:1rem}h1{font-size:clamp(2rem,7vw,3.6rem);margin:0 0 .5rem;line-height:1.08}
+label{display:block;font-weight:600}input{box-sizing:border-box;width:100%;margin:.4rem 0 .8rem;background:#1e2330;color:inherit;border:1px solid #70788a;padding:.8rem;border-radius:.5rem}
+[hidden]{display:none!important}nav{display:flex;gap:.6rem;flex-wrap:wrap}button,a{cursor:pointer;font:inherit;font-weight:600;background:#9af7d9;color:#121a1e;padding:.5rem .9rem;border:0;border-radius:.5rem;text-decoration:none}button:disabled{opacity:.45;cursor:default}
+:focus-visible{outline:3px solid #edc6ff;outline-offset:3px}iframe{border:0;width:100%;height:8rem;margin-top:1rem;border-radius:.6rem}#public-url{overflow-wrap:anywhere}
+</style><script defer src="public-share.js"></script></head>
+<body><main><h1>Share a music link</h1>
+<form id="public-form"><label for="public-input">Public music page</label><input type="url" required id="public-input" placeholder="Paste a track, album, or artist link"><button>Use this link</button></form>
+<p id="public-url" aria-live="polite"></p><nav id="share-actions" hidden aria-label="Share destinations">
+<button id="copy-link">Copy link</button><button id="share-device">Share…</button><button id="share-snap">Snapchat</button>
+<a id="share-fb" target="_blank" rel="noopener noreferrer">Facebook</a><a id="share-wa" target="_blank" rel="noopener noreferrer">WhatsApp</a>
+</nav><div id="snap-host"></div><p id="public-note" role="status"></p></main></body></html>

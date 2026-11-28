@@ -1,5 +1,7 @@
 # Verification matrix
 
+For the development patch, see the [workbench acceptance ledger](STUDIO_WORKBENCH.md) and [portable release checks](PORTABLE_RELEASES.md).
+
 Latest dated release-candidate run: [2026-07-17](verification/2026-07-17.md).
 Latest narrow source/native smoke: [2026-07-20](verification/2026-07-20.md).
 The source capability rows below include deterministic post-release batch

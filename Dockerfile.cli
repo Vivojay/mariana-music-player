@@ -1,0 +1,16 @@
+FROM node:24-bookworm-slim AS javascript
+FROM python:3.12-slim-bookworm
+COPY --from=javascript /usr/local/bin/node /usr/local/bin/node
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 MARIANA_DATA_DIR=/data
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates ffmpeg libportaudio2 libchromaprint-tools libsndfile1 tk \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 10001 mariana \
+    && install -d -o mariana -g mariana /data
+WORKDIR /opt/mariana
+COPY requirements.txt .
+RUN python -m pip install --no-cache-dir -r requirements.txt
+COPY . .
+USER mariana
+VOLUME ["/data"]
+ENTRYPOINT ["python", "main.py"]

@@ -105,3 +105,31 @@ def test_invalid_project_commands_never_write_or_render(projects, arguments):
     assert not projects.path.exists()
     main.DESKTOP_CONTROL.emit.assert_not_called()
     main._emit_strudel_projects.assert_not_called()
+
+
+def test_standalone_project_file_roundtrip_is_revision_bound(projects, tmp_path):
+    main.DESKTOP_CONTROL.enabled = False
+    source = tmp_path / 'Edited pattern.js'
+    created = main.strudel_command(['new', 'Evening Pattern'])
+    assert main.strudel_command(['export', created.name, str(source)]) == created
+    assert source.read_text(encoding='utf-8') == created.code
+    with pytest.raises(StrudelProjectError, match='already exists'):
+        main.strudel_command(['export', created.name, str(source)])
+    source.write_bytes('s("bd") // 夜\r\n'.encode('utf-8-sig'))
+    updated = main.strudel_command(['import', created.name, '1', str(source), '12'])
+    assert updated.code == 's("bd") // 夜\n'
+    assert (updated.revision, updated.preview_seconds) == (2, 12)
+    with pytest.raises(StrudelProjectError, match='changed'):
+        main.strudel_command(['import', created.name, '1', str(source)])
+    assert projects.get(created.name) == updated
+    main.play_vas_media.assert_not_called()
+
+
+@pytest.mark.parametrize('content', [b'x' * (65536 + 1), b'\xff', b'foo\x00bar'])
+def test_invalid_source_preserves_stored_revision(projects, tmp_path, content):
+    project = projects.create('A')
+    source = tmp_path / 'input.txt'
+    source.write_bytes(content)
+    with pytest.raises(StrudelProjectError):
+        main.strudel_command(['import', 'A', '1', str(source)])
+    assert projects.get('A') == project

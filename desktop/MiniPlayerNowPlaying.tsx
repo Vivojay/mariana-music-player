@@ -1,9 +1,13 @@
 import { PlaybackStatusBar } from './PlaybackStatusBar'
+import { PlaybackTimeline } from './PlaybackTimeline'
 import { formatChapterLabel, type PlaybackStatus } from './shared'
 
 type MiniPlayerNowPlayingProps = {
   status: PlaybackStatus | null
   unavailableReason: string
+  ready?: boolean
+  controlPending?: boolean
+  onSeek?: (targetSeconds: number, mediaId: string) => void
 }
 
 function finiteNumber(value: unknown): number | null {
@@ -35,7 +39,7 @@ function preferredRegionLabel(status: PlaybackStatus | null): string {
   return `Preferred region ${formatTime(start)}–${formatTime(end)}`
 }
 
-export function MiniPlayerNowPlaying({ status, unavailableReason }: MiniPlayerNowPlayingProps) {
+export function MiniPlayerNowPlaying({ status, unavailableReason, ready, controlPending, onSeek }: MiniPlayerNowPlayingProps) {
   const chapterLabel = status?.finite && !status.live ? formatChapterLabel(status.chapter) : ''
   const regionLabel = preferredRegionLabel(status)
   return (
@@ -48,7 +52,9 @@ export function MiniPlayerNowPlaying({ status, unavailableReason }: MiniPlayerNo
       >
         <span aria-hidden="true">♪</span>
       </div>
-      <PlaybackStatusBar status={status} unavailableReason={unavailableReason} />
+      <PlaybackStatusBar status={status} unavailableReason={unavailableReason} timeline={status && onSeek ? (
+        <PlaybackTimeline status={status} seekEnabled={ready} seekPending={controlPending} onSeek={onSeek} expandedHitTarget />
+      ) : undefined} />
       {(chapterLabel || regionLabel) && (
         <p className="mini-player-playback-context" aria-label="Playback context">
           {chapterLabel && <span>{chapterLabel}</span>}

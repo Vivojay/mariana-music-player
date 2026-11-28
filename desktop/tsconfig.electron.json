@@ -3,6 +3,7 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "resolveJsonModule": true,
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -10,5 +11,5 @@
     "rootDir": ".",
     "types": ["node"]
   },
-  "include": ["main.ts", "preload.cts", "miniPreload.cts", "shared.ts", "windowLifecycle.ts"]
+  "include": ["main.ts", "preload.cts", "miniPreload.cts", "strudelPreload.cts", "shared.ts", "windowLifecycle.ts"]
 }

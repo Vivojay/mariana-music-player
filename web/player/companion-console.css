@@ -1,0 +1,53 @@
+/* The browser Console uses the same connected editor and a single scrollback. */
+body[data-mode=console] .top {max-width:none;padding:.65rem 1rem}
+body[data-mode=console] #native-workspace {max-width:none;padding:0}
+body[data-mode=console] #native-controls > :not(#native-console),
+body[data-mode=flow] #native-console,
+#native-console[hidden] {display:none}
+body[data-mode=console] #native-workspace #pairing,
+body[data-mode=console] #native-message:not(:empty) {max-width:58rem;margin:1rem auto}
+body[data-mode=console] #native-workspace #native-console {
+  display:flex;flex-direction:column;margin:0;padding:0;min-height:72vh;height:calc(100vh - 4.2rem);
+  border:0;border-radius:0;background:var(--background);color:var(--text);overflow:hidden;
+  font:clamp(.88rem,1.35vw,1.05rem)/1.58 "IBM Plex Mono","Cascadia Code",Consolas,monospace;
+  --terminal-edge:clamp(.7rem,3vw,2.2rem);
+}
+#native-console .native-terminal-viewport {
+  flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;
+  padding:var(--terminal-edge);cursor:text;tab-size:4;
+}
+#native-console #native-log {
+  max-height:none;overflow:visible;margin:0;padding:0;border-radius:0;
+  color:inherit;background:transparent;font:inherit;white-space:pre-wrap;word-break:break-word;
+}
+.native-terminal-entry {display:block;padding-block-end:.75rem}
+.native-terminal-command,.native-terminal-context {color:var(--accent);font-weight:650}
+#native-console .native-terminal-context,#native-console #native-pending {margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+#native-console #native-pending:not(:empty) {margin:.4rem 0 .5rem;color:var(--muted)}
+#native-console #native-command {display:flex;align-items:baseline;gap:.6ch;flex-wrap:nowrap;padding:0;margin:0}
+#native-console label {font-size:0;white-space:nowrap}
+#native-console label:before {content:'┗━ ready ❱';font:600 1rem/1.55 monospace;color:var(--accent)}
+#native-console #native-command button {
+  position:absolute;width:1px;height:1px;min-height:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;
+}
+#native-console #native-command button:focus-visible {
+  position:static;width:auto;height:auto;overflow:visible;clip-path:none;
+}
+#native-console #native-text {
+  flex:1 1 auto;width:initial;min-width:1ch;min-height:0;
+  margin:0;padding:0;border:0;border-radius:0;background:none;color:var(--text);
+  box-shadow:none;outline:none;font:inherit;caret-color:var(--accent);
+}
+#native-console #native-text:focus {outline:none}
+#native-console #native-text::placeholder {color:transparent}
+#native-console #native-suggestions {margin:.35rem 0 .6rem;font-size:.85em}
+#native-console .native-terminal-guide {
+  flex:0 0 auto;border-top:1px solid var(--border);padding:.3rem var(--terminal-edge);
+  display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:.35rem .7rem;
+  margin:0;color:var(--muted);font-size:.73em;letter-spacing:-.01em;
+}
+@media(max-width:600px) {
+  #native-console label:before {font-size:.78rem}
+}
+
+#native-console .native-session-actions button {min-height:1.75rem;padding:.18rem .45rem;font:inherit}

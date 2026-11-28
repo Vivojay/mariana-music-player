@@ -43,6 +43,8 @@ describe('discovery projections', () => {
       'https://www.bravotv.com/vanderpump-rules',
       'https://www.bravotv.com/',
       'https://www.hayu.com/',
+      'https://sigilradio.live/',
+      'https://www.youtube.com/channel/UCANlvQuGwrusnPsc3SlTsmw',
     ]) {
       value.sections[0].items[0].link = link
       expect(projectHomepage(value)?.sections[0].items[0].link).toBe(link)
@@ -56,6 +58,7 @@ describe('discovery projections', () => {
       'https://www.bookclub.radio.evil.invalid/',
       'https://user:password@www.bookclub.radio/',
       'https://www.bookclub.radio:444/',
+      'https://www.youtube.com/watch?v=other-channel',
     ]) {
       value.sections[0].items[0].link = link
       expect(projectHomepage(value)).toBeNull()
@@ -139,7 +142,7 @@ describe('discovery projections', () => {
     const invalidLink = homepage()
     invalidLink.sections[0].items[0].link = 'file:///private/feed.xml'
     expect(projectHomepage(invalidLink)).toBeNull()
-    expect(projectHomepage({ ...homepage(), sections: Array.from({ length: 13 }, () => homepage().sections[0]) })).toBeNull()
+    expect(projectHomepage({ ...homepage(), sections: Array.from({ length: 17 }, (_, i) => ({ ...homepage().sections[0], key: String(i) })) })).toBeNull()
   })
 
   it('accepts only internally addressable artwork status', () => {

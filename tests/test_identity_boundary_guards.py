@@ -253,3 +253,35 @@ def test_real_embedded_sylt_timestamp_units_are_respected(monkeypatch, timestamp
     assert result is not None
     assert result.plain == "First\nSecond"
     assert result.synced == ("[00:01.250]First\n[00:02.500]Second" if timestamp_format == 2 else None)
+
+
+@pytest.mark.parametrize("error, message", [
+    (requests.Timeout("do not print"), "timed out"),
+    (requests.exceptions.SSLError("do not print"), "TLS"),
+    (requests.ConnectionError("do not print"), "network or proxy"),
+    (ValueError("do not print"), "unexpected response"),
+])
+def test_artist_musicbrainz_search_reports_actionable_errors_without_retry_delay(error, message):
+    provider = ProviderSession(error)
+    client = MusicBrainzClient(session=provider)
+    with pytest.raises(ValueError, match=message) as failure:
+        client.artist_catalogue_search("artist", 'artist:"River"')
+    assert "do not print" not in str(failure.value) and len(provider.calls) == 1
+    assert provider.calls[0][1]["headers"]["Accept"] == "application/json"
+    assert provider.calls[0][1]["timeout"] <= 8
+
+
+def test_artist_musicbrainz_reports_rate_limit_with_retry_after():
+    response = requests.Response()
+    response.status_code = 429
+    response.headers["Retry-After"] = "12"
+    client = MusicBrainzClient(session=ProviderSession(requests.HTTPError(response=response)))
+    with pytest.raises(ValueError, match=r"HTTP 429 .*12 seconds"):
+        client.artist_catalogue_search("artist", "example")
+
+
+@pytest.mark.parametrize("payload", [{}, {"artists": {}}, [], None])
+def test_malformed_artist_musicbrainz_response_is_not_a_catalogue_miss(payload):
+    client = MusicBrainzClient(session=ProviderSession(payload))
+    with pytest.raises(ValueError, match="unexpected search response"):
+        client.artist_catalogue_search("artist", "example")

@@ -272,11 +272,10 @@ def show_window(max_wait_lim,
     if not show_window:
         return None
 
-    # Create the window as a separate process
-    # so that it does not-block the main CLI interface
-    # and can be closed by the user
-    # (if the user wants to)
-    #
+    from mariana.terminal_io import current_session
+    if current_session() is not None:
+        from mariana.terminal_text import view_text
+        return view_text(head_text, text_to_be_displayed)
 
     lyrics_spawn_params = {
         'text_to_be_displayed': text_to_be_displayed,

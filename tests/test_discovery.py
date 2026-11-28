@@ -444,3 +444,61 @@ def test_queue_action_only_appends_and_play_does_not_replace_queue(monkeypatch):
     main._apply_discovery_selection(media, "play")
     supervisor.play.assert_called_once_with(media, origin="desktop")
     assert not queue.mock_calls
+
+
+@pytest.mark.parametrize("intent", ["queue", "play"])
+def test_release_picker_round_trip_from_terminal(selection, intent):
+    from mariana.terminal_actions import run_release_picker
+
+    service, _, _, background_apply, _, _ = selection
+    home = Mock()
+    card = {"id": "release:one", "title": "An edition", "source": "Source"}
+    home.snapshot.return_value = {"online_enabled": True, "sections": [{"title": "Releases", "items": [card]}]}
+    output, applied = [], Mock()
+    def run(*args):
+        return run_release_picker(args, home, service, output.append, applied)
+
+    assert run("picks", "edition") == [card]
+    assert "home pick release:one" in output[-1]
+    run("pick", card["id"])
+    assert service.wait()
+    tracks = run("choices")
+    assert tracks["state"] == "tracks"
+    with pytest.raises(ValueError, match="row"):
+        run("versions", str(tracks["revision"]), "2")
+    run("versions", str(tracks["revision"]), "1")
+    assert service.wait()
+    choices = run("choices")
+    assert choices["state"] == "choices"
+    assert any("Actual video title" in text for text in output)
+    with pytest.raises(ValueError, match="changed"):
+        run(intent, str(tracks["revision"]), "1")
+    assert run(intent, str(choices["revision"]), "1")["state"] == "complete"
+    assert applied.call_args.args[1] == intent
+    applied.assert_called_once()
+    background_apply.assert_not_called()
+    assert run("cancel")["state"] == "closed"
+
+
+def test_release_picker_consent_and_error_recovery(selection):
+    from mariana.terminal_actions import run_release_picker
+
+    service, *_ = selection
+    home = Mock()
+    home.snapshot.return_value = {"online_enabled": False}
+    output = []
+    assert not run_release_picker(["picks"], home, service, output.append, Mock())
+    home.release_target.assert_not_called()
+    assert "online enable" in output[-1]
+    choices = find_choices(service)
+    with pytest.raises(ValueError, match="Could not apply"):
+        run_release_picker(
+            ["play", str(choices["revision"]), "1"], home, service, output.append,
+            Mock(side_effect=RuntimeError("private details")),
+        )
+    state = service.snapshot()
+    assert state["state"] == "error"
+    assert "private" not in str(state)
+    service.begin("release:two", "f" * 32)
+    assert service.wait()
+    assert service.snapshot()["state"] == "tracks"

@@ -1,5 +1,7 @@
 # Mariana Product Roadmap
 
+Implementation and outstanding product, device and distribution work for the player expansion are tracked in the [Studio Workbench ledger](docs/STUDIO_WORKBENCH.md).
+
 ## Status vocabulary
 
 - Done: implemented and verified in source; packaged-release status is tracked separately.

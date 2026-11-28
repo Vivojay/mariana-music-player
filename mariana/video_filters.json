@@ -1,0 +1,12 @@
+{
+  "off": {"label": "Original", "kind": "identity"},
+  "sepia": {"label": "Sepia", "kind": "matrix", "matrix": [0.393, 0.769, 0.189, 0.349, 0.686, 0.168, 0.272, 0.534, 0.131]},
+  "grayscale": {"label": "Grayscale", "kind": "matrix", "matrix": [0.2126, 0.7152, 0.0722, 0.2126, 0.7152, 0.0722, 0.2126, 0.7152, 0.0722]},
+  "threshold": {"label": "Black and white threshold", "kind": "threshold"},
+  "high-contrast": {"label": "High contrast", "kind": "contrast"},
+  "invert": {"label": "Invert", "kind": "invert"},
+  "blue-gold": {"label": "Blue and gold monochrome", "kind": "duotone", "low": [0.05, 0.13, 0.31], "high": [1.0, 0.88, 0.30]},
+  "protanopia": {"label": "Protanopia simulation", "kind": "linear-matrix", "matrix": [0.152286, 1.052583, -0.204868, 0.114503, 0.786281, 0.099216, -0.003882, -0.048116, 1.051998]},
+  "deuteranopia": {"label": "Deuteranopia simulation", "kind": "linear-matrix", "matrix": [0.367322, 0.860646, -0.227968, 0.280085, 0.672501, 0.047413, -0.011820, 0.042940, 0.968881]},
+  "tritanopia": {"label": "Tritanopia simulation", "kind": "linear-matrix", "matrix": [1.255528, -0.076749, -0.178779, -0.078411, 0.930809, 0.147602, 0.004733, 0.691367, 0.303900]}
+}

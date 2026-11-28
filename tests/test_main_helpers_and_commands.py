@@ -837,7 +837,7 @@ def test_run_reports_every_update_safety_reason_and_first_boot(monkeypatch, tmp_
     monkeypatch.setattr(main.vas, "set_media", lambda **kwargs: events.append(("set-media", kwargs)))
     monkeypatch.setattr(main.vas, "media_player", lambda **kwargs: events.append(("play", kwargs)))
     monkeypatch.setattr(main, "notify", lambda **kwargs: events.append(("notify", kwargs)))
-    monkeypatch.setattr(main, "RUNTIME_PATHS", SimpleNamespace(resource=lambda *_parts: startup_sound))
+    monkeypatch.setattr(main, "RUNTIME_PATHS", SimpleNamespace(profile_id="test-profile", resource=lambda *_parts: startup_sound))
     monkeypatch.setattr(main, "save_user_data", lambda: events.append("save"))
     monkeypatch.setattr(main, "showbanner", lambda: events.append("banner"))
     monkeypatch.setattr(main, "mainprompt", lambda: events.append("prompt"))
@@ -861,7 +861,13 @@ def test_run_reports_every_update_safety_reason_and_first_boot(monkeypatch, tmp_
     assert any(event[0] == "set-media" for event in events if isinstance(event, tuple))
     assert (
         "ready",
-        {"version": main.__version__, "theme": "aurora", "close_button_behavior": "quit"},
+        {
+            "listener_profile_id": "test-profile",
+            "version": main.__version__,
+            "theme": "aurora",
+            "theme_colors": {},
+            "close_button_behavior": "quit",
+        },
     ) in events
     assert "banner" in events and "prompt" in events
 
@@ -950,6 +956,8 @@ def test_help_covers_user_topics_examples_and_legacy_topic_names(monkeypatch):
     monkeypatch.setattr(main, "IPrint", lambda value="", **_kwargs: printed.append(str(value)))
 
     expected_topics = {
+        "Music wall",
+        "Artists",
         "Getting started",
         "Playback",
         "Seek and fade",
@@ -961,6 +969,8 @@ def test_help_covers_user_topics_examples_and_legacy_topic_names(monkeypatch):
         "Playlists",
         "Tags",
         "Composition",
+        "Sound design",
+        "Listener profiles",
         "Session recipes",
         "Paired desktops",
         "Lyrics",
@@ -981,6 +991,8 @@ def test_help_covers_user_topics_examples_and_legacy_topic_names(monkeypatch):
     assert main.help_command(["queue"])[0][0] == "Queue"
     assert any('queue ys "artist title" 5' in value and "/ysq" in value for value in printed)
 
+    assert main.help_command(["wall"])[0][0] == "Music wall"
+    assert main.help_command(["artist"])[0][0] == "Artists"
     assert main.help_command(["online"])[0][0] == "Search and online sources"
     assert main.help_command(["details"])[0][0] == "Diagnostics"
     assert main.help_command(["app"])[0][0] == "Settings"
@@ -1545,7 +1557,7 @@ def test_managed_tool_migration_handles_complete_declined_success_and_failure(mo
 
     states.clear()
     installed = []
-    incomplete = SimpleNamespace(complete=False)
+    incomplete = SimpleNamespace(complete=False, missing_required=(), missing_optional=("rsgain",))
     complete = SimpleNamespace(complete=True)
     statuses = iter([incomplete, complete])
     monkeypatch.setattr(main, "discover_media_tools", lambda _settings: next(statuses))
@@ -1553,7 +1565,7 @@ def test_managed_tool_migration_handles_complete_declined_success_and_failure(mo
     monkeypatch.setattr(
         main,
         "TOOLCHAIN",
-        SimpleNamespace(install_recommended=lambda **_kwargs: installed.append("install")),
+        SimpleNamespace(install_missing=lambda names, **_kwargs: installed.append("install") or {name: name for name in names}),
     )
     monkeypatch.setattr(main, "persist_media_tools", lambda *_args, **_kwargs: installed.append("persist"))
     monkeypatch.setattr(main, "refresh_runtime_configuration", lambda **_kwargs: installed.append("refresh"))
@@ -1566,9 +1578,24 @@ def test_managed_tool_migration_handles_complete_declined_success_and_failure(mo
         main,
         "TOOLCHAIN",
         SimpleNamespace(
-            install_recommended=lambda **_kwargs: (_ for _ in ()).throw(main.ToolchainError("offline"))
+            install_missing=lambda names, **_kwargs: (_ for _ in ()).throw(main.ToolchainError("offline"))
         ),
     )
     assert main.ensure_managed_tool_migration() is incomplete
     assert "failed" in messages[-1].casefold()
     assert "managed_tool_prompt_version" not in states
+
+def test_unrecognized_forms_offer_edits_and_keep_real_actions_explicit(monkeypatch):
+    messages, played = [], []
+    monkeypatch.setattr(main, "IPrint", lambda message, **_kwargs: messages.append(message))
+    monkeypatch.setattr(main, "SAY", lambda **kwargs: messages.append(kwargs["display_message"]))
+    monkeypatch.setattr(main, "local_play_commands", lambda **kwargs: played.append(kwargs["commandslist"]))
+    main.process('pllay "Mixed Case 歌"')
+    assert not played and "Did you mean play" in messages[-1]
+    main.process('play "Mixed Case 歌"')
+    assert played == [["play", "Mixed Case 歌"]]
+    def reject(_args):
+        raise ValueError("Unknown room operation")
+    monkeypatch.setattr(main, "jam_command", reject)
+    main.process("jam cuue !Room:server")
+    assert "Unknown room operation" in messages[-1] and "Did you mean cue" in messages[-1]

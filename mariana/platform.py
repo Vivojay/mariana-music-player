@@ -13,17 +13,28 @@ class PlatformCapabilityError(RuntimeError):
     pass
 
 
+def _launch_gui(arguments: list[str]) -> None:
+    # A file manager or desktop opener can outlive the command. Keep its
+    # child process off the TUI's keyboard and terminal screen.
+    from .terminal_io import current_session
+
+    if current_session() is None:
+        subprocess.Popen(arguments)
+    else:
+        subprocess.Popen(arguments, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def reveal_path(path: str | Path) -> None:
     target = Path(path).expanduser().resolve()
     if sys.platform == "win32":
-        subprocess.Popen(["explorer", "/select,", str(target)])
+        _launch_gui(["explorer", "/select,", str(target)])
     elif sys.platform == "darwin":
-        subprocess.Popen(["open", "-R", str(target)])
+        _launch_gui(["open", "-R", str(target)])
     else:
         opener = shutil.which("xdg-open")
         if not opener:
             raise PlatformCapabilityError("No Linux file-manager opener (xdg-open) is available")
-        subprocess.Popen([opener, str(target if target.is_dir() else target.parent)])
+        _launch_gui([opener, str(target if target.is_dir() else target.parent)])
 
 
 def open_path(path: str | Path) -> None:
@@ -31,12 +42,12 @@ def open_path(path: str | Path) -> None:
     if sys.platform == "win32":
         os.startfile(target)  # type: ignore[attr-defined]
     elif sys.platform == "darwin":
-        subprocess.Popen(["open", str(target)])
+        _launch_gui(["open", str(target)])
     else:
         opener = shutil.which("xdg-open")
         if not opener:
             raise PlatformCapabilityError("No Linux opener (xdg-open) is available")
-        subprocess.Popen([opener, str(target)])
+        _launch_gui([opener, str(target)])
 
 
 def _run_text(arguments: list[str]) -> str:

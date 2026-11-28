@@ -11,6 +11,8 @@ from typing import Any
 
 import numpy as np
 
+from .deesser import VoiceDeEsser, validate_mode
+
 
 def _lazy_sosfilt(*args: Any, **kwargs: Any) -> Any:
     """Placeholder replaced before a non-flat bank reaches the audio callback."""
@@ -147,6 +149,7 @@ class EqualizerProcessor:
     def __init__(self, sample_rate: int = 48000) -> None:
         coefficients(EqualizerSettings(), sample_rate)
         self.sample_rate = sample_rate
+        self.deesser: VoiceDeEsser | None = None
         self.ramp = np.linspace(0, 1, round(sample_rate * TRANSITION_SECONDS))[:, None]
         self.current = self.prepare(EqualizerSettings())
         self.pending: _Bank | None = None
@@ -234,7 +237,9 @@ class EqualizerService:
         self.presets: dict[str, EqualizerSettings] = {}
         self.warning: str | None = None
         try:
-            self.settings = EqualizerSettings.parse(raw or {})
+            stored = dict(raw) if isinstance(raw, Mapping) else raw
+            mode = validate_mode(stored.pop("deesser", "off")) if isinstance(stored, dict) else "off"
+            self.settings = EqualizerSettings.parse(stored or {})
             raw_presets = raw.get("presets", {}) if isinstance(raw, Mapping) else {}
             if not isinstance(raw_presets, Mapping) or len(raw_presets) > MAX_PRESETS:
                 raise ValueError("Invalid presets")
@@ -243,8 +248,21 @@ class EqualizerService:
         except ValueError:
             self.settings = EqualizerSettings()
             self.presets = {}
+            mode = "off"
             self.warning = "Invalid saved EQ settings; playback is bypassed. Saved data was not overwritten."
-        self.engine().submit(self.engine().prepare(self.settings))
+        self.deesser_mode = mode
+        try:
+            self.restore_processor()
+        except ValueError:
+            self.deesser_mode = "off"
+            self.warning = "Spoken-word processing is unavailable; playing original audio."
+            self.restore_processor()
+
+    def restore_processor(self) -> None:
+        with self.lock:
+            engine = self.engine()
+            engine.submit(engine.prepare(self.settings))
+            engine.deesser = VoiceDeEsser(self.deesser_mode, engine.sample_rate) if self.deesser_mode != "off" else None
 
     @staticmethod
     def _name(name: object) -> str:
@@ -260,7 +278,7 @@ class EqualizerService:
             points = np.geomspace(20, min(20000, engine.sample_rate * .45), 128)
             curve = response(self.settings, engine.sample_rate, points)
             return {**self.settings.to_dict(), "revision": self.revision, "sample_rate": engine.sample_rate,
-                    "frequencies": list(FREQUENCIES),
+                    "deesser": self.deesser_mode, "frequencies": list(FREQUENCIES),
                     "available_bands": [value < engine.sample_rate * .45 for value in FREQUENCIES],
                     "response": [[float(hz), float(db)] for hz, db in zip(points, curve, strict=True)],
                     "recommended_preamp": -min(36, sum(max(0, value) for value in self.settings.bands)),
@@ -275,13 +293,19 @@ class EqualizerService:
             if type(revision) is not int or revision != self.revision:
                 raise ValueError("Equalizer changed; refresh and try again")
             operation = intent.get("operation")
-            required = {"enabled": {"enabled"}, "band": {"frequency", "gain"}, "preamp": {"gain"},
+            required = {"deesser": {"mode"}, "enabled": {"enabled"}, "band": {"frequency", "gain"}, "preamp": {"gain"},
                         "reset": set(), "preset-apply": {"name"}, "preset-save": {"name"},
                         "preset-delete": {"name"}}
             if not isinstance(operation, str) or operation not in required or set(intent) - {"revision", "operation"} != required[operation]:
                 raise ValueError("Invalid equalizer control")
             settings, presets = self.settings, dict(self.presets)
-            if operation == "enabled":
+            deesser_mode = self.deesser_mode
+            processor = self.engine().deesser
+            if operation == "deesser":
+                deesser_mode = validate_mode(intent["mode"])
+                if deesser_mode != self.deesser_mode:
+                    processor = VoiceDeEsser(deesser_mode, self.engine().sample_rate) if deesser_mode != "off" else None
+            elif operation == "enabled":
                 if type(intent["enabled"]) is not bool:
                     raise ValueError("Enabled must be true or false")
                 settings = replace(settings, enabled=intent["enabled"])
@@ -312,8 +336,10 @@ class EqualizerService:
                 else:
                     del presets[name]
             bank = self.engine().prepare(settings) if settings != self.settings else None
-            self.persist({**settings.to_dict(), "presets": {name: value.to_dict() for name, value in presets.items()}})
+            self.persist({**settings.to_dict(), "deesser": deesser_mode, "presets": {name: value.to_dict() for name, value in presets.items()}})
             self.settings, self.presets = settings, presets
+            self.deesser_mode = deesser_mode
+            self.engine().deesser = processor
             self.revision += 1
             self.warning = None
             if bank is not None:
@@ -330,8 +356,10 @@ def command_intent(arguments: list[str]) -> dict[str, Any] | None:
         return {"operation": "reset"}
     if len(arguments) == 3 and arguments[0] == "band":
         return {"operation": "band", "frequency": frequency(arguments[1]), "gain": gain(float(arguments[2]))}
+    if len(arguments) == 2 and arguments[0] == "deesser":
+        return {"operation": "deesser", "mode": validate_mode(arguments[1])}
     if len(arguments) == 2 and arguments[0] == "preamp":
         return {"operation": "preamp", "gain": gain(float(arguments[1]), -36)}
     if len(arguments) == 3 and arguments[0] == "preset" and arguments[1] in {"apply", "save", "delete"}:
         return {"operation": f"preset-{arguments[1]}", "name": arguments[2]}
-    raise ValueError('Use eq status/on/off/band/preamp/reset or eq preset list/apply/save/delete "name"')
+    raise ValueError('Use eq status/on/off/band/preamp/deesser/reset or eq preset list/apply/save/delete "name"')

@@ -118,3 +118,25 @@ def test_cli_artwork_wait_is_bounded_and_never_opens_an_unavailable_image(presen
     presentation[1].assert_not_called()
     presentation[2].assert_not_called()
     assert presentation[0].position == 12 and presentation[0].state == PlaybackState.PAUSED
+
+
+@pytest.mark.parametrize('panel', ['mini', 'queue', 'playlists', 'albums', 'downloads', 'sleep', 'station'])
+def test_opening_a_desktop_panel_sends_a_typed_request(presentation, monkeypatch, panel):
+    emit = Mock(return_value=True)
+    monkeypatch.setattr(main, 'DESKTOP_CONTROL', SimpleNamespace(enabled=True, emit=emit))
+    assert main.desktop_command(['open', panel]) == panel
+    emit.assert_called_once_with('desktop-open', {'panel': panel})
+
+
+def test_open_panel_reports_invalid_or_disconnected_host(presentation, monkeypatch):
+    emit = Mock(return_value=False)
+    host = SimpleNamespace(enabled=False, emit=emit)
+    monkeypatch.setattr(main, 'DESKTOP_CONTROL', host)
+    with pytest.raises(ValueError, match='Usage'):
+        main.desktop_command(['open', 'unknown'])
+    with pytest.raises(ValueError, match='desktop terminal'):
+        main.desktop_command(['open', 'mini'])
+    emit.assert_not_called()
+    host.enabled = True
+    with pytest.raises(ValueError, match='unavailable'):
+        main.desktop_command(['open', 'mini'])

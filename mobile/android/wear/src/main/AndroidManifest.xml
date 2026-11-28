@@ -1,0 +1,14 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-feature android:name="android.hardware.type.watch" android:required="true"/>
+    <queries><intent><action android:name="android.intent.action.SEND"/><data android:mimeType="audio/wav"/></intent></queries>
+    <application android:icon="@drawable/mariana_icon" android:label="Mariana Wear" android:theme="@android:style/Theme.Material.NoActionBar" android:usesCleartextTraffic="false">
+        <provider android:name=".WatchClipProvider" android:authorities="${applicationId}.clips" android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/watch_clip_paths"/>
+        </provider>
+        <meta-data android:name="com.google.android.wearable.standalone" android:value="true"/>
+        <activity android:name=".WatchPlayer" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+        </activity>
+    </application>
+</manifest>

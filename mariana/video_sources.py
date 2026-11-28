@@ -30,6 +30,10 @@ class VideoSourceError(ValueError):
     """A static, display-safe video-source error."""
 
 
+class VideoAccessExpired(VideoSourceError):
+    """A source range was denied or its signed link has expired."""
+
+
 @dataclass(frozen=True, slots=True)
 class VideoTrack:
     uri: str = field(repr=False)
@@ -51,6 +55,7 @@ class VideoTracks:
     duration: float | None = None
     expires_at: float | None = None
     captions: tuple[ProviderCaptionCandidate, ...] = field(default=(), repr=False)
+    from_audio_selection: bool = False
 
 
 def _connection(url: str) -> tuple[http.client.HTTPConnection, str]:

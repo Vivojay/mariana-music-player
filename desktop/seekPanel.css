@@ -8,8 +8,18 @@
 .seek-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .seek-panel-heading button { color: inherit; background: transparent; border: 0; border-radius: 4px; min-width: 24px; min-height: 24px; cursor: pointer; }
 .seek-panel-caption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
+.seek-hover-needle {
+  position: absolute; z-index: 3; top: 50%; width: 2px; height: 14px;
+  transform: translate(-50%, -50%); border-radius: 1px; background: var(--text, #e8eeff);
+  box-shadow: 0 0 0 1px #0006; pointer-events: none;
+}
 .seek-precision-track { display: block; width: 100%; min-height: 36px; padding: 0; border: 0; border-radius: 3px; background: transparent; cursor: crosshair; flex-shrink: 0; }
-.seek-precision-track svg { display: block; width: 100%; height: 36px; pointer-events: none; overflow: hidden; }
+.seek-precision-track svg { display: block; width: 100%; height: 36px; pointer-events: none; overflow: visible; }
+.seek-zoom-track, .seek-zoom-chapter, .seek-zoom-target { vector-effect: non-scaling-stroke; }
+.seek-zoom-track { stroke: var(--muted, #8c98b8); stroke-width: 2px; stroke-opacity: .7; }
+.seek-zoom-region { fill: var(--accent, #6cf5d2); fill-opacity: .22; }
+.seek-zoom-chapter { stroke: var(--muted, #8c98b8); stroke-width: 1px; }
+.seek-zoom-target { stroke: var(--text, #e8eeff); stroke-width: 2px; }
 .seek-precision-track:disabled { cursor: wait; opacity: .65; }
 .seek-precision-panel button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .seek-panel-scale { display: flex; justify-content: space-between; gap: 8px; white-space: nowrap; }

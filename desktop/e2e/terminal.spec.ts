@@ -27,10 +27,10 @@ test('hosts the real Mariana PTY in the riced terminal shell', async () => {
       queue_count: expect.any(Number),
     })
     expect(await page.evaluate(() => Object.keys(window.mariana.backend).sort())).toEqual([
-      'artworkConfigure', 'artworkData', 'artworkShow', 'commandCatalog', 'crossfadeConfigure', 'discoveryBegin', 'discoveryCancel', 'discoveryChoose', 'downloadCurrent', 'downloadStatus', 'equalizerConfigure', 'equalizerStatus', 'focusRecoveryRetry', 'homepageConfigure', 'homepageImageData', 'homepageOpen', 'homepageRefresh', 'lyricsHide', 'lyricsOffset', 'lyricsRequest', 'lyricsStatus', 'next', 'onEvent', 'pause', 'play', 'previous', 'seek', 'setRating', 'snapshot',
+      'accounts', 'artworkConfigure', 'artworkData', 'artworkShow', 'commandCatalog', 'crossfadeConfigure', 'discoveryBegin', 'discoveryCancel', 'discoveryChoose', 'downloadCurrent', 'downloadStatus', 'equalizerConfigure', 'equalizerStatus', 'focusRecoveryRetry', 'homepageConfigure', 'homepageImageData', 'homepageOpen', 'homepageRefresh', 'lyricsHide', 'lyricsOffset', 'lyricsRequest', 'lyricsStatus', 'mediaStudio', 'next', 'onEvent', 'pause', 'play', 'previous', 'seek', 'setRating', 'snapshot',
       'strudelDelete', 'strudelOpen', 'strudelPreview', 'strudelSave',
       'toggleFavorite', 'videoAudioOffset', 'videoCaptionAutomatic', 'videoCaptionConfigure',
-      'videoCaptionFile', 'videoCaptionLanguages', 'videoCaptionSelect', 'videoConfigure', 'videoStatus', 'videoWindow',
+      'videoCaptionFile', 'videoCaptionLanguages', 'videoCaptionSelect', 'videoConfigure', 'videoFilter', 'videoStatus', 'videoWindow',
     ])
     const commandSuggestions = page.getByRole('combobox', { name: 'Command suggestions' })
     await commandSuggestions.focus()
@@ -237,11 +237,16 @@ test('creates one Mini-player window and hides it instead of closing it', async 
     await expect(miniPlayer.getByRole('button', { name: 'Previous' })).toBeDisabled()
     await expect(miniPlayer.getByRole('button', { name: 'Next' })).toBeDisabled()
     expect(await miniPlayer.evaluate(() => Object.keys(window.marianaMini).sort())).toEqual([
-      'downloadCurrent', 'downloadStatus', 'hide', 'next', 'onSnapshot', 'pause', 'platform', 'play', 'previous', 'showMain', 'snapshot',
-      'videoAudioOffset', 'videoCaptionConfigure', 'videoStatus',
+      'downloadCurrent', 'downloadStatus', 'hide', 'next', 'onSnapshot', 'pause', 'platform', 'play', 'previous', 'seek', 'showMain', 'snapshot',
+      'videoAudioOffset', 'videoCaptionAutomatic', 'videoCaptionConfigure', 'videoCaptionFile', 'videoCaptionLanguages',
+      'videoCaptionSelect', 'videoConfigure', 'videoFilter', 'videoStatus',
     ])
     expect(await miniPlayer.evaluate(() => typeof window.mariana)).toBe('undefined')
     expect(await miniPlayer.evaluate(() => window.marianaMini.next('missing-media'))).toEqual({
+      ok: false,
+      error: 'Current media changed; try again',
+    })
+    expect(await miniPlayer.evaluate(() => window.marianaMini.seek('missing-media', 10))).toEqual({
       ok: false,
       error: 'Current media changed; try again',
     })

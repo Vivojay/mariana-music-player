@@ -28,6 +28,7 @@ from typing import Any, Protocol
 
 from .credentials import CredentialStore
 from .models import MediaSource, PlaybackSnapshot, PlaybackState
+from .paths import profile_service_name
 from .playback_status import _clean_display_text, project_playback_status
 
 SCHEMA_VERSION = 1
@@ -101,8 +102,9 @@ class PairingSecrets(Protocol):
 class KeyringPairingSecrets:
     """Reuse the OS keyring dependency, deliberately without environment overrides."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, service: str = SERVICE_NAME) -> None:
         self._selected: Any = None
+        self._service = profile_service_name(service)
 
     def _backend(self) -> Any:
         if self._selected is not None:
@@ -143,7 +145,7 @@ class KeyringPairingSecrets:
     def get(self, reference: str) -> str | None:
         try:
             keyring = self._backend()
-            return keyring.get_password(SERVICE_NAME, reference)
+            return keyring.get_password(self._service, reference)
         except Exception:
             raise PairingError("The operating-system credential store is unavailable") from None
 
@@ -152,8 +154,8 @@ class KeyringPairingSecrets:
             raise PairingError("An empty pairing credential is not accepted")
         try:
             keyring = self._backend()
-            keyring.set_password(SERVICE_NAME, reference, value)
-            if keyring.get_password(SERVICE_NAME, reference) != value:
+            keyring.set_password(self._service, reference, value)
+            if keyring.get_password(self._service, reference) != value:
                 raise PairingError("The credential was not retained")
         except Exception:
             raise PairingError("The operating-system credential store rejected the credential") from None
@@ -161,8 +163,8 @@ class KeyringPairingSecrets:
     def delete(self, reference: str) -> None:
         try:
             keyring = self._backend()
-            if keyring.get_password(SERVICE_NAME, reference) is not None:
-                keyring.delete_password(SERVICE_NAME, reference)
+            if keyring.get_password(self._service, reference) is not None:
+                keyring.delete_password(self._service, reference)
         except Exception:
             raise PairingError("The operating-system credential store rejected removal") from None
 

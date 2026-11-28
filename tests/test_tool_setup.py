@@ -175,9 +175,9 @@ def test_default_setup_choice_runs_verified_auto_install(monkeypatch, tmp_path):
     saved = []
 
     class Manager:
-        def install_recommended(self, *, progress):
+        def install_missing(self, names, *, progress):
             progress("download")
-            return tmp_path / "tools"
+            return {name: str(tmp_path / name) for name in names}
 
     monkeypatch.setattr(tool_setup, "discover_media_tools", lambda _settings: next(statuses))
     monkeypatch.setattr(tool_setup, "persist_media_tools", lambda status, *_args, **_kwargs: saved.append(status))
@@ -458,8 +458,9 @@ def test_post_install_validation_failure_and_default_manager(monkeypatch, tmp_pa
         def __init__(self, paths):
             assert paths.data == tmp_path / "data"
 
-        def install_recommended(self, **_kwargs):
+        def install_missing(self, names, **_kwargs):
             installed.append(True)
+            return {name: str(tmp_path / name) for name in names}
 
     monkeypatch.setattr(tool_setup, "ToolchainManager", Manager)
     monkeypatch.setattr("builtins.input", lambda _prompt="": "1")
@@ -475,7 +476,7 @@ def test_failed_auto_install_has_actionable_recovery(monkeypatch, tmp_path):
     missing = MediaToolStatus(dict.fromkeys(tool_setup.ALL_TOOLS), dict.fromkeys(tool_setup.ALL_TOOLS))
 
     class Manager:
-        def install_recommended(self, **_kwargs):
+        def install_missing(self, names, **_kwargs):
             raise ToolchainError("offline")
 
     monkeypatch.setattr(tool_setup, "discover_media_tools", lambda _settings: missing)

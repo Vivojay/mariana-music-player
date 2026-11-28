@@ -1,0 +1,106 @@
+name: Mariana portable and native previews
+on: workflow_dispatch
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2 ffmpeg
+      - if: runner.os == 'macOS'
+        run: brew install ffmpeg portaudio
+      - if: runner.os == 'Windows'
+        run: choco install ffmpeg -y --no-progress
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python tools/build_web_player.py
+      - run: python tools/package_web_release.py
+      - run: python tools/check_web_release.py build/portable/Mariana-Web.pyz
+      - name: Exercise the self-contained Windows launcher
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Expand-Archive build/portable/Mariana-Web-Windows.zip build/windows-web
+          & .\build\windows-web\Open-Mariana.cmd --build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/check_web_release.py build/windows-web/Mariana-Web.exe
+      - name: Freeze the portable web facade
+        run: python -m PyInstaller --noconfirm --clean --onefile --name Mariana-Web --add-data "build/web-player:web-player" --distpath build/native packaging/web/portable_web.py
+      - name: Freeze the standalone player and TUI
+        run: python -m PyInstaller --noconfirm --clean --distpath build/native mariana-cli.spec
+      - name: Test native entry points and archive with permissions
+        run: python tools/archive_native_preview.py
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: Mariana-native-${{ runner.os }}-${{ runner.arch }}
+          path: build/portable/Mariana-native-*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: runner.os == 'Linux'
+        with:
+          name: Mariana-portable-web
+          path: build/portable/Mariana-Web*
+          if-no-files-found: error
+  electron-lite:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts
+      - run: npm run pack:lite
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: Mariana-Electron-Lite-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            build/electron-lite-release/*.AppImage
+            build/electron-lite-release/*.dmg
+            build/electron-lite-release/*.exe
+          if-no-files-found: error
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - run: docker build -t mariana-web:test .
+      - name: Run the release image and request the PWA
+        shell: bash
+        run: |
+          set -eu
+          id=$(docker run -d --read-only --tmpfs /tmp --cap-drop=ALL -p 127.0.0.1:8767:8080 mariana-web:test)
+          trap 'docker rm -f "$id" >/dev/null' EXIT
+          curl --retry 15 --retry-connrefused --retry-delay 1 --fail http://127.0.0.1:8767/healthz
+          curl --fail --silent http://127.0.0.1:8767/ | grep -q 'player.js'
+          curl --fail --silent http://127.0.0.1:8767/sw.js -o /dev/null
+      - name: Build CLI image and exercise the real entry point
+        run: |
+          docker build -f Dockerfile.cli -t mariana-cli:test .
+          docker run --rm mariana-cli:test --help
+          docker run --rm --entrypoint python mariana-cli:test -c "import sounddevice, tkinter, yt_dlp; from mariana.paths import initialize_runtime_paths; print(initialize_runtime_paths().data)"

@@ -12,6 +12,10 @@ design is documented in [ARCHITECTURE_STATE.md](ARCHITECTURE_STATE.md).
 Detailed test evidence remains in
 [docs/verification/2026-07-17.md](docs/verification/2026-07-17.md).
 
+## Local development patch
+
+The [studio follow-up](docs/STUDIO_NEXT.md) tracks browser library access, video, DJ, plug-ins, speech drafts and release work. The [Studio Workbench ledger](docs/STUDIO_WORKBENCH.md) describes the expansion and its verification against the dev-6 patch stack. The [release matrix](docs/PORTABLE_RELEASES.md) identifies portable artifacts and the remaining signed-release gates.
+
 ## Project overview
 
 Mariana is a local-first command-line and Electron terminal media player. The

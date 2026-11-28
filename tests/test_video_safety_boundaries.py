@@ -129,7 +129,7 @@ def test_discovery_cannot_reopen_closed_or_superseded_selection(local_video, mon
 def test_source_replacement_during_window_encoding_never_publishes(local_video, monkeypatch):
     service, media, snapshots, published = local_video
 
-    def encoded(_source, output, *_args):
+    def encoded(_source, output, *_args, lighter=False):
         with service._window_cache.writer(output) as target:
             target.write(b"bounded fixture window")
 

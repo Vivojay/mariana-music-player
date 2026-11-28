@@ -132,12 +132,16 @@ class DiscoverySelection:
             self._schedule("catalogue", (binding[0], page)) if is_catalogue else self._schedule("release", binding[0])
         self._notify()
 
-    def choose(self, request_id: str, revision: int, choice_id: str, intent: str) -> None:
+    def choose(
+        self, request_id: str, revision: int, choice_id: str, intent: str, *,
+        foreground_apply: Callable[[MediaRef, str], None] | None = None,
+    ) -> None:
         if (
             not HANDLE.fullmatch(request_id) or not HANDLE.fullmatch(choice_id)
             or type(revision) is not int or revision < 1 or intent not in {"versions", "play", "queue"}
         ):
             raise ValueError("Release selection request is invalid")
+        selected: MediaRef | None = None
         with self._condition:
             if not self._valid(request_id, revision):
                 raise ValueError(STALE)
@@ -155,8 +159,23 @@ class DiscoverySelection:
                 if self.unavailable(candidate.media):
                     raise ValueError("This version is blocked or unavailable")
                 self._change("working", message="Applying your selected version")
-                self._schedule(intent, candidate.media)
+                if foreground_apply is None:
+                    self._schedule(intent, candidate.media)
+                else:
+                    # The interactive command already owns playback until it returns.
+                    generation = self._generation
+                    selected = candidate.media
         self._notify()
+        if selected is not None and foreground_apply is not None:
+            try:
+                self._apply_choice(generation, request_id, intent, selected, foreground_apply)
+            except Exception:
+                with self._condition:
+                    if not self._closed and self._generation == generation:
+                        self._change("error", candidates=[], message="Could not apply this choice; find versions again")
+                raise ValueError("Could not apply this choice; find versions again") from None
+            finally:
+                self._notify()
 
     def cancel(self, request_id: str) -> None:
         with self._condition:
@@ -275,18 +294,25 @@ class DiscoverySelection:
                 ))
         else:
             assert isinstance(argument, MediaRef)
-            if self.unavailable(argument):
-                raise ValueError("This version is blocked or unavailable")
-            with self._condition:
-                if not self._valid(request_id, generation=generation):
-                    return
-            self.apply(argument, operation)
-            with self._condition:
-                if self._valid(request_id, generation=generation):
-                    self._change(
-                        "complete", candidates=[],
-                        message="Added to queue" if operation == "queue" else "Started selected version",
-                    )
+            self._apply_choice(generation, request_id, operation, argument, self.apply)
+
+    def _apply_choice(
+        self, generation: int, request_id: str, operation: str, media: MediaRef,
+        apply: Callable[[MediaRef, str], None],
+    ) -> None:
+        if self.unavailable(media):
+            raise ValueError("This version is blocked or unavailable")
+        with self._condition:
+            if not self._valid(request_id, generation=generation):
+                raise ValueError(STALE)
+        apply(media, operation)
+        with self._condition:
+            if self._valid(request_id, generation=generation):
+                self._change("complete", candidates=[], message=(
+                    "Added to queue" if operation == "queue" else "Started selected version"
+                ))
+            elif self._generation == generation and not self._closed:
+                self._change("error", candidates=[], message=STALE)
 
     def wait(self, timeout: float = 2.0) -> bool:
         with self._condition:

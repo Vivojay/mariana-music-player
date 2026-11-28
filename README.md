@@ -17,6 +17,14 @@ output, nested prompts, resizing, and every CLI command remain intact. Ctrl+C
 copies selected terminal text; with no selection, it interrupts the active
 command as usual.
 
+## Studio workbench
+
+Run `python main.py tui`, press **Ctrl+K** and select a command, or enter `tone procedure play twinkle`. Use `fx preset choir` for the effects rack and `play current --video` to open the picture for a supported recording. [Studio commands and feature status](docs/STUDIO_WORKBENCH.md) · [Downloads, web and Docker](docs/PORTABLE_RELEASES.md)
+
+## Studio follow-up
+
+For browser FLOW, open **Library** to import and filter local files. Run `web session flow` in the native player to use the CLI command catalog and browse its indexed library from a paired browser. See [studio updates and platform coverage](docs/STUDIO_NEXT.md).
+
 ## Supported environment
 
 - Windows 10 or 11 x64
@@ -98,6 +106,20 @@ python -m pip check
 python main.py
 ```
 
+To open the full-screen terminal player directly from the repository root in PowerShell, run:
+
+```powershell
+.\.venv\Scripts\python.exe .\main.py --tui
+```
+
+The positional form `python main.py tui` also works with the virtual environment active.
+A direct launch keeps Mariana in the full-screen player. From a browsing view press
+**Q** to confirm exit. Declining keeps the player open. From the ordinary Mariana
+prompt, enter `tui` for a nested view. **Q** there returns to that prompt.
+The command editor accepts `exit` to quit the entire player. On a fresh install,
+the full-screen setup view guides you through tools, library folders and optional
+samples. After setup, the player opens in the same screen. [Terminal workspace controls](docs/TUI_CAPABILITIES.md)
+
 To run the React terminal during development:
 
 ```powershell
@@ -116,6 +138,31 @@ changes invalidate it. This fast launch step does not replace `npm run typecheck
 
 Frontend verification uses `npm run lint`, `npm test`, `npm run build`, and
 `npm run test:e2e`.
+
+### Tone lab, discovery and cross-platform previews
+
+From the Mariana prompt, enter `tui` to open the [terminal workspace](docs/TUI_CAPABILITIES.md).
+Press **F6** to browse commands or **:** to type one. Try `tone sine 440 --seconds 2`,
+`home sources radio`, `artist discover`, or `wall help`. The integrated desktop player includes visible
+spoken-word and theme controls. The web player and phone shells include Console
+and Flow views, a persistent local library and a shareable music wall.
+
+Try `karaoke demo` for an original two-part practice recording. `karaoke status` explains the timing evidence for the loaded recording. Mark a range with `clip start` and `clip end`, then use `clip share`. Open `accounts` to see the available sign-ins and public profiles. Desktop also provides Karaoke and Share clip next to its playback controls. For native commands from browser Console or Flow, run `web session` inside Mariana on the same computer.
+
+Read the [karaoke and duet invite guide](docs/KARAOKE.md), [clip controls](docs/CLIP_SHARING.md), [account setup](docs/CONNECTIONS.md) and [platform comparison](docs/SURFACE_PARITY.md).
+
+Use the [surface launch and studio test guide](docs/STUDIO_SURFACES.md) for the TUI, Electron, Flow, Android and Apple previews.
+
+Build the standalone browser player and open its address in your browser.
+
+```powershell
+python tools/build_web_player.py --serve
+```
+
+Open [the local player](http://127.0.0.1:8767/). The [feature and release tracker](docs/PLAYER_EXPANSION_STATUS.md)
+records platform capabilities, verification and remaining release work. The
+[competitor research](docs/MARIANA_COMPETITOR_RESEARCH.md) maps the requested EQUALS
+and spoken-audio features to Mariana.
 
 ### Developer desktop builds and delivery
 
@@ -513,11 +560,7 @@ Escape-to-clear. Theme changes made in the selector issue the same `theme`
 command as the CLI, keeping runtime settings, the preset selector, and future
 launches synchronized.
 
-The title-bar command dropdown is a sanitized command explorer, not a command
-runner. It supports deterministic prefix/alias suggestions, keyboard and
-pointer selection, stale-result rejection, and accessible combobox/listbox
-state, but intentionally does not edit terminal input, write to the PTY, or
-execute commands.
+In the native terminal or the TUI’s `:` editor, press **Tab** to complete the command at the cursor. If Enter offers a spelling correction, press **Tab** to apply the edit and review the line. In Electron, the native terminal uses the same editor. The separate **Explore commands** field browses syntax without sending input to the terminal. The portable player provides keyboard and touch suggestions in Console and Flow. See the [command completion guide](docs/COMMAND_COMPLETION.md) for examples, supported values and checks.
 
 For eligible finite media, clicking or tapping the main desktop progress track
 sends one identity-bound absolute seek request through the typed backend

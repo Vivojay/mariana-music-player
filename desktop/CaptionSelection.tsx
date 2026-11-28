@@ -1,17 +1,17 @@
 import { useState } from 'react'
 import type { LocalVideoStatus } from './localVideo'
-import type { DesktopControlResult } from './shared'
+import type { DesktopControlResult, MarianaDesktopApi } from './shared'
 
 type Props = {
   captions: LocalVideoStatus['captions']
   mediaId: string
   pending: boolean
   local: boolean
+  api?: Pick<MarianaDesktopApi['backend'], 'videoCaptionSelect' | 'videoCaptionLanguages' | 'videoCaptionAutomatic'>
   apply: (request: () => Promise<DesktopControlResult>) => Promise<void>
 }
 
-export function CaptionSelection({ captions, mediaId, pending, local, apply }: Props) {
-  const api = window.mariana.backend
+export function CaptionSelection({ captions, mediaId, pending, local, api = window.mariana.backend, apply }: Props) {
   const savedLanguages = (captions.preferred_languages ?? []).join(' ')
   const [draft, setDraft] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)

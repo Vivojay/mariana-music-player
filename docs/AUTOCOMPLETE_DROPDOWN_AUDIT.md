@@ -1,5 +1,8 @@
 # Autocomplete and Command Dropdown Audit
 
+For current behavior, surface coverage and how to test it, see [command completion](COMMAND_COMPLETION.md). The sections below record the earlier desktop design and its original acceptance criteria.
+
+
 ## Scope and conclusion
 
 This document began as the command-completion audit for `dev-6`. It now also

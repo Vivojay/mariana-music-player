@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 import main
+from mariana import platform
 from mariana.command_catalog import COMMAND_CATALOG, CommandRisk
 from mariana.database import MarianaDatabase
 from mariana.models import MediaCapabilities, MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
@@ -152,8 +153,8 @@ def test_open_valid_local_string_preserves_existing_windows_selection(monkeypatc
     monkeypatch.setattr(main.vas, "controller", SimpleNamespace(
         snapshot=lambda: PlaybackSnapshot(PlaybackState.PLAYING, media=media),
     ))
-    monkeypatch.setattr(main.os, "system", opened.append)
+    monkeypatch.setattr(platform, "_launch_gui", opened.append)
     monkeypatch.setattr(main.webbrowser, "open", lambda *_args: pytest.fail("Local file is not a web page"))
     monkeypatch.setattr(main, "IPrint", lambda *_args, **_kwargs: None)
     main.process("open")
-    assert opened == [f"explorer /select, {str(path).replace('/', chr(92))}"]
+    assert opened == [["explorer", "/select,", str(path.resolve())]]

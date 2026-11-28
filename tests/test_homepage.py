@@ -152,7 +152,7 @@ def test_official_destinations_work_offline_without_fetching_or_inventing_rankin
         item for group in projection["sections"] if group["key"].endswith("-links")
         for item in group["items"]
     ]
-    assert len(destinations) == 20
+    assert len(destinations) == 78
     # KEXP is now a single native podcast card, not a second external-link record.
     all_items = [item for group in projection['sections'] for item in group['items']]
     assert [item['id'] for item in all_items if item['link'] == 'https://www.kexp.org/podcasts/live-on-kexp/'] == ['catalogue:live-on-kexp']
@@ -1106,6 +1106,10 @@ def test_multiple_discovery_sources_project_separate_sections_and_partial_failur
     assert projection["state"] == "ready"
     assert [item["title"] for item in projection_items(projection, "culture")] == ["Fresh story"]
     assert [item["title"] for item in projection_items(projection, "releases")] == ["A new album"]
+    spotlights = projection_items(projection, "artist-spotlight")
+    assert [(item["title"], item["summary"], item["link"]) for item in spotlights] == [
+        ("An artist", "Credited on A new album", release.link)
+    ]
 
     partial = HomepageService(
         configuration=HomepageConfiguration(True, True),

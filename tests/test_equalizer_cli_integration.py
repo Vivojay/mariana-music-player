@@ -114,7 +114,7 @@ def test_settings_help_and_catalog_expose_only_supported_eq_forms(eq_runtime, mo
     assert 'eq preset save "Quiet listening"' in "\n".join(printed)
     rows = {row["canonical"]: row for row in serialize_command_catalog() if str(row["key"]).startswith("eq")}
     assert set(rows) == {
-        "eq", "eq on", "eq off", "eq band", "eq preamp", "eq reset",
+        "eq", "eq on", "eq off", "eq band", "eq preamp", "eq deesser", "eq reset",
         "eq preset list", "eq preset apply", "eq preset save", "eq preset delete",
     }
     assert rows["eq"]["risk"] == rows["eq preset list"]["risk"] == CommandRisk.READ_ONLY.value

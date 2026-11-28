@@ -1,5 +1,7 @@
 # Known limitations
 
+The [workbench acceptance ledger](STUDIO_WORKBENCH.md) tracks audio device latency, third-party plug-in compatibility, provider startup, listener isolation and the platform release gates for this update.
+
 - Online album discovery depends on MusicBrainz and YouTube availability. A
   release may therefore remain partial; Mariana reports unresolved tracks and
   requires `--allow-partial` instead of silently substituting a different

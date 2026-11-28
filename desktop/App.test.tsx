@@ -21,6 +21,14 @@ const closeApp = vi.fn(async () => undefined)
 const showMiniPlayer = vi.fn(async () => undefined)
 const toggleFavorite = vi.fn(async (): Promise<FavoriteToggleResult> => ({ ok: true }))
 const seek = vi.fn(async (): Promise<SeekResult> => ({ ok: true }))
+const homepageOpen = vi.fn(async () => ({ ok: true }))
+const homepageRefresh = vi.fn(async () => ({ ok: true }))
+const homepageConfigure = vi.fn(async () => ({ ok: true }))
+const offlineHome = {
+  schema_version: 2 as const, show_on_startup: true, online_enabled: false, state: 'offline' as const,
+  refreshed_at: null, safe_message: null,
+  sections: [{ key: 'culture', title: 'Music, art, and culture', items: [] }],
+}
 const safeCommandCatalog: CommandCatalogResult = {
   ok: true,
   catalog: {
@@ -86,6 +94,9 @@ beforeEach(() => {
   showMiniPlayer.mockClear()
   toggleFavorite.mockClear()
   toggleFavorite.mockResolvedValue({ ok: true })
+  homepageOpen.mockClear()
+  homepageRefresh.mockClear()
+  homepageConfigure.mockClear()
   seek.mockClear()
   seek.mockResolvedValue({ ok: true })
   commandCatalog.mockReset()
@@ -111,6 +122,7 @@ beforeEach(() => {
         commandCatalog,
         toggleFavorite,
         seek,
+        homepageOpen, homepageRefresh, homepageConfigure,
         onEvent: (callback: typeof backendEvent) => { backendEvent = callback; return () => {} },
       },
       updates: { check, install, onState: (callback: typeof updateEvent) => { updateEvent = callback; return () => {} } },
@@ -124,6 +136,35 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('Mariana desktop shell', () => {
+  it('opens Home from the existing startup preference and does not reopen on a passive update', async () => {
+    backendSnapshot.homepage = offlineHome
+    render(<App />)
+    const home = await screen.findByRole('dialog', { name: 'Mariana home' })
+    expect(within(home).getByText('Music, art, and culture')).toBeVisible()
+    expect(within(home).getByRole('button', { name: 'Refresh' })).toBeDisabled()
+    fireEvent.click(within(home).getByRole('button', { name: 'Settings' }))
+    fireEvent.click(within(home).getByRole('checkbox', { name: 'Enable online discovery' }))
+    await waitFor(() => expect(homepageConfigure).toHaveBeenCalledWith('online', true))
+    fireEvent.keyDown(home, { key: 'Escape' })
+    act(() => backendEvent?.({ event: 'homepage', timestamp: Date.now(), payload: offlineHome }))
+    expect(screen.queryByRole('dialog', { name: 'Mariana home' })).not.toBeInTheDocument()
+  })
+
+  it('honors startup off and opens Home on the explicit native event', async () => {
+    const manual = { ...offlineHome, show_on_startup: false, online_enabled: true, state: 'ready' as const }
+    backendSnapshot.homepage = manual
+    render(<App />)
+    const open = screen.getByRole('button', { name: /^Home$/ })
+    await waitFor(() => expect(open).toBeEnabled())
+    expect(screen.queryByRole('dialog', { name: 'Mariana home' })).not.toBeInTheDocument()
+    fireEvent.click(open)
+    await waitFor(() => expect(homepageOpen).toHaveBeenCalledTimes(1))
+    act(() => backendEvent?.({ event: 'homepage', timestamp: Date.now(), payload: { ...manual, open_requested: true } }))
+    const home = await screen.findByRole('dialog', { name: 'Mariana home' })
+    fireEvent.click(within(home).getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(homepageRefresh).toHaveBeenCalledTimes(1))
+  })
+
   it('renders display-only command suggestions from the typed catalog boundary', async () => {
     render(<App />)
     const input = screen.getByRole('combobox', { name: 'Command suggestions' })
@@ -336,7 +377,26 @@ describe('Mariana desktop shell', () => {
     const options = screen.getByLabelText('Terminal theme').querySelectorAll('option')
     expect([...options].map((option) => option.textContent)).toEqual([
       'Mariana Aurora', 'Windows Terminal Acrylic', 'Kitty / Catppuccin', 'Gruvbox Dark',
+      'Classic Amp', 'Napster Blue', 'Dracula', 'Vampire Velvet', 'Vamp After Dark', 'Redblood',
     ])
+  })
+
+  it('opens a requested desktop panel from the backend terminal', () => {
+    render(<App />)
+    const open = (panel: string) => act(() => backendEvent?.({
+      event: 'desktop-open', payload: { panel }, timestamp: 1,
+    }))
+    open('queue')
+    expect(screen.getByLabelText('Queue tree')).toBeVisible()
+    open('downloads')
+    expect(screen.getByLabelText('Downloads', { selector: 'section' })).toBeVisible()
+    open('sleep')
+    expect(screen.getByLabelText('Sleep timer')).toBeVisible()
+    open('station')
+    expect(screen.getByLabelText('Station upcoming tracks')).toBeVisible()
+    open('mini')
+    expect(showMiniPlayer).toHaveBeenCalledOnce()
+    expect(write).not.toHaveBeenCalled()
   })
 
   it('opens the Mini-player through the typed app boundary', () => {
