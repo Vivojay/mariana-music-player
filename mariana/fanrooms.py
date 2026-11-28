@@ -208,31 +208,50 @@ def _credentials(saved):
     return origin, token, account
 
 
+def login_to_homeserver(origin, *, secrets=None, prompt=_secret_prompt, request=_request) -> str:
+    origin = _origin(origin)
+    store = secrets if secrets is not None else KeyringPairingSecrets(service="io.github.vivojay.mariana.matrix")
+    try:
+        token = prompt(origin)
+        if not isinstance(token, str) or not re.fullmatch(r"[!-~]{1,4096}", token):
+            raise ValueError("Empty or invalid access token")
+        account = request(origin, token, "GET", "account/whoami").get("user_id")
+        if not isinstance(account, str):
+            raise ValueError("Homeserver did not identify this account")
+        _identifier(account, "@")
+        store.set(_ACCOUNT, json.dumps([origin, token, account]))
+    except PairingError:
+        raise ValueError("Matrix login requires a supported operating-system credential store") from None
+    return f"Connected as {_display(account)} on {origin}."
+
+
 def run(arguments, *, secrets=None, prompt=_secret_prompt, request=_request) -> str:
     action, *values = arguments or ["help"]
     action = action.casefold()
     if action == "help" and not values:
         return _HELP
-    if action not in {"login", "status", "rooms", "join", "read", "wait", "post", "reply", "react", "thread", "thread-post", "poll", "poll-show", "vote", "poll-end", "report", "leave", "forget"}:
+    if action == "login":
+        if len(values) != 1:
+            raise ValueError("Usage: fanroom login <https://homeserver>. Enter the token only at the hidden prompt.")
+        return login_to_homeserver(values[0], secrets=secrets, prompt=prompt, request=request)
+    if action == "forget" and not values:
+        store = secrets if secrets is not None else KeyringPairingSecrets(service="io.github.vivojay.mariana.matrix")
+        try:
+            store.delete(_ACCOUNT)
+        except PairingError:
+            raise ValueError("Matrix login requires a supported operating-system credential store") from None
+        return "Removed this Mariana login from the credential store."
+    return run_room_command(action, values, secrets=secrets, request=request)
+
+
+def run_room_command(action, values, *, secrets=None, request=_request) -> str:
+    if action not in {
+        "status", "rooms", "join", "read", "wait", "post", "reply", "react", "thread",
+        "thread-post", "poll", "poll-show", "vote", "poll-end", "report", "leave",
+    }:
         raise ValueError(_HELP)
     store = secrets if secrets is not None else KeyringPairingSecrets(service="io.github.vivojay.mariana.matrix")
     try:
-        if action == "login" and len(values) == 1:
-            origin = _origin(values[0])
-            token = prompt(origin)
-            if not isinstance(token, str) or not re.fullmatch(r"[!-~]{1,4096}", token):
-                raise ValueError("Empty or invalid access token")
-            account = request(origin, token, "GET", "account/whoami").get("user_id")
-            if not isinstance(account, str):
-                raise ValueError("Homeserver did not identify this account")
-            _identifier(account, "@")
-            store.set(_ACCOUNT, json.dumps([origin, token, account]))
-            return f"Connected as {_display(account)} on {origin}."
-        if action == "forget" and not values:
-            store.delete(_ACCOUNT)
-            return "Removed this Mariana login from the credential store."
-        if action == "login":
-            raise ValueError("Usage: fanroom login <https://homeserver>. Enter the token only at the hidden prompt.")
         saved = store.get(_ACCOUNT)
     except PairingError:
         raise ValueError("Matrix login requires a supported operating-system credential store") from None

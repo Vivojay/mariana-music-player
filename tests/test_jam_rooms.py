@@ -192,7 +192,7 @@ def test_loopback_rooms_require_same_origin_and_dedicated_header(monkeypatch):
 
     from tools.build_web_player import PlayerRequest
 
-    monkeypatch.setattr(jams, "run", lambda args: {"message": "received " + args[0]})
+    monkeypatch.setattr(jams, "run_room_command", lambda args: {"message": "received " + args[0]})
     with ThreadingHTTPServer(("127.0.0.1", 0), PlayerRequest) as server:
         worker = threading.Thread(target=server.serve_forever, daemon=True)
         worker.start()
@@ -214,3 +214,13 @@ def test_loopback_rooms_require_same_origin_and_dedicated_header(monkeypatch):
         finally:
             server.shutdown()
             worker.join(3)
+
+
+def test_room_dispatchers_do_not_sign_in():
+    def forbidden_request(*_args, **_kwargs):
+        pytest.fail("Room commands must not start a Matrix sign-in.")
+
+    with pytest.raises(ValueError, match="Usage: jam login"):
+        jams.run_room_command(["LOGIN", "https://matrix.example.org"], secrets=Memory(), request=forbidden_request)
+    with pytest.raises(ValueError, match="fanroom login"):
+        fanrooms.run_room_command("login", ["https://matrix.example.org"], secrets=Memory(), request=forbidden_request)

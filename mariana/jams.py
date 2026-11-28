@@ -47,19 +47,30 @@ def _description(cue):
     return f"{cue['action']} at {cue['seconds']:g}s · {cue['title']}"
 
 
+def login_to_homeserver(origin, *, secrets=None, request=fanrooms._request, login=browser_token):
+    message = fanrooms.login_to_homeserver(
+        origin, secrets=secrets, request=request, prompt=lambda approved: login(approved, request)
+    )
+    return {"message": message}
+
+
 def run(args, *, secrets=None, request=fanrooms._request, login=browser_token, clock=time.time):
+    if args and args[0].casefold() == "login" and len(args) == 2:
+        return login_to_homeserver(args[1], secrets=secrets, request=request, login=login)
+    return run_room_command(args, secrets=secrets, request=request, clock=clock)
+
+
+def run_room_command(args, *, secrets=None, request=fanrooms._request, clock=time.time):
     action, *values = args or ["help"]
     action = action.casefold()
     if action == "help":
         return {"message": HELP}
+    if action == "login":
+        raise ValueError("Usage: jam login https://homeserver")
     store = secrets if secrets is not None else KeyringPairingSecrets(service="io.github.vivojay.mariana.matrix")
     try:
-        if action == "login" and len(values) == 1:
-            message = fanrooms.run(["login", values[0]], secrets=store, request=request,
-                                   prompt=lambda origin: login(origin, request))
-            return {"message": message}
         if action in ("status", "rooms", "join", "leave"):
-            message = fanrooms.run([action, *values], secrets=store, request=request)
+            message = fanrooms.run_room_command(action, values, secrets=store, request=request)
             result = {"message": message}
             if action == "join":
                 result["room_id"] = message.removeprefix("Joined ")

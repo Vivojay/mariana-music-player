@@ -167,7 +167,8 @@ def test_local_http_account_handler_requires_exact_origin_and_custom_header(hub,
 
 def test_browser_jam_login_requires_launcher_approved_origin(monkeypatch):
     executed = []
-    monkeypatch.setattr(jams, "run", executed.append)
+    monkeypatch.setattr(jams, "run_room_command", executed.append)
+    monkeypatch.setattr(jams, "login_to_homeserver", lambda origin: executed.append(["login", origin]))
     monkeypatch.setattr(
         connections_http, "_local_post", lambda handler, _path, _header, execute, *_limits: execute(handler)
     )
