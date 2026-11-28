@@ -23,7 +23,7 @@ class Memory(dict):
         self.pop(key, None)
 
 
-def test_two_user_jam(tmp_path, monkeypatch):
+def test_two_user_jam(tmp_path, monkeypatch, request):
     openssl = shutil.which("openssl")
     if not openssl:
         pytest.skip("OpenSSL binary required for fixture HTTPS certificate.")
@@ -31,6 +31,11 @@ def test_two_user_jam(tmp_path, monkeypatch):
     subprocess.run([openssl, "req", "-x509", "-nodes", "-newkey", "rsa:2048", "-days", "1", "-subj", "/CN=localhost",
                     "-addext", "subjectAltName=DNS:localhost", "-keyout", str(key), "-out", str(cert)],
                    check=True, capture_output=True)
+    # Use the standard TLS context throughout the fixture, including accepted
+    # connections. The Matrix client still validates against the fixture CA.
+    if ssl.SSLContext is truststore.SSLContext:
+        truststore.extract_from_ssl()
+        request.addfinalizer(truststore.inject_into_ssl)
     monkeypatch.setenv("REQUESTS_CA_BUNDLE", str(cert))
     monkeypatch.setenv("NO_PROXY", "localhost,127.0.0.1")
     host, guest = "@host:test", "@guest:test"
@@ -118,16 +123,7 @@ def test_two_user_jam(tmp_path, monkeypatch):
         do_GET = do_POST = do_PUT = dispatch
 
     with ThreadingHTTPServer(("127.0.0.1", 0), Matrix) as server:
-        # The fixture is a TLS server. Keep the application's client trust
-        # integration in place after obtaining a standard server context.
-        if ssl.SSLContext is truststore.SSLContext:
-            truststore.extract_from_ssl()
-            try:
-                tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-            finally:
-                truststore.inject_into_ssl()
-        else:
-            tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         tls.minimum_version = ssl.TLSVersion.TLSv1_2
         tls.load_cert_chain(cert, key)
         server.socket = tls.wrap_socket(server.socket, server_side=True)

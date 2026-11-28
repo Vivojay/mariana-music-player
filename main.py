@@ -11899,9 +11899,8 @@ def process(command):
                     if os.path.isfile(currentsong):
                         if os.path.splitext(currentsong)[1] in supported_file_types:
                             if sys.platform == 'win32':
-                                currentsong = currentsong.replace('/', '\\')
-                                IPrint(f"Opening currently playing audio: {currentsong}", visible=visible)
                                 reveal_path(currentsong)
+                                IPrint(f"Opening currently playing audio: {currentsong}", visible=visible)
                             else:
                                 currentsong = currentsong.replace('\\', '/')
                         else:
