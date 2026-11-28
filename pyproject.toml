@@ -8,6 +8,7 @@ markers = [
 ]
 
 [tool.coverage.run]
+patch = ["subprocess"]
 branch = true
 source = ["."]
 omit = [

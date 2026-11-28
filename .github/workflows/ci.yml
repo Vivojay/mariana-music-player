@@ -35,7 +35,17 @@ jobs:
         run: brew install ffmpeg portaudio
       - name: Install Windows media runtime
         if: runner.os == 'Windows'
-        run: choco install ffmpeg --version=8.1.2 -y --no-progress
+        shell: pwsh
+        run: |
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            choco install ffmpeg --version=8.1.2 -y --no-progress
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($attempt -eq 3) { throw "Chocolatey could not install FFmpeg after three attempts." }
+            Start-Sleep -Seconds (15 * $attempt)
+          }
+          ffmpeg -version
+          if ($LASTEXITCODE -ne 0) { throw "FFmpeg failed its version check." }
+          ffprobe -version
       - name: Install Python environment
         run: python -m pip install -r requirements-dev.txt
       - name: Install desktop environment
