@@ -29,7 +29,7 @@ def test_two_user_jam(tmp_path, monkeypatch, request):
         pytest.skip("OpenSSL binary required for fixture HTTPS certificate.")
     cert, key = tmp_path / "cert.pem", tmp_path / "key.pem"
     subprocess.run([openssl, "req", "-x509", "-nodes", "-newkey", "rsa:2048", "-days", "1", "-subj", "/CN=localhost",
-                    "-addext", "subjectAltName=DNS:localhost", "-keyout", str(key), "-out", str(cert)],
+                    "-addext", "subjectAltName=IP:127.0.0.1", "-keyout", str(key), "-out", str(cert)],
                    check=True, capture_output=True)
     # Use the standard TLS context throughout the fixture, including accepted
     # connections. The Matrix client still validates against the fixture CA.
@@ -130,7 +130,7 @@ def test_two_user_jam(tmp_path, monkeypatch, request):
         worker = threading.Thread(target=server.serve_forever, daemon=True)
         worker.start()
         try:
-            origin = f"https://localhost:{server.server_port}"
+            origin = f"https://127.0.0.1:{server.server_port}"
             a, b = Memory(), Memory()
 
             def sign_in(url):
