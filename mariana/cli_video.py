@@ -33,8 +33,8 @@ def _picture_sample(status, cache, sampled_at):
     revision = status.get("revision")
     media_id = status.get("media_id")
     kind = status.get("state")
-    sample = dict(source=None, media_id=media_id, revision=revision, state="idle", rate=status.get("playback_rate", 1.0),
-                  position=0.0, sampled_at=sampled_at, caption="", message="", filter=status.get("filter"))
+    sample = {"source": None, "media_id": media_id, "revision": revision, "state": "idle", "rate": status.get("playback_rate", 1.0),
+                  "position": 0.0, "sampled_at": sampled_at, "caption": "", "message": "", "filter": status.get("filter")}
     if kind != "ready" or not media_id:
         sample["message"] = {"error": _UNAVAILABLE + " Run video status for details.",
                              "preparing": "Preparing video…"}.get(kind, "Waiting for video…")
@@ -186,7 +186,9 @@ class CliVideoWindow:
                                 window.started = True
                             window.ready.set()
                     elif kind == "error":
-                        message = _CHILD_ERRORS.get(event.get("code"), "The separate video window encountered an error.")
+                        code = event.get("code")
+                        fallback = "The separate video window encountered an error."
+                        message = _CHILD_ERRORS.get(code, fallback) if isinstance(code, str) else fallback
                         if event.get("fatal", True):
                             self._fail(window, message)
                             return

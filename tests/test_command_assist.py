@@ -76,7 +76,7 @@ def test_quote_escape_roundtrips_private_paths_and_titles_before_following_token
     values.extend("".join(parts) for parts in itertools.product(("x", " ", "'", '"', "\\"), repeat=3))
     for value in values:
         line = 'dj load A "" --next'
-        suggestion = options(line, cursor=line.index('""') + 1, provider=lambda *_: [value])[value]
+        suggestion = options(line, cursor=line.index('""') + 1, provider=lambda *_, choice=value: [choice])[value]
         result, _ = suggestion.apply(line)
         assert split_command(result) == ["dj", "load", "A", value, "--next"]
 

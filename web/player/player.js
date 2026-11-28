@@ -198,6 +198,10 @@ async function select(item, autoplay, pictureMode='auto') {
   if ('mediaSession' in navigator && typeof MediaMetadata !== 'undefined') navigator.mediaSession.metadata = item ? new MediaMetadata({title:item.title, artist:item.by}) : null;
   if (!item) return;
   let src = item.url;
+  if (src) {
+    try { src = checkURL(src); }
+    catch { return status('This saved media URL is invalid. Remove it and add it again.'); }
+  }
   if (!src) {
     const file = memoryFiles.get(item.id) || await storedFile('get', item.id);
     if (seq !== generation) return;

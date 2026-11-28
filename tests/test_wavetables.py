@@ -3,6 +3,7 @@ import io
 import struct
 import wave
 import zipfile
+from itertools import pairwise
 
 import pytest
 
@@ -28,10 +29,11 @@ def test_preview_duration_level_and_pitch_are_usable():
         sig = struct.unpack(f'<{w.getnframes()}h',w.readframes(w.getnframes()))
     assert sig[0] == sig[-1] == 0 and 500 < max(sig) <= 7500
     middle = sig[bank.RATE//4:bank.RATE*3//4]
-    up = sum(a <= 0 < b for a,b in zip(middle,middle[1:]))
+    up = sum(a <= 0 < b for a, b in pairwise(middle))
     assert abs(2*up - 220) < 4
     for bad in (float('nan'), 0, 42000):
-        with pytest.raises(ValueError): bank.preview_wav('reed-amber',bad)
+        with pytest.raises(ValueError):
+            bank.preview_wav('reed-amber', bad)
 
 
 def test_bank_export_never_replaces_an_existing_file(tmp_path, monkeypatch):

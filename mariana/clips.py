@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import re
 import subprocess
 import tempfile
@@ -263,7 +262,8 @@ class ClipSession:
             if operation == "clear" and not values:
                 self.start = self.end = None
             elif operation == "range" and len(values) == 2:
-                self.start, self.end = _bounds(*(parse_region_time(v) for v in values), source.duration)
+                start, end = values
+                self.start, self.end = _bounds(parse_region_time(start), parse_region_time(end), source.duration)
             elif operation in {"start", "end"} and len(values) <= 1:
                 mark = parse_region_time(values[0]) if values else _number(snapshot.position)
                 if not 0 <= mark <= source.duration or (operation == "start" and mark >= source.duration):

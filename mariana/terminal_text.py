@@ -101,7 +101,10 @@ class _TextFile:
             previous, _ = _read(target)
             if previous != self.raw:
                 raise ValueError('The file was edited elsewhere. Saving this draft would overwrite those changes.')
-            mode = stat.S_IMODE(target.file_signature[2])
+            signature = target.file_signature
+            if signature is None:
+                raise ValueError('The requested text file does not exist.')
+            mode = stat.S_IMODE(signature[2])
             if not mode & 0o222 or not os.access(target.path, os.W_OK):
                 raise ValueError('This file is read-only.')
             fd, staged = tempfile.mkstemp(prefix='.mariana-edit-', dir=target.path.parent)

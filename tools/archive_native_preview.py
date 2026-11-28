@@ -1,13 +1,13 @@
 """Validate and bundle this host's frozen CLI/TUI and browser-player executables."""
 import hashlib
+import importlib.metadata
 import os
-from pathlib import Path
 import platform
 import shutil
 import subprocess
 import sys
 import tempfile
-import importlib.metadata
+from pathlib import Path
 
 from check_web_release import verify
 
@@ -35,7 +35,7 @@ def main():
         distribution = importlib.metadata.distribution('pyinstaller')
         for source in distribution.files or ():
             if source.name == 'COPYING.txt':
-                shutil.copy2(distribution.locate_file(source), directory / 'PYINSTALLER-LICENSE.txt')
+                shutil.copy2(str(distribution.locate_file(source)), directory / 'PYINSTALLER-LICENSE.txt')
                 break
         fmt = 'zip' if os.name == 'nt' else 'gztar'
         result = Path(shutil.make_archive(str(out / name), fmt, root_dir=work, base_dir=name))

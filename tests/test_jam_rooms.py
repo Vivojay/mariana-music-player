@@ -86,7 +86,7 @@ def test_two_user_jam(tmp_path, monkeypatch):
             elif operation == "leave":
                 members.remove(user)
             elif operation == "joined_members":
-                return self.reply(200, {"joined": dict.fromkeys(members, {})})
+                return self.reply(200, {"joined": {key_0: {} for key_0 in members}})
             elif operation.startswith("event/"):
                 result = next((item for item in events if item["event_id"] == operation.split("/")[1]), None)
                 return self.reply(200, result) if result else self.reply(404, {"errcode": "M_NOT_FOUND"})
@@ -118,6 +118,7 @@ def test_two_user_jam(tmp_path, monkeypatch):
 
     with ThreadingHTTPServer(("127.0.0.1", 0), Matrix) as server:
         tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        tls.minimum_version = ssl.TLSVersion.TLSv1_2
         tls.load_cert_chain(cert, key)
         server.socket = tls.wrap_socket(server.socket, server_side=True)
         worker = threading.Thread(target=server.serve_forever, daemon=True)

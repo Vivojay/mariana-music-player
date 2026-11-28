@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import ctypes
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from functools import lru_cache
 from importlib import import_module
 
@@ -13,10 +13,8 @@ def prepare_command_host():
         # comtypes initializes the first importing thread and registers its own
         # process-exit cleanup. Let the long-lived host own that initialization.
         # Shell/file operations also work in installations without pycaw.
-        try:
+        with suppress(ImportError, OSError):
             import_module("comtypes")
-        except (ImportError, OSError):
-            pass
 
 
 @lru_cache(maxsize=1)

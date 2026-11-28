@@ -1,22 +1,22 @@
 """Controls for live output effects, explicit microphone monitoring, and WAV bounces."""
 from __future__ import annotations
 
-from dataclasses import asdict
 import importlib.util
 import json
 import os
 import re
-from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import threading
+from dataclasses import asdict
+from pathlib import Path
 
 import numpy as np
 
 from .effect_packages import SUFFIXES, install_package, resolve_package
-from .effects import EffectProcessor, LIMITS, PRESETS, Rack, setting
+from .effects import LIMITS, PRESETS, EffectProcessor, Rack, setting
 
 
 def _make(rack, rate):

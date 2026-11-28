@@ -75,7 +75,7 @@ def test_hidden_idle_session_closes_without_another_keypress():
 
 
 def test_large_output_is_bounded_and_marked_in_the_transcript():
-    from mariana.terminal_player import _TRIMMED, _OutputTail, _append_command
+    from mariana.terminal_player import _TRIMMED, _append_command, _OutputTail
 
     captured = _OutputTail(limit=160)
     captured.write("A" * 1000)

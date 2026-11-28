@@ -100,6 +100,8 @@ class Accounts:
         account = self
 
         class Callback(BaseHTTPRequestHandler):
+            server: ThreadingHTTPServer
+
             def log_message(self, *_):
                 pass  # A callback URL contains a single-use code.
 

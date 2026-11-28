@@ -1,11 +1,11 @@
 """Exercise the documented launcher from a different working directory."""
 import subprocess
-
-import pytest
 import sys
 from pathlib import Path
 from urllib.parse import urljoin
 from urllib.request import ProxyHandler, build_opener
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 

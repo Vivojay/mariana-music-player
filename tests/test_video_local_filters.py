@@ -4,8 +4,8 @@ import time
 from types import SimpleNamespace
 
 import numpy as np
-from PIL import Image
 import pytest
+from PIL import Image
 
 from mariana.models import MediaRef, MediaSource, PlaybackSnapshot, PlaybackState
 from mariana.playback import DecoderSession, probe_media

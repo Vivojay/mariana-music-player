@@ -98,7 +98,7 @@ def external_info(url: str, selector: str, profile: str | None) -> dict | None:
         age = result.get("age_limit")
         if (result.get("availability") not in (None, "public") or result.get("is_private")
                 or result.get("has_drm") or result.get("is_live") or result.get("live_status") == "is_live"
-                or age is not None and (type(age) not in (int, float) or age >= 18)
+                or (age is not None and (type(age) not in (int, float) or age >= 18))
                 or result.get("id") != url.rsplit("=", 1)[1]):
             raise ValueError("The legacy extractor did not return a matching unrestricted recording.")
     return result

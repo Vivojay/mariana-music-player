@@ -4,10 +4,10 @@ import json
 import tempfile
 import unittest
 import zipfile
-
-import requests
 from pathlib import Path
 from unittest.mock import Mock, patch
+
+import requests
 
 import first_boot_setup
 from mariana.paths import RuntimePaths

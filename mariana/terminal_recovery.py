@@ -1,5 +1,6 @@
 """A terminal workspace that exposes only the current session recovery controls."""
 from prompt_toolkit.filters import has_focus
+from prompt_toolkit.formatted_text.base import OneStyleAndTextTuple
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import FormattedTextControl, Window
 
@@ -54,9 +55,9 @@ class TerminalRecoveryWorkspace:
             self.refresh()
             dispatch(self.controls[self.selected][1])
 
-    def _lines(self):
+    def _lines(self) -> list[OneStyleAndTextTuple]:
         self.refresh()
-        rows = [('class:title', f'  Mariana · {self.title}\n\n')]
+        rows: list[OneStyleAndTextTuple] = [('class:title', f'  Mariana · {self.title}\n\n')]
         for index, (label, _cmd) in enumerate(self.controls):
             selected = index == self.selected
             rows.append(('class:selected' if selected else '', f"  {'›' if selected else ' '} {label}\n"))

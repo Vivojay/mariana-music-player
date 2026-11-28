@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from html import escape
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -14,10 +11,12 @@ import tempfile
 import time
 import unicodedata
 import wave
+from dataclasses import dataclass
+from html import escape
+from pathlib import Path
 
 from .output_targets import OutputTargetError, bind_output_target
 from .speech_capture import timestamp
-
 
 RATE = 16_000
 MAX_SECONDS = 1_800
@@ -185,8 +184,8 @@ def parse_whisper(data, duration):
         times = _times(offsets.get("from"), offsets.get("to"), duration, units=1000)
         body = _text(row.get("text"), 2400)
         if times and body:
-            segments.append(dict(startTime=times[0], endTime=times[1], body=body, speaker=None,
-                                 language=None))
+            segments.append({"startTime": times[0], "endTime": times[1], "body": body, "speaker": None,
+                                 "language": None})
     segments.sort(key=lambda item: (item["startTime"], item["endTime"]))
     return _draft("whisper.cpp", duration, [language], segments)
 
@@ -221,8 +220,8 @@ def parse_deepgram(data, duration):
         if (current is None or current["speaker"] != word["speaker"] or
                 current["language"] != word["language"] or word["startTime"] - current["endTime"] > 1 or
                 word["endTime"] - current["startTime"] > 10 or len(current["words"]) >= 40):
-            current = dict(startTime=word["startTime"], endTime=word["endTime"], speaker=word["speaker"],
-                           language=word["language"], words=[])
+            current = {"startTime": word["startTime"], "endTime": word["endTime"], "speaker": word["speaker"],
+                           "language": word["language"], "words": []}
             segments.append(current)
         current["words"].append(word)
         current["endTime"] = max(current["endTime"], word["endTime"])

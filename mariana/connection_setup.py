@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from . import account_services, connector_registration
-from .terminal_io import secret_input
 from .connections import command, hub
+from .terminal_io import secret_input
 
 BUILTINS = {"karaoke": "Karaoke practice", "podcasts": "Podcast subscriptions", "audiobooks": "LibriVox audiobooks"}
 

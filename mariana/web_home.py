@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 
 from .homepage import (
-    HOMEPAGE_IMAGE_MIME,
     _IMAGE_CACHE_NAME,
+    HOMEPAGE_IMAGE_MIME,
     _official_bandcamp_link,
     _official_musicbrainz_link,
     _plain_text,

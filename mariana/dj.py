@@ -85,8 +85,12 @@ class Deck:
             raise
 
     def close(self):
-        self.samples._mmap.close()
-        self.storage.cleanup()
+        try:
+            mapping = getattr(self.samples, "_mmap", None)
+            if mapping is not None:
+                mapping.close()
+        finally:
+            self.storage.cleanup()
 
     def seek(self, frame):
         if self.loop and not self.loop[0] <= frame < self.loop[1]:
@@ -126,7 +130,8 @@ class MasterRecording:
         self.path = path
         raw = path.open("xb")
         try:
-            self.wav = wave.open(raw, "wb")
+            # The writer thread owns and closes both handles.
+            self.wav = wave.open(raw, "wb")  # noqa: SIM115
             self.wav.setparams((2, 2, SAMPLE_RATE, 0, "NONE", "not compressed"))
             self.blocks = queue.Queue(maxsize=256)
             self.error = None
@@ -189,8 +194,8 @@ def launch_mixxx(sources):
     candidates = [shutil.which("mixxx")]
     if sys.platform == "darwin":
         candidates.append("/Applications/Mixxx.app/Contents/MacOS/mixxx")
-    if os.name == "nt" and os.environ.get("ProgramFiles"):
-        candidates.append(str(Path(os.environ["ProgramFiles"], "Mixxx", "mixxx.exe")))
+    if os.name == "nt" and os.environ.get("PROGRAMFILES"):
+        candidates.append(str(Path(os.environ["PROGRAMFILES"], "Mixxx", "mixxx.exe")))
     executable = next((path for path in candidates if path and Path(path).is_file()), None)
     if not executable:
         raise ValueError("Mixxx was not found. Install it from https://mixxx.org/download/ or add mixxx to PATH.")

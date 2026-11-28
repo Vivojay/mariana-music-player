@@ -1,9 +1,9 @@
 """Build the portable Mariana web player and reproducible release archives."""
 import argparse
 import hashlib
-from pathlib import Path
 import os
 import tempfile
+from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from build_web_player import build

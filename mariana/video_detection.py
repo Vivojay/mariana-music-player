@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import ast
+import contextlib
 import importlib.util
 import math
-from pathlib import Path
 import threading
+from pathlib import Path
 
 
 def model_path(value):
@@ -39,7 +40,7 @@ class YoloDetector:
 
     def __init__(self, path, *, session=None):
         if session is None:
-            import onnxruntime as ort
+            import onnxruntime as ort  # pyright: ignore[reportMissingImports]
 
             options = ort.SessionOptions()
             options.intra_op_num_threads = 1
@@ -144,17 +145,15 @@ class LiveDetection:
         detector = None
         while True:
             with self.condition:
-                self.condition.wait_for(lambda: self.config != active or self.pending is not None)
+                self.condition.wait_for(lambda current=active: self.config != current or self.pending is not None)
                 configuration = self.config
                 frame, self.pending = self.pending, None
             if active != configuration:
                 active = configuration
                 detector = None
                 if configuration[1]:
-                    try:
+                    with contextlib.suppress(Exception):
                         detector = YoloDetector(model_path(configuration[1]))
-                    except Exception:
-                        pass
                     with self.condition:
                         if self.config == configuration:
                             self.state = "ready" if detector else "error"

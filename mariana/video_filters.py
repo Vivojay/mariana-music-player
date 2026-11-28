@@ -1,6 +1,6 @@
 """Presentation-only video transforms. All presets share one data file."""
-from functools import lru_cache
 import json
+from functools import lru_cache
 from pathlib import Path
 
 PRESETS = json.loads(Path(__file__).with_name("video_filters.json").read_text(encoding="utf-8"))
@@ -82,7 +82,7 @@ def filter_image(image, selection):
 
         linear, to_srgb = _transfer_tables()
         rgb = linear[np.asarray(image)]
-        result = np.einsum("...c,rc->...r", rgb, values)
+        result = np.einsum("...c,rc->...r", rgb, np.asarray(values))
         indexes = np.rint(np.clip(result, 0, 1) * (len(to_srgb) - 1)).astype(np.uint16)
         return Image.fromarray(to_srgb[indexes])
     return image

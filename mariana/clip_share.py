@@ -83,6 +83,8 @@ def start_handoff(path: Path, lifetime=600, *, recording=False):
             .replace("{{name}}", filename)).encode("utf-8")
 
     class Handler(BaseHTTPRequestHandler):
+        server: ThreadingHTTPServer
+
         def log_message(self, *args):
             pass  # Do not log the handoff URL.
 
@@ -118,7 +120,7 @@ def start_handoff(path: Path, lifetime=600, *, recording=False):
                 if send_body:
                     if document:
                         self.wfile.write(page)
-                    else:
+                    elif stream is not None:
                         shutil.copyfileobj(stream, self.wfile, length=256 * 1024)
             except FileNotFoundError:
                 self.send_error(410)

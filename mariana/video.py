@@ -31,7 +31,9 @@ from .playback_status import project_playback_status
 from .provider_captions import ProviderCaptionCandidate, load_provider_caption
 from .sources import ResolvedMedia
 from .video_cache import CachedVideoProxy, VideoByteCache
-from .video_filters import DEFAULT as DEFAULT_FILTER, parse_filter, projection as filter_projection
+from .video_filters import DEFAULT as DEFAULT_FILTER
+from .video_filters import parse_filter
+from .video_filters import projection as filter_projection
 from .video_sources import VideoAccessExpired, VideoSourceError, VideoTracks, video_track_proxy
 from .video_window_cache import VideoWindowCache
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import math
 import os
@@ -13,8 +14,9 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from .video_filters import DEFAULT as DEFAULT_FILTER, filter_image, parse_filter
 from .video_detection import LiveDetection
+from .video_filters import DEFAULT as DEFAULT_FILTER
+from .video_filters import filter_image, parse_filter
 
 FPS = 25
 # CachedVideoProxy creates its token with secrets.token_urlsafe(24).
@@ -36,10 +38,8 @@ def _size(width, height, limits=(1280, 720)):
 
 
 def _event(event, **kwargs):
-    try:
+    with contextlib.suppress(BrokenPipeError, OSError):
         print(json.dumps({"event": event, **kwargs}, ensure_ascii=True), flush=True)
-    except (BrokenPipeError, OSError):
-        pass
 
 
 @dataclass(frozen=True)
@@ -89,7 +89,7 @@ class PictureBudget:
 
 class Decoder:
     """Backpressure at the picture clock; retain just the newest frame ready to paint."""
-    def __init__(self, executable, source, start, size):
+    def __init__(self, executable, source, start, size: tuple[int, int]):
         self.size = size
         self.start = start
         self.target = start
@@ -119,6 +119,7 @@ class Decoder:
     def _decode(self, executable, source):
         width, height = self.size
         process = None
+        output = None
         try:
             protocols = _input_protocols(source)
             filters = (f"fps={FPS}:start_time=0,scale=w='min({width},max(1,round({height}*dar)))':"
@@ -134,6 +135,9 @@ class Decoder:
             process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                        stderr=subprocess.DEVNULL, env=env,
                                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            output = process.stdout
+            if output is None:
+                raise OSError("FFmpeg picture output is unavailable.")
             with self.condition:
                 if self.closed:
                     return
@@ -141,14 +145,14 @@ class Decoder:
             count = width * height * 3
             index = 0
             while True:
-                raw = process.stdout.read(count)
+                raw = output.read(count)
                 if len(raw) != count:
                     self.error = process.wait() != 0 or index == 0
                     self.exhausted = True
                     return
                 stamp = self.start + index / FPS
                 with self.condition:
-                    self.condition.wait_for(lambda: self.closed or stamp <= self.target + .5 / FPS)
+                    self.condition.wait_for(lambda frame_time=stamp: self.closed or frame_time <= self.target + .5 / FPS)
                     if self.closed:
                         return
                     self.frame = (stamp, raw)
@@ -158,7 +162,8 @@ class Decoder:
         finally:
             if process is not None:
                 process.kill()
-                process.stdout.close()
+                if output is not None:
+                    output.close()
                 process.wait()
             with self.condition:
                 self.process = None
@@ -188,6 +193,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         import tkinter as tk
+
         from PIL import Image, ImageTk
     except ImportError:
         _event("error", code="dependency", message="The video window needs Tk and Pillow.", fatal=True)
@@ -291,10 +297,10 @@ def main(argv=None):
                 else:
                     caption.place_forget()
             source = sample.get("source")
-            if source and sample.get("state") != "idle":
+            if source and clock is not None and sample.get("state") != "idle":
                 target = clock.at(now)
                 if decoder is None:
-                    decoder = Decoder(args.ffmpeg, source, target, render_size)
+                    decoder = Decoder(args.ffmpeg, source, target, render_size or size)
                 frame = decoder.advance(target)
                 if frame is not None:
                     stamp, raw = frame

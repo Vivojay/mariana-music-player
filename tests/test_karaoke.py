@@ -185,8 +185,9 @@ def test_one_running_stage_can_be_stopped_from_another_control():
 
 
 def test_duet_invitation_roundtrip_preview_and_explicit_accept(media, parsed, tmp_path):
-    from mariana.karaoke_invite import KEYS
     from unittest.mock import Mock
+
+    from mariana.karaoke_invite import KEYS
     sender = KaraokeSession(MemoryDB())
     sender.install(media, Score(parsed))
     media.position = 1.325

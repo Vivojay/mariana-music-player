@@ -42,7 +42,7 @@ def local_recognizer(path):
     if not setting or not Path(setting).expanduser().is_dir():
         raise ValueError("Choose an extracted Vosk model directory with speech start MODEL_DIRECTORY.")
     try:
-        from vosk import KaldiRecognizer, Model
+        from vosk import KaldiRecognizer, Model  # pyright: ignore[reportMissingImports]
     except (ImportError, OSError) as error:
         raise ValueError("Offline transcription requires the optional vosk package. See docs/LIVE_SPEECH.md.") from error
     try:

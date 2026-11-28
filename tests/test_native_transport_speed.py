@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from mariana.models import MediaRef, MediaSource, PlaybackState, PlayRegion
-from mariana.playback import PlaybackController, PlaybackError, UnsupportedAction, SAMPLE_RATE
+from mariana.playback import SAMPLE_RATE, PlaybackController, PlaybackError, UnsupportedAction
 
 
 class Output:
@@ -75,7 +75,8 @@ def test_rejected_rate_and_decoder_failure_leave_current_audio_intact(session, m
     for rate in [0.25, 2.5, float("nan")]:
         with pytest.raises(ValueError):
             ctl.set_playback_rate(rate)
-    sink = lambda event: True
+    def sink(event):
+        return True
     ctl.begin_recipe_capture(sink, lambda event: None)
     with pytest.raises(UnsupportedAction, match="recipe"):
         ctl.set_playback_rate(1.5)
@@ -116,6 +117,7 @@ def test_region_endpoint_uses_media_seconds(session):
 def test_intervening_seek_supersedes_blocked_speed_change(session, monkeypatch):
     import threading
     from concurrent.futures import ThreadPoolExecutor
+
     from mariana.playback import DecoderSession
 
     ctl, _ = session

@@ -12,7 +12,6 @@ from prompt_toolkit.history import History
 
 from .paths import runtime_paths
 
-
 _LIMIT = 100
 # Persist only known commands with non-sensitive, closed/numeric operands.
 # Free text (e.g. account IDs, searches, paths, URLs) remains session-local.
@@ -111,7 +110,7 @@ class SessionHistory(History):
         by_line = {}
         for stamp, text in (*saved, *self._entries):
             by_line[text] = max(stamp, by_line.get(text, 0))
-        return sorted(by_line, key=by_line.get)[-_LIMIT:]
+        return sorted(by_line, key=by_line.__getitem__)[-_LIMIT:]
 
     async def load(self):
         for entry in reversed(self.get_strings()):

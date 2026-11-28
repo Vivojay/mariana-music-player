@@ -9,7 +9,14 @@ from collections import OrderedDict
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler
 
-from .video_sources import MAX_PROXY_BYTES, VideoAccessExpired, VideoSourceError, VideoTrack, _open_response, _TrackProxy
+from .video_sources import (
+    MAX_PROXY_BYTES,
+    VideoAccessExpired,
+    VideoSourceError,
+    VideoTrack,
+    _open_response,
+    _TrackProxy,
+)
 
 BLOCK_BYTES = 256 * 1024
 _CONTENT_RANGE = re.compile(r"bytes (\d+)-(\d+)/(\d+)")

@@ -1,5 +1,4 @@
 import concurrent.futures
-from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -86,8 +85,9 @@ def test_guided_public_tools_and_provider_consent(monkeypatch):
 
 
 def test_personal_registration_uses_profile_vault_and_never_writes_keys_to_disk(tmp_path, monkeypatch):
-    from mariana import account_services as services, connector_registration as registration
+    from mariana import account_services as services
     from mariana import connection_setup
+    from mariana import connector_registration as registration
     runtime = paths.RuntimePaths(tmp_path, tmp_path / "listener", "ab"*16, tmp_path)
     monkeypatch.setattr(paths, "_runtime_paths", runtime)
     store = {}

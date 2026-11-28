@@ -26,8 +26,8 @@ def practice_invite(score, part, start_ms):
         raise ValueError("Choose a singer from karaoke singers.")
     if not 0 <= _time(start_ms) < score.duration:
         raise ValueError("Seek to a position before the end to invite someone.")
-    return dict(schema=SCHEMA, media_sha256=score.digest, timing_sha256=_timing_digest(score),
-                duration_ms=score.duration, part=part, start_ms=start_ms)
+    return {"schema": SCHEMA, "media_sha256": score.digest, "timing_sha256": _timing_digest(score),
+                "duration_ms": score.duration, "part": part, "start_ms": start_ms}
 
 
 def read_invite(path):

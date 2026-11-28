@@ -55,7 +55,7 @@ def test_unavailable_or_blocked_sources(playing, tmp_path):
     for source in [MediaSource.YOUTUBE, MediaSource.RECOMMENDATION, MediaSource.RADIO]:
         media = MediaRef(source, "https://example.org/track.mp3", duration=1)
         assert not ClipSession().project(replace(playing, media=media))["available"]
-    for settings in [dict(live=True), dict(finite=False), dict(seekable=False), dict(downloadable=False)]:
+    for settings in [{"live": True}, {"finite": False}, {"seekable": False}, {"downloadable": False}]:
         media = MediaRef(MediaSource.URL, "https://example.org/audio.ogg", capabilities=MediaCapabilities(**settings))
         assert not ClipSession().project(replace(playing, media=media))["available"]
     recommended = replace(playing.media, source=MediaSource.RECOMMENDATION)

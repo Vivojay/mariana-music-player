@@ -109,10 +109,9 @@ def test_early_cancel_retains_first_boot_progress(monkeypatch, tmp_path):
     store.reset()
     monkeypatch.setattr(first_boot_setup, "runtime_paths", lambda: paths)
     monkeypatch.setattr(first_boot_setup, "setup_media_tools", lambda **_kwargs: None)
-    with terminal(monkeypatch, [("locally stored", "\x03")]):
-        with pytest.raises(KeyboardInterrupt):
-            setup_terminal.run_setup("Set up Mariana", lambda: first_boot_setup.fbs(
-                {"ver": {"maj": 0, "min": 7, "rel": 0}}, store), {})
+    with terminal(monkeypatch, [("locally stored", "\x03")]), pytest.raises(KeyboardInterrupt):
+        setup_terminal.run_setup("Set up Mariana", lambda: first_boot_setup.fbs(
+            {"ver": {"maj": 0, "min": 7, "rel": 0}}, store), {})
     state = store.load()
     assert state.status == "in_progress" and state.current_step == "library"
     assert state.completed_steps == ["tools"] and not paths.setup_lock.exists()

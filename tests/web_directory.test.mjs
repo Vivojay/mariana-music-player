@@ -40,7 +40,8 @@ test('all sources are available offline, with pagination and category filtering'
   get('group').listeners.change();
   assert.match(get('count').textContent, /6 of 18/);
   assert.match(api.consoleSearch('angouleme'), /Angoulême/);
-  assert.match(api.consoleSearch('PAN!C ROOM'), /youtube.com\/channel\/UCANlvQuGwrusnPsc3SlTsmw/);
+  assert.equal(api.consoleSearch('PAN!C ROOM'),
+    'PAN!C ROOM · https://www.youtube.com/channel/UCANlvQuGwrusnPsc3SlTsmw');
   assert.equal(api.consoleSearch('unfindable-source'), 'No sources matched.');
   assert.equal(get('results').children.length, 0);
 });

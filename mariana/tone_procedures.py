@@ -211,7 +211,8 @@ def command(args, library):
 def _table(voice, partial_count):
     partials = VOICES[voice]["partials"][:partial_count]
     phase = np.arange(TABLE_SIZE + 1) * (2 * np.pi / TABLE_SIZE)
-    return sum(amp * np.sin((i+1) * phase) for i, amp in enumerate(partials)) / sum(partials)
+    wave = sum((amp * np.sin((i + 1) * phase) for i, amp in enumerate(partials)), np.zeros_like(phase))
+    return wave / sum(partials)
 
 
 def write_procedure(path, procedure):

@@ -3,12 +3,12 @@ import argparse
 import http.client
 import json
 import os
-from pathlib import Path
 import queue
 import subprocess
 import sys
 import tempfile
 import threading
+from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
@@ -20,9 +20,12 @@ def verify(artifact):
     with tempfile.TemporaryDirectory() as work:
         process = subprocess.Popen([*command, '--no-open', '--view', 'flow', '--port', '0'],
                                    cwd=work, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        output = process.stdout
         try:
+            if output is None:
+                raise RuntimeError("The packaged server output could not be opened.")
             lines = queue.Queue()
-            threading.Thread(target=lambda: lines.put(process.stdout.readline()), daemon=True).start()
+            threading.Thread(target=lambda: lines.put(output.readline()), daemon=True).start()
             try:
                 first = lines.get(timeout=45)
             except queue.Empty as exc:
@@ -78,7 +81,8 @@ def verify(artifact):
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait()
-            process.stdout.close()
+            if output is not None:
+                output.close()
     print(f'Packaged player smoke test passed: {artifact.name}')
 
 

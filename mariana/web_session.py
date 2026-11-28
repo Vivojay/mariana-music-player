@@ -11,15 +11,17 @@ import sys
 import threading
 import time
 import unicodedata
-from contextlib import redirect_stdout
+from collections.abc import Callable, Iterable
+from contextlib import redirect_stdout, suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 from .command_parser import split_command
+from .terminal_player import _TERMINAL_CODES, _OutputTail
 from .web_console_style import styled_console_output
 from .web_transport import prepare as prepare_control
-from .terminal_player import _TERMINAL_CODES, _OutputTail
 
 # These exact noninteractive commands can run without additional approval.
 TRANSPORT = frozenset(("p", ".next", ".prev", "seek -10s", "seek +10s", "now", "progress"))
@@ -66,6 +68,9 @@ class _PublishedOutput:
         if threading.get_ident() == self.owner:
             self.capture.write(value)
         return written
+
+    def flush(self):
+        self.stream.flush()
 
     def writelines(self, lines):
         for line in lines:
@@ -121,17 +126,17 @@ class NativeSession:
         self.clock = clock
         self.started = self.last_contact = clock()
         self.invite = secrets.token_urlsafe(32)
-        self.token = None
+        self.token: str | None = None
         self.closed = False
         self.playback = {}
-        self.job = None
+        self.job: dict[str, Any] | None = None
         self.wake = threading.Event()
         self.share_library = False
-        self.library = None
+        self.library: Callable[[], Iterable[tuple[str, str, object, object]]] | None = None
         self.library_path = None
         self.library_request = None
         self.homepage = None
-        self.homepage_image = None
+        self.homepage_image: Callable[[str], tuple[bytes, str] | None] | None = None
         self.similarity = None
         self.similarity_lock = threading.Lock()
         self.collections = None
@@ -206,7 +211,10 @@ class NativeSession:
             return review, transport or self.share_output
 
     def library_key(self, path):
-        return hmac.new(self.token.encode(), str(path).encode('utf-8', 'surrogatepass'), 'sha256').hexdigest()
+        token = self.token
+        if token is None:
+            raise ValueError("Pair the browser first.")
+        return hmac.new(token.encode(), str(path).encode('utf-8', 'surrogatepass'), 'sha256').hexdigest()
 
     def library_page(self, data):
         query, offset = data.get("query", ""), data.get("offset", 0)
@@ -215,7 +223,10 @@ class NativeSession:
         words = query.casefold().split()
         page = []
         total = 0
-        for number, (title, detail, _, path) in enumerate(self.library(), 1):
+        library = self.library
+        if library is None:
+            raise ValueError("The library is not available.")
+        for number, (title, detail, _, path) in enumerate(library(), 1):
             if not all(word in (title + " " + detail).casefold() for word in words):
                 continue
             if offset <= total < offset + 40:
@@ -397,6 +408,8 @@ class NativeSession:
 
     def finish(self, text, *, ok=None, styled=""):
         with self.lock:
+            if self.job is None:
+                return
             self.job = dict(self.job, state="done", output=text)
             if ok is not None:
                 self.job["ok"] = ok
@@ -409,6 +422,8 @@ def make_server(session, assets: Path, catalog, available=lambda: True):
     content = {route: ((assets / name).read_bytes(), mime) for route, (name, mime) in FILES.items()}
 
     class Handler(BaseHTTPRequestHandler):
+        server: ThreadingHTTPServer
+
         def setup(self):
             super().setup()
             self.connection.settimeout(5)
@@ -530,12 +545,16 @@ def _read_while(message, active, prompt=None, draft="", *, close_on_interrupt=Fa
         prompt = PromptSession()
 
     async def watch_session():
-        while active():
+        # The supplied session predicate combines several host states and has no event source.
+        while active():  # noqa: ASYNC110
             await asyncio.sleep(.15)
         if prompt.app.is_running:
             prompt.app.exit(result=None)
 
-    result = prompt.prompt(message, default=draft, pre_run=lambda: prompt.app.create_background_task(watch_session()))
+    def start_watcher():
+        prompt.app.create_background_task(watch_session())
+
+    result = prompt.prompt(message, default=draft, pre_run=start_watcher)
     return (True, result) if isinstance(result, str) else (False, prompt.default_buffer.text)
 
 
@@ -592,7 +611,7 @@ def terminal_control(session, line, write):
     return True
 
 
-def serve_session(*, assets, catalog, project, dispatch, available, open_browser, palette=lambda: {}, read=None, write=print,
+def serve_session(*, assets, catalog, project, dispatch, available, open_browser, palette=dict, read=None, write=print,
                   view=None, library=None, library_path=None, trusted=False, share_output=False, terminal_read=None,
                   control=None, homepage=None, homepage_image=None, collections=None, similarity=None):
     from .terminal_io import current_session
@@ -652,12 +671,17 @@ def serve_session(*, assets, catalog, project, dispatch, available, open_browser
     draft = ""
     if terminal_read is None and read is None:
         from prompt_toolkit import PromptSession
+
         from .terminal_history import SessionHistory
 
         prompt = None if host is not None else PromptSession(history=SessionHistory())
-        terminal_read = lambda active, text: _read_while(
-            "Paired Mariana (web help for browser controls) › ", active, prompt, text,
-            close_on_interrupt=True, details=details if host is not None else None)
+        def read_paired_terminal(active, text):
+            return _read_while(
+                "Paired Mariana (web help for browser controls) › ", active, prompt, text,
+                close_on_interrupt=True, details=details if host is not None else None,
+            )
+
+        terminal_read = read_paired_terminal
 
     with make_server(session, assets, catalog, running) as server:
         query = "?view=flow" if view == "flow" else ""
@@ -671,10 +695,8 @@ def serve_session(*, assets, catalog, project, dispatch, available, open_browser
             if trusted:
                 write("The invited tab may dispatch commands until you revoke approval or this session ends."
                       + (" Its printed command output will be shown in that tab." if share_output else " Output stays in this terminal."))
-            try:
+            with suppress(OSError):
                 open_browser(url)
-            except OSError:
-                pass
             while connected():
                 publish_playback()
                 command = session.take()
@@ -729,7 +751,7 @@ def serve_session(*, assets, catalog, project, dispatch, available, open_browser
                     continue
                 if binding is not None:
                     try:
-                        matches = session.collections.command(binding, session.token) == command
+                        matches = collections is not None and collections.command(binding, session.token) == command
                     except ValueError:
                         matches = False
                     if not matches:
@@ -739,10 +761,12 @@ def serve_session(*, assets, catalog, project, dispatch, available, open_browser
                     break
                 output = _OutputTail(32000)
 
-                def invoke():
-                    if intent is None:
-                        return dispatch(command)
-                    response = control(intent)
+                def invoke(selected_intent=intent, selected_command=command):
+                    if selected_intent is None:
+                        return dispatch(selected_command)
+                    if control is None:
+                        return "Playback control is unavailable."
+                    response = control(selected_intent)
                     if not response.get("ok"):
                         return str(response.get("error", "Playback control failed."))
                     return None

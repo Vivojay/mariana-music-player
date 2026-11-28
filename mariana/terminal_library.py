@@ -15,7 +15,7 @@ def library_rows(database, names, paths, *, include_folder=True):
     """)
     tags_by_path = {os.path.normcase(path): (title, artist, album) for path, title, artist, album in tagged}
     rows = []
-    for number, (name, path) in enumerate(zip(names, paths), 1):
+    for number, (name, path) in enumerate(zip(names, paths, strict=False), 1):
         title, artist, album = tags_by_path.get(os.path.normcase(path), (None, None, None))
         title = title if isinstance(title, str) and title.strip() else name
         detail = " · ".join(tag for tag in (artist, album) if isinstance(tag, str) and tag.strip())

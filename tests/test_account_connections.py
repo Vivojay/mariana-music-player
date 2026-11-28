@@ -1,4 +1,5 @@
 """Exercise consent, provider identities, secure persistence and loopback origin checks."""
+
 import hashlib
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -39,8 +40,9 @@ def test_native_consent_verifies_provider_identity_and_keeps_tokens_in_vault(hub
     monkeypatch.setenv("MARIANA_" + provider.upper() + "_CLIENT_SECRET", "publisher-secret")
     requests = []
     uid = "UC" + "a" * 22
+
     def api(method, url, **kwargs):
-        requests.append((method,url,kwargs))
+        requests.append((method, url, kwargs))
         if "token" in url:
             return {"access_token": "access-private", "refresh_token": "refresh-private", "expires_in": 3600}
         if provider == "spotify":
@@ -48,10 +50,11 @@ def test_native_consent_verifies_provider_identity_and_keeps_tokens_in_vault(hub
         if provider == "musicbrainz":
             return {"sub": "listener", "name": "Listener"}
         if provider == "youtube":
-            return {"items": [{"id":uid,"snippet":{"title":"Listener"}}]}
-        return {"data":{"user":{"open_id":"stable","display_name":"Listener"}}}
-    monkeypatch.setattr(services,"api",api)
-    url = hub.run(["connect",provider])["authorize"]
+            return {"items": [{"id": uid, "snippet": {"title": "Listener"}}]}
+        return {"data": {"user": {"open_id": "stable", "display_name": "Listener"}}}
+
+    monkeypatch.setattr(services, "api", api)
+    url = hub.run(["connect", provider])["authorize"]
     query = parse_qs(urlsplit(url).query)
     assert query["code_challenge_method"] == ["S256"]
     assert "publisher-secret" not in url and "access-private" not in url
@@ -61,77 +64,102 @@ def test_native_consent_verifies_provider_identity_and_keeps_tokens_in_vault(hub
     cb = query["redirect_uri"][0]
     browser = build_opener(ProxyHandler({}))
     with pytest.raises(HTTPError) as failure:
-        browser.open(cb + "?code=test&state=bad",timeout=3)
+        browser.open(cb + "?code=test&state=bad", timeout=3)
     assert failure.value.code == 400 and hub.pending
-    with browser.open(cb + "?" + urlencode({"code":"test","state":query["state"][0]}),timeout=3) as response:
+    with browser.open(cb + "?" + urlencode({"code": "test", "state": query["state"][0]}), timeout=3) as response:
         assert "Connected" in response.read().decode()
     assert requests[0][2]["data"]["code_verifier"] == verifier
     assert hub.public(provider)["name"] == "Listener"
     assert "access-private" in hub.vault[provider]
     assert "access-private" not in json.dumps(hub.run(["list"]))
     assert "refresh-private" not in json.dumps(hub.db.get_state("connections.identity." + provider))
-    hub.run(["disconnect",provider])
+    hub.run(["disconnect", provider])
     assert not hub.vault and not hub.public(provider)
 
 
-def test_lastfm_denial_and_approval_and_recent_listens(hub,monkeypatch):
-    monkeypatch.setenv("MARIANA_LASTFM_API_KEY","key")
-    monkeypatch.setenv("MARIANA_LASTFM_API_SECRET","secret")
-    def api(method,url,**kwargs):
+def test_lastfm_denial_and_approval_and_recent_listens(hub, monkeypatch):
+    monkeypatch.setenv("MARIANA_LASTFM_API_KEY", "key")
+    monkeypatch.setenv("MARIANA_LASTFM_API_SECRET", "secret")
+
+    def api(method, url, **kwargs):
         row = dict(kwargs["data"])
         sig = row.pop("api_sig")
         assert row.pop("format") == "json"
-        assert sig == hashlib.md5(("".join(k + row[k] for k in sorted(row))+"secret").encode(),usedforsecurity=False).hexdigest()
-        if row["method"] == "auth.getToken": return {"token":"grant"}
-        if row["method"] == "auth.getSession": return {"session":{"name":"Listener","key":"session"}}
-        return {"recenttracks":{"track":[{"name":"Window","artist":{"#text":"Suggahunny"}}]}}
-    monkeypatch.setattr(services,"api",api)
-    assert hub.run(["connect","lastfm"])["authorize"].startswith("https://www.last.fm/")
+        assert (
+            sig
+            == hashlib.md5(
+                ("".join(k + row[k] for k in sorted(row)) + "secret").encode(), usedforsecurity=False
+            ).hexdigest()
+        )
+        if row["method"] == "auth.getToken":
+            return {"token": "grant"}
+        if row["method"] == "auth.getSession":
+            return {"session": {"name": "Listener", "key": "session"}}
+        return {"recenttracks": {"track": [{"name": "Window", "artist": {"#text": "Suggahunny"}}]}}
+
+    monkeypatch.setattr(services, "api", api)
+    assert hub.run(["connect", "lastfm"])["authorize"].startswith("https://www.last.fm/")
     assert not hub.public("lastfm")
-    assert "Listener" in hub.run(["finish","lastfm"])["message"]
-    assert hub.run(["activity","lastfm"])["items"] == ["Window · Suggahunny"]
-    with pytest.raises(ValueError,match="Connect"):
-        hub.run(["finish","lastfm"])
+    assert "Listener" in hub.run(["finish", "lastfm"])["message"]
+    assert hub.run(["activity", "lastfm"])["items"] == ["Window · Suggahunny"]
+    with pytest.raises(ValueError, match="Connect"):
+        hub.run(["finish", "lastfm"])
 
 
-def test_profile_link_is_distinct_from_authorized_identity_and_works_without_registration(hub,monkeypatch):
-    assert hub.run(["link","bandcamp","listener"])["link"] == "https://bandcamp.com/listener"
-    assert hub.run(["open","bandcamp"]) == {"open":"https://bandcamp.com/listener"}
+def test_profile_link_is_distinct_from_authorized_identity_and_works_without_registration(hub, monkeypatch):
+    assert hub.run(["link", "bandcamp", "listener"])["link"] == "https://bandcamp.com/listener"
+    assert hub.run(["open", "bandcamp"]) == {"open": "https://bandcamp.com/listener"}
     assert hub.public("bandcamp") is None
     with pytest.raises(ValueError):
-        hub.run(["link","bandcamp","//foreign.test/path"])
-    monkeypatch.delenv("MARIANA_SPOTIFY_CLIENT_ID",raising=False)
-    with pytest.raises(ValueError,match="public profile"):
-        hub.run(["connect","spotify"])
-    hub.run(["unlink","bandcamp"])
-    assert hub.run(["open","bandcamp"])["open"] == "https://bandcamp.com/"
-    hub.run(["link","listenbrainz","listener"])
-    monkeypatch.setattr(services, "api", lambda *a,**k: {"payload":{"listens":[{"track_metadata":{"track_name":"Solo","artist_name":"Artist"}}]}})
-    assert hub.run(["activity","listenbrainz"])["items"] == ["Solo · Artist"]
+        hub.run(["link", "bandcamp", "//foreign.test/path"])
+    monkeypatch.delenv("MARIANA_SPOTIFY_CLIENT_ID", raising=False)
+    with pytest.raises(ValueError, match="public profile"):
+        hub.run(["connect", "spotify"])
+    hub.run(["unlink", "bandcamp"])
+    assert hub.run(["open", "bandcamp"])["open"] == "https://bandcamp.com/"
+    hub.run(["link", "listenbrainz", "listener"])
+    monkeypatch.setattr(
+        services,
+        "api",
+        lambda *a, **k: {"payload": {"listens": [{"track_metadata": {"track_name": "Solo", "artist_name": "Artist"}}]}},
+    )
+    assert hub.run(["activity", "listenbrainz"])["items"] == ["Solo · Artist"]
 
 
-def test_local_http_account_handler_requires_exact_origin_and_custom_header(hub,monkeypatch):
-    monkeypatch.setattr(connections_http,"hub",lambda: hub)
+def test_local_http_account_handler_requires_exact_origin_and_custom_header(hub, monkeypatch):
+    monkeypatch.setattr(connections_http, "hub", lambda: hub)
+
     class API(BaseHTTPRequestHandler):
         def do_POST(self):
             assert connections_http.handle_accounts_post(self)
 
-        def log_message(self,*_):
+        def log_message(self, *_):
             pass
+
     browser = build_opener(ProxyHandler({}))
-    with ThreadingHTTPServer(("127.0.0.1",0),API) as server:
-        worker = Thread(target=server.serve_forever,daemon=True)
+    with ThreadingHTTPServer(("127.0.0.1", 0), API) as server:
+        worker = Thread(target=server.serve_forever, daemon=True)
         worker.start()
         origin = f"http://127.0.0.1:{server.server_port}"
-        def post(origin_header,csrf):
-            return browser.open(Request(origin+"/api/accounts",data=b'["list"]',headers={
-                "Origin":origin_header,"Content-Type":"application/json","X-Mariana-Accounts":csrf}),timeout=2)
+
+        def post(origin_header, csrf):
+            return browser.open(
+                Request(
+                    origin + "/api/accounts",
+                    data=b'["list"]',
+                    headers={"Origin": origin_header, "Content-Type": "application/json", "X-Mariana-Accounts": csrf},
+                ),
+                timeout=2,
+            )
+
         try:
-            with pytest.raises(HTTPError) as denied: post("https://foreign.example","1")
+            with pytest.raises(HTTPError) as denied:
+                post("https://foreign.example", "1")
             assert denied.value.code == 403
-            with pytest.raises(HTTPError) as denied: post(origin,"")
+            with pytest.raises(HTTPError) as denied:
+                post(origin, "")
             assert denied.value.code == 403
-            with post(origin,"1") as response:
+            with post(origin, "1") as response:
                 assert len(json.load(response)["services"]) == len(services.PROVIDERS)
         finally:
             server.shutdown()

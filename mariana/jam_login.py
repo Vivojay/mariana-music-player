@@ -14,6 +14,8 @@ def browser_token(origin, request, open_browser=webbrowser.open, ttl=120):
     login_token = None
 
     class Callback(BaseHTTPRequestHandler):
+        server: HTTPServer
+
         def setup(self):
             super().setup()
             self.connection.settimeout(3)

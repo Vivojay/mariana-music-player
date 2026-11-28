@@ -85,11 +85,9 @@ def test_windows_command_worker_owns_volume_shell_and_releases_after_success_or_
         assert current_session() is None and ole.depth == 0
 
     def second():
-        with pytest.raises(KeyboardInterrupt):
-            with io.worker():
-                with io.worker():
-                    assert current_session() is io and ole.depth == 2
-                    raise KeyboardInterrupt()
+        with pytest.raises(KeyboardInterrupt), io.worker(), io.worker():
+            assert current_session() is io and ole.depth == 2
+            raise KeyboardInterrupt()
         assert current_session() is None and ole.depth == 0
 
     with ThreadPoolExecutor(max_workers=1) as workers:

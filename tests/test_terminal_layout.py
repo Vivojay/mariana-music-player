@@ -10,8 +10,8 @@ from prompt_toolkit.layout import Layout
 from prompt_toolkit.mouse_events import MouseButton, MouseEvent, MouseEventType
 from prompt_toolkit.output import DummyOutput
 
-from mariana.terminal_workspace import TerminalWorkspace, WorkspaceRow, matching_rows
 from mariana.terminal_layout import cells, wrap
+from mariana.terminal_workspace import TerminalWorkspace, WorkspaceRow, matching_rows
 
 
 class Output(DummyOutput):

@@ -13,7 +13,7 @@ from itertools import islice
 from pathlib import Path
 
 _LIMIT = 40
-_MEDIA = frozenset(".mp3 .wav .flac .ogg .oga .opus .m4a .m4b .aac .aif .aiff .wma .alac .mp4 .mkv .webm .mov .m4v .avi".split())
+_MEDIA = frozenset([".mp3", ".wav", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".m4b", ".aac", ".aif", ".aiff", ".wma", ".alac", ".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi"])
 _EXTENSIONS = {
     "audio-file": _MEDIA, "audio-path": _MEDIA, "media-file": _MEDIA, "media-path": _MEDIA,
     "wav-file": {".wav"}, "ttml": {".xml", ".ttml"}, "ttml-path": {".xml", ".ttml"},
@@ -38,10 +38,7 @@ def _paths(prefix: str, kind: str) -> Iterable[str]:
         return ()
     if prefix == "~":
         return ("~" + os.sep,)
-    if os.name == "nt":
-        cut = max(prefix.rfind("/"), prefix.rfind("\\")) + 1
-    else:
-        cut = prefix.rfind("/") + 1
+    cut = max(prefix.rfind("/"), prefix.rfind("\\")) + 1 if os.name == "nt" else prefix.rfind("/") + 1
     parent, partial = prefix[:cut], prefix[cut:]
     directory = Path(parent or ".").expanduser()
     suffixes = _EXTENSIONS.get(kind)
@@ -57,7 +54,7 @@ def _paths(prefix: str, kind: str) -> Iterable[str]:
                     continue
                 try:
                     folder = entry.is_dir()
-                    if not folder and (dirs_only or suffixes and Path(name).suffix.casefold() not in suffixes
+                    if not folder and (dirs_only or (suffixes and Path(name).suffix.casefold() not in suffixes)
                                        or not entry.is_file()):
                         continue
                 except OSError:
@@ -120,7 +117,7 @@ def make_value_provider(runtime=None):
             return _paths(prefix, "directory")
         if kind == "file-or-url":
             return _paths(prefix, "playlist-file" if command == ("playlist", "import") else "file")
-        if kind in _PATH_KINDS or kind.startswith("new-") and ("file" in kind or "path" in kind or "sheet" in kind):
+        if kind in _PATH_KINDS or (kind.startswith("new-") and ("file" in kind or "path" in kind or "sheet" in kind)):
             return _paths(prefix, kind)
         if kind == "current-or-library-index":
             return ("current", *_indices(library_count, prefix))

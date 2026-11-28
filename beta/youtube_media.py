@@ -171,8 +171,8 @@ def _timed_playback_lookup(url: str, options: dict) -> Mapping[str, Any]:
 
 
 def _playback_extract(url: str, *, format: str, browser_profile: str | None) -> Mapping[str, Any]:
-    options = dict(format=format, browser_profile=browser_profile, socket_timeout=8,
-                   retries=0, extractor_retries=0, geo_bypass=False)
+    options = {"format": format, "browser_profile": browser_profile, "socket_timeout": 8,
+                   "retries": 0, "extractor_retries": 0, "geo_bypass": False}
     try:
         return _timed_playback_lookup(url, options)
     except (YouTubeError, OSError, ModuleNotFoundError) as error:

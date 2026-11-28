@@ -195,6 +195,8 @@ def wall_command(db: MarianaDatabase, args: list[str], current=None) -> str:
             with db.transaction() as conn:
                 conn.execute("UPDATE wall_profiles SET name=? WHERE id=?", (name, owner))
         row = db.fetchone("SELECT name FROM wall_profiles WHERE id=?", (owner,))
+        if row is None:
+            raise ValueError("The local wall profile is unavailable.")
         return f"{row['name']} [{owner}]"
     if action == "profiles" and not values:
         return "\n".join(f"{r['name']} [{r['id']}] · {'following' if r['following'] else 'imported'}"
@@ -206,8 +208,10 @@ def wall_command(db: MarianaDatabase, args: list[str], current=None) -> str:
     if action == "matches" and not values:
         return _matches(db, owner)
     if action == "badges" and not values:
-        posts = db.fetchone("SELECT COUNT(*) FROM wall_posts WHERE profile=?", (owner,))[0]
-        wins = db.fetchone("SELECT COUNT(*) FROM wall_quiz WHERE won=1")[0]
+        post_count = db.fetchone("SELECT COUNT(*) FROM wall_posts WHERE profile=?", (owner,))
+        win_count = db.fetchone("SELECT COUNT(*) FROM wall_quiz WHERE won=1")
+        posts = post_count[0] if post_count is not None else 0
+        wins = win_count[0] if win_count is not None else 0
         badges = [name for ok, name in ((posts >= 1, "Collector"), (posts >= 10, "Curator"),
                                          (wins >= 1, "Quiz fan"), (wins >= 7, "Quiz regular")) if ok]
         return f"{posts} posts · {wins} quiz wins · " + (", ".join(badges) or "Your first post earns Collector.")

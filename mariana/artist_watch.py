@@ -13,7 +13,6 @@ from uuid import UUID
 
 from .artist_catalogues import apple_country, apple_id, apple_rows
 
-
 PREFIX = "artist.follow."
 NEWS_FEEDS = (
     ("BrooklynVegan", "https://www.brooklynvegan.com/feed/"),

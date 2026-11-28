@@ -73,7 +73,7 @@ def frames(name, harmonics=PARTIALS):
     for row in spectrum(name):
         samples = [0.0] * FRAME
         for harmonic, weight in enumerate(row[:harmonics]):
-            samples = [s + weight*v for s, v in zip(samples, basis[harmonic])]
+            samples = [s + weight*v for s, v in zip(samples, basis[harmonic], strict=True)]
         waves.append(samples)
     peak = max(abs(s) for samples in waves for s in samples)
     return [[v / peak for v in samples] for samples in waves]

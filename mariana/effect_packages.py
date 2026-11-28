@@ -3,18 +3,17 @@ from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path
 import re
 import shutil
 import stat
 import sys
 import tempfile
 import time
+from pathlib import Path
 from urllib.error import URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, build_opener
 from zipfile import BadZipFile, ZipFile
-
 
 NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
 SHA256 = re.compile(r"[a-fA-F0-9]{64}")

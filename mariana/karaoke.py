@@ -9,6 +9,7 @@ import threading
 import unicodedata
 from bisect import bisect_right
 from pathlib import Path
+from typing import Any
 
 SCHEMA = "mariana.karaoke.v1"
 THRESHOLD = 0.9
@@ -31,8 +32,8 @@ def _time(value):
     return value
 
 
-def _confidence(value):
-    if type(value) not in (float, int) or not 0 <= value <= 1:
+def _confidence(value: object) -> float:
+    if not (type(value) is float or type(value) is int) or not 0 <= value <= 1:
         raise ValueError("The sheet needs numeric whole-recording and per-word confidence from 0 to 1.")
     return value
 
@@ -91,7 +92,7 @@ class Score:
                     latest = off
                     number = _confidence(word.get("confidence"))
                     self.score = min(self.score, number)
-                    words.append(dict(start_ms=on, end_ms=off, text=_label(word.get("text"), 128), confidence=number))
+                    words.append({"start_ms": on, "end_ms": off, "text": _label(word.get("text"), 128), "confidence": number})
                 if singer not in self.singers:
                     self.singers.append(singer)
                 voices.append({"singer": singer, "words": words})
@@ -216,9 +217,17 @@ class KaraokeSession:
 
     def stage(self, snapshot, *, include_sheet=False):
         position = snapshot.position
-        state = dict(media_id=snapshot.media.stable_id if snapshot.media else None, available=False,
-                     score=None, source="", reason="", threshold=THRESHOLD, sheet=None, state=str(snapshot.state),
-                     position_ms=int(max(0, position) * 1000 + 0.5) if position and math.isfinite(position) else 0)
+        state: dict[str, Any] = {
+            "media_id": snapshot.media.stable_id if snapshot.media else None,
+            "available": False,
+            "score": None,
+            "source": "",
+            "reason": "",
+            "threshold": THRESHOLD,
+            "sheet": None,
+            "state": str(snapshot.state),
+            "position_ms": int(max(0, position) * 1000 + 0.5) if position and math.isfinite(position) else 0,
+        }
         with self._lock:
             try:
                 duration = self._bind(snapshot)
@@ -275,9 +284,10 @@ class KaraokeSession:
     def active(self, snapshot):
         with self._lock:
             stage = self.stage(snapshot)
-            if not stage["available"]:
-                raise ValueError(stage["reason"])
-            return self.sheet, stage["position_ms"]
+            sheet = self.sheet
+            if not stage["available"] or sheet is None:
+                raise ValueError(stage["reason"] or "The timing sheet is unavailable.")
+            return sheet, stage["position_ms"]
 
     def export_invite(self, snapshot, path, name=None):
         from .karaoke_invite import practice_invite

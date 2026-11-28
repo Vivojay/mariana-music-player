@@ -47,8 +47,8 @@ class ToneTests(unittest.TestCase):
         self.assertLess(max(magnitudes[strongest]) / min(magnitudes[strongest]), 1.01)
 
     def test_chord_presets_expand_to_equal_temperament_from_the_root(self):
-        self.assertEqual(parse_tone("harmony 220 --chord octave".split()).frequencies, (220, 440))
-        tone = parse_tone("harmony 440 --chord minor7".split())
+        self.assertEqual(parse_tone(["harmony", "220", "--chord", "octave"]).frequencies, (220, 440))
+        tone = parse_tone(["harmony", "440", "--chord", "minor7"])
         np.testing.assert_allclose(tone.frequencies, (440, 523.2511, 659.2551, 783.9909), rtol=1e-5)
 
     def test_sweeps_cross_expected_frequencies_in_both_directions(self):

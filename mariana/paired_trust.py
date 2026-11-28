@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from .paths import profile_service_name
-
 import hashlib
 import hmac
 import importlib
@@ -30,6 +28,7 @@ from typing import Any, Protocol
 
 from .credentials import CredentialStore
 from .models import MediaSource, PlaybackSnapshot, PlaybackState
+from .paths import profile_service_name
 from .playback_status import _clean_display_text, project_playback_status
 
 SCHEMA_VERSION = 1

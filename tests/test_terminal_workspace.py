@@ -89,7 +89,8 @@ def test_workspace_shortcuts_filter_and_edit_native_command(columns, rows, nav_h
 
 def test_discover_search_and_library_filter_are_independent_and_restore_selection():
     edits, plays = [], []
-    src = lambda: [("Jóga", "Björk", "play 2"), ("Intro", "坂本龍一", "play 3")]
+    def src():
+        return [("Jóga", "Björk", "play 2"), ("Intro", "坂本龍一", "play 3")]
     view = workspace(on_edit=edits.append, on_run=plays.append, library_rows=src)
     frames = drive(view, "\x1bOR/bjork\r@snap\r\x1b[15~/artist search\r@snap\r\x1bOR@snap")
     assert [f["selected"] for f in frames] == ["Jóga", "artist search", "Jóga"]

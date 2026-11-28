@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from .paths import profile_service_name, runtime_paths
-
 import base64
 import os
 import re
@@ -11,6 +9,8 @@ import socket
 import ssl
 import threading
 from urllib.parse import urlparse
+
+from .paths import profile_service_name, runtime_paths
 
 SERVICE_NAME = "io.github.vivojay.mariana.icecast"
 

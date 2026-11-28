@@ -15,14 +15,13 @@ from mariana.sources import ResolverRegistry
 from mariana.video_sources import VideoAccessExpired, VideoTracks
 from tests.test_youtube_video_switching import origin, track, wait_ready
 
-
 URL = "https://www.youtube.com/watch?v=abcdefghijk"
 
 
 def formats():
-    return dict(id="abcdefghijk", url="https://cdn.example/audio", duration=20, formats=[
-        dict(url="https://cdn.example/video", acodec="none", vcodec="avc1", ext="mp4",
-             protocol="https", format_id="137", height=1080)])
+    return {"id": "abcdefghijk", "url": "https://cdn.example/audio", "duration": 20, "formats": [
+        {"url": "https://cdn.example/video", "acodec": "none", "vcodec": "avc1", "ext": "mp4",
+             "protocol": "https", "format_id": "137", "height": 1080}]}
 
 
 def test_audio_and_video_share_single_extraction_for_exact_account_and_recording(monkeypatch):
@@ -45,7 +44,7 @@ def test_audio_and_video_share_single_extraction_for_exact_account_and_recording
 
 
 def test_hint_cannot_outlive_expiry_or_supply_drm(monkeypatch):
-    for extra in (dict(has_drm=True), dict(is_live=True), dict(id="xxxxxxxxxxx"), dict(expires=1)):
+    for extra in ({"has_drm": True}, {"is_live": True}, {"id": "xxxxxxxxxxx"}, {"expires": 1}):
         youtube_media._remember_available_picture(URL, None, dict(formats(), **extra))
         assert youtube_media._take_available_picture(URL, None) is None
 
@@ -144,7 +143,7 @@ def test_transient_resolution_retries_once_or_uses_configured_runtime(monkeypatc
         calls.append(opts["socket_timeout"])
         if len(calls) == 1:
             raise youtube_media.YouTubeError("connection reset")
-        return dict(url="https://cdn.example/ok")
+        return {"url": "https://cdn.example/ok"}
     monkeypatch.setattr(youtube_media, "_extract", try_resolve)
     monkeypatch.delenv("MARIANA_YTDLP_BINARY", raising=False)
     calls = []
@@ -153,7 +152,7 @@ def test_transient_resolution_retries_once_or_uses_configured_runtime(monkeypatc
     used = []
     def alternate(url, selector, profile):
         used.append((url, selector, profile))
-        return dict(url="https://cdn.example/alt")
+        return {"url": "https://cdn.example/alt"}
     monkeypatch.setattr(extractor_fallback, "external_info", alternate)
     assert youtube_media.resolve_stream(URL, browser_profile="firefox:work")["url"].endswith("/alt")
     assert used == [(URL, "bestaudio/best", "firefox:work")] and len(calls) == 1
@@ -226,7 +225,7 @@ def test_preflight_and_title_lookup_can_use_explicit_alternate(monkeypatch):
     def offline(*_, **__):
         raise youtube_media.YouTubeError("connection reset")
     monkeypatch.setattr(youtube_media, "_extract", offline)
-    monkeypatch.setattr(extractor_fallback, "external_info", lambda *_: dict(url="https://cdn.example/mix", title="Track"))
+    monkeypatch.setattr(extractor_fallback, "external_info", lambda *_: {"url": "https://cdn.example/mix", "title": "Track"})
     assert youtube_media.is_resolvable(URL)
     assert youtube_media.media_info(URL)["title"] == "Track"
 

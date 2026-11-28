@@ -186,10 +186,10 @@ def test_rsgain_recovers_duplicate_basenames_without_losing_album(tmp_path, monk
 
 def test_installed_rsgain_scans_real_album_without_mutating_media(tmp_path):
     import os
-    from pathlib import Path
     import shutil
     import struct
     import wave
+    from pathlib import Path
 
     executable = os.environ.get("MARIANA_TEST_RSGAIN") or shutil.which("rsgain")
     if not executable:

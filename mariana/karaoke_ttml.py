@@ -5,7 +5,7 @@ import hashlib
 import re
 import unicodedata
 import xml.etree.ElementTree as ET
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from .karaoke import MAX_BYTES, MAX_MS, SCHEMA, Score, _label
 
@@ -258,17 +258,17 @@ def compare(first, second, digest, duration):
     cursor = 0
     for start, end, line in groups:
         if start > cursor:
-            segments.append(dict(start_ms=cursor, end_ms=start, voices=[]))
+            segments.append({"start_ms": cursor, "end_ms": start, "voices": []})
         voices = {}
         for singer, word in line:
             voices.setdefault(singer, []).append(word)
-        segments.append(dict(start_ms=start, end_ms=end, voices=[
-            dict(singer=singer, words=sorted(words, key=lambda row: row["start_ms"])) for singer, words in voices.items()
-        ]))
+        segments.append({"start_ms": start, "end_ms": end, "voices": [
+            {"singer": singer, "words": sorted(words, key=lambda row: row["start_ms"])} for singer, words in voices.items()
+        ]})
         cursor = end
     if cursor < first_total:
-        segments.append(dict(start_ms=cursor, end_ms=first_total, voices=[]))
+        segments.append({"start_ms": cursor, "end_ms": first_total, "voices": []})
     score = min(word["confidence"] for _, _, line in scored for _, word in line)
-    return Score(dict(schema=SCHEMA, duration_ms=first_total, media_sha256=digest,
-                      source="Timing agreement between two user-selected TTML transcriptions", confidence=score,
-                      segments=segments))
+    return Score({"schema": SCHEMA, "duration_ms": first_total, "media_sha256": digest,
+                      "source": "Timing agreement between two user-selected TTML transcriptions", "confidence": score,
+                      "segments": segments})

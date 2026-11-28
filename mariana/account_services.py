@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import json
 import os
@@ -141,10 +142,8 @@ def identity(provider, token):
         raise AccountError("The provider could not confirm your account identity.")
     url = ""
     if handle:
-        try:
+        with contextlib.suppress(AccountError):
             url = profile_url(provider, handle)
-        except AccountError:
-            pass
     return {"id": uid, "name": name, "url": url}
 
 

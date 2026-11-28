@@ -16,8 +16,8 @@ from prompt_toolkit.key_binding.bindings.named_commands import get_by_name
 from prompt_toolkit.output import Output
 from prompt_toolkit.patch_stdout import patch_stdout
 
-from mariana.terminal_history import SessionHistory
 from mariana.command_assist import Suggestion, ValueProvider, command_corrections, command_suggestions
+from mariana.terminal_history import SessionHistory
 
 
 def _windows_word_erase_key(input: Input) -> str:

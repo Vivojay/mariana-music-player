@@ -108,9 +108,9 @@ def test_direct_terminal_unlocks_without_reentering_the_alternate_screen(monkeyp
     from prompt_toolkit.input import create_pipe_input
     from prompt_toolkit.output import DummyOutput
 
-    from mariana.terminal_workspace import TerminalWorkspace
     from mariana.terminal_player import run_player
     from mariana.terminal_recovery import TerminalRecoveryWorkspace
+    from mariana.terminal_workspace import TerminalWorkspace
 
     class Display(DummyOutput):
         entered = left = 0
@@ -164,7 +164,7 @@ def test_direct_terminal_unlocks_without_reentering_the_alternate_screen(monkeyp
         worker.start()
         try:
             assert run_player(
-                project, lambda: {}, dispatch, input=pipe, output=display, direct=True,
+                project, dict, dispatch, input=pipe, output=display, direct=True,
                 startup_notices=(marker,), is_visible=lambda: not restricted.is_set(),
                 recovery_view=lambda play: TerminalRecoveryWorkspace(lambda: "hidden", play, lambda: False),
             ) is False

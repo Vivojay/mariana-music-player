@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from numbers import Real
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +50,7 @@ def prepare(data, playback):
     if action == "seek":
         duration = playback.get("duration_seconds")
         if (not playback.get("seekable") or playback.get("live") or not duration
-                or isinstance(value, bool) or not isinstance(value, Real) or not 0 <= value <= duration
+                or not (type(value) is int or type(value) is float) or not 0 <= value <= duration
                 or playback.get("state") not in {"paused", "playing"}):
             raise ValueError("Choose a valid seek position on the current recording.")
         if not math.isfinite(value):

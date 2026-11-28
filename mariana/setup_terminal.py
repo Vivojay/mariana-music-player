@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import re
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
+from typing import cast
 
 from prompt_toolkit.application import Application, create_app_session, get_app_session
 from prompt_toolkit.document import Document
@@ -13,6 +14,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import ConditionalContainer, HSplit, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.output import Output
 from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import Button, TextArea
 
@@ -64,7 +66,7 @@ def direct_screen():
     original = get_app_session()
     screen = _SharedScreen(original.output)
     try:
-        with create_app_session(input=original.input, output=screen):
+        with create_app_session(input=original.input, output=cast(Output, screen)):
             yield
     finally:
         screen.release()
@@ -188,19 +190,19 @@ def run_setup(title, action, appearance, *, input=None, output=None):
                       mouse_support=True, style=style, input=input, output=output)
     host = TerminalIO(app.invalidate, write)
     with host.capture(), ThreadPoolExecutor(max_workers=1, thread_name_prefix="mariana-setup") as worker:
-        result = None
+        submissions: list[Future] = []
 
         def complete(_):
             finished.set()
             app.invalidate()
 
         def begin():
-            nonlocal result
             result = worker.submit(perform)
+            submissions.append(result)
             result.add_done_callback(complete)
 
         try:
             app.run(pre_run=begin)
-            return result.result()
+            return submissions[0].result() if submissions else None
         finally:
             host.cancel()

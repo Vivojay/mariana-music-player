@@ -1,5 +1,6 @@
 """Offline plug-in renderer. Third-party DSP runs outside Mariana's audio process."""
 from __future__ import annotations
+
 import sys
 
 
@@ -7,8 +8,8 @@ def main(argv):
     if len(argv) != 3:
         return 2
     import numpy as np
-    from pedalboard import load_plugin
-    from pedalboard.io import AudioFile
+    from pedalboard import load_plugin  # pyright: ignore[reportMissingImports]
+    from pedalboard.io import AudioFile  # pyright: ignore[reportMissingImports]
 
     plugin_path, source, output = argv
     effect = load_plugin(plugin_path)

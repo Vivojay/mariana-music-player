@@ -1,4 +1,5 @@
 import json
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -19,7 +20,9 @@ def test_open_page_play_and_persist(tmp_path):
     calls = []
     shelf = PodbeanShelf(db, lambda url: calls.append(url) or feed())
     selected = []
-    use = lambda media, play: selected.append((media, play))
+    def use(media, play):
+        selected.append((media, play))
+
     assert '1. Part 1' in shelf.command(['open', 'https://night.podbean.com/'], use)
     assert '11. Part 11' in shelf.command(['episodes', '2'], use)
     assert not selected
@@ -47,7 +50,7 @@ def test_faults_clear_failed_selection_and_public_search(tmp_path):
     loads = []
     def fetch(url):
         loads.append(url)
-        if 'itunes.apple.com' in url:
+        if urlsplit(url).hostname == 'itunes.apple.com':
             return json.dumps(directory).encode()
         return b'<html/>' if '/missing/' in url else feed()
     shelf = PodbeanShelf(db, fetch)

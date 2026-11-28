@@ -1,14 +1,13 @@
-from pathlib import Path
 import json
 import shutil
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
 import wave
+from pathlib import Path
+from unittest.mock import patch
 
 from mariana import transcription as speech
-
 
 WHISPER_SAMPLE = {
     "result": {"language": "hi"},

@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from mariana.dj import DJSession, SAMPLE_RATE
+from mariana.dj import SAMPLE_RATE, DJSession
 
 
 class Output:
@@ -196,7 +196,8 @@ def test_cue_outside_loop_releases_loop_and_recorder_keeps_partial_wav(session, 
 
 
 def test_share_recorded_wav_over_loopback(session, tmp_path, monkeypatch):
-    from urllib.request import build_opener, ProxyHandler
+    from urllib.request import ProxyHandler, build_opener
+
     import mariana.clip_share as share
     addresses = []
     monkeypatch.setattr(share.webbrowser, "open", lambda url, new: addresses.append(url) or True)

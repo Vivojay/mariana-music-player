@@ -1285,7 +1285,7 @@ def ensure_managed_tool_migration():
             refresh_runtime_configuration(show_report=not _START_IN_TUI)
             DATABASE.set_state('managed_tool_prompt_version', bundle)
         except (ToolchainError, OSError) as error:
-            _startup_questions('Set up media tools', lambda: installation_error(error))
+            _startup_questions('Set up media tools', lambda failure=error: installation_error(failure))
         else:
             if not _START_IN_TUI:
                 IPrint('Managed media tools are ready.', visible=visible)
@@ -7244,7 +7244,7 @@ def web_session_command(arguments):
     share_output = '--share-output' in flags
     if (route not in (['session'], ['session', 'flow'], ['session', 'console'])
             or set(flags) - {'--trust', '--share-output'} or len(flags) != len(set(flags))
-            or share_output and not trusted or not words or words[0] != 'session'):
+            or (share_output and not trusted) or not words or words[0] != 'session'):
         raise ValueError('Use web session [flow|console] [--trust [--share-output]]. '
                          'In the paired terminal, type web help for browser controls.')
     if not visible or not sys.stdin.isatty() or not sys.stdout.isatty():

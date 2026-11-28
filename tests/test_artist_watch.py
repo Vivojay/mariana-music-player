@@ -1,3 +1,4 @@
+import json
 from datetime import date
 from pathlib import Path
 from unittest.mock import Mock
@@ -5,9 +6,7 @@ from unittest.mock import Mock
 import pytest
 
 from mariana.artist_watch import _mentions, following, run_artist_command
-import json
 from mariana.database import MarianaDatabase
-
 
 A = "85c95c6a-31e0-40de-b7b7-9685ac70866b"
 B = "eb000cc5-c089-473e-b3f8-a1015f3c232b"
@@ -32,7 +31,7 @@ def test_dynamic_search_and_recent_groups_are_distinct():
     client.artist_catalogue_search.return_value = ARTISTS
     lines = run_artist_command(["emerging", "indie"], None, client, today=TODAY)
     assert len(lines) == 2
-    assert 'type:group AND begin:[2024-01-01 TO 2026-11-24] AND tag:"indie"' == client.artist_catalogue_search.call_args.args[1]
+    assert client.artist_catalogue_search.call_args.args[1] == 'type:group AND begin:[2024-01-01 TO 2026-11-24] AND tag:"indie"'
     run_artist_command(["search", 'A "band"'], None, client)
     assert client.artist_catalogue_search.call_args.args[1] == 'artist:"A \\"band\\""'
 
@@ -129,8 +128,9 @@ def test_artist_inbox_survives_restarts_partial_failure_and_refreshes(tmp_path, 
 
 def test_live_news_partial_provider_failure_keeps_other_matches(monkeypatch):
     from types import SimpleNamespace
-    from mariana.artwork import ArtworkFetchError
+
     from mariana.artist_watch import _news
+    from mariana.artwork import ArtworkFetchError
     xml = b'<rss version="2.0"><channel><item><title>Arc plays live</title><link>https://www.brooklynvegan.com/arc/</link></item></channel></rss>'
     fetcher = Mock()
     fetcher.fetch.side_effect = [SimpleNamespace(data=xml), ArtworkFetchError("missing"), SimpleNamespace(data=b"invalid")]

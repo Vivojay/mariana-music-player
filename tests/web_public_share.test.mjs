@@ -25,8 +25,8 @@ test('the Snapchat SDK is user-activated and isolated from the player origin', (
   const parent = fs.readFileSync(new URL('share-link.html',root),'utf8');
   const loader = fs.readFileSync(new URL('public-share.js',root),'utf8');
   const frame = fs.readFileSync(new URL('snap-share.html',root),'utf8');
-  assert.doesNotMatch(app + parent + loader, /sdk\.snapkit\.com/);
+  assert.equal((app + parent + loader).includes('https://sdk.snapkit.com/'), false);
   assert.doesNotMatch(loader, /allow-same-origin/);
   assert.match(frame, /self\.origin !== 'null'/);
-  assert.match(frame, /https:\/\/sdk\.snapkit\.com\/js\/v1\/create\.js/);
+  assert.ok(frame.includes("sdk.src = 'https://sdk.snapkit.com/js/v1/create.js';"));
 });

@@ -11,9 +11,11 @@ import time
 import unicodedata
 from collections import defaultdict
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
+
 from recommendation_engine.engine import cosine
 
 from .database import MarianaDatabase
@@ -129,8 +131,8 @@ def describe_audio(samples):
         return None
     frames = np.lib.stride_tricks.sliding_window_view(samples, FRAME_SIZE)[::HOP]
     power = np.abs(np.fft.rfft(frames * WINDOW)) ** 2
-    bands = np.stack([power[:, (FREQUENCIES >= low) & (FREQUENCIES < high)].sum(axis=1)
-                      for low, high in zip(BAND_EDGES[:-1], BAND_EDGES[1:], strict=True)], axis=-1)
+    bands = np.stack([power[:, (low <= FREQUENCIES) & (high > FREQUENCIES)].sum(axis=1)
+                      for low, high in pairwise(BAND_EDGES)], axis=-1)
     energy = bands.sum(axis=1)
     if float(energy.max()) < 1e-5:
         return None
@@ -324,7 +326,7 @@ def find_similar(database: MarianaDatabase, library_id: str, mode="hybrid", limi
                 reasons += evidence
             if mode in ("hybrid", "audio"):
                 acoustic, evidence = _audio_score(reference, candidate)
-                if evidence:
+                if acoustic is not None and evidence:
                     score += acoustic * (.70 if mode == "hybrid" else 1.0)
                     reasons += evidence
         if reasons:

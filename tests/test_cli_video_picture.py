@@ -18,16 +18,16 @@ from mariana.video_window import Clock, Decoder, PictureBudget, _input_protocols
 
 class VideoClockTests(unittest.TestCase):
     def test_pause_seek_and_delayed_heartbeat(self):
-        clock = Clock.read(dict(state="playing", position=6, rate=1.5, sampled_at=100), 100.1)
+        clock = Clock.read({"state": "playing", "position": 6, "rate": 1.5, "sampled_at": 100}, 100.1)
         self.assertAlmostEqual(clock.at(100.2), 6.3)
         self.assertAlmostEqual(clock.at(103), 6.6)
-        pause = Clock.read(dict(state="paused", position=6.3, sampled_at=100.2), 100.2)
+        pause = Clock.read({"state": "paused", "position": 6.3, "sampled_at": 100.2}, 100.2)
         self.assertFalse(pause.jumped(clock))
         self.assertEqual(pause.at(300), 6.3)
-        seek = Clock.read(dict(state="paused", position=1.5, sampled_at=300), 300)
+        seek = Clock.read({"state": "paused", "position": 1.5, "sampled_at": 300}, 300)
         self.assertTrue(seek.jumped(pause))
         with self.assertRaises(ValueError):
-            Clock.read(dict(state="paused", position=math.inf), 100)
+            Clock.read({"state": "paused", "position": math.inf}, 100)
 
     def test_persistent_lag_reduces_frame_size_while_transient_lag_recovers(self):
         budget = PictureBudget()
@@ -108,7 +108,7 @@ class PictureDecoderTests(unittest.TestCase):
         reader = threading.Thread(target=read, daemon=True)
         reader.start()
         def send(path, media):
-            child.stdin.write(json.dumps(dict(source=str(path), media_id=media, state="paused", position=.2)) + "\n")
+            child.stdin.write(json.dumps({"source": str(path), "media_id": media, "state": "paused", "position": .2}) + "\n")
             child.stdin.flush()
         def until(kind):
             deadline = time.monotonic() + 6

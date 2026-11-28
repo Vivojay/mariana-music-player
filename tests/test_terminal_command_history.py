@@ -15,7 +15,7 @@ def test_opt_in_cross_reader_scope_and_private_inputs(tmp_path):
         one.append_string(text)
     assert two.get_strings() == ["seek +15s", "tone sine 220 --seconds 2"]
     assert "private" not in path.read_bytes().decode("latin-1")
-    assert all("secret\nentry" != line for line in one.get_strings())
+    assert all(line != "secret\nentry" for line in one.get_strings())
     two.append_string("seek +15s")
     assert two.get_strings()[-1] == "seek +15s"
     assert SessionHistory(tmp_path / "another" / "recall.db").get_strings() == []

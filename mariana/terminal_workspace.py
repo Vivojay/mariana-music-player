@@ -1,8 +1,8 @@
 """Full-screen navigation over Mariana's live session and native command catalog."""
 from __future__ import annotations
 
-import sqlite3
 import re
+import sqlite3
 import time
 import unicodedata
 from dataclasses import dataclass
@@ -10,6 +10,7 @@ from functools import lru_cache
 
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.filters import Condition
+from prompt_toolkit.formatted_text.base import OneStyleAndTextTuple
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import ConditionalContainer, HSplit, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
@@ -18,7 +19,8 @@ from prompt_toolkit.mouse_events import MouseEventType
 from prompt_toolkit.widgets import TextArea
 
 from .command_catalog import COMMAND_CATALOG, CommandCategory
-from .terminal_layout import WorkspaceSize, cells, clip as _clip, wrap
+from .terminal_layout import WorkspaceSize, cells, wrap
+from .terminal_layout import clip as _clip
 
 
 @dataclass(frozen=True, slots=True)
@@ -254,7 +256,7 @@ class TerminalWorkspace:
                     ConditionalContainer(Window(FormattedTextControl(self._lower_panel), style="class:bar",
                                                 height=lambda: min(9, max(4, self._size().rows // 4)),
                                                 wrap_lines=False),
-                                         Condition(lambda: bool(self.last_command or self.queue_preview and self.page != "Queue"))),
+                                         Condition(lambda: bool(self.last_command or (self.queue_preview and self.page != "Queue")))),
                 ], width=lambda: self._size().side), show_side),
             ]),
             ConditionalContainer(Window(FormattedTextControl(self._compact), wrap_lines=False, style="class:panel",
@@ -420,7 +422,7 @@ class TerminalWorkspace:
     def _nav_height(self):
         return self._size().nav_rows
 
-    def _navigation(self):
+    def _navigation(self) -> list[OneStyleAndTextTuple]:
         size = self._size()
         short = {"Discover": "Find", "Commands": "Cmds"}
         items = []
@@ -432,7 +434,7 @@ class TerminalWorkspace:
         if size.nav_rows == 2:
             if sum(cells(item[1]) for item in items[3:]) > size.columns:
                 items = [(style, text.rstrip(), handler) for style, text, handler in items]
-            return items[:3] + [("", "\n")] + items[3:]
+            return [*items[:3], ("", "\n"), *items[3:]]
         available = size.columns
         if sum(cells(item[1]) for item in items) > available:
             # A short terminal has room for a moving window of tabs. The
@@ -453,21 +455,22 @@ class TerminalWorkspace:
                 start -= direction == -1
                 end += direction == 1
                 width += amount
-            visible = items[start:end]
+            visible: list[OneStyleAndTextTuple] = list(items[start:end])
             if start:
                 visible.insert(0, ("class:key", "‹ ", self._press(lambda: self.switch(PAGES[start - 1][1]))))
             if end < len(items):
                 visible.append(("class:key", " ›", self._press(lambda: self.switch(PAGES[end][1]))))
             return visible
+        menu: list[OneStyleAndTextTuple] = list(items)
         brand = " MARIANA  "
         used = sum(cells(item[1]) for item in items)
         if available - used >= len(brand):
-            items.insert(0, ("class:key", brand))
+            menu.insert(0, ("class:key", brand))
             used += len(brand)
         theme = _plain(self.palette_name())
         if theme and available - used >= cells(theme) + 4:
-            items.append(("class:muted", theme.rjust(available - used - 1) + " "))
-        return items
+            menu.append(("class:muted", theme.rjust(available - used - 1) + " "))
+        return menu
 
     def _deck_height(self):
         if self.page == "DJ":
@@ -477,13 +480,13 @@ class TerminalWorkspace:
     def _transport(self, command):
         return self._press(lambda: (self.on_run or self.on_edit)(command))
 
-    def _deck(self):
+    def _deck(self) -> list[OneStyleAndTextTuple]:
         size = self._size()
         width = size.columns
         if self.page == "DJ":
             status = self.dj_status() if self.dj_status else None
             lines = (status or "A · empty\nB · empty\nCrossfader 0% · Recording off").splitlines()[:3]
-            output = []
+            output: list[OneStyleAndTextTuple] = []
             for i, line in enumerate(lines):
                 parts = _plain(line).split(" · ")
                 if i < 2 and len(parts) >= 4:
@@ -527,7 +530,7 @@ class TerminalWorkspace:
             name = _clip(title, budget - cells(a) - 3) + " · " + a
         else:
             name = _clip(title, budget)
-        deck = [("class:key", tag), ("class:title", name)]
+        deck: list[OneStyleAndTextTuple] = [("class:key", tag), ("class:title", name)]
         if metadata:
             deck.append(("class:muted", " " * max(0, budget - cells(name)) + right))
         deck.append(("", "\n"))
@@ -597,7 +600,7 @@ class TerminalWorkspace:
         return [("class:key", " " + self.page), ("class:muted", label),
                 ("class:muted", " " * max(0, budget - cells(label)) + amount if amount else "")]
 
-    def _list_lines(self):
+    def _list_lines(self) -> list[OneStyleAndTextTuple]:
         if not self.matches:
             return [("class:muted", " " + _clip("No matches. Press / to change the filter.", self._size().body - 1))]
         height = self._height()
@@ -606,7 +609,7 @@ class TerminalWorkspace:
         self.offset = min(self.offset, self.position)
         self.offset = max(0, self.offset, self.position - height + 1)
         self.offset = min(self.offset, max(0, len(self.matches) - height))
-        out = []
+        out: list[OneStyleAndTextTuple] = []
         for index in range(self.offset, min(self.offset + height, len(self.matches))):
             row = self.matches[index]
             active = index == self.position
@@ -663,7 +666,7 @@ class TerminalWorkspace:
             if index:
                 formatted.append(("", "\n"))
             fragment = (style, " " + _clip(line, width))
-            formatted.append(fragment + (action,) if action else fragment)
+            formatted.append((*fragment, action) if action else fragment)
         return formatted
 
     def _detail(self):
@@ -705,7 +708,7 @@ class TerminalWorkspace:
             return self._inspector_content(max(1, self._size().columns - 2))
         return self._activity() if self.last_command else self._compact_detail()
 
-    def _footer(self):
+    def _footer(self) -> list[OneStyleAndTextTuple]:
         size = self._size()
         if self._error:
             return [("class:accent", " " + _clip(self._error, size.columns - 1))]
@@ -724,9 +727,9 @@ class TerminalWorkspace:
         if size.columns < 48:
             shortcuts = [(":", "Cmd", lambda: self.on_edit(None)), ("/", "Find", self._begin_filter),
                          ("i", "Info", self._toggle_inspector), ("^O", "Output" if size.columns >= 33 else "Log", self.on_output)]
-        fragments = []
+        fragments: list[OneStyleAndTextTuple] = []
         for key, label, callback in shortcuts:
             handler = self._press(callback) if callback else None
             pieces = [("class:key", " " + key), ("", " " + label + " ")]
-            fragments.extend(piece + (handler,) if handler else piece for piece in pieces)
+            fragments.extend((*piece, handler) if handler else piece for piece in pieces)
         return fragments

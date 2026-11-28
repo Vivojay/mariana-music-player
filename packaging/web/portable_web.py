@@ -1,12 +1,13 @@
 """Serve the bundled Mariana browser player on a stable loopback origin."""
 import argparse
+import contextlib
+import json
+import sys
+import webbrowser
 from functools import partial
 from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import json
 from pathlib import Path
-import sys
-import webbrowser
 from zipfile import ZipFile
 
 MIME = {
@@ -109,14 +110,10 @@ def main():
         print(f'Mariana is ready at {url}', flush=True)
         print('Press Ctrl+C in this window to quit.', flush=True)
         if not args.no_open:
-            try:
+            with contextlib.suppress(webbrowser.Error):
                 webbrowser.open(url)
-            except webbrowser.Error:
-                pass
-        try:
+        with contextlib.suppress(KeyboardInterrupt):
             server.serve_forever()
-        except KeyboardInterrupt:
-            pass
 
 
 if __name__ == '__main__':

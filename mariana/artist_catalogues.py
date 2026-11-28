@@ -10,7 +10,6 @@ import requests
 
 from .version import __version__
 
-
 _APPLE_LOCK = threading.Lock()
 _last_apple_request = float("-inf")
 

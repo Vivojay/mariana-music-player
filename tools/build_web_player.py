@@ -7,13 +7,14 @@ import json
 import math
 import os
 import re
-import sys
 import struct
-import zlib
+import sys
 import webbrowser
+import zlib
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import ClassVar
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -134,7 +135,7 @@ def apple_icons():
 
 class PlayerRequest(SimpleHTTPRequestHandler):
     # Windows file associations can otherwise give the service worker an invalid MIME type.
-    extensions_map = {
+    extensions_map: ClassVar[dict[str, str]] = {
         **SimpleHTTPRequestHandler.extensions_map,
         ".js": "text/javascript",
         ".webmanifest": "application/manifest+json",

@@ -20,9 +20,9 @@ class VideoHostTests(unittest.TestCase):
         self.cache = Path(self.tmp.name)
         self.handle = "e" * 32
         (self.cache / (self.handle + ".mp4")).touch()
-        self.status = dict(state="ready", media_id="abc", handle=self.handle, revision=2,
-                           position_seconds=104.15, window_start_seconds=101.0, window_end_seconds=119,
-                           playing=False, captions={"enabled": True, "text": "verse"})
+        self.status = {"state": "ready", "media_id": "abc", "handle": self.handle, "revision": 2,
+                           "position_seconds": 104.15, "window_start_seconds": 101.0, "window_end_seconds": 119,
+                           "playing": False, "captions": {"enabled": True, "text": "verse"}}
         self.allowed = True
         self.closed = threading.Event()
         self.host = CliVideoWindow(video_status=lambda: dict(self.status), cache=self.cache,

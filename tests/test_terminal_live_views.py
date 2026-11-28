@@ -104,6 +104,7 @@ def test_browser_review_closes_on_expiry_and_drops_approval(views):
 
 def test_file_manager_launched_from_the_workspace_cannot_read_or_write_its_terminal(monkeypatch, tmp_path):
     import subprocess
+
     from mariana import platform
 
     file = tmp_path / "Evening Mix.wav"

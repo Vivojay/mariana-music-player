@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from bisect import bisect_right
 
+from prompt_toolkit.formatted_text.base import OneStyleAndTextTuple
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.containers import HSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
@@ -64,7 +65,7 @@ def sing(session, snapshot, command, appearance, allowed, *, input=None, output=
     for key, name in ((" ", "p"), ("left", "karaoke previous"), ("right", "karaoke next"), ("tab", "part")):
         bindings.add(key)(action(name))
 
-    def render():
+    def render() -> list[OneStyleAndTextTuple]:
         current = snapshot()
         if not allowed() or not current.media or current.media.stable_id != expected:
             view.finish()

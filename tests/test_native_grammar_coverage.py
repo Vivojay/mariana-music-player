@@ -76,9 +76,9 @@ def test_dispatcher_routes_full_command_literals_and_normalization_aliases_are_c
 def test_every_named_handler_action_is_present(handler, parent, variable):
     actions = set()
     for n in ast.walk(FUNCTIONS[handler]):
-        if isinstance(n, ast.Compare) and isinstance(n.left, ast.Name) and n.left.id == variable:
-            if isinstance(n.ops[0], (ast.Eq, ast.In)):
-                actions.update(s for s in strings(n.comparators[0]) if not s.startswith('-') or s == '-')
+        if (isinstance(n, ast.Compare) and isinstance(n.left, ast.Name) and n.left.id == variable
+                and isinstance(n.ops[0], (ast.Eq, ast.In))):
+            actions.update(s for s in strings(n.comparators[0]) if not s.startswith('-') or s == '-')
     assert {f'{parent} {action}' for action in actions} <= NATIVE
 
 

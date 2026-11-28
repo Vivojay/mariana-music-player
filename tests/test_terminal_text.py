@@ -38,7 +38,7 @@ def test_save_detects_an_external_edit_even_with_same_size_and_mtime(tmp_path):
     before = path.stat()
     path.write_bytes(b'other')
     os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
-    with pytest.raises((ValueError, OutputTargetError), match='edited elsewhere|changed'):
+    with pytest.raises((ValueError, OutputTargetError), match=r'edited elsewhere|changed'):
         doc.save('my draft')
     assert path.read_bytes() == b'other'
     assert list(tmp_path.iterdir()) == [path]

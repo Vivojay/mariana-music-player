@@ -29,7 +29,7 @@ class VoiceDeEsser:
         upper = min(11000, 0.45 * rate)
         if upper <= 4500:
             raise ValueError("Spoken-word processing needs an output rate above 10 kHz")
-        self._band = butter(2, [4500, upper], btype="bandpass", fs=rate, output="sos")
+        self._band = np.asarray(butter(2, [4500, upper], btype="bandpass", fs=rate, output="sos"))
         self._band_state = np.zeros((len(self._band), 2, 2))
         self._energy_state = np.zeros((1, 2))
         self._gain_state = np.zeros(1)

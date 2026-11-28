@@ -24,14 +24,16 @@ def close_keys():
     with _lock:
         child, _process = _process, None
         if child is not None:
-            with contextlib.suppress(OSError):
-                child.stdin.close()
+            if child.stdin is not None:
+                with contextlib.suppress(OSError):
+                    child.stdin.close()
             try:
                 child.wait(timeout=2)
             except subprocess.TimeoutExpired:
                 child.kill()
                 child.wait()
-            child.stdout.close()
+            if child.stdout is not None:
+                child.stdout.close()
 
 
 def open_keys(voice, device=None):
@@ -56,8 +58,12 @@ def _open_keys(voice, device):
     except OSError as error:
         raise ValueError("Could not start the keyboard window.") from error
     _process = child
+    output = child.stdout
+    if output is None:
+        close_keys()
+        raise ValueError("Could not read the keyboard window status.")
     ready = queue.SimpleQueue()
-    threading.Thread(target=lambda: ready.put(child.stdout.readline(180)), daemon=True).start()
+    threading.Thread(target=lambda: ready.put(output.readline(180)), daemon=True).start()
     try:
         message = ready.get(timeout=7).decode("ascii","replace").strip()
     except queue.Empty:
@@ -121,6 +127,7 @@ def main(args=None):
     args = parser.parse_args(args)
     try:
         import tkinter as tk
+
         import sounddevice as sd
         root = tk.Tk()
         rate = round(sd.query_devices(args.device, "output")["default_samplerate"])

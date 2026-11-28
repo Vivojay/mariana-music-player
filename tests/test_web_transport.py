@@ -5,7 +5,6 @@ import pytest
 from mariana.web_session import NativeSession
 from mariana.web_transport import apply, prepare
 
-
 PLAYBACK = {
     "media_id": "recording", "occurrence": "instance-one", "state": "playing",
     "duration_seconds": 120, "seekable": True, "live": False,
@@ -74,7 +73,7 @@ def test_collection_commands_check_the_binding_again_before_dispatch():
             assert token and choice == {"key":"key","action":"play"}
             return "queue jump 2"
     session = NativeSession()
-    session.collections, session.library = Rows(), lambda: []
+    session.collections, session.library = Rows(), list
     _, paired = session.request("pair", session.invite, {"library":True}, [])
     token = paired["token"]
     binding = {"key":"key","action":"play"}

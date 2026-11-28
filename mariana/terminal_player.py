@@ -12,21 +12,29 @@ from prompt_toolkit import Application
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.document import Document
 from prompt_toolkit.filters import Condition
+from prompt_toolkit.formatted_text.base import OneStyleAndTextTuple
 from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
-from prompt_toolkit.key_binding.key_bindings import DynamicKeyBindings
 from prompt_toolkit.key_binding.bindings.named_commands import get_by_name
 from prompt_toolkit.key_binding.bindings.scroll import scroll_page_down, scroll_page_up
+from prompt_toolkit.key_binding.key_bindings import DynamicKeyBindings
 from prompt_toolkit.layout import Layout
-from prompt_toolkit.layout.containers import ConditionalContainer, DynamicContainer, Float, FloatContainer, HSplit, Window
+from prompt_toolkit.layout.containers import (
+    ConditionalContainer,
+    DynamicContainer,
+    Float,
+    FloatContainer,
+    HSplit,
+    Window,
+)
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.styles import DynamicStyle, Style, merge_styles
 from prompt_toolkit.widgets import TextArea
 
 from .terminal_io import TerminalIO, current_session
+from .terminal_palette import CommandPalette
 from .terminal_prompt import CommandCompleter, SessionHistory, _windows_word_erase_key
 from .terminal_workspace import TerminalWorkspace
-from .terminal_palette import CommandPalette
 from .theme_palette import PRESETS, active_theme, resolved_theme
 
 
@@ -272,7 +280,7 @@ def run_player(project, appearance, dispatch, *, library_rows=None, queue_rows=N
         app.layout.focus(transcript)
 
     def make_workspace():
-        if restricted:
+        if restricted and recovery_view is not None:
             return recovery_view(play)
         return TerminalWorkspace(project, lambda: PRESETS[active_theme(appearance())]["name"], edit,
                                  library_rows=library_rows, queue_rows=queue_rows, on_run=play,
@@ -311,14 +319,14 @@ def run_player(project, appearance, dispatch, *, library_rows=None, queue_rows=N
         event.app.layout.focus(origin if origin is not None else workspace.focus_control)
 
     for key, step in (("up", -1), ("down", 1), ("pageup", -10), ("pagedown", 10)):
-        bindings.add(key, filter=picking)(lambda event, delta=step: palette.move(delta))
+        bindings.add(key, filter=picking)(lambda event, delta=step: palette is not None and palette.move(delta))
 
-    bindings.add("enter", filter=picking)(lambda event: palette.accept())
-    picking_history = picking & Condition(lambda: palette.mode == "History")
-    bindings.add("c-x", filter=picking_history)(lambda event: palette.clear())
-    bindings.add("c-s", filter=picking_history)(lambda event: palette.toggle_save())
+    bindings.add("enter", filter=picking)(lambda event: palette is not None and palette.accept())
+    picking_history = picking & Condition(lambda: palette is not None and palette.mode == "History")
+    bindings.add("c-x", filter=picking_history)(lambda event: palette is not None and palette.clear())
+    bindings.add("c-s", filter=picking_history)(lambda event: palette is not None and palette.toggle_save())
     # F9 also works in terminals that reserve Ctrl+S for flow control.
-    bindings.add("f9", filter=picking_history)(lambda event: palette.toggle_save())
+    bindings.add("f9", filter=picking_history)(lambda event: palette is not None and palette.toggle_save())
 
     def browse(event):
         if editing() and completer.offered_for == editor.text:
@@ -382,6 +390,8 @@ def run_player(project, appearance, dispatch, *, library_rows=None, queue_rows=N
 
     @bindings.add("enter", filter=answering)
     def respond(_event):
+        if shown is None:
+            return
         field = secret if shown.secret else answer
         value = field.text
         field.buffer.reset()
@@ -456,7 +466,7 @@ def run_player(project, appearance, dispatch, *, library_rows=None, queue_rows=N
         base = cached_style(*(colors[key][:7] for key in ("background", "text", "accent", "muted", "panel")))
         return merge_styles([base, shown.style]) if shown and shown.style else base
 
-    def output_header():
+    def output_header() -> list[OneStyleAndTextTuple]:
         active = future is not None and not future.done()
         time_text = f"Running {time.monotonic() - launched_at:.1f}s" if active else f"Finished in {elapsed:.1f}s"
         state = ("  ·  " + time_text) if launched_at else ""
@@ -629,9 +639,12 @@ def run_player(project, appearance, dispatch, *, library_rows=None, queue_rows=N
     if not (direct and recovery_view) and not is_visible():
         worker.shutdown()
         return None
+    def start_redraw():
+        app.create_background_task(redraw_views())
+
     with io.capture():
         try:
-            return app.run(pre_run=lambda: app.create_background_task(redraw_views()))
+            return app.run(pre_run=start_redraw)
         except (EOFError, KeyboardInterrupt):
             return False if direct else None
         finally:

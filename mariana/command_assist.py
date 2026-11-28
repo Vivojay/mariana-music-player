@@ -89,11 +89,11 @@ def _grammar(surface):
         for spec in COMMAND_CATALOG:
             if not spec.suggest:
                 continue
-            base = dict(summary=spec.summary, risk=spec.risk.value)
-            _store_rule(rows, spec.canonical, **base)
+            risk = spec.risk.value
+            _store_rule(rows, spec.canonical, summary=spec.summary, risk=risk)
             for form in spec.forms:
                 path = " ".join((spec.canonical, *form.tokens))
-                _store_rule(rows, path, arguments=form.argument_kinds, flags=form.flags, **base)
+                _store_rule(rows, path, arguments=form.argument_kinds, flags=form.flags, summary=spec.summary, risk=risk)
         for item in ALIAS_COMPATIBILITY:
             if item.status == "retired":
                 continue

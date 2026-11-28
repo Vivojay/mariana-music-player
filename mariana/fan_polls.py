@@ -124,8 +124,10 @@ def _results(fetch, room_path, room_id, owner, answers, events):
             continue
         vote = event["content"].get(VOTE)
         choices = vote.get("answers") if isinstance(vote, dict) else None
-        valid = isinstance(choices, list) and choices and all(isinstance(key, str) and key in options for key in choices)
-        latest[event["sender"]] = choices[0] if valid else None
+        latest[event["sender"]] = (
+            choices[0] if isinstance(choices, list) and choices
+            and all(isinstance(key, str) and key in options for key in choices) else None
+        )
     return closed is not None, Counter(key for key in latest.values() if key is not None)
 
 
@@ -136,7 +138,7 @@ def execute(action, values, room_path, room_id, account, fetch, publish):
         question, *choices = values
         if not _label(question, 500) or any(not _label(choice, 200) for choice in choices):
             raise ValueError("Use a printable question (1–500 characters) and choices (1–200 characters).")
-        if len(set(choice.strip().casefold() for choice in choices)) != len(choices):
+        if len({choice.strip().casefold() for choice in choices}) != len(choices):
             raise ValueError("Use distinct poll choices.")
         answers = [{"id": uuid.uuid4().hex, TEXT: choice} for choice in choices]
         return publish(START, {

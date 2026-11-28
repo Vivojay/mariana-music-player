@@ -1,6 +1,7 @@
 """Search command forms or recall a previous command into the editor."""
 
 from prompt_toolkit.application.current import get_app
+from prompt_toolkit.formatted_text.base import OneStyleAndTextTuple
 from prompt_toolkit.layout.containers import HSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.mouse_events import MouseEventType
@@ -80,7 +81,7 @@ class CommandPalette:
         else:
             self.notice = self.history.error
 
-    def _title(self):
+    def _title(self) -> list[OneStyleAndTextTuple]:
         label = "Command palette" if self.mode == "Commands" else "Command history"
         info = ("  ·  saved + session" if self.saving else "  ·  this session") if self.mode == "History" else ""
         count = f"{len(self.results)}"
@@ -88,7 +89,7 @@ class CommandPalette:
         heading = clip(f" {label}{info}", max(1, width - len(count) - 2))
         return [("class:title", heading), ("class:muted", " " * max(1, width - cells(heading) - len(count) - 1) + count)]
 
-    def _rows(self):
+    def _rows(self) -> list[OneStyleAndTextTuple]:
         if not self.results:
             text = ("Enter a command with : to start your history." if self.mode == "History" and not self.rows
                     else "No matches. Edit your search.")
@@ -98,7 +99,7 @@ class CommandPalette:
         self.top = min(self.index, max(0, self.top, self.index - height + 1))
         self.top = min(self.top, max(0, len(self.results) - height))
         width = max(1, size.columns - 4)
-        out = []
+        out: list[OneStyleAndTextTuple] = []
         for index in range(self.top, min(self.top + height, len(self.results))):
             row = self.results[index]
             def pick(event, i=index):

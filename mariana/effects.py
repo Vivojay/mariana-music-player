@@ -3,13 +3,12 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
+from itertools import pairwise
 
 import numpy as np
 
-
 # Levels are wet percentages; pitch is measured in semitones.
-LIMITS = {name: (0., 100.) for name in
-          ("chorus", "delay", "room", "drive", "tremolo", "robot", "deess", "tune", "vocoder", "tapestop", "bitcrush")}
+LIMITS: dict[str, tuple[float, float]] = dict.fromkeys(("chorus", "delay", "room", "drive", "tremolo", "robot", "deess", "tune", "vocoder", "tapestop", "bitcrush"), (0.0, 100.0))
 LIMITS["pitch"] = (-12., 12.)
 
 
@@ -95,8 +94,8 @@ class FilterVocoder:
         self.smooth = lfilter
         self.alpha = math.exp(-1 / (.009 * rate))
         edges = np.geomspace(110, min(8000, .42 * rate), 9)
-        self.bands = [butter(2, (lo, hi), btype="bandpass", fs=rate, output="sos")
-                      for lo, hi in zip(edges, edges[1:])]
+        self.bands = [np.asarray(butter(2, (lo, hi), btype="bandpass", fs=rate, output="sos"))
+                      for lo, hi in pairwise(edges)]
         self.states = [np.zeros((len(sos), 2, 2)) for sos in self.bands]
         self.energy = np.zeros((len(self.bands), 1))
 

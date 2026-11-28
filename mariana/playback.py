@@ -319,10 +319,11 @@ class DecoderSession:
             source = self._auth_tunnel.start()
         log_level = "info" if self.media.capabilities.live else "warning"
         command = [self.ffmpeg, "-hide_banner", "-loglevel", log_level, "-nostdin"]
+        media_duration = self.media.duration
         clock_only = (not self.input_sources and self.media.source == MediaSource.LOCAL
                       and self.media.resolver_data.get("video_clock_only") is True
-                      and self.media.duration is not None and math.isfinite(self.media.duration)
-                      and self.media.duration > 0)
+                      and media_duration is not None and math.isfinite(media_duration)
+                      and media_duration > 0)
         if self.input_sources:
             for stem_source in self.input_sources:
                 if self.start_at:
@@ -370,8 +371,8 @@ class DecoderSession:
                 command += ["-icy", "1"]
         if self.resolved and self.resolved.headers:
             command += ["-headers", "".join(f"{key}: {value}\r\n" for key, value in self.resolved.headers.items())]
-        if clock_only:
-            duration = max(1 / SAMPLE_RATE, self.media.duration - self.start_at)
+        if clock_only and media_duration is not None:
+            duration = max(1 / SAMPLE_RATE, media_duration - self.start_at)
             command += ["-f", "lavfi", "-i", f"anullsrc=r={SAMPLE_RATE}:cl=stereo:d={duration:.9f}"]
         elif not self.input_sources:
             command += ["-i", source, "-map", "0:a:0"]
@@ -1367,15 +1368,17 @@ class PlaybackController:
         """Prepare a pitch-preserving decoder, then switch on the same audio occurrence."""
         if isinstance(rate, bool) or not math.isfinite(rate) or not 0.5 <= rate <= 2.0:
             raise ValueError("Speed must be a number from 0.5 to 2")
-        def available():
-            if self._state not in {PlaybackState.PLAYING, PlaybackState.PAUSED} or self._active is None:
+        def available() -> DecoderSession:
+            active = self._active
+            if self._state not in {PlaybackState.PLAYING, PlaybackState.PAUSED} or active is None:
                 raise UnsupportedAction("Adjust speed on a playing or paused recording, outside a crossfade")
             if self._recipe_capture_sink is not None or any(x is not None for x in
                     (self._recipe_mix, self._pending_recipe_mix, self._prepared_recipe_mix, self._stem_session, self._stem_previous)):
                 raise UnsupportedAction("Finish the session recipe or stem monitor before changing speed")
+            return active
+
         with self._lock:
-            available()
-            active = self._active
+            active = available()
             media = active.media
             if not media.capabilities.seekable or not media.capabilities.finite or media.capabilities.live:
                 raise UnsupportedAction("Speed requires a finite seekable recording")
@@ -2107,7 +2110,7 @@ class PlaybackController:
             if active:
                 active.stop()
             replacement = self._new_session(media, start_at=target)
-            if getattr(active, "rate", 1.0) != 1.0:
+            if active is not None and getattr(active, "rate", 1.0) != 1.0:
                 replacement.rate = active.rate
             replacement.on_metadata = lambda title, source=replacement: self._handle_stream_metadata(source, title)
             self._active = replacement

@@ -108,7 +108,7 @@ def test_repository_coverage_gate_uses_branch_total_only():
 
 def test_text_integrity_rejects_invalid_utf8_and_mojibake(tmp_path):
     valid = tmp_path / "valid.md"
-    valid.write_text("Electron → PTY; close ×; timer ◷\n", encoding="utf-8")  # noqa: RUF001
+    valid.write_text("Electron → PTY; close ×; timer ◷\n", encoding="utf-8")
     broken = tmp_path / "broken.md"
     broken.write_text("release gate\u00e2\u20ac\u201dfailed\n", encoding="utf-8")
     invalid = tmp_path / "invalid.txt"

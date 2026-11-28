@@ -147,7 +147,7 @@ def _thread(origin, token, room_path, room_id, root, request, *, cursor=None, ne
         relations = unsigned.get("m.relations") if isinstance(unsigned, dict) else None
         summary = relations.get("m.thread") if isinstance(relations, dict) else None
         latest = summary.get("latest_event") if isinstance(summary, dict) else None
-        previous = latest["event_id"] if _is_thread_reply(latest, room_id, root) else root
+        previous = latest["event_id"] if latest is not None and _is_thread_reply(latest, room_id, root) else root
         return _send_event(origin, token, room_path, "m.room.message", {
             "msgtype": "m.text", "body": new_message, "m.relates_to": {
                 "rel_type": "m.thread", "event_id": root, "is_falling_back": True,
@@ -319,7 +319,7 @@ def run(arguments, *, secrets=None, prompt=_secret_prompt, request=_request) -> 
         if not 1 <= len(message) <= 2000:
             raise ValueError("Enter 1–2,000 characters for a room message.")
         _require_plain_room(origin, token, room, request)
-        content = {"msgtype": "m.text", "body": message}
+        content: dict[str, str | dict[str, object]] = {"msgtype": "m.text", "body": message}
         if action == "reply":
             content["m.relates_to"] = {"m.in_reply_to": {"event_id": values[1]}}
         if action == "react":
