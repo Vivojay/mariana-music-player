@@ -77,7 +77,9 @@ def test_speed_choices_and_surface_specific_commands():
     assert set(portable["speed <rate>"]["values"]["rate"]) == rates.rates
     for name in ("speech jam", "dj record disk", "dj pfl <deck> <state>", "strudel queue", "voice", "accounts connect snapchat"):
         assert name in portable and name not in native
-    for name in ("dj mixxx", "strudel delete", "web session", "tui", "artist follow", "fanroom vote"):
+    for routes_by_name in (native, portable):
+        assert "--yes" in routes_by_name["strudel delete"]["flags"]
+    for name in ("dj mixxx", "web session", "tui", "artist follow", "fanroom vote"):
         assert name in native and name not in portable
     assert "dj play all" in native and "dj play all" not in portable
     assert native["dj cue <deck> set <slot>"]["values"]["slot"] == list("12345678")

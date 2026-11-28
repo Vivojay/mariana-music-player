@@ -145,6 +145,9 @@ def test_serialized_destructive_aliases_retain_risk_without_execution_metadata()
         assert private_name not in serialized
 
 
+_ALIAS_SPEC = next(spec for spec in COMMAND_CATALOG if spec.aliases)
+
+
 @pytest.mark.parametrize(
     ("catalog", "message"),
     [
@@ -168,10 +171,9 @@ def test_serialized_destructive_aliases_retain_risk_without_execution_metadata()
             "Alias collides with canonical command",
         ),
         (
-            (
-                replace(COMMAND_CATALOG[4], aliases=()),
-                *COMMAND_CATALOG[:4],
-                *COMMAND_CATALOG[5:],
+            tuple(
+                replace(spec, aliases=()) if spec is _ALIAS_SPEC else spec
+                for spec in COMMAND_CATALOG
             ),
             "compatibility alias registry",
         ),

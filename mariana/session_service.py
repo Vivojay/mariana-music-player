@@ -462,6 +462,8 @@ class SessionRecipeService:
             self._playback_session_id = payload["playback_session_id"]
 
     def _release_capture(self) -> None:
+        if self._capture_version < FROZEN_GAIN_VERSION:
+            return
         release = getattr(self._host.playback, 'end_recipe_capture', None)
         if release is not None:
             release(self.capture_program_event)

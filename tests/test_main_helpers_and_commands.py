@@ -837,7 +837,7 @@ def test_run_reports_every_update_safety_reason_and_first_boot(monkeypatch, tmp_
     monkeypatch.setattr(main.vas, "set_media", lambda **kwargs: events.append(("set-media", kwargs)))
     monkeypatch.setattr(main.vas, "media_player", lambda **kwargs: events.append(("play", kwargs)))
     monkeypatch.setattr(main, "notify", lambda **kwargs: events.append(("notify", kwargs)))
-    monkeypatch.setattr(main, "RUNTIME_PATHS", SimpleNamespace(resource=lambda *_parts: startup_sound))
+    monkeypatch.setattr(main, "RUNTIME_PATHS", SimpleNamespace(profile_id="test-profile", resource=lambda *_parts: startup_sound))
     monkeypatch.setattr(main, "save_user_data", lambda: events.append("save"))
     monkeypatch.setattr(main, "showbanner", lambda: events.append("banner"))
     monkeypatch.setattr(main, "mainprompt", lambda: events.append("prompt"))
@@ -861,7 +861,13 @@ def test_run_reports_every_update_safety_reason_and_first_boot(monkeypatch, tmp_
     assert any(event[0] == "set-media" for event in events if isinstance(event, tuple))
     assert (
         "ready",
-        {"version": main.__version__, "theme": "aurora", "close_button_behavior": "quit"},
+        {
+            "listener_profile_id": "test-profile",
+            "version": main.__version__,
+            "theme": "aurora",
+            "theme_colors": {},
+            "close_button_behavior": "quit",
+        },
     ) in events
     assert "banner" in events and "prompt" in events
 

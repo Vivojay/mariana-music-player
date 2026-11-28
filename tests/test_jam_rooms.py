@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from urllib.request import ProxyHandler, build_opener
 
 import pytest
+import truststore
 
 from mariana import fanrooms, jams
 from mariana.jam_login import browser_token
@@ -117,7 +118,16 @@ def test_two_user_jam(tmp_path, monkeypatch):
         do_GET = do_POST = do_PUT = dispatch
 
     with ThreadingHTTPServer(("127.0.0.1", 0), Matrix) as server:
-        tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        # The fixture is a TLS server. Keep the application's client trust
+        # integration in place after obtaining a standard server context.
+        if ssl.SSLContext is truststore.SSLContext:
+            truststore.extract_from_ssl()
+            try:
+                tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            finally:
+                truststore.inject_into_ssl()
+        else:
+            tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         tls.minimum_version = ssl.TLSVersion.TLSv1_2
         tls.load_cert_chain(cert, key)
         server.socket = tls.wrap_socket(server.socket, server_side=True)
