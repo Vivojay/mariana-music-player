@@ -11,7 +11,7 @@ from urllib.request import ProxyHandler, Request, build_opener
 import pytest
 
 from mariana import account_services as services
-from mariana import connections_http
+from mariana import connections_http, jams
 from mariana.connections import Accounts
 from mariana.database import MarianaDatabase
 
@@ -163,3 +163,21 @@ def test_local_http_account_handler_requires_exact_origin_and_custom_header(hub,
                 assert len(json.load(response)["services"]) == len(services.PROVIDERS)
         finally:
             server.shutdown()
+
+
+def test_browser_jam_login_requires_launcher_approved_origin(monkeypatch):
+    executed = []
+    monkeypatch.setattr(jams, "run", executed.append)
+    monkeypatch.setattr(
+        connections_http, "_local_post", lambda handler, _path, _header, execute, *_limits: execute(handler)
+    )
+    monkeypatch.delenv("MARIANA_MATRIX_ORIGIN", raising=False)
+    with pytest.raises(services.AccountError, match="native terminal"):
+        connections_http.handle_jam_post(["login", "https://matrix.example.org"])
+    monkeypatch.setenv("MARIANA_MATRIX_ORIGIN", "https://matrix.example.org")
+    with pytest.raises(services.AccountError, match="configured for this launcher"):
+        connections_http.handle_jam_post(["login", "https://other.example.org"])
+    assert executed == []
+    connections_http.handle_jam_post(["login", "https://MATRIX.example.org/"])
+    connections_http.handle_jam_post(["rooms"])
+    assert executed == [["login", "https://matrix.example.org"], ["rooms"]]

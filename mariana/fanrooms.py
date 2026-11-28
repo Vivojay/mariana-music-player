@@ -7,7 +7,7 @@ import json
 import re
 import uuid
 import warnings
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 import requests
 
@@ -58,7 +58,10 @@ def _display(value: object, limit: int = 250) -> str:
 
 
 def _request(origin, token, method, path, *, missing=False, read_timeout=8, version="v3", **kwargs):
-    url = f"{origin}/_matrix/client/{version}/{path}"
+    if (version not in {"v1", "v3"} or not re.fullmatch(r"(?:[A-Za-z0-9._~/-]|%[0-9A-Fa-f]{2})+", path)
+            or any(unquote(part) in {"", ".", ".."} for part in path.split("/"))):
+        raise ValueError("Invalid Matrix API path")
+    url = f"{_origin(origin)}/_matrix/client/{version}/{path}"
     try:
         with requests.request(method, url, headers={"Authorization": "Bearer " + token} if token else {},
                               allow_redirects=False, timeout=(4, read_timeout), stream=True, **kwargs) as response:

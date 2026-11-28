@@ -120,6 +120,19 @@ class FanRoomTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 fanrooms._request("https://example.org", "abc", "GET", "state", missing=True)
 
+    @patch("mariana.fanrooms.requests.request")
+    def test_wire_requires_https_and_a_relative_client_api_path(self, send):
+        for origin, path, version in (
+            ("http://example.org", "joined_rooms", "v3"),
+            ("https://example.org", "/joined_rooms", "v3"),
+            ("https://example.org", "rooms/../joined_rooms", "v3"),
+            ("https://example.org", "joined_rooms?other=route", "v3"),
+            ("https://example.org", "joined_rooms", "unknown"),
+        ):
+            with self.subTest(origin=origin, path=path, version=version), self.assertRaises(ValueError):
+                fanrooms._request(origin, "abc", "GET", path, version=version)
+        send.assert_not_called()
+
     def test_thread_paging_deduplicates_and_validates_room_sender_and_root(self):
         self.login()
         root = {"event_id": "$root", "sender": "@a:example.org", "room_id": "!r", "type": "m.room.message",

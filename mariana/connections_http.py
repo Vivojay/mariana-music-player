@@ -1,5 +1,6 @@
 """Account operations for the single-user loopback web launcher."""
 import json
+import os
 
 from .account_services import AccountError
 from .connections import hub
@@ -10,8 +11,21 @@ def handle_accounts_post(handler):
 
 
 def handle_jam_post(handler):
+    from .fanrooms import _origin
     from .jams import run
-    return _local_post(handler, "/api/jam", "X-Mariana-Jam", run, 205, 255)
+
+    def execute(args):
+        if not args or args[0].casefold() != "login":
+            return run(args)
+        configured = os.environ.get("MARIANA_MATRIX_ORIGIN", "").strip()
+        if not configured:
+            raise AccountError("Sign in with jam login in the native terminal, or configure MARIANA_MATRIX_ORIGIN.")
+        approved = _origin(configured)
+        if len(args) != 2 or _origin(args[1]) != approved:
+            raise AccountError("Browser sign-in must use the Matrix homeserver configured for this launcher.")
+        return run(["login", approved])
+
+    return _local_post(handler, "/api/jam", "X-Mariana-Jam", execute, 205, 255)
 
 
 def _local_post(handler, path, header, execute, max_args, max_arg_size):
