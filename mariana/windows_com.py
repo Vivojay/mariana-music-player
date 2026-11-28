@@ -19,6 +19,8 @@ def prepare_command_host():
 
 @lru_cache(maxsize=1)
 def _ole32():
+    if sys.platform != "win32":
+        raise OSError("The Windows COM runtime is unavailable on this platform.")
     # WinDLL returns the raw HRESULT so we can distinguish an apartment owned
     # by another component from a successful, reference-counted initialization.
     ole32 = ctypes.WinDLL("ole32")
